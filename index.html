@@ -1272,7 +1272,7 @@ function currentOpts(){
     despeckle:true, minBlob:+$("minblob").value, relative:0.02,
   };
 }
-let pvPending=false, pvBusy=false, pvMode="result";
+let pvPending=null, pvBusy=false, pvMode="result";
 function renderPreview(){
   if(!subData){ $("previewwrap").hidden=true; return; }
   $("previewwrap").hidden=false;
@@ -1281,10 +1281,13 @@ function renderPreview(){
     $("pvhint").textContent="Load a bare character above, or one will be matched from your saved ones.";
     return;
   }
-  if(pvPending) return;
-  pvPending=true;
-  requestAnimationFrame(()=>{
-    pvPending=false; if(pvBusy) return; pvBusy=true;
+  /* Debounced with a timer, not requestAnimationFrame. rAF does not fire when
+     the tab is not compositing, which left the in-flight flag stuck true and
+     every later call returning early - the preview simply never appeared. A
+     preview should not depend on the compositor to be correct. */
+  clearTimeout(pvPending);
+  pvPending=setTimeout(()=>{
+    pvPending=null; if(pvBusy) return; pvBusy=true;
     try{
       const r=extractTrait(subData,refData,currentOpts());
       lastResult=r;
@@ -1319,7 +1322,7 @@ function renderPreview(){
         : r.kept>r.W*r.H*0.25 ? "Most of the character is green. Raise sensitivity."
         : (bits.join(" · ")||"Green is what will be kept.");
     } finally { pvBusy=false; }
-  });
+  },40);
 }
 let lastResult=null;
 $('sens').addEventListener('input',()=>{ $('sensv').textContent=$('sens').value; renderPreview(); });

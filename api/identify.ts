@@ -129,6 +129,13 @@ Name it and choose the layer it belongs on.`;
     });
   } catch (err: any) {
     const status = err?.status ?? 500;
+    // Logged, never returned: an upstream 400 describes THIS request's shape,
+    // which is what a caller-side bug looks like, but it is not the client's
+    // to see. Read it in the Vercel function logs.
+    console.error("anthropic_error", status, JSON.stringify({
+      type: err?.error?.error?.type ?? err?.name,
+      message: err?.error?.error?.message ?? err?.message,
+    }));
     // Never echo the upstream error verbatim - it can carry request details.
     const known: Record<number, string> = {
       400: "Claude rejected the request.",

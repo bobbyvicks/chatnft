@@ -206,6 +206,16 @@ canvas{display:block; image-rendering:pixelated; cursor:crosshair; touch-action:
     repeating-linear-gradient(to right,#f5a524bb 0 1px,transparent 1px calc(var(--z) * 8)),
     repeating-linear-gradient(to bottom,#f5a524bb 0 1px,transparent 1px calc(var(--z) * 8));}
 #grid.on{opacity:1;}
+/* The exact cells the next dab will cover. Two rings - dark outside, light
+   inside - so it stays readable over black outlines and white highlights
+   alike, which a single-colour outline does not. */
+#bcur{position:absolute; display:none; pointer-events:none; z-index:3;
+  background:#ffffff14; box-shadow:0 0 0 1px #000c, inset 0 0 0 1px #fffc;}
+#bcur.erase{background:#ff5f5622; box-shadow:0 0 0 1px #000c, inset 0 0 0 1px #ff9d96;}
+/* A 1-cell box at low zoom is a couple of pixels wide and reads as nothing.
+   The halo sits OUTSIDE the box so the footprint shown stays exact. */
+#bcur.tiny::after{content:""; position:absolute; inset:-4px; border-radius:3px;
+  border:1px solid #f5a524cc;}
 .side{grid-area:side; width:252px; padding:14px; border-left:1px solid var(--line);
   background:var(--panel); overflow-y:auto; display:flex; flex-direction:column; gap:15px;}
 .side h2{font-size:10.5px; text-transform:uppercase; letter-spacing:.12em; color:var(--muted);
@@ -401,7 +411,7 @@ footer .mono{color:var(--ink);}
   </nav>
 
   <main class="stage" id="stage">
-    <div class="frame" id="frame"><canvas id="art"></canvas><div id="grid"></div></div>
+    <div class="frame" id="frame"><canvas id="art"></canvas><div id="grid"></div><div id="bcur"></div></div>
   </main>
 
   <aside class="side">
@@ -478,6 +488,7 @@ footer .mono{color:var(--ink);}
 const $=id=>document.getElementById(id);
 const MAXZ=48;
 let N=0, art=$('art'), ctx=null, zoom=4, tool='pencil', color='#000000';
+let hoverCell=null;   /* cell under the pointer, or null when the cursor is away */
 let undoStack=[], redoStack=[], original=null, painting=false, panMode=false, fileName='pixel-art.png';
 let brush=1;
 
@@ -660,18 +671,6 @@ async function renderShelf(){
       createImageBitmap(t.blob).then(bm=>{const g=cv.getContext('2d'); g.imageSmoothingEnabled=false; g.drawImage(bm,0,0);}).catch(()=>{});
       el.appendChild(cv);
       const nm=document.createElement('b'); nm.textContent=t.name; el.appendChild(nm);
-      const st=document.createElement('span');
-      st.className='st '+(t.status||'wip'); st.title=(t.status||'wip'); el.appendChild(st);
-      const cyc=document.createElement('button');
-      cyc.className='cyc'; cyc.textContent=(t.status||'wip');
-      cyc.title='Click to change status';
-      cyc.onclick=async ev=>{ ev.stopPropagation();
-        const order=['wip','approved','rejected'];
-        const next=order[(order.indexOf(t.status||'wip')+1)%3];
-        await dbDel(t.id);
-        await dbPut({...t, id:'t_'+t.name+'_'+t.layer+'_'+next, status:next});
-        renderShelf(); toast(t.name+' -> '+next); };
-      el.appendChild(cyc);
       const x=document.createElement('button'); x.className='x'; x.textContent='×';
       x.title='Remove reference';
       x.onclick=async ev=>{ ev.stopPropagation(); await dbDel(t.id); renderShelf(); toast('Removed '+t.name); };
@@ -695,6 +694,18 @@ async function renderShelf(){
       }).catch(()=>{});
       el.appendChild(cv);
       const nm=document.createElement('b'); nm.textContent=t.name; el.appendChild(nm);
+      const st=document.createElement('span');
+      st.className='st '+(t.status||'wip'); st.title=(t.status||'wip'); el.appendChild(st);
+      const cyc=document.createElement('button');
+      cyc.className='cyc'; cyc.textContent=(t.status||'wip');
+      cyc.title='Click to change status';
+      cyc.onclick=async ev=>{ ev.stopPropagation();
+        const order=['wip','approved','rejected'];
+        const next=order[(order.indexOf(t.status||'wip')+1)%3];
+        await dbDel(t.id);
+        await dbPut({...t, id:'t_'+t.name+'_'+t.layer+'_'+next, status:next});
+        renderShelf(); toast(t.name+' -> '+next); };
+      el.appendChild(cyc);
       const x=document.createElement('button'); x.className='x'; x.textContent='×';
       x.title='Remove'; x.setAttribute('aria-label','Remove '+t.name);
       x.onclick=async ev=>{ ev.stopPropagation(); await dbDel(t.id); renderShelf(); toast('Removed '+t.name); };
@@ -1544,6 +1555,7 @@ $('picker').oninput=e=>{ setColor(e.target.value); selectTool('pencil'); };
 function applyZoom(){
   art.style.width=(art.width*zoom)+'px'; art.style.height=(art.height*zoom)+'px';
   $('frame').style.setProperty('--z',zoom+'px'); $('zlab').textContent=zoom+'×';
+  paintCursor();
 }
 function setZoom(z,anchor){
   const prev=zoom, next=Math.max(1,Math.min(MAXZ,Math.round(z)));
@@ -1651,10 +1663,24 @@ function setBrush(n){
   brush=Math.max(1,Math.min(32,n));
   document.querySelectorAll('.bs').forEach(b=>b.setAttribute('aria-pressed',String(+b.dataset.n===brush)));
   $('bsize').textContent=brush+'×'+brush;
+  paintCursor();
 }
 function stepBrush(d){
   const i=BRUSHES.indexOf(brush);
   setBrush(i<0 ? BRUSHES[0] : BRUSHES[Math.max(0,Math.min(BRUSHES.length-1,i+d))]);
+}
+/* Drawn from dab()'s own offset, not a second guess at it: if one changes the
+   other has to, and a mismatch would be visible immediately. */
+function paintCursor(){
+  const el=$('bcur');
+  if(!hoverCell||!N||panMode||tool==='pan'){ el.style.display='none'; return; }
+  const n=(tool==='pencil'||tool==='eraser')?brush:1;
+  const off=Math.floor((n-1)/2), s=n*zoom;
+  el.className=(tool==='eraser'?'erase':'')+(s<9?' tiny':'');
+  el.style.left=((hoverCell.x-off)*zoom)+'px';
+  el.style.top =((hoverCell.y-off)*zoom)+'px';
+  el.style.width=s+'px'; el.style.height=s+'px';
+  el.style.display='block';
 }
 function refreshStats(){
   const d=ctx.getImageData(0,0,art.width,art.height).data;
@@ -1667,6 +1693,7 @@ function selectTool(t){
   $('panbtn').setAttribute('aria-pressed',String(panMode));
   $('stage').style.cursor=panMode?'grab':'';
   $('brushsec').hidden=!(t==='pencil'||t==='eraser');
+  paintCursor();
 }
 function toast(m){ const el=$('toast'); el.textContent=m; el.classList.add('show'); setTimeout(()=>el.classList.remove('show'),1700); }
 
@@ -1679,11 +1706,12 @@ stage.addEventListener('pointerdown',e=>{
   pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
   if(pts.size===2){ painting=false; lastCell=null;
     const [a,b]=[...pts.values()];
-    pinch={d:dist(a,b),z:zoom}; return; }
+    pinch={d:dist(a,b),z:zoom}; hoverCell=null; paintCursor(); return; }
   if(e.button===1||panMode||spaceHeld||(e.button===0&&e.target===stage)){
     e.preventDefault();
     pan={x:e.clientX,y:e.clientY,l:stage.scrollLeft,t:stage.scrollTop,id:e.pointerId};
     try{stage.setPointerCapture(e.pointerId);}catch(_){}
+    hoverCell=null; paintCursor();
     stage.style.cursor='grabbing'; return;
   }
   if(e.button!==0||e.target!==art) return;
@@ -1701,6 +1729,7 @@ stage.addEventListener('pointermove',e=>{
     if(d) setZoom(pinch.z*(d/pinch.d),mid(a,b)); return; }
   if(pan){ stage.scrollLeft=pan.l-(e.clientX-pan.x); stage.scrollTop=pan.t-(e.clientY-pan.y); return; }
   const c=cellFrom(e);
+  hoverCell=c; paintCursor();
   $('pos').textContent=c?(c.x+', '+c.y):'—';
   if(c){ const p=pixelAt(c.x,c.y); $('under').textContent=p.a?hex(p.r,p.g,p.b):'transparent'; }
   if(painting) stroke(e);
@@ -1712,6 +1741,7 @@ function endPointer(e){
     stage.style.cursor=(panMode||spaceHeld)?'grab':''; }
   if(pts.size===0){ if(painting) refreshStats(); painting=false; lastCell=null; }
 }
+stage.addEventListener('pointerleave',()=>{ hoverCell=null; paintCursor(); });
 stage.addEventListener('pointerup',endPointer);
 stage.addEventListener('pointercancel',endPointer);
 stage.addEventListener('auxclick',e=>{ if(e.button===1) e.preventDefault(); });

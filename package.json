@@ -1,0 +1,14 @@
+{
+  "name": "pixel-bench",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Pixel art editor that works on your art's true grid",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.122.0",
+    "typescript": "^7.0.2",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.0"
+  }
+}

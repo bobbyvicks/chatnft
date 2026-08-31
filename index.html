@@ -286,6 +286,7 @@ footer .mono{color:var(--ink);}
         <span class="mono" id="sensv">4</span>
       </label>
       <button class="btn" id="doextract" disabled>Extract the trait</button>
+      <button class="mini" id="locateai" hidden>No reference? Let Claude find it</button>
     </div>
     <p class="err" id="exerr" role="status"></p>
   </section>
@@ -361,6 +362,12 @@ footer .mono{color:var(--ink);}
         <input id="bgtol" type="number" min="0" max="120" value="24" style="width:64px" aria-label="Background tolerance">
       </div>
       <p class="note">Floods in from the edges, so only colour connected to the border goes. A white shirt in the middle stays.</p>
+    </section>
+    <section id="aisec">
+      <h2>Ask Claude</h2>
+      <button class="btn ghost" id="askai">What is this trait?</button>
+      <p class="note" id="ainote" hidden></p>
+      <p class="note">Names it and picks a layer from the image. Runs on the server so no key is exposed.</p>
     </section>
     <section>
       <h2>Save to project</h2>
@@ -611,6 +618,39 @@ async function renderShelf(){
     wrap.appendChild(grid); body.appendChild(wrap);
   }
 }
+/* Asking Claude what a trait is. The call goes through /api/identify so the
+   API key stays on the server - a key in this page would be readable by anyone
+   who opens it. If the endpoint is not configured the button hides itself
+   rather than sitting there broken. */
+let aiReady=null;
+async function ask(mode,dataUrl){
+  const r=await fetch('/api/identify',{
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({mode,image:dataUrl}),
+  });
+  const j=await r.json().catch(()=>({error:'bad_json'}));
+  if(!r.ok){ aiReady = j.error!=='not_configured'; throw new Error(j.message||j.error||'failed'); }
+  aiReady=true;
+  return j;
+}
+function canvasDataUrl(){ return art.toDataURL('image/png'); }
+
+$('askai').onclick=async()=>{
+  const b=$('askai'); const was=b.textContent;
+  b.disabled=true; b.textContent='Asking Claude…';
+  try{
+    const j=await ask('identify',canvasDataUrl());
+    $('tname').value=j.name||'';
+    if(j.layer) $('tlayer').value=j.layer;
+    toast(j.name+' → '+j.layer+' ('+j.confidence+' confidence)');
+    $('ainote').textContent=j.description||'';
+    $('ainote').hidden=false;
+  }catch(e){
+    if(aiReady===false){ $('aisec').hidden=true; toast('Claude is not configured on this site'); }
+    else toast(String(e.message||e));
+  }finally{ b.disabled=false; b.textContent=was; }
+};
+
 $('saveproj').onclick=async()=>{
   if(!ctx) return;
   const name=($('tname').value.trim()||fileName.replace(/\.png$/,'')||'trait').slice(0,60);
@@ -730,6 +770,7 @@ function slotLoad(file,which){
       fileName=file.name.replace(/\.[^.]+$/,'')+'-trait.png';
     }
     $('doextract').disabled=!(refData&&subData);
+    $('locateai').hidden=!subData;
   };
   im.onerror=()=>{ URL.revokeObjectURL(url); $('exerr').textContent='That image could not be decoded.'; };
   im.src=url;
@@ -754,6 +795,40 @@ try{
       $('doextract').disabled=!subData; };
     im.src=saved; }
 }catch(_){}
+
+/* Vision fallback for when there is no reference. Differencing against the bare
+   character is exact; this is a guess, so it opens the whole image cropped to
+   what Claude reported rather than deleting anything, and says so. */
+$('locateai').onclick=async()=>{
+  if(!subData) return;
+  const b=$('locateai'), was=b.textContent;
+  b.disabled=true; b.textContent='Looking…';
+  try{
+    const c=document.createElement('canvas'); c.width=subData.width; c.height=subData.height;
+    c.getContext('2d').putImageData(subData,0,0);
+    const j=await ask('locate',c.toDataURL('image/png'));
+    const W=subData.width,H=subData.height;
+    const x0=Math.max(0,Math.floor(j.box.x0*W)), y0=Math.max(0,Math.floor(j.box.y0*H));
+    const x1=Math.min(W-1,Math.ceil(j.box.x1*W)), y1=Math.min(H-1,Math.ceil(j.box.y1*H));
+    if(x1<=x0||y1<=y0){ toast('Claude could not place it'); return; }
+    const w=x1-x0+1, h=y1-y0+1;
+    const out=new Uint8ClampedArray(W*H*4);
+    for(let y=y0;y<=y1;y++) for(let x=x0;x<=x1;x++){
+      const i=(y*W+x)*4;
+      out[i]=subData.data[i]; out[i+1]=subData.data[i+1];
+      out[i+2]=subData.data[i+2]; out[i+3]=subData.data[i+3];
+    }
+    fileName=(j.name||'trait')+'.png';
+    startEditor(out,W,H,W,H,palette(out,W*H,24,64),false);
+    $('tname').value=j.name||''; if(j.layer) $('tlayer').value=j.layer;
+    toast(j.reliable
+      ? 'Found '+j.name+' — check the edges, this is a guess'
+      : 'Claude was unsure — a reference would be exact');
+  }catch(e){
+    if(aiReady===false){ b.hidden=true; toast('Claude is not configured on this site'); }
+    else toast(String(e.message||e));
+  }finally{ b.disabled=false; b.textContent=was; }
+};
 
 $('doextract').onclick=()=>{
   if(!refData||!subData) return;
@@ -846,6 +921,7 @@ function analyse(im,file){
         thumb('subthumb',subData); $('subslot').classList.add('filled');
         fileName=file.name.replace(/\.[^.]+$/,'')+'-trait.png';
         $('doextract').disabled=!refData;
+        $('locateai').hidden=false;
         $('scrim').hidden=true;
         document.querySelector('.extract').scrollIntoView({behavior:'smooth',block:'center'});
         toast(refData?'Reference already loaded - hit Extract':'Now add the bare character');

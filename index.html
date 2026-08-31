@@ -355,6 +355,14 @@ footer .mono{color:var(--ink);}
     </section>
     <section><h2>From your image</h2><div class="swatches" id="pal"></div></section>
     <section>
+      <h2>Background</h2>
+      <div class="savebar">
+        <button class="btn ghost" id="debg" style="flex:1">Clear flat background</button>
+        <input id="bgtol" type="number" min="0" max="120" value="24" style="width:64px" aria-label="Background tolerance">
+      </div>
+      <p class="note">Floods in from the edges, so only colour connected to the border goes. A white shirt in the middle stays.</p>
+    </section>
+    <section>
       <h2>Save to project</h2>
       <div class="stack">
         <div class="savebar">
@@ -823,8 +831,30 @@ function analyse(im,file){
       : `<b>No repeating period stood out.</b> This is most likely already at its native size, or it is
          not pixel art. Open it as it is, or set a size yourself if you know it.`;
 
+    /* A fully opaque image is a whole picture, not a cut-out layer: almost
+       always a character with a trait on it. Which part is "the trait" cannot
+       be read off one image - it is only knowable by comparison with the bare
+       character - so offer that route instead of pretending to guess. */
+    let opaque=true;
+    for(let i=3;i<d.length;i+=4){ if(d[i]<250){ opaque=false; break; } }
+    if(opaque){
+      const go=document.createElement('button');
+      go.className='big primary';
+      go.innerHTML=`<strong>Pull a trait off this character</strong><span>Compare it with the bare character to isolate what was added</span>`;
+      go.onclick=()=>{
+        subData=new ImageData(new Uint8ClampedArray(d),w,h);
+        thumb('subthumb',subData); $('subslot').classList.add('filled');
+        fileName=file.name.replace(/\.[^.]+$/,'')+'-trait.png';
+        $('doextract').disabled=!refData;
+        $('scrim').hidden=true;
+        document.querySelector('.extract').scrollIntoView({behavior:'smooth',block:'center'});
+        toast(refData?'Reference already loaded - hit Extract':'Now add the bare character');
+      };
+      ch.appendChild(go);
+    }
+
     const raw=document.createElement('button');
-    raw.className='big'+(B?'':' primary');
+    raw.className='big'+((B||opaque)?'':' primary');
     raw.innerHTML=`<strong>Open as it is (${w}×${h})</strong><span>Leave every pixel exactly where it is</span>`;
     raw.onclick=editRaw;
     ch.appendChild(raw);
@@ -1096,6 +1126,38 @@ function download(scale){
 }
 $('dlNative').onclick=()=>download(1);
 $('dlBig').onclick=()=>download(8);
+/* Strip a flat background by flooding inwards from the border, so only colour
+   REACHABLE from the edge goes. A white shirt in the middle of the character is
+   never touched, which a plain "delete every white pixel" would wreck. */
+$('debg').onclick=()=>{
+  if(!ctx) return;
+  const W=art.width,H=art.height, img=ctx.getImageData(0,0,W,H), d=img.data;
+  const tol=+$('bgtol').value, t2=tol*tol;
+  const seedIdx=0;
+  const sr=d[seedIdx],sg=d[seedIdx+1],sb=d[seedIdx+2];
+  if(d[seedIdx+3]===0){ toast('The corner is already transparent'); return; }
+  const seen=new Uint8Array(W*H), st=[];
+  for(let x=0;x<W;x++){ st.push(x); st.push((H-1)*W+x); }
+  for(let y=0;y<H;y++){ st.push(y*W); st.push(y*W+W-1); }
+  let n=0;
+  while(st.length){
+    const p=st.pop();
+    if(p<0||p>=W*H||seen[p]) continue;
+    const i=p*4;
+    if(d[i+3]===0){ seen[p]=1; continue; }
+    const dr=d[i]-sr, dg=d[i+1]-sg, db=d[i+2]-sb;
+    if(dr*dr+dg*dg+db*db>t2) continue;
+    seen[p]=1; d[i+3]=0; n++;
+    const x=p%W;
+    st.push(p-W,p+W);
+    if(x>0) st.push(p-1);
+    if(x<W-1) st.push(p+1);
+  }
+  if(!n){ toast('No flat border colour found'); return; }
+  snapshot(); ctx.putImageData(img,0,0); refreshStats(); fitZoom();
+  toast('Cleared '+n.toLocaleString()+' background pixels');
+};
+
 /* Cropping throws away where the art sat, which is exactly what a layer needs
    to line up again, so the offset goes in the filename rather than being lost. */
 $('dlTrim').onclick=()=>{

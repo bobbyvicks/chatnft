@@ -1248,6 +1248,19 @@ function extractTrait(sub,ref,o){
   return {data:t,W,H,kept,src,stats};
 }
 
+/* One place the settings are read from, so the preview and the extract button
+   cannot drift apart. */
+function currentOpts(){
+  return {
+    thresh:+$("sens").value,
+    align:$("cbAlign").checked, band:JSON.parse($("bandsel").value),
+    strip:$("cbStrip").checked, haloTol:150, haloPasses:6,
+    reclaim:$("cbReclaim").checked, darkMax:110, reclaimPasses:40, maxOutline:6,
+    defringe:$("cbFringe").checked, fringeThresh:+$("sens").value*2.1, fringePasses:4, neutralMax:18,
+    open:$("cbOpen").checked, openR:3, minRemove:150,
+    despeckle:true, minBlob:+$("minblob").value, relative:0.02,
+  };
+}
 let pvPending=false, pvBusy=false;
 function renderPreview(){
   if(!refData||!subData){ $("previewwrap").hidden=true; return; }

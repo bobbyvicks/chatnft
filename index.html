@@ -74,8 +74,13 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
 .exrow input[type=range]{width:130px; accent-color:var(--good);}
 .exrow .btn{width:auto; padding:9px 16px; background:var(--good); color:#052b1c; margin-left:auto;}
 .exrow .btn[disabled]{opacity:.4; cursor:not-allowed;}
-.preview{margin-top:12px; display:flex; gap:12px; align-items:flex-start;}
-.preview canvas{width:200px; height:200px; flex:none; border-radius:9px; border:1px solid var(--line);
+.preview{margin-top:12px; display:flex; gap:14px; align-items:flex-start;}
+.pvstack{flex:none; display:flex; flex-direction:column; gap:6px;}
+.pvtabs{display:flex; gap:5px;}
+.pvtab{flex:1; padding:5px 8px; border-radius:7px; font-size:11.5px;
+  background:var(--panel-2); border:1px solid var(--line); color:var(--muted);}
+.pvtab[aria-pressed="true"]{background:var(--accent-soft); border-color:var(--accent); color:var(--accent);}
+.preview canvas{width:220px; height:220px; flex:none; border-radius:9px; border:1px solid var(--line);
   image-rendering:pixelated; background:
     linear-gradient(45deg,#232029 25%,transparent 25%,transparent 75%,#232029 75%),
     linear-gradient(45deg,#232029 25%,#1a1720 25%,#1a1720 75%,#232029 75%);
@@ -294,7 +299,13 @@ footer .mono{color:var(--ink);}
     <input type="file" id="reffile" accept="image/*" hidden>
     <input type="file" id="subfile" accept="image/*" hidden>
     <div class="preview" id="previewwrap" hidden>
-      <canvas id="preview"></canvas>
+      <div class="pvstack">
+        <canvas id="preview"></canvas>
+        <div class="pvtabs">
+          <button id="pvResult" class="pvtab" aria-pressed="true">Result</button>
+          <button id="pvOverlay" class="pvtab" aria-pressed="false">On character</button>
+        </div>
+      </div>
       <div class="pvinfo">
         <span class="mono" id="pvcount">—</span>
         <span id="pvhint">Green is what will be kept. Raise sensitivity until only the trait is green.</span>
@@ -836,7 +847,7 @@ function slotLoad(file,which){
       fileName=file.name.replace(/\.[^.]+$/,'')+'-trait.png';
     }
     $('doextract').disabled=!subData;
-    if(subData){ (async()=>{ if(!refData){ const p=await chooseReference(subData);
+    if(subData){ renderPreview(); $('pvcount').textContent='matching reference...'; (async()=>{ if(!refData){ const p=await chooseReference(subData);
       if(p){ refData=p.data; toast('Matched reference: '+p.name); } } renderPreview(); })(); }
     $('locateai').hidden=!subData;
   };
@@ -861,7 +872,7 @@ try{
     im.onload=()=>{ refData=toData(im,im.naturalWidth,im.naturalHeight);
       thumb('refthumb',refData); $('refslot').classList.add('filled');
       $('doextract').disabled=!subData;
-    if(subData){ (async()=>{ if(!refData){ const p=await chooseReference(subData);
+    if(subData){ renderPreview(); $('pvcount').textContent='matching reference...'; (async()=>{ if(!refData){ const p=await chooseReference(subData);
       if(p){ refData=p.data; toast('Matched reference: '+p.name); } } renderPreview(); })(); } };
     im.src=saved; }
 }catch(_){}
@@ -1261,9 +1272,15 @@ function currentOpts(){
     despeckle:true, minBlob:+$("minblob").value, relative:0.02,
   };
 }
-let pvPending=false, pvBusy=false;
+let pvPending=false, pvBusy=false, pvMode="result";
 function renderPreview(){
-  if(!refData||!subData){ $("previewwrap").hidden=true; return; }
+  if(!subData){ $("previewwrap").hidden=true; return; }
+  $("previewwrap").hidden=false;
+  if(!refData){
+    $("pvcount").textContent="waiting for a reference";
+    $("pvhint").textContent="Load a bare character above, or one will be matched from your saved ones.";
+    return;
+  }
   if(pvPending) return;
   pvPending=true;
   requestAnimationFrame(()=>{
@@ -1276,9 +1293,16 @@ function renderPreview(){
       const img=g.createImageData(r.W,r.H);
       for(let p=0;p<r.W*r.H;p++){
         const i=p*4;
-        if(r.data[i+3]){ img.data[i]=60; img.data[i+1]=220; img.data[i+2]=150; img.data[i+3]=255; }
-        else { img.data[i]=r.src[i]*0.3; img.data[i+1]=r.src[i+1]*0.3; img.data[i+2]=r.src[i+2]*0.3;
-               img.data[i+3]=r.src[i+3]?85:0; }
+        if(pvMode==="result"){
+          // exactly what Extract will hand you: real colours, real transparency
+          img.data[i]=r.data[i]; img.data[i+1]=r.data[i+1];
+          img.data[i+2]=r.data[i+2]; img.data[i+3]=r.data[i+3];
+        } else if(r.data[i+3]){
+          img.data[i]=60; img.data[i+1]=220; img.data[i+2]=150; img.data[i+3]=255;
+        } else {
+          img.data[i]=r.src[i]*0.3; img.data[i+1]=r.src[i+1]*0.3; img.data[i+2]=r.src[i+2]*0.3;
+          img.data[i+3]=r.src[i+3]?85:0;
+        }
       }
       g.putImageData(img,0,0);
       $("previewwrap").hidden=false;
@@ -1300,6 +1324,10 @@ function renderPreview(){
 let lastResult=null;
 $('sens').addEventListener('input',()=>{ $('sensv').textContent=$('sens').value; renderPreview(); });
 $('minblob').addEventListener('input',()=>{ $('minblobv').textContent=$('minblob').value; renderPreview(); });
+$('pvResult').onclick=()=>{ pvMode='result'; $('pvResult').setAttribute('aria-pressed','true');
+  $('pvOverlay').setAttribute('aria-pressed','false'); renderPreview(); };
+$('pvOverlay').onclick=()=>{ pvMode='overlay'; $('pvOverlay').setAttribute('aria-pressed','true');
+  $('pvResult').setAttribute('aria-pressed','false'); renderPreview(); };
 ['cbStrip','cbReclaim','cbFringe','cbOpen','cbAlign','bandsel'].forEach(id=>
   $(id).addEventListener('change',renderPreview));
 
@@ -1386,7 +1414,7 @@ function analyse(im,file){
         thumb('subthumb',subData); $('subslot').classList.add('filled');
         fileName=file.name.replace(/\.[^.]+$/,'')+'-trait.png';
         $('doextract').disabled=!subData;
-    if(subData){ (async()=>{ if(!refData){ const p=await chooseReference(subData);
+    if(subData){ renderPreview(); $('pvcount').textContent='matching reference...'; (async()=>{ if(!refData){ const p=await chooseReference(subData);
       if(p){ refData=p.data; toast('Matched reference: '+p.name); } } renderPreview(); })(); }
         $('locateai').hidden=false;
         $('scrim').hidden=true;

@@ -126,6 +126,13 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
 .item:hover .x{display:grid; place-items:center;}
 .item .x:hover{background:var(--bad); color:#fff;}
 .empty{color:var(--dim); font-size:13px; padding:10px 0;}
+.mini.filt[aria-pressed="true"]{background:var(--accent-soft); border-color:var(--accent); color:var(--accent);}
+.item .st{position:absolute; top:3px; left:3px; width:9px; height:9px; border-radius:50%;
+  border:1px solid #0008;}
+.st.wip{background:var(--accent);} .st.approved{background:var(--good);} .st.rejected{background:var(--bad);}
+.item .cyc{position:absolute; bottom:22px; left:0; right:0; margin:auto; width:74%; padding:2px 0;
+  border-radius:5px; background:#0b0910dd; color:var(--ink); font-size:9.5px; display:none;}
+.item:hover .cyc{display:block;}
 
 /* ---------- save bar in the editor ---------- */
 .savebar{display:flex; gap:8px; align-items:center; flex-wrap:wrap;}
@@ -345,6 +352,10 @@ footer .mono{color:var(--ink);}
       <h2>Your project</h2>
       <span class="count" id="projcount"></span>
       <div class="acts">
+        <button class="mini filt" data-f="all" aria-pressed="true">all</button>
+        <button class="mini filt" data-f="wip" aria-pressed="false">wip</button>
+        <button class="mini filt" data-f="approved" aria-pressed="false">approved</button>
+        <button class="mini filt" data-f="rejected" aria-pressed="false">rejected</button>
         <button class="mini" id="dlzip">Download all</button>
         <button class="mini" id="clearproj">Clear</button>
       </div>
@@ -424,6 +435,11 @@ footer .mono{color:var(--ink);}
         <div class="savebar">
           <input id="tname" type="text" placeholder="trait name" aria-label="Trait name">
           <select id="tlayer" aria-label="Layer"></select>
+          <select id="tstatus" aria-label="Status">
+            <option value="wip">wip</option>
+            <option value="approved">approved</option>
+            <option value="rejected">rejected</option>
+          </select>
         </div>
         <button class="btn" id="saveproj">Save to project</button>
       </div>
@@ -644,6 +660,18 @@ async function renderShelf(){
       createImageBitmap(t.blob).then(bm=>{const g=cv.getContext('2d'); g.imageSmoothingEnabled=false; g.drawImage(bm,0,0);}).catch(()=>{});
       el.appendChild(cv);
       const nm=document.createElement('b'); nm.textContent=t.name; el.appendChild(nm);
+      const st=document.createElement('span');
+      st.className='st '+(t.status||'wip'); st.title=(t.status||'wip'); el.appendChild(st);
+      const cyc=document.createElement('button');
+      cyc.className='cyc'; cyc.textContent=(t.status||'wip');
+      cyc.title='Click to change status';
+      cyc.onclick=async ev=>{ ev.stopPropagation();
+        const order=['wip','approved','rejected'];
+        const next=order[(order.indexOf(t.status||'wip')+1)%3];
+        await dbDel(t.id);
+        await dbPut({...t, id:'t_'+t.name+'_'+t.layer+'_'+next, status:next});
+        renderShelf(); toast(t.name+' -> '+next); };
+      el.appendChild(cyc);
       const x=document.createElement('button'); x.className='x'; x.textContent='×';
       x.title='Remove reference';
       x.onclick=async ev=>{ ev.stopPropagation(); await dbDel(t.id); renderShelf(); toast('Removed '+t.name); };
@@ -651,11 +679,12 @@ async function renderShelf(){
     }
     rw.appendChild(rg); body.appendChild(rw);
   }
-  const used=LAYERS.filter(l=>traits.some(t=>t.layer===l));
+  const used=LAYERS.filter(l=>traits.some(t=>t.layer===l&&(shelfFilter==="all"||(t.status||"wip")===shelfFilter)));
   if(!used.length){ body.innerHTML='<p class="empty">No traits saved yet. Open an image, then use Save to project.</p>'; }
   for(const layer of used){
     const wrap=document.createElement('div'); wrap.className='layer';
-    const mine=traits.filter(t=>t.layer===layer).sort((a,b)=>b.at-a.at);
+    const mine=traits.filter(t=>t.layer===layer&&(shelfFilter==="all"||(t.status||"wip")===shelfFilter)).sort((a,b)=>b.at-a.at);
+    if(!mine.length) continue;
     wrap.innerHTML='<h3>'+layer+' <span style="color:var(--dim)">'+mine.length+'</span></h3>';
     const grid=document.createElement('div'); grid.className='items';
     for(const t of mine){
@@ -678,7 +707,7 @@ async function renderShelf(){
         const d=g.getImageData(0,0,t.w,t.h);
         fileName=t.name+'.png';
         startEditor(d.data,t.w,t.h,t.w,t.h,palette(d.data,t.w*t.h,24,64),false);
-        $('tname').value=t.name; $('tlayer').value=t.layer;
+        $('tname').value=t.name; $('tlayer').value=t.layer; $('tstatus').value=t.status||'wip';
       };
       grid.appendChild(el);
     }
@@ -726,12 +755,18 @@ $('saveproj').onclick=async()=>{
   c.getContext('2d').drawImage(art,0,0);
   const blob=await blobOf(c);
   try{
-    await dbPut({id:'t_'+name+'_'+layer, kind:'trait', name, layer, blob,
+    const status=$('tstatus').value||'wip';
+    await dbPut({id:'t_'+name+'_'+layer+'_'+status, kind:'trait', name, layer, status, blob,
       w:art.width, h:art.height, at:Date.now()});
     await renderShelf();
-    toast('Saved '+name+' to '+layer);
+    toast('Saved '+name+' to '+layer+'/'+status);
   }catch(e){ toast('Could not save: '+(e&&e.name||'storage error')); }
 };
+document.querySelectorAll('.mini.filt').forEach(btn=>{
+  btn.onclick=()=>{ shelfFilter=btn.dataset.f;
+    document.querySelectorAll('.mini.filt').forEach(o=>o.setAttribute('aria-pressed',String(o===btn)));
+    renderShelf(); };
+});
 $('clearproj').onclick=async()=>{
   if(!confirm('Remove every saved trait and the reference from this browser?')) return;
   await dbClear();
@@ -778,7 +813,8 @@ $('dlzip').onclick=async()=>{
   if(!items.length) return;
   const files=[], seen=new Set();
   for(const t of items){
-    let nm=t.layer+'/'+t.name.replace(/[^a-z0-9._-]+/gi,'-')+'.png', k=2;
+    const st=t.status||'wip';
+    let nm=t.layer+'/'+st+'/'+t.name.replace(/[^a-z0-9._-]+/gi,'-')+'.png', k=2;
     while(seen.has(nm)){ nm=t.layer+'/'+t.name.replace(/[^a-z0-9._-]+/gi,'-')+'-'+(k++)+'.png'; }
     seen.add(nm);
     files.push({name:nm, data:new Uint8Array(await t.blob.arrayBuffer())});
@@ -1219,17 +1255,24 @@ function alignToRef(subData,sw,sh,refData,W,H,f0,f1){
 
 /** The whole pipeline. Preview and Extract both call this. */
 function extractTrait(sub,ref,o){
-  const W=ref.width,H=ref.height;
+  /* Work at the SUBMISSION's resolution, not the reference's.
+     The output IS the artwork, so resampling it would move and rescale the
+     very thing being extracted - a 1254px submission came back as 1024px,
+     shifted. The reference is only something to compare against, so it is the
+     one that gets resampled. The trait now lands on the same canvas, at the
+     same size and position, as the image it came from. */
+  const W=sub.width,H=sub.height;
+  const refFit=fitTo(ref,W,H);
   /* ORDER MATTERS. The figure is found from alpha, but a submission arrives
      fully opaque on flat white, so before the background is stripped the
      "figure" is the whole canvas and alignment silently does nothing - which
      is exactly the bug that made a 6px offset drop a trait from 91% to 19%.
      Strip first, then align, then difference. */
-  let fitted=fitTo(sub,W,H);
+  let fitted=sub;
   const strippedSub = o.strip ? stripBackground(fitted,W,H,o.haloTol,o.haloPasses)
                               : {data:fitted.data,cleared:0,peeled:0};
   let src=strippedSub.data;
-  const strippedRef = stripBackground(ref,W,H,o.haloTol,o.haloPasses);
+  const strippedRef = stripBackground(refFit,W,H,o.haloTol,o.haloPasses);
   const R=strippedRef.data;
   let alignInfo=null;
   if(o.align){
@@ -1325,6 +1368,7 @@ function renderPreview(){
   },40);
 }
 let lastResult=null;
+let shelfFilter='all';
 $('sens').addEventListener('input',()=>{ $('sensv').textContent=$('sens').value; renderPreview(); });
 $('minblob').addEventListener('input',()=>{ $('minblobv').textContent=$('minblob').value; renderPreview(); });
 $('pvResult').onclick=()=>{ pvMode='result'; $('pvResult').setAttribute('aria-pressed','true');

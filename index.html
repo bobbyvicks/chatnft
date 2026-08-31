@@ -370,10 +370,11 @@ footer .mono{color:var(--ink);}
       <div class="stack">
         <button class="btn ghost" id="dlNative">Download at grid size</button>
         <button class="btn ghost" id="dlBig">Download at 8×</button>
+        <button class="btn ghost" id="dlTrim">Download trimmed to the art</button>
         <button class="btn ghost" id="reset">Reset to original</button>
         <button class="btn ghost" id="another">Open another image</button>
       </div>
-      <p class="note">Both exports are PNG with no smoothing. The 8× version is for posting; the grid-size one is the master to keep.</p>
+      <p class="note">All exports are PNG with no smoothing. Keep the full canvas for anything you will layer back onto a character — that is what makes it line up. Trimmed puts the crop offset in the filename so the position is not lost.</p>
     </section>
   </aside>
 
@@ -906,10 +907,37 @@ function setZoom(z,anchor){
   const nr=art.getBoundingClientRect();
   st.scrollLeft+=(nr.left+cx*zoom)-ax; st.scrollTop+=(nr.top+cy*zoom)-ay;
 }
+/* Bounding box of everything that is not transparent. An extracted trait sits
+   on a full-size canvas so it drops back onto the character in the right place,
+   which means the art itself can be a tiny island in a big empty field. */
+function contentBox(){
+  if(!ctx) return null;
+  const W=art.width,H=art.height,d=ctx.getImageData(0,0,W,H).data;
+  let x0=W,y0=H,x1=-1,y1=-1;
+  for(let i=0;i<W*H;i++){
+    if(d[i*4+3]===0) continue;
+    const x=i%W, y=(i/W)|0;
+    if(x<x0)x0=x; if(x>x1)x1=x; if(y<y0)y0=y; if(y>y1)y1=y;
+  }
+  return x1<0?null:{x0,y0,x1,y1,w:x1-x0+1,h:y1-y0+1};
+}
+/* Fit the ART, not the canvas. Filling the view with empty space around a small
+   trait is technically "fitting" and practically useless. The canvas is never
+   changed, only what the view is pointed at. */
 function fitZoom(){
-  const st=$('stage');
-  const z=Math.floor(Math.min(st.clientWidth-32,st.clientHeight-32)/Math.max(art.width,art.height));
+  const st=$('stage'), pad=32;
+  const box=contentBox();
+  const useBox = box && (box.w*box.h) < (art.width*art.height)*0.5;
+  const w=useBox?box.w:art.width, h=useBox?box.h:art.height;
+  const z=Math.floor(Math.min(st.clientWidth-pad,st.clientHeight-pad)/Math.max(w,h));
   zoom=Math.max(1,Math.min(MAXZ,z||1)); applyZoom();
+  /* Always centre the view. A big image at zoom 1 overflows the stage and the
+     scroll starts at the top-left corner, which on art with a white or empty
+     border is a screen of nothing - it reads as a broken editor. */
+  const cx=(useBox?(box.x0+box.x1+1)/2:art.width/2)*zoom;
+  const cy=(useBox?(box.y0+box.y1+1)/2:art.height/2)*zoom;
+  st.scrollLeft=Math.max(0,cx-st.clientWidth/2);
+  st.scrollTop =Math.max(0,cy-st.clientHeight/2);
 }
 function snapshot(){ undoStack.push(ctx.getImageData(0,0,art.width,art.height)); if(undoStack.length>60) undoStack.shift(); redoStack.length=0; }
 function cellFrom(e){
@@ -1068,6 +1096,23 @@ function download(scale){
 }
 $('dlNative').onclick=()=>download(1);
 $('dlBig').onclick=()=>download(8);
+/* Cropping throws away where the art sat, which is exactly what a layer needs
+   to line up again, so the offset goes in the filename rather than being lost. */
+$('dlTrim').onclick=()=>{
+  const b=contentBox();
+  if(!b){ toast('Nothing to trim - the canvas is empty'); return; }
+  if(b.w===art.width&&b.h===art.height){ toast('Already tight to the art'); return; }
+  const c=document.createElement('canvas'); c.width=b.w; c.height=b.h;
+  const g=c.getContext('2d'); g.imageSmoothingEnabled=false;
+  g.drawImage(art,b.x0,b.y0,b.w,b.h,0,0,b.w,b.h);
+  c.toBlob(bl=>{
+    const u=URL.createObjectURL(bl), a=document.createElement('a');
+    a.href=u; a.download=fileName.replace(/\.png$/,'')+'_'+b.w+'x'+b.h+'_at'+b.x0+'-'+b.y0+'.png';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(u),1000);
+    toast('Trimmed to '+b.w+'×'+b.h+' from '+b.x0+','+b.y0);
+  },'image/png');
+};
 
 addEventListener('keydown',e=>{
   if($('app').hidden) return;

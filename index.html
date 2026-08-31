@@ -74,6 +74,15 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
 .exrow input[type=range]{width:130px; accent-color:var(--good);}
 .exrow .btn{width:auto; padding:9px 16px; background:var(--good); color:#052b1c; margin-left:auto;}
 .exrow .btn[disabled]{opacity:.4; cursor:not-allowed;}
+.preview{margin-top:12px; display:flex; gap:12px; align-items:flex-start;}
+.preview canvas{width:200px; height:200px; flex:none; border-radius:9px; border:1px solid var(--line);
+  image-rendering:pixelated; background:
+    linear-gradient(45deg,#232029 25%,transparent 25%,transparent 75%,#232029 75%),
+    linear-gradient(45deg,#232029 25%,#1a1720 25%,#1a1720 75%,#232029 75%);
+  background-size:14px 14px; background-position:0 0,7px 7px;}
+.pvinfo{font-size:12.5px; color:var(--muted); line-height:1.5;}
+.pvinfo .mono{display:block; color:var(--ink); font-size:15px; margin-bottom:4px;}
+@media (max-width:560px){ .preview{flex-direction:column;} .preview canvas{width:100%; height:auto; aspect-ratio:1;} }
 @media (max-width:560px){ .slots{grid-template-columns:1fr;} .exrow .btn{margin-left:0; width:100%;} }
 
 /* ---------- project shelf ---------- */
@@ -280,10 +289,21 @@ footer .mono{color:var(--ink);}
     </div>
     <input type="file" id="reffile" accept="image/*" hidden>
     <input type="file" id="subfile" accept="image/*" hidden>
+    <div class="preview" id="previewwrap" hidden>
+      <canvas id="preview"></canvas>
+      <div class="pvinfo">
+        <span class="mono" id="pvcount">—</span>
+        <span id="pvhint">Green is what will be kept. Raise sensitivity until only the trait is green.</span>
+      </div>
+    </div>
     <div class="exrow">
       <label>Sensitivity
-        <input type="range" id="sens" min="2" max="64" step="1" value="4">
-        <span class="mono" id="sensv">4</span>
+        <input type="range" id="sens" min="2" max="160" step="1" value="40">
+        <span class="mono" id="sensv">40</span>
+      </label>
+      <label>Ignore specks under
+        <input type="range" id="minblob" min="0" max="400" step="10" value="40">
+        <span class="mono" id="minblobv">40</span>
       </label>
       <button class="btn" id="doextract" disabled>Extract the trait</button>
       <button class="mini" id="locateai" hidden>No reference? Let Claude find it</button>
@@ -798,6 +818,8 @@ function slotLoad(file,which){
       fileName=file.name.replace(/\.[^.]+$/,'')+'-trait.png';
     }
     $('doextract').disabled=!subData;
+    if(subData){ (async()=>{ if(!refData){ const p=await chooseReference(subData);
+      if(p){ refData=p.data; toast('Matched reference: '+p.name); } } renderPreview(); })(); }
     $('locateai').hidden=!subData;
   };
   im.onerror=()=>{ URL.revokeObjectURL(url); $('exerr').textContent='That image could not be decoded.'; };
@@ -820,7 +842,9 @@ try{
   if(saved){ const im=new Image();
     im.onload=()=>{ refData=toData(im,im.naturalWidth,im.naturalHeight);
       thumb('refthumb',refData); $('refslot').classList.add('filled');
-      $('doextract').disabled=!subData; };
+      $('doextract').disabled=!subData;
+    if(subData){ (async()=>{ if(!refData){ const p=await chooseReference(subData);
+      if(p){ refData=p.data; toast('Matched reference: '+p.name); } } renderPreview(); })(); } };
     im.src=saved; }
 }catch(_){}
 
@@ -905,6 +929,80 @@ async function chooseReference(sub){
   return best;
 }
 
+/* One function behind both the preview and the button, so what is shown is
+   literally what gets extracted - a preview computed differently from the real
+   thing is worse than no preview.
+   Speck removal matters on real submissions: a contributor's image is redrawn
+   by a model rather than composited, so "unchanged" areas still differ by a
+   pixel here and there and the raw difference is confetti over the whole
+   character. Dropping small islands leaves the trait, which is one big one. */
+function buildMask(sub,ref,th,minBlob){
+  const W=ref.width,H=ref.height,t2=th*th;
+  const s=fitTo(sub,W,H);
+  const raw=new Uint8Array(W*H);
+  let rawN=0;
+  for(let p=0;p<W*H;p++){
+    const i=p*4;
+    const dr=s.data[i]-ref.data[i], dg=s.data[i+1]-ref.data[i+1], db=s.data[i+2]-ref.data[i+2];
+    if(dr*dr+dg*dg+db*db>t2 || Math.abs(s.data[i+3]-ref.data[i+3])>64){ raw[p]=1; rawN++; }
+  }
+  if(minBlob<=1) return {mask:raw,n:rawN,rawN,s,W,H,blobs:-1};
+  const seen=new Uint8Array(W*H), out=new Uint8Array(W*H);
+  let n=0, blobs=0;
+  const st=[];
+  for(let start=0;start<W*H;start++){
+    if(!raw[start]||seen[start]) continue;
+    st.length=0; st.push(start); seen[start]=1;
+    const blob=[];
+    while(st.length){
+      const p=st.pop(); blob.push(p);
+      const x=p%W;
+      if(p-W>=0&&raw[p-W]&&!seen[p-W]){seen[p-W]=1;st.push(p-W);}
+      if(p+W<W*H&&raw[p+W]&&!seen[p+W]){seen[p+W]=1;st.push(p+W);}
+      if(x>0&&raw[p-1]&&!seen[p-1]){seen[p-1]=1;st.push(p-1);}
+      if(x<W-1&&raw[p+1]&&!seen[p+1]){seen[p+1]=1;st.push(p+1);}
+    }
+    if(blob.length>=minBlob){ blobs++; for(const p of blob){ out[p]=1; n++; } }
+  }
+  return {mask:out,n,rawN,s,W,H,blobs};
+}
+
+let pvPending=false;
+function renderPreview(){
+  if(!refData||!subData){ $('previewwrap').hidden=true; return; }
+  if(pvPending) return;
+  pvPending=true;
+  requestAnimationFrame(()=>{
+    pvPending=false;
+    const th=+$('sens').value, mb=+$('minblob').value;
+    const r=buildMask(subData,refData,th,mb);
+    const cv=$('preview'); cv.width=r.W; cv.height=r.H;
+    const g=cv.getContext('2d'); g.imageSmoothingEnabled=false;
+    const img=g.createImageData(r.W,r.H);
+    for(let p=0;p<r.W*r.H;p++){
+      const i=p*4;
+      if(r.mask[p]){ // kept: shown in green so it reads against any artwork
+        img.data[i]=60; img.data[i+1]=220; img.data[i+2]=150; img.data[i+3]=255;
+      } else {       // discarded: the submission, dimmed for context
+        img.data[i]=r.s.data[i]*0.32; img.data[i+1]=r.s.data[i+1]*0.32;
+        img.data[i+2]=r.s.data[i+2]*0.32; img.data[i+3]=r.s.data[i+3]?90:0;
+      }
+    }
+    g.putImageData(img,0,0);
+    $('previewwrap').hidden=false;
+    const pct=(100*r.n/(r.W*r.H)).toFixed(1);
+    $('pvcount').textContent=r.n.toLocaleString()+' px kept ('+pct+'%)';
+    $('pvhint').textContent = r.n===0
+      ? 'Nothing differs - lower the sensitivity.'
+      : r.n>r.W*r.H*0.25
+        ? 'Most of the character is green. Raise sensitivity until only the trait is.'
+        : (r.blobs>=0? r.blobs+' separate piece'+(r.blobs===1?'':'s')+'. ' : '')
+          + 'Green is what will be kept.';
+  });
+}
+$('sens').addEventListener('input',()=>{ $('sensv').textContent=$('sens').value; renderPreview(); });
+$('minblob').addEventListener('input',()=>{ $('minblobv').textContent=$('minblob').value; renderPreview(); });
+
 $('doextract').onclick=async()=>{
   if(!subData) return;
   if(!refData){
@@ -913,31 +1011,23 @@ $('doextract').onclick=async()=>{
     refData=pick.data;
     toast('Matched reference: '+pick.name);
   }
-  const W=refData.width, H=refData.height;
-  // the submission may arrive at a different size; put it on the reference's
-  // canvas with nearest neighbour so cells still line up
-  let s=subData;
-  if(s.width!==W||s.height!==H){
-    const out=new ImageData(W,H);
-    for(let y=0;y<H;y++)for(let x=0;x<W;x++){
-      const sx=Math.min(s.width-1,Math.floor(x*s.width/W)), sy=Math.min(s.height-1,Math.floor(y*s.height/H));
-      const a=(sy*s.width+sx)*4, b=(y*W+x)*4;
-      out.data[b]=s.data[a];out.data[b+1]=s.data[a+1];out.data[b+2]=s.data[a+2];out.data[b+3]=s.data[a+3];
-    }
-    s=out;
+  // exactly the mask the preview showed - same function, same settings
+  const r=buildMask(subData,refData,+$('sens').value,+$('minblob').value);
+  if(!r.n){
+    $('exerr').textContent = r.rawN
+      ? 'Everything that differed was smaller than the speck filter. Lower "ignore specks".'
+      : 'Nothing differs between these two - check you loaded the right reference.';
+    return;
   }
-  const th=+$('sens').value, t2=th*th;
-  const out=new Uint8ClampedArray(W*H*4);
-  let n=0;
-  for(let i=0;i<W*H;i++){
-    const dr=s.data[i*4]-refData.data[i*4], dg=s.data[i*4+1]-refData.data[i*4+1], db=s.data[i*4+2]-refData.data[i*4+2];
-    if(dr*dr+dg*dg+db*db>t2 || Math.abs(s.data[i*4+3]-refData.data[i*4+3])>64){
-      out[i*4]=s.data[i*4];out[i*4+1]=s.data[i*4+1];out[i*4+2]=s.data[i*4+2];out[i*4+3]=255; n++;
-    }
+  const out=new Uint8ClampedArray(r.W*r.H*4);
+  for(let p=0;p<r.W*r.H;p++){
+    if(!r.mask[p]) continue;
+    const i=p*4;
+    out[i]=r.s.data[i]; out[i+1]=r.s.data[i+1]; out[i+2]=r.s.data[i+2]; out[i+3]=255;
   }
-  if(!n){ $('exerr').textContent='Those two images are identical - nothing to pull out.'; return; }
-  startEditor(out,W,H,W,H,palette(out,W*H,24,64),false);
-  toast('Pulled out '+n.toLocaleString()+' pixels');
+  $('exerr').textContent='';
+  startEditor(out,r.W,r.H,r.W,r.H,palette(out,r.W*r.H,24,64),false);
+  toast('Pulled out '+r.n.toLocaleString()+' pixels');
 };
 
 function analyse(im,file){
@@ -1002,6 +1092,8 @@ function analyse(im,file){
         thumb('subthumb',subData); $('subslot').classList.add('filled');
         fileName=file.name.replace(/\.[^.]+$/,'')+'-trait.png';
         $('doextract').disabled=!subData;
+    if(subData){ (async()=>{ if(!refData){ const p=await chooseReference(subData);
+      if(p){ refData=p.data; toast('Matched reference: '+p.name); } } renderPreview(); })(); }
         $('locateai').hidden=false;
         $('scrim').hidden=true;
         document.querySelector('.extract').scrollIntoView({behavior:'smooth',block:'center'});

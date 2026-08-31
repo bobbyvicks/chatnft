@@ -137,8 +137,20 @@ Name it and choose the layer it belongs on.`;
       message: err?.error?.error?.message ?? err?.message,
     }));
     // Never echo the upstream error verbatim - it can carry request details.
+    /* A 400 covers both "the request was malformed" and "there is no credit on
+       the account", which are completely different problems for whoever runs
+       this. Collapsing them cost real debugging time, so credit is called out
+       by name. The upstream text is matched, not echoed. */
+    const upstream = String(err?.error?.error?.message ?? err?.message ?? "");
+    if (/credit balance is too low|billing/i.test(upstream)) {
+      res.status(402).json({
+        error: "no_credit",
+        message: "The Anthropic account backing this site is out of API credit.",
+      });
+      return;
+    }
     const known: Record<number, string> = {
-      400: "Claude rejected the request.",
+      400: "Claude rejected the request as malformed.",
       401: "The API key on the server is not valid.",
       429: "Claude is rate limiting - try again shortly.",
       529: "Claude is overloaded - try again shortly.",

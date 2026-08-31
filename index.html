@@ -847,7 +847,7 @@ function slotLoad(file,which){
       fileName=file.name.replace(/\.[^.]+$/,'')+'-trait.png';
     }
     $('doextract').disabled=!subData;
-    if(subData){ renderPreview(); $('pvcount').textContent='matching reference...'; (async()=>{ if(!refData){ const p=await chooseReference(subData);
+    if(subData){ $('pvcount').textContent='matching reference...'; $('previewwrap').hidden=false; (async()=>{ if(!refData){ const p=await chooseReference(subData);
       if(p){ refData=p.data; toast('Matched reference: '+p.name); } } renderPreview(); })(); }
     $('locateai').hidden=!subData;
   };
@@ -872,7 +872,7 @@ try{
     im.onload=()=>{ refData=toData(im,im.naturalWidth,im.naturalHeight);
       thumb('refthumb',refData); $('refslot').classList.add('filled');
       $('doextract').disabled=!subData;
-    if(subData){ renderPreview(); $('pvcount').textContent='matching reference...'; (async()=>{ if(!refData){ const p=await chooseReference(subData);
+    if(subData){ $('pvcount').textContent='matching reference...'; $('previewwrap').hidden=false; (async()=>{ if(!refData){ const p=await chooseReference(subData);
       if(p){ refData=p.data; toast('Matched reference: '+p.name); } } renderPreview(); })(); } };
     im.src=saved; }
 }catch(_){}
@@ -1414,7 +1414,7 @@ function analyse(im,file){
         thumb('subthumb',subData); $('subslot').classList.add('filled');
         fileName=file.name.replace(/\.[^.]+$/,'')+'-trait.png';
         $('doextract').disabled=!subData;
-    if(subData){ renderPreview(); $('pvcount').textContent='matching reference...'; (async()=>{ if(!refData){ const p=await chooseReference(subData);
+    if(subData){ $('pvcount').textContent='matching reference...'; $('previewwrap').hidden=false; (async()=>{ if(!refData){ const p=await chooseReference(subData);
       if(p){ refData=p.data; toast('Matched reference: '+p.name); } } renderPreview(); })(); }
         $('locateai').hidden=false;
         $('scrim').hidden=true;

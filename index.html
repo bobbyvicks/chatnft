@@ -100,6 +100,10 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
   padding-bottom:10px; margin-bottom:4px; border-bottom:1px solid var(--line);}
 .wsrow label{font-size:10px; text-transform:uppercase; letter-spacing:.1em; color:var(--dim);}
 .wsrow select{flex:1; min-width:120px;}
+/* the invite link and its explanation belong to the group row, so they take a
+   line of their own inside it rather than sitting beside the picker */
+.wsrow #teamrow, .wsrow #teamnote{width:100%;}
+.wsrow #teamnote{margin:0;}
 @media (max-width:620px){
   .acct{top:10px; right:10px; width:36px; height:36px;}
   .acctpanel{top:52px; right:8px; left:8px; width:auto;}
@@ -439,6 +443,12 @@ footer .mono{color:var(--ink);}
         <select id="wssel" aria-label="Which project you are working in"></select>
         <button class="mini" id="wsnew">New group project</button>
         <button class="mini" id="wsleave" hidden>Leave</button>
+        <button class="mini" id="teaminvite" hidden>Invite someone</button>
+        <div class="savebar" id="teamrow" hidden>
+          <input id="teamlink" type="text" readonly aria-label="Invite link" style="flex:1">
+          <button class="mini" id="teamcopy">Copy</button>
+        </div>
+        <p class="note" id="teamnote" hidden></p>
       </div>
       <span class="count" id="cloudwho">not signed in</span>
       <div class="acts" id="cloudacts">
@@ -448,17 +458,11 @@ footer .mono{color:var(--ink);}
         <button class="mini" id="cloudpush" hidden>Save to cloud</button>
         <button class="mini" id="cloudpull" hidden>Load from cloud</button>
         <button class="mini" id="cloudout" hidden>Sign out</button>
-        <button class="mini" id="teaminvite" hidden>Invite someone</button>
         <button class="mini" id="setpass" hidden>Set a password</button>
       </div>
     </div>
     <p class="note" id="cloudnote">Signing in keeps your collection on the server so it follows you to
       another device. Nothing is uploaded until you press Save to cloud.</p>
-    <div class="savebar" id="teamrow" hidden>
-      <input id="teamlink" type="text" readonly aria-label="Invite link" style="flex:1">
-      <button class="mini" id="teamcopy">Copy</button>
-    </div>
-    <p class="note" id="teamnote" hidden></p>
   </section>
   </div>
   <p class="tag">A pixel editor that works on the grid your art was actually drawn on. Drop a PNG in, rebuild it at its true resolution, and <b>edit it cell by cell</b> — then download a clean file. Nothing is uploaded anywhere.</p>
@@ -3427,7 +3431,10 @@ async function cloudRender(){
   $("cloudpush").hidden=!inn; $("cloudpull").hidden=!inn; $("cloudout").hidden=!inn;
   gateShow(!inn);
   if(inn) joinIfPending();
-  $("teaminvite").hidden=!inn;
+  /* Inviting is a GROUP action. On your own page there is nothing to invite
+     anyone to - and until now pressing it there minted a link into the place
+     you keep your own work. The database refuses that outright as well. */
+  $("teaminvite").hidden = !inn || !activeWs;
   $("setpass").hidden=!inn;
   if(inn) wsRender();
   if(!inn){ $("teamrow").hidden=true; $("teamnote").hidden=true; }
@@ -3731,6 +3738,9 @@ async function wsRender(){
   if(activeWs && !teams.some(t=>t.id===activeWs)) await wsSwitch(null);
   else sel.value=activeWs||"";
   $("wsleave").hidden=!activeWs;
+  /* Leaving a group has to take its invite link off the screen with it. */
+  $("teaminvite").hidden=!activeWs;
+  if(!activeWs){ $("teamrow").hidden=true; $("teamnote").hidden=true; }
 }
 
 async function wsCreate(){
@@ -3779,7 +3789,13 @@ async function teamInvite(){
   try{
     const r=await fetch(SB_URL+"/rest/v1/rpc/make_invite",{method:"POST",headers:h,
       body:JSON.stringify({p_team:team})});
-    if(!r.ok){ toast("Could not create an invite"); return; }
+    if(!r.ok){
+      /* The server refuses an invite to a personal page by name; say what it
+         said rather than replacing it with something vaguer. */
+      let msg=""; try{ msg=(await r.json()).message||""; }catch(_){}
+      toast(msg||"Could not create an invite");
+      return;
+    }
     const tok=await r.json();
     /* The token goes in the FRAGMENT, not the query string. A fragment is
        never sent to a server, so the invite does not end up in access logs,
@@ -3789,7 +3805,12 @@ async function teamInvite(){
     $("teamlink").value=link;
     $("teamlink").select();
     $("teamnote").hidden=false;
-    $("teamnote").textContent="Anyone who opens this and signs in joins your team and shares this collection. It stops working in 14 days.";
+    /* Name the project. A bare "joins your team" leaves the sender to remember
+       which one they were in when they pressed the button, and leaves whoever
+       receives it no idea what they are being asked to join. */
+    const opt=$("wssel").selectedOptions[0];
+    const where=opt&&opt.value?opt.textContent:"this project";
+    $("teamnote").textContent="Anyone who opens this link and signs in joins "+where+" and shares its collection. It stops working in 14 days.";
   }catch(_){ toast("Could not reach the server"); }
   finally{ $("teaminvite").disabled=false; }
 }

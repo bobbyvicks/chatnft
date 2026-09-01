@@ -96,6 +96,10 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
 .acctpanel{position:fixed; top:62px; right:16px; z-index:15; width:min(430px,92vw);}
 .acctpanel .proj{width:100%; margin:0;}
 .acctpanel .projhead .acts{width:100%; margin-left:0;}
+.wsrow{width:100%; display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+  padding-bottom:10px; margin-bottom:4px; border-bottom:1px solid var(--line);}
+.wsrow label{font-size:10px; text-transform:uppercase; letter-spacing:.1em; color:var(--dim);}
+.wsrow select{flex:1; min-width:120px;}
 @media (max-width:620px){
   .acct{top:10px; right:10px; width:36px; height:36px;}
   .acctpanel{top:52px; right:8px; left:8px; width:auto;}
@@ -421,6 +425,12 @@ footer .mono{color:var(--ink);}
   <section class="proj" id="cloud">
     <div class="projhead">
       <h2>Your account</h2>
+      <div class="wsrow">
+        <label for="wssel">Working in</label>
+        <select id="wssel" aria-label="Which project you are working in"></select>
+        <button class="mini" id="wsnew">New group project</button>
+        <button class="mini" id="wsleave" hidden>Leave</button>
+      </div>
       <span class="count" id="cloudwho">not signed in</span>
       <div class="acts" id="cloudacts">
         <input id="cloudemail" type="email" placeholder="you@example.com"
@@ -927,12 +937,23 @@ const LAYERS_ID='settings.layers';
    the key to every trait already saved in a browser. Renaming it would leave
    that data in place but unreachable, which presents as the project emptying
    itself. The name on screen is not worth someone's work. */
-const DBN='pixelbench', STORE='items';
+const DBN='pixelbench', STORE='items';   /* the personal store, named before teams existed */
+/* Each group project gets its OWN IndexedDB database rather than a filtered
+   view of one. Filtering would need every id to be unique across projects,
+   and the ids here deliberately encode name+layer+status so a trait can be
+   found - two projects containing "gold-chain" on chains/approved would
+   collide. Separate databases have no such problem and no filter to forget.
+
+   The personal store keeps the old name so nothing saved before today moves. */
+let activeWs=(function(){ try{ return localStorage.getItem("chatnft.ws")||null; }catch(_){ return null; } })();
+function wsDbName(){ return activeWs ? 'chatnft.ws.'+activeWs : DBN; }
+let dbpName=null;
 let dbp=null;
 function db(){
-  if(dbp) return dbp;
+  if(dbp && dbpName===wsDbName()) return dbp;
   dbp=new Promise((res,rej)=>{
-    const r=indexedDB.open(DBN,1);
+    dbpName=wsDbName();
+    const r=indexedDB.open(wsDbName(),1);
     r.onupgradeneeded=()=>{ const d=r.result;
       if(!d.objectStoreNames.contains(STORE)) d.createObjectStore(STORE,{keyPath:'id'}); };
     r.onsuccess=()=>res(r.result);
@@ -3390,6 +3411,7 @@ async function cloudRender(){
   gateShow(!inn);
   if(inn) joinIfPending();
   $("teaminvite").hidden=!inn;
+  if(inn) wsRender();
   if(!inn){ $("teamrow").hidden=true; $("teamnote").hidden=true; }
   if(inn) cloudStatus(u);
   return u;
@@ -3419,6 +3441,9 @@ async function cloudSignIn(){
 function cloudSignOut(){
   sbSaveSession(null);
   gateShow(true);
+  activeWs=null; wsSave(null); cloudTeamId=null;
+  try{ if(dbp){ dbp.then(d=>d.close()).catch(()=>{}); } }catch(_){}
+  dbp=null; dbpName=null;
   $("cloudnote").textContent="Signed out on this device. Your collection is still here, and still on the server.";
   cloudRender();
   toast("Signed out");
@@ -3435,6 +3460,7 @@ async function cloudTeam(){
   const h=await sbHeaders({"Content-Type":"application/json"});
   if(!h) return null;
   try{
+    if(activeWs){ cloudTeamId=activeWs; return cloudTeamId; }
     const r=await fetch(SB_URL+"/rest/v1/rpc/my_team",{method:"POST",headers:h,body:"{}"});
     if(!r.ok) return null;
     cloudTeamId=await r.json();
@@ -3632,6 +3658,96 @@ async function cloudPull(){
 }
 
 
+/* ================= workspaces ====================================
+   Switching project swaps the local database underneath everything. The open
+   handle has to be dropped or the next read still answers from the previous
+   project, which looks exactly like the new one inheriting its traits. */
+const WS_KEY="chatnft.ws";
+function wsLoad(){ try{ return localStorage.getItem(WS_KEY)||null; }catch(_){ return null; } }
+function wsSave(v){ try{ v?localStorage.setItem(WS_KEY,v):localStorage.removeItem(WS_KEY); }catch(_){} }
+
+async function wsList(){
+  const h=await sbHeaders();
+  if(!h) return [];
+  try{
+    const r=await fetch(SB_URL+"/rest/v1/teams?select=id,name,personal&order=personal.desc,name.asc",{headers:h});
+    if(!r.ok) return [];
+    return await r.json();
+  }catch(_){ return []; }
+}
+
+async function wsSwitch(id){
+  if((id||null)===(activeWs||null)) return;
+  activeWs = id||null;
+  wsSave(activeWs);
+  cloudTeamId=null;              /* the cloud target moved too */
+  try{ if(dbp){ (await dbp).close(); } }catch(_){}
+  dbp=null; dbpName=null;
+  /* Layers belong to the project, so they are re-read rather than carried
+     across - otherwise the group inherits the personal draw order. */
+  LAYERS=DEFAULT_LAYERS.slice();
+  await renderShelf();
+  await cloudRender();
+  toast(activeWs?"Opened the group project":"Back on your page");
+}
+
+async function wsRender(){
+  const sel=$("wssel");
+  const teams=await wsList();
+  const personal=teams.find(t=>t.personal);
+  /* The personal page is always the first entry and is never identified by a
+     team id in the UI, so a signed-out or half-loaded state still has
+     somewhere sane to be. */
+  sel.innerHTML="";
+  const own=document.createElement("option");
+  own.value=""; own.textContent="My page";
+  sel.appendChild(own);
+  for(const t of teams){
+    if(t.personal) continue;
+    const o=document.createElement("option");
+    o.value=t.id; o.textContent=t.name;
+    sel.appendChild(o);
+  }
+  /* A project you have left, or were removed from, is no longer in the list:
+     fall back to the personal page rather than staying pointed at nothing. */
+  if(activeWs && !teams.some(t=>t.id===activeWs)) await wsSwitch(null);
+  else sel.value=activeWs||"";
+  $("wsleave").hidden=!activeWs;
+}
+
+async function wsCreate(){
+  const name=prompt("Name this group project","Group project");
+  if(name===null) return;
+  const h=await sbHeaders({"Content-Type":"application/json"});
+  if(!h){ toast("Sign in first"); return; }
+  try{
+    const r=await fetch(SB_URL+"/rest/v1/rpc/create_team",{method:"POST",headers:h,
+      body:JSON.stringify({p_name:name})});
+    if(!r.ok){ toast("Could not create the project"); return; }
+    const id=await r.json();
+    await wsRender();
+    await wsSwitch(id);
+    toast("Created and opened it");
+  }catch(_){ toast("Could not reach the server"); }
+}
+
+async function wsLeave(){
+  if(!activeWs) return;
+  const h=await sbHeaders({"Content-Type":"application/json"});
+  if(!h) return;
+  /* Leaving does not delete the project or its work - the others keep it. Say
+     so, because "leave" reads as destructive. */
+  if(!confirm("Leave this group project? Your own page is untouched, and the project stays for everyone else.")) return;
+  try{
+    const r=await fetch(SB_URL+"/rest/v1/rpc/leave_team",{method:"POST",headers:h,
+      body:JSON.stringify({p_team:activeWs})});
+    if(!r.ok){ toast("Could not leave"); return; }
+    await wsSwitch(null);
+    await wsRender();
+    toast("Left the project");
+  }catch(_){ toast("Could not reach the server"); }
+}
+
 /* ================= teams =========================================
    An invite is a link carrying a token. The token is minted in the database
    by make_invite - never here, because Math.random is predictable and a
@@ -3701,7 +3817,10 @@ async function joinIfPending(){
     /* The team changed underneath us, so the cached id has to go or every
        later call would still be aimed at the old team. */
     cloudTeamId=null;
-    toast("You have joined the team");
+    const joined=await r.json();
+    await wsRender();
+    await wsSwitch(joined);
+    toast("You have joined the project");
     await cloudRender();
   }catch(_){ toast("Could not reach the server"); }
 }
@@ -3889,6 +4008,13 @@ $('gateemail').onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); gateSend(
 $('acctbtn').onclick=acctToggle;
 $('teaminvite').onclick=teamInvite;
 $('teamcopy').onclick=teamCopy;
+$('wssel').onchange=()=>wsSwitch($('wssel').value||null);
+$('wsnew').onclick=wsCreate;
+$('wsleave').onclick=wsLeave;
+/* Restore the project the person was last in BEFORE anything reads the local
+   store, or the first render answers from the wrong database and the shelf
+   shows the previous project for a moment. */
+
 /* Read the token before anything renders, so a signed-in person arriving from
    an invite joins on this load rather than the next one. */
 joinFromHash();

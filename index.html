@@ -57,6 +57,10 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
 .lbtn:hover:not([disabled]){border-color:var(--accent); color:var(--ink);}
 .lbtn[disabled]{opacity:.28; cursor:not-allowed;}
 .projhead .acts input{width:150px;}
+/* The label is a flex row inside a flex row; without this it stretches into
+   the free space and wraps "include wip" onto two lines. */
+.projhead .acts .olchk{flex:none; white-space:nowrap;}
+.projhead .acts .olchk input{width:auto;}
 .cwrap{display:flex; gap:18px; flex-wrap:wrap; align-items:flex-start;}
 #ccanvas{width:min(300px,72vw); height:auto; image-rendering:pixelated; border-radius:10px;
   border:1px solid var(--line); flex:none;
@@ -182,6 +186,14 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
   border:1px solid var(--line); border-radius:15px; padding:22px;}
 .card h2{font-size:17px; margin-bottom:3px;}
 .card .sub{color:var(--muted); font-size:13.5px; margin-bottom:17px;}
+.pxwrap{display:flex; gap:16px; flex-wrap:wrap; align-items:flex-start; margin-bottom:14px;}
+#pxout{width:min(220px,52vw); height:auto; image-rendering:pixelated; border-radius:10px;
+  border:1px solid var(--line); flex:none;
+  background:
+    linear-gradient(45deg,#232029 25%,transparent 25%,transparent 75%,#232029 75%),
+    linear-gradient(45deg,#232029 25%,#1a1720 25%,#1a1720 75%,#232029 75%);
+  background-size:14px 14px; background-position:0 0,7px 7px;}
+.pxctl{flex:1; min-width:200px; display:flex; flex-direction:column; gap:7px;}
 .facts{display:grid; grid-template-columns:1fr 1fr; gap:9px; margin-bottom:17px;}
 .fact{background:var(--panel-2); border:1px solid var(--line); border-radius:9px; padding:10px 12px;}
 .fact small{display:block; color:var(--dim); font-size:10px; text-transform:uppercase; letter-spacing:.1em;}
@@ -490,6 +502,34 @@ footer .mono{color:var(--ink);}
     <div class="facts" id="anFacts"></div>
     <div class="verdict" id="anVerdict"></div>
     <div class="choices" id="anChoices"></div>
+  </div>
+</div>
+
+<div class="scrim" id="pxscrim" hidden>
+  <div class="card">
+    <h2>Turn this into a trait</h2>
+    <p class="sub" id="pxsub"></p>
+    <div class="pxwrap">
+      <canvas id="pxout"></canvas>
+      <div class="pxctl">
+        <div class="olrow"><label for="pxsize">Grid</label>
+          <span class="mono" id="pxsizelab" style="margin-left:auto">64</span></div>
+        <input id="pxsize" type="range" min="16" max="160" step="8" value="64">
+        <div class="olrow"><label for="pxcol">Colours</label>
+          <span class="mono" id="pxcollab" style="margin-left:auto">12</span></div>
+        <input id="pxcol" type="range" min="2" max="48" step="1" value="12">
+        <div class="olrow"><label for="pxbg">Cut background</label>
+          <input id="pxbg" type="number" min="0" max="160" value="40" style="width:64px"></div>
+        <label class="olchk"><input type="checkbox" id="pxmatch"> Use my collection's colours</label>
+        <label class="olchk"><input type="checkbox" id="pxline" checked> Draw a black outline</label>
+      </div>
+    </div>
+    <p class="note" id="pxnote"></p>
+    <div class="choices">
+      <button class="big primary" id="pxgo"><strong>Open it in the editor</strong>
+        <span>Ready to touch up and save as a trait</span></button>
+      <button class="big" id="pxback"><strong>Back</strong></button>
+    </div>
   </div>
 </div>
 
@@ -1777,6 +1817,15 @@ function analyse(im,file){
       ch.appendChild(go);
     }
 
+    /* Offered on every image, not only when no grid was found: a smooth
+       drawing can still show a period, and the person knows what they sent. */
+    const pxBtn=document.createElement('button');
+    pxBtn.className='big'+(B?'':' primary');
+    pxBtn.innerHTML=`<strong>Turn this into a trait</strong><span>Not pixel art? Put it on the grid, cut the background and outline it</span>`;
+    pxBtn.onclick=()=>{ fileName=file.name.replace(/\.[^.]+$/,'')+'-trait.png';
+      openPixelate(d,w,h,file.name); };
+    ch.appendChild(pxBtn);
+
     const raw=document.createElement('button');
     raw.className='big'+((B||opaque)?'':' primary');
     raw.innerHTML=`<strong>Open as it is (${w}×${h})</strong><span>Leave every pixel exactly where it is</span>`;
@@ -2394,7 +2443,16 @@ let cItems=[];
 async function buildCompose(items){
   cItems=items;
   const wip=$("cwip").checked;
-  const traits=items.filter(i=>i.kind==="trait" && (wip || (i.status||"wip")==="approved"));
+  /* "include wip" meant "include everything", so a REJECTED trait - one that
+     was looked at and turned down - could be drawn onto a character and even
+     land in a generated sheet. Rejected is never a candidate; the checkbox
+     widens the set to wip, which is what it says on it. */
+  const traits=items.filter(i=>{
+    if(i.kind!=="trait") return false;
+    const st=i.status||"wip";
+    if(st==="rejected") return false;
+    return wip || st==="approved";
+  });
   const refs=items.filter(i=>i.kind==="ref");
   const sec=$("compose");
   if(!traits.length && !refs.length){ sec.hidden=true; return; }
@@ -2768,6 +2826,192 @@ function buildLayerPanel(items){
   }
 }
 
+/* ================= pixelate ======================================
+   Someone sends a photo, a smooth illustration, or something a model drew.
+   None of that is a trait: a trait in this collection sits on the grid, uses
+   few colours, has no background, and is bounded by a black outline. This does
+   those four things in that order, because each one depends on the last -
+   quantising before resampling would quantise detail that is about to be
+   averaged away, and outlining before cutting would outline the background. */
+
+/* Flood from the border only. A colour that also appears in the middle of the
+   subject is not background just because it matches the corner, and flooding
+   is what tells those two apart. */
+function cutBackground(d,W,H,tol){
+  const t2=tol*tol, seen=new Uint8Array(W*H), q=[];
+  const seeds=[0,W-1,(H-1)*W,(H-1)*W+W-1];
+  /* Seeded from all four corners, not one: a piece can sit against a corner. */
+  const cols=seeds.map(p=>[d[p*4],d[p*4+1],d[p*4+2]]);
+  for(let x=0;x<W;x++){ q.push(x); q.push((H-1)*W+x); }
+  for(let y=0;y<H;y++){ q.push(y*W); q.push(y*W+W-1); }
+  let n=0;
+  for(let i=0;i<q.length;i++){
+    const p=q[i];
+    if(p<0||p>=W*H||seen[p]) continue;
+    const j=p*4;
+    if(d[j+3]===0){ seen[p]=1; continue; }
+    let hit=false;
+    for(const c of cols){
+      const dr=d[j]-c[0], dg=d[j+1]-c[1], db=d[j+2]-c[2];
+      if(dr*dr+dg*dg+db*db<=t2){ hit=true; break; }
+    }
+    if(!hit) continue;
+    seen[p]=1; d[j+3]=0; n++;
+    const x=p%W;
+    q.push(p-W,p+W);
+    if(x>0) q.push(p-1);
+    if(x<W-1) q.push(p+1);
+  }
+  return n;
+}
+
+/* Map every pixel onto a short list of colours. The list is either the ones
+   this image is already mostly made of, or - when asked - the ones the saved
+   collection uses, which is what makes a new piece look like it belongs. */
+function quantise(d,W,H,k,fixed){
+  let list=fixed;
+  if(!list||!list.length){
+    /* tol rises until the merge leaves at most k clusters. Picking a tolerance
+       and hoping is what produces 3 colours on one image and 40 on the next. */
+    let tol=8;
+    for(let i=0;i<12;i++){
+      const p=palette(d,W*H,tol,k);
+      if(p.list.length<=k){ list=p.list.map(c=>[c.r,c.g,c.b]); break; }
+      tol=Math.round(tol*1.5);
+    }
+    if(!list) list=palette(d,W*H,64,k).list.map(c=>[c.r,c.g,c.b]);
+  }
+  if(!list.length) return 0;
+  let moved=0;
+  for(let p=0;p<W*H;p++){
+    const i=p*4;
+    if(d[i+3]<128) continue;
+    let best=null,bd=Infinity;
+    for(const c of list){
+      const dr=d[i]-c[0], dg=d[i+1]-c[1], db=d[i+2]-c[2];
+      const dd=dr*dr+dg*dg+db*db;
+      if(dd<bd){ bd=dd; best=c; }
+    }
+    if(!best) continue;
+    if(d[i]!==best[0]||d[i+1]!==best[1]||d[i+2]!==best[2]) moved++;
+    d[i]=best[0]; d[i+1]=best[1]; d[i+2]=best[2];
+  }
+  return moved;
+}
+
+/* Grow a black ring OUTSIDE the shape rather than blackening its edge. The
+   editor rule blackens what is already there, which is right when the outline
+   is present and smeared; here there is no outline at all, so taking a pixel
+   would cost art that has nothing to spare at 64 across. */
+function addOutline(d,W,H){
+  const m=maskOfImg(d,W*H,127);
+  const grown=dilateB(m,W,H,1);
+  let n=0;
+  for(let p=0;p<W*H;p++){
+    if(!grown[p]||m[p]) continue;
+    const i=p*4;
+    d[i]=0; d[i+1]=0; d[i+2]=0; d[i+3]=255; n++;
+  }
+  return n;
+}
+
+/* The colours the saved collection actually uses, so a new piece can be made
+   to match it. Drawn from approved traits only - a wip is not the standard. */
+async function collectionPalette(cap){
+  let items=[];
+  try{ items=await dbAll(); }catch(_){ return []; }
+  const traits=items.filter(i=>i.kind==="trait"&&(i.status||"wip")==="approved");
+  if(!traits.length) return [];
+  const counts=new Map();
+  for(const t of traits.slice(0,40)){
+    let bm; try{ bm=await createImageBitmap(t.blob); }catch(_){ continue; }
+    const c=document.createElement("canvas"); c.width=bm.width; c.height=bm.height;
+    const g=c.getContext("2d",{willReadFrequently:true});
+    g.imageSmoothingEnabled=false; g.drawImage(bm,0,0);
+    const d=g.getImageData(0,0,bm.width,bm.height).data;
+    for(let p=0;p<bm.width*bm.height;p++){
+      if(d[p*4+3]<128) continue;
+      const k=(d[p*4]<<16)|(d[p*4+1]<<8)|d[p*4+2];
+      counts.set(k,(counts.get(k)||0)+1);
+    }
+    bm.close&&bm.close();
+  }
+  if(!counts.size) return [];
+  const flat=new Uint8ClampedArray(counts.size*4);
+  let i=0;
+  for(const k of counts.keys()){
+    flat[i*4]=(k>>16)&255; flat[i*4+1]=(k>>8)&255; flat[i*4+2]=k&255; flat[i*4+3]=255; i++;
+  }
+  return palette(flat,counts.size,20,cap).list.map(c=>[c.r,c.g,c.b]);
+}
+
+let pxSrc=null, pxName="", pxData=null, pxPending=null, pxFixed=null;
+function pixelate(src,w,hh,o){
+  const N=o.size;
+  const d=recover(src,w,hh,N);
+  const cut=o.bgTol>0 ? cutBackground(d,N,N,o.bgTol) : 0;
+  const moved=quantise(d,N,N,o.colours,o.fixed);
+  /* A speck at this size is one or two cells; the floor scales with the canvas
+     so 160 does not keep dust that 32 would drop. */
+  const sp=despeckle(d,N,N,Math.max(2,Math.round(N*N*0.0008)),0.004);
+  const ring=o.outline?addOutline(d,N,N):0;
+  let kept=0;
+  for(let p=0;p<N*N;p++) if(d[p*4+3]>=128) kept++;
+  return {data:d,size:N,cut:cut,moved:moved,dropped:sp.dropped,ring:ring,kept:kept};
+}
+
+function pxOpts(){
+  return {size:+$("pxsize").value, colours:+$("pxcol").value,
+          bgTol:Math.max(0,Math.min(160,+$("pxbg").value||0)),
+          outline:$("pxline").checked,
+          fixed:$("pxmatch").checked?pxFixed:null};
+}
+function pxRender(){
+  $("pxsizelab").textContent=$("pxsize").value+String.fromCharCode(215)+$("pxsize").value;
+  $("pxcollab").textContent=$("pxcol").value;
+  if(!pxSrc) return;
+  clearTimeout(pxPending);
+  pxPending=setTimeout(()=>{
+    pxPending=null;
+    const o=pxOpts();
+    const r=pixelate(pxSrc.data,pxSrc.width,pxSrc.height,o);
+    pxData=r;
+    const cv=$("pxout");
+    cv.width=r.size; cv.height=r.size;
+    const g=cv.getContext("2d");
+    g.putImageData(new ImageData(new Uint8ClampedArray(r.data),r.size,r.size),0,0);
+    const bits=[r.kept.toLocaleString()+" cells kept"];
+    if(o.bgTol) bits.push(r.cut.toLocaleString()+" cut as background");
+    if(r.dropped) bits.push(r.dropped+" specks dropped");
+    if(r.ring) bits.push(r.ring.toLocaleString()+" outline");
+    if(o.fixed&&o.fixed.length) bits.push("matched to "+o.fixed.length+" colour"+(o.fixed.length===1?"":"s")+" from your collection");
+    $("pxnote").textContent=bits.join(", ")+".";
+    $("pxgo").disabled=!r.kept;
+  },60);
+}
+async function openPixelate(d,w,hh,name){
+  pxSrc={data:d,width:w,height:hh};
+  pxName=name;
+  $("scrim").hidden=true;
+  $("pxscrim").hidden=false;
+  $("pxsub").textContent=name+" - "+w+String.fromCharCode(215)+hh;
+  /* Offered only when there is something to match against, so the checkbox is
+     never a control that silently does nothing. */
+  pxFixed=await collectionPalette(24);
+  /* A floor, not just non-empty. A project holding three flat-colour traits
+     yields a two-colour palette, and matching to it turns any piece into a
+     silhouette while the control still reads as if it worked. */
+  const MIN_MATCH=6;
+  const enough=pxFixed.length>=MIN_MATCH;
+  const box=$("pxmatch").closest("label");
+  box.hidden=!enough;
+  if(!enough) $("pxmatch").checked=false;
+  $("pxmatch").parentNode.title = enough
+    ? pxFixed.length+" colours found across your approved traits"
+    : "";
+  pxRender();
+}
+
 /* pointers: draw, pan, pinch */
 const pts=new Map(); let pinch=null, pan=null, spaceHeld=false;
 const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
@@ -2871,6 +3115,20 @@ $('dlBig').onclick=()=>download(8);
 /* Strip a flat background by flooding inwards from the border, so only colour
    REACHABLE from the edge goes. A white shirt in the middle of the character is
    never touched, which a plain "delete every white pixel" would wreck. */
+["pxsize","pxcol","pxbg","pxmatch","pxline"].forEach(id=>{
+  const e=$(id);
+  e.addEventListener("input",pxRender);
+  e.addEventListener("change",pxRender);
+});
+$('pxback').onclick=()=>{ $('pxscrim').hidden=true; $('scrim').hidden=false; };
+$('pxgo').onclick=()=>{
+  if(!pxData) return;
+  $('pxscrim').hidden=true;
+  const n=pxData.size;
+  startEditor(pxData.data,n,n,pxSrc.width,pxSrc.height,
+              palette(pxData.data,n*n,24,64),true);
+  toast('Pixelated to '+n+String.fromCharCode(215)+n);
+};
 $('addlayer').onclick=addLayer;
 $('newlayer').onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); addLayer(); } };
 $('bulkbtn').onclick=()=>$('bulkfile').click();

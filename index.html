@@ -44,6 +44,19 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
 .brand h1{font-size:23px; font-weight:700; letter-spacing:-.01em;}
 .tag{max-width:52ch; color:var(--muted); font-size:15.5px;}
 .tag b{color:var(--ink); font-weight:600;}
+.cwrap{display:flex; gap:18px; flex-wrap:wrap; align-items:flex-start;}
+#ccanvas{width:min(300px,72vw); aspect-ratio:1; image-rendering:pixelated; border-radius:10px;
+  border:1px solid var(--line); flex:none;
+  background:
+    linear-gradient(45deg,#232029 25%,transparent 25%,transparent 75%,#232029 75%),
+    linear-gradient(45deg,#232029 25%,#1a1720 25%,#1a1720 75%,#232029 75%);
+  background-size:16px 16px; background-position:0 0,8px 8px;}
+.crows{flex:1; min-width:230px; display:flex; flex-direction:column; gap:6px;}
+.crow{display:flex; align-items:center; gap:9px; font-size:12px;}
+.crow>label{width:104px; color:var(--muted); flex:none; text-transform:uppercase;
+  letter-spacing:.06em; font-size:10px;}
+.crow select{flex:1; min-width:0;}
+.crow.empty{opacity:.45;}
 .restore{width:min(560px,92vw); margin-bottom:14px; padding:13px 15px; border-radius:12px;
   background:var(--panel); border:1px solid var(--accent); display:flex; align-items:center;
   gap:12px; flex-wrap:wrap; font-size:13px; color:var(--ink);}
@@ -317,6 +330,25 @@ footer .mono{color:var(--ink);}
   </div>
   <p class="tag">A pixel editor that works on the grid your art was actually drawn on. Drop a PNG in, rebuild it at its true resolution, and <b>edit it cell by cell</b> — then download a clean file. Nothing is uploaded anywhere.</p>
 
+  <section class="proj" id="compose" hidden>
+    <div class="projhead">
+      <h2>Build a character</h2>
+      <span class="count" id="ccount"></span>
+      <div class="acts">
+        <label class="olchk" style="margin-right:4px"><input type="checkbox" id="cwip"> include wip</label>
+        <button class="mini" id="crand">Randomise</button>
+        <button class="mini" id="cclear">Clear</button>
+        <button class="mini go" id="cdl">Download</button>
+      </div>
+    </div>
+    <div class="cwrap">
+      <canvas id="ccanvas" width="160" height="160"></canvas>
+      <div class="crows" id="crows"></div>
+    </div>
+    <p class="note" id="cnote">Stacks one saved trait per layer, in the order the collection draws them,
+      over a base. This is the check that the set actually works together - a trait can look right on its
+      own and still collide with the hat above it.</p>
+  </section>
   <div class="restore" id="restore" hidden>
     <span id="restoretext"></span>
     <span class="acts"><button class="mini go" id="restoreyes">Pick up where you left off</button>
@@ -470,6 +502,15 @@ footer .mono{color:var(--ink);}
         <input id="bgtol" type="number" min="0" max="120" value="24" style="width:64px" aria-label="Background tolerance">
       </div>
       <p class="note">Floods in from the edges, so only colour connected to the border goes. A white shirt in the middle stays.</p>
+    </section>
+    <section>
+      <h2>Transform</h2>
+      <div class="savebar">
+        <button class="btn ghost" id="fliph" style="flex:1">Flip across</button>
+        <button class="btn ghost" id="flipv" style="flex:1">Flip down</button>
+      </div>
+      <p class="note">Mirrors the whole canvas, so a trait drawn for one side becomes the other without
+        redrawing it. The canvas keeps its size, which is what keeps the trait lining up on a character.</p>
     </section>
     <section>
       <h2>Recolour</h2>
@@ -744,11 +785,13 @@ function canvasFrom(data,w,h){
 }
 async function renderShelf(){
   let items=[];
-  try{ items=await dbAll(); }catch(_){ $('proj').hidden=true; return; }
+  /* Both early exits have to take the compose panel down with them, or
+     clearing the project leaves it on screen listing traits that are gone. */
+  try{ items=await dbAll(); }catch(_){ $('proj').hidden=true; $('compose').hidden=true; return; }
   const traits=items.filter(i=>i.kind==='trait');
   const savedRefs=items.filter(i=>i.kind==='ref');
   $('proj').hidden=!items.length;
-  if(!items.length) return;
+  if(!items.length){ $('compose').hidden=true; return; }
   $('projcount').textContent=traits.length+(traits.length===1?' trait':' traits');
   $('dlzip').disabled=!traits.length;
   const body=$('projbody'); body.innerHTML='';
@@ -815,6 +858,9 @@ async function renderShelf(){
     }
     wrap.appendChild(grid); body.appendChild(wrap);
   }
+  /* The compose view reads the same records the shelf just rendered, so it
+     cannot drift from what is actually saved. */
+  buildCompose(items);
 }
 /* Asking Claude what a trait is. The call goes through /api/identify so the
    API key stays on the server - a key in this page would be readable by anyone
@@ -2162,6 +2208,119 @@ function recolour(){
   toast("Recoloured "+n.toLocaleString()+" cells");
 }
 
+/* ================= transform ===================================== */
+/* Mirroring in place rather than via drawImage: the canvas is the artwork at
+   its true resolution, and letting the 2D context scale it would resample. */
+function flip(horizontal){
+  if(!ctx) return;
+  const W=art.width,H=art.height;
+  const src=ctx.getImageData(0,0,W,H), out=ctx.createImageData(W,H);
+  for(let y=0;y<H;y++) for(let x=0;x<W;x++){
+    const sx=horizontal?W-1-x:x, sy=horizontal?y:H-1-y;
+    const s=(sy*W+sx)*4, d=(y*W+x)*4;
+    out.data[d]=src.data[s]; out.data[d+1]=src.data[s+1];
+    out.data[d+2]=src.data[s+2]; out.data[d+3]=src.data[s+3];
+  }
+  snapshot(); ctx.putImageData(out,0,0); refreshStats();
+  toast(horizontal?"Flipped across":"Flipped down");
+}
+
+/* ================= build a character =============================
+   Every trait is saved on its full canvas precisely so it can be stacked back
+   onto a character without being repositioned. Nothing so far actually did
+   that stacking, so nothing checked it. This does. */
+const cBitmaps=new Map();   /* record id -> ImageBitmap, decoded once */
+async function cBitmap(rec){
+  if(cBitmaps.has(rec.id)) return cBitmaps.get(rec.id);
+  const bm=await createImageBitmap(rec.blob);
+  cBitmaps.set(rec.id,bm);
+  return bm;
+}
+let cItems=[];
+async function buildCompose(items){
+  cItems=items;
+  const wip=$("cwip").checked;
+  const traits=items.filter(i=>i.kind==="trait" && (wip || (i.status||"wip")==="approved"));
+  const refs=items.filter(i=>i.kind==="ref");
+  const sec=$("compose");
+  if(!traits.length && !refs.length){ sec.hidden=true; return; }
+  sec.hidden=false;
+  $("ccount").textContent=traits.length+" trait"+(traits.length===1?"":"s")+" to draw from";
+  const rows=$("crows");
+  const keep={};
+  rows.querySelectorAll("select").forEach(s=>{ keep[s.dataset.layer]=s.value; });
+  rows.innerHTML="";
+  const mkRow=(label,list,key)=>{
+    const r=document.createElement("div");
+    r.className="crow"+(list.length?"":" empty");
+    const l=document.createElement("label"); l.textContent=label;
+    const id="csel_"+key; l.setAttribute("for",id);
+    const s=document.createElement("select"); s.id=id; s.dataset.layer=key;
+    s.disabled=!list.length;
+    const none=document.createElement("option");
+    none.value=""; none.textContent=list.length?"none":"nothing saved here";
+    s.appendChild(none);
+    for(const it of list){
+      const o=document.createElement("option");
+      o.value=it.id;
+      o.textContent=it.name+(it.status&&it.status!=="approved"?" ("+it.status+")":"");
+      s.appendChild(o);
+    }
+    if(keep[key]&&[...s.options].some(o=>o.value===keep[key])) s.value=keep[key];
+    s.onchange=drawCompose;
+    r.appendChild(l); r.appendChild(s); rows.appendChild(r);
+  };
+  mkRow("base",refs,"__base");
+  for(const layer of LAYERS){
+    const mine=traits.filter(t=>t.layer===layer).sort((a,b)=>a.name.localeCompare(b.name));
+    if(!mine.length) continue;
+    mkRow(layer,mine,layer);
+  }
+  drawCompose();
+}
+function cChosen(){
+  const picked=[];
+  $("crows").querySelectorAll("select").forEach(s=>{
+    if(!s.value) return;
+    const rec=cItems.find(i=>i.id===s.value);
+    if(rec) picked.push({layer:s.dataset.layer,rec:rec});
+  });
+  return picked;
+}
+async function drawCompose(){
+  const cv=$("ccanvas"), picked=cChosen();
+  /* The canvas takes the LARGEST piece rather than the first: a mismatch is
+     the interesting case and shrinking to the smallest would hide it. */
+  let W=160,H=160;
+  for(const p of picked){ if(p.rec.w>W) W=p.rec.w; if(p.rec.h>H) H=p.rec.h; }
+  cv.width=W; cv.height=H;
+  const g=cv.getContext("2d");
+  g.imageSmoothingEnabled=false;
+  g.clearRect(0,0,W,H);
+  const odd=[];
+  for(const p of picked){
+    const bm=await cBitmap(p.rec);
+    if(p.rec.w!==W||p.rec.h!==H) odd.push(p.rec.name+" is "+p.rec.w+String.fromCharCode(215)+p.rec.h);
+    g.drawImage(bm,0,0,W,H);
+  }
+  $("cnote").textContent = odd.length
+    ? "Scaled to fit the biggest piece: "+odd.join(", ")+". Traits meant to layer should all be saved at the same canvas size, or they will not line up on a real character."
+    : "Stacks one saved trait per layer, in the order the collection draws them, over a base. This is the check that the set actually works together - a trait can look right on its own and still collide with the hat above it.";
+  $("cdl").disabled=!picked.length;
+}
+function composeRandom(){
+  const sels=[...$("crows").querySelectorAll("select")].filter(s=>!s.disabled);
+  for(const s of sels){
+    const opts=[...s.options].filter(o=>o.value);
+    if(!opts.length) continue;
+    /* The base always gets one; a trait layer may legitimately be empty, which
+       is what makes generated characters differ at all. */
+    const skip = s.dataset.layer!=="__base" && Math.random()<0.35;
+    s.value = skip ? "" : opts[Math.floor(Math.random()*opts.length)].value;
+  }
+  drawCompose();
+}
+
 /* pointers: draw, pan, pinch */
 const pts=new Map(); let pinch=null, pan=null, spaceHeld=false;
 const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
@@ -2265,6 +2424,22 @@ $('dlBig').onclick=()=>download(8);
 /* Strip a flat background by flooding inwards from the border, so only colour
    REACHABLE from the edge goes. A white shirt in the middle of the character is
    never touched, which a plain "delete every white pixel" would wreck. */
+$('fliph').onclick=()=>flip(true);
+$('flipv').onclick=()=>flip(false);
+$('crand').onclick=composeRandom;
+$('cclear').onclick=()=>{ $('crows').querySelectorAll('select').forEach(s=>s.value=''); drawCompose(); };
+$('cwip').onchange=()=>{ renderShelf(); };
+$('cdl').onclick=()=>{
+  const cv=$("ccanvas");
+  cv.toBlob(b=>{
+    if(!b) return;
+    const a=document.createElement("a");
+    a.href=URL.createObjectURL(b);
+    a.download="character-"+cChosen().map(p=>p.rec.name).join("-").slice(0,80)+".png";
+    a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+  },"image/png");
+};
 $('rcgo').onclick=recolour;
 $('rcnear').addEventListener('change',()=>{ $('rctol').disabled=!$('rcnear').checked; });
 $('rctol').disabled=true;

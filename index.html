@@ -2291,20 +2291,35 @@ async function drawCompose(){
   const cv=$("ccanvas"), picked=cChosen();
   /* The canvas takes the LARGEST piece rather than the first: a mismatch is
      the interesting case and shrinking to the smallest would hide it. */
-  let W=160,H=160;
+  /* Seeded at zero, not at 160: seeding at a default meant a set of 48x48
+     traits was scaled UP to 160 and then reported as mismatched, when they
+     agreed with each other exactly. The fallback only applies to an empty
+     selection, where there is no size to take. */
+  let W=0,H=0;
   for(const p of picked){ if(p.rec.w>W) W=p.rec.w; if(p.rec.h>H) H=p.rec.h; }
+  if(!W||!H){ W=160; H=160; }
   cv.width=W; cv.height=H;
   const g=cv.getContext("2d");
   g.imageSmoothingEnabled=false;
   g.clearRect(0,0,W,H);
-  const odd=[];
+  /* Grouped by size rather than listed as deviations from the biggest: with
+     three pieces at 48 and one at 96, naming everything that differs from the
+     max points at the three that agree and stays quiet about the one that
+     does not. The groups make the outlier the short row. */
+  const sizes=new Map();
   for(const p of picked){
     const bm=await cBitmap(p.rec);
-    if(p.rec.w!==W||p.rec.h!==H) odd.push(p.rec.name+" is "+p.rec.w+String.fromCharCode(215)+p.rec.h);
+    const k=p.rec.w+String.fromCharCode(215)+p.rec.h;
+    if(!sizes.has(k)) sizes.set(k,[]);
+    sizes.get(k).push(p.rec.name);
     g.drawImage(bm,0,0,W,H);
   }
+  const odd = sizes.size>1
+    ? [...sizes.entries()].sort((a,b)=>b[1].length-a[1].length)
+        .map(e=>e[0]+" ("+e[1].join(", ")+")")
+    : [];
   $("cnote").textContent = odd.length
-    ? "Scaled to fit the biggest piece: "+odd.join(", ")+". Traits meant to layer should all be saved at the same canvas size, or they will not line up on a real character."
+    ? "These are not all the same size: "+odd.join(" and ")+". Drawn scaled to the biggest, but traits meant to layer have to be saved at one canvas size or they will not line up on a real character."
     : "Stacks one saved trait per layer, in the order the collection draws them, over a base. This is the check that the set actually works together - a trait can look right on its own and still collide with the hat above it.";
   $("cdl").disabled=!picked.length;
 }

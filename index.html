@@ -44,6 +44,19 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
 .brand h1{font-size:23px; font-weight:700; letter-spacing:-.01em;}
 .tag{max-width:52ch; color:var(--muted); font-size:15.5px;}
 .tag b{color:var(--ink); font-weight:600;}
+.lrow{display:flex; align-items:center; gap:8px; padding:5px 0;
+  border-bottom:1px solid var(--line);}
+.lrow:last-child{border-bottom:none;}
+.lname{flex:1; min-width:0; background:none; border:1px solid transparent; color:var(--ink);
+  font:inherit; font-size:12.5px; padding:4px 6px; border-radius:6px;}
+.lname:hover{border-color:var(--line);}
+.lname:focus{border-color:var(--accent); background:var(--ground); outline:none;}
+.lcount{font-size:11px; color:var(--dim); min-width:58px; text-align:right; flex:none;}
+.lbtn{width:27px; height:27px; border-radius:6px; background:var(--panel-2);
+  border:1px solid var(--line); color:var(--muted); font-size:12px; flex:none;}
+.lbtn:hover:not([disabled]){border-color:var(--accent); color:var(--ink);}
+.lbtn[disabled]{opacity:.28; cursor:not-allowed;}
+.projhead .acts input{width:150px;}
 .cwrap{display:flex; gap:18px; flex-wrap:wrap; align-items:flex-start;}
 #ccanvas{width:min(300px,72vw); height:auto; image-rendering:pixelated; border-radius:10px;
   border:1px solid var(--line); flex:none;
@@ -334,6 +347,20 @@ footer .mono{color:var(--ink);}
   </div>
   <p class="tag">A pixel editor that works on the grid your art was actually drawn on. Drop a PNG in, rebuild it at its true resolution, and <b>edit it cell by cell</b> — then download a clean file. Nothing is uploaded anywhere.</p>
 
+  <section class="proj" id="layers" hidden>
+    <div class="projhead">
+      <h2>Layers</h2>
+      <span class="count" id="layercount"></span>
+      <div class="acts">
+        <input id="newlayer" type="text" placeholder="new layer name" aria-label="New layer name">
+        <button class="mini" id="addlayer">Add</button>
+      </div>
+    </div>
+    <div id="layerbody"></div>
+    <p class="note">The top of this list is drawn in front of everything below it. Renaming a layer
+      takes every trait on it along; removing one sends its traits to unsorted rather than deleting
+      them. This order is what the character builder and the sheet draw in.</p>
+  </section>
   <section class="proj" id="compose" hidden>
     <div class="projhead">
       <h2>Build a character</h2>
@@ -761,8 +788,12 @@ function load(file){
    would blow through. IndexedDB also stores Blobs directly, so nothing
    has to be base64'd to be kept. It is per-browser, not a server, so it
    survives refreshes but does not sync between devices. */
-const LAYERS=['backgrounds','skins','clothing','costumes','chains','accessories',
+/* The draw order is the user's, not ours. It starts as this list and is then
+   whatever they have saved - so LAYERS is read at use, never captured. */
+const DEFAULT_LAYERS=['backgrounds','skins','clothing','costumes','chains','accessories',
   'extras','ears','mouth','eyes','hair-headwear','masks','unsorted'];
+let LAYERS=DEFAULT_LAYERS.slice();
+const LAYERS_ID='settings.layers';
 /* Deliberately still 'pixelbench' after the rename to ChatNFT: this string is
    the key to every trait already saved in a browser. Renaming it would leave
    that data in place but unreachable, which presents as the project emptying
@@ -803,11 +834,15 @@ async function renderShelf(){
   let items=[];
   /* Both early exits have to take the compose panel down with them, or
      clearing the project leaves it on screen listing traits that are gone. */
-  try{ items=await dbAll(); }catch(_){ $('proj').hidden=true; $('compose').hidden=true; return; }
+  try{ items=await dbAll(); }catch(_){ $('proj').hidden=true; $('compose').hidden=true;
+    $('layers').hidden=true; return; }
+  /* Before anything groups by layer: the saved order is the authority, and
+     the default list is only what it starts from. */
+  applyLayers(items);
   const traits=items.filter(i=>i.kind==='trait');
   const savedRefs=items.filter(i=>i.kind==='ref');
   $('proj').hidden=!items.length;
-  if(!items.length){ $('compose').hidden=true; return; }
+  if(!items.length){ $('compose').hidden=true; $('layers').hidden=true; return; }
   $('projcount').textContent=traits.length+(traits.length===1?' trait':' traits');
   $('dlzip').disabled=!traits.length;
   const body=$('projbody'); body.innerHTML='';
@@ -876,6 +911,7 @@ async function renderShelf(){
   }
   /* The compose view reads the same records the shelf just rendered, so it
      cannot drift from what is actually saved. */
+  buildLayerPanel(items);
   buildCompose(items);
 }
 /* Asking Claude what a trait is. The call goes through /api/identify so the
@@ -989,8 +1025,7 @@ $('dlzip').onclick=async()=>{
   setTimeout(()=>URL.revokeObjectURL(u),1500);
   toast('Downloaded '+files.length+' traits');
 };
-LAYERS.forEach(l=>{ const o=document.createElement('option'); o.value=l; o.textContent=l; $('tlayer').appendChild(o); });
-$('tlayer').value='unsorted';
+buildLayerSelect();
 renderShelf();
 
 /* ============ pulling a trait off a character =====================
@@ -2594,6 +2629,145 @@ async function drawSheet(count){
   $("cdl").disabled=false;
 }
 
+/* ================= layers ========================================
+   Order IS the feature: the character builder and the sheet paint in exactly
+   this sequence, so moving a layer up here is what puts a hat over hair. */
+const slugLayer=s=>String(s||"").toLowerCase().trim()
+  .replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"").slice(0,32);
+
+function applyLayers(items){
+  const rec=items.find(i=>i.id===LAYERS_ID);
+  if(rec&&Array.isArray(rec.layers)&&rec.layers.length) LAYERS=rec.layers.slice();
+  /* unsorted is where anything unrecognised lands, on import and on removal,
+     so it has to exist whatever the saved list says. */
+  if(LAYERS.indexOf("unsorted")<0) LAYERS.push("unsorted");
+  buildLayerSelect();
+}
+function buildLayerSelect(){
+  const sel=$("tlayer");
+  const keep=sel.value;
+  sel.innerHTML="";
+  for(const l of LAYERS){
+    const o=document.createElement("option"); o.value=l; o.textContent=l; sel.appendChild(o);
+  }
+  sel.value = LAYERS.indexOf(keep)>=0 ? keep : "unsorted";
+}
+async function saveLayers(){
+  await dbPut({id:LAYERS_ID, kind:"settings", layers:LAYERS.slice(), at:Date.now()});
+  await renderShelf();
+}
+
+/* A trait's id encodes its layer, so changing the layer means a NEW record.
+   Delete then put - and never let a put land on an id already in use, or one
+   trait silently replaces another and the count still looks right. */
+async function retagLayer(items,from,to){
+  const mine=items.filter(i=>i.kind==="trait"&&i.layer===from);
+  const taken=new Set(items.map(i=>i.id));
+  let moved=0, renamed=0;
+  for(const t of mine){
+    const status=t.status||"wip";
+    let name=t.name, id="t_"+name+"_"+to+"_"+status, k=2;
+    while(taken.has(id)){ name=t.name+"-"+k; id="t_"+name+"_"+to+"_"+status; k++; }
+    if(name!==t.name) renamed++;
+    taken.delete(t.id); taken.add(id);
+    await dbDel(t.id);
+    const rec=Object.assign({},t,{id:id,name:name,layer:to});
+    await dbPut(rec);
+    moved++;
+  }
+  return {moved:moved,renamed:renamed};
+}
+
+async function moveLayer(name,delta){
+  const i=LAYERS.indexOf(name);
+  if(i<0) return;
+  const j=i+delta;
+  if(j<0||j>=LAYERS.length) return;
+  LAYERS.splice(i,1);
+  LAYERS.splice(j,0,name);
+  await saveLayers();
+}
+async function addLayer(){
+  const raw=$("newlayer").value;
+  const name=slugLayer(raw);
+  if(!name){ toast("Give the layer a name"); return; }
+  if(LAYERS.indexOf(name)>=0){ toast("There is already a layer called "+name); return; }
+  /* Appended, so a new layer arrives in FRONT of everything - the top of the
+     list, where it is visible, rather than buried at the bottom. */
+  LAYERS.push(name);
+  $("newlayer").value="";
+  await saveLayers();
+  toast("Added "+name);
+}
+async function removeLayer(name){
+  if(name==="unsorted"){ toast("unsorted is where loose traits land, so it stays"); return; }
+  const items=await dbAll();
+  const n=items.filter(i=>i.kind==="trait"&&i.layer===name).length;
+  /* Traits are MOVED, never deleted - but the layer they were on is lost, and
+     re-filing them by hand is real work, so it gets asked about. */
+  if(n && !confirm("Remove the layer \""+name+"\"?"+String.fromCharCode(10)+String.fromCharCode(10)+
+      n+" trait"+(n===1?"":"s")+" will move to unsorted. Nothing is deleted.")) return;
+  const r=n?await retagLayer(items,name,"unsorted"):{moved:0,renamed:0};
+  LAYERS=LAYERS.filter(l=>l!==name);
+  await saveLayers();
+  toast("Removed "+name+(r.moved?", "+r.moved+" moved to unsorted":""));
+}
+async function renameLayer(oldName,raw){
+  const nw=slugLayer(raw);
+  if(!nw||nw===oldName){ await renderShelf(); return; }
+  if(LAYERS.indexOf(nw)>=0){ toast("There is already a layer called "+nw); await renderShelf(); return; }
+  const items=await dbAll();
+  const r=await retagLayer(items,oldName,nw);
+  LAYERS[LAYERS.indexOf(oldName)]=nw;
+  await saveLayers();
+  toast("Renamed to "+nw+(r.moved?", "+r.moved+" trait"+(r.moved===1?"":"s")+" moved":"")+
+        (r.renamed?" ("+r.renamed+" renamed to avoid a clash)":""));
+}
+
+function buildLayerPanel(items){
+  const sec=$("layers");
+  if(!items.length){ sec.hidden=true; return; }
+  sec.hidden=false;
+  const traits=items.filter(i=>i.kind==="trait");
+  $("layercount").textContent=LAYERS.length+" layers, front to back";
+  const body=$("layerbody");
+  body.innerHTML="";
+  /* Shown reversed: the array paints first-to-last, and people read a stack
+     top-down, so the front of the drawing is the top of the list. */
+  for(let i=LAYERS.length-1;i>=0;i--){
+    const name=LAYERS[i];
+    const n=traits.filter(t=>t.layer===name).length;
+    const row=document.createElement("div");
+    row.className="lrow";
+    const inp=document.createElement("input");
+    inp.className="lname"; inp.value=name; inp.setAttribute("aria-label","Layer name");
+    inp.onkeydown=e=>{ if(e.key==="Enter"){ e.preventDefault(); inp.blur(); }
+                       if(e.key==="Escape"){ inp.value=name; inp.blur(); } };
+    inp.onchange=()=>renameLayer(name,inp.value);
+    const cnt=document.createElement("span");
+    cnt.className="lcount"; cnt.textContent=n?(n+(n===1?" trait":" traits")):"empty";
+    const up=document.createElement("button");
+    up.className="lbtn"; up.textContent=String.fromCharCode(9650);
+    up.title="Move in front"; up.setAttribute("aria-label","Move "+name+" in front");
+    up.disabled=(i===LAYERS.length-1);
+    up.onclick=()=>moveLayer(name,1);
+    const dn=document.createElement("button");
+    dn.className="lbtn"; dn.textContent=String.fromCharCode(9660);
+    dn.title="Move behind"; dn.setAttribute("aria-label","Move "+name+" behind");
+    dn.disabled=(i===0);
+    dn.onclick=()=>moveLayer(name,-1);
+    const del=document.createElement("button");
+    del.className="lbtn"; del.textContent=String.fromCharCode(215);
+    del.title=name==="unsorted"?"unsorted cannot be removed":"Remove this layer";
+    del.setAttribute("aria-label","Remove "+name);
+    del.disabled=(name==="unsorted");
+    del.onclick=()=>removeLayer(name);
+    row.appendChild(inp); row.appendChild(cnt);
+    row.appendChild(up); row.appendChild(dn); row.appendChild(del);
+    body.appendChild(row);
+  }
+}
+
 /* pointers: draw, pan, pinch */
 const pts=new Map(); let pinch=null, pan=null, spaceHeld=false;
 const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
@@ -2697,6 +2871,8 @@ $('dlBig').onclick=()=>download(8);
 /* Strip a flat background by flooding inwards from the border, so only colour
    REACHABLE from the edge goes. A white shirt in the middle of the character is
    never touched, which a plain "delete every white pixel" would wreck. */
+$('addlayer').onclick=addLayer;
+$('newlayer').onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); addLayer(); } };
 $('bulkbtn').onclick=()=>$('bulkfile').click();
 $('bulkfile').onchange=async e=>{
   const f=e.target.files;

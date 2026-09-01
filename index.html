@@ -45,7 +45,7 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
 .tag{max-width:52ch; color:var(--muted); font-size:15.5px;}
 .tag b{color:var(--ink); font-weight:600;}
 .cwrap{display:flex; gap:18px; flex-wrap:wrap; align-items:flex-start;}
-#ccanvas{width:min(300px,72vw); aspect-ratio:1; image-rendering:pixelated; border-radius:10px;
+#ccanvas{width:min(300px,72vw); height:auto; image-rendering:pixelated; border-radius:10px;
   border:1px solid var(--line); flex:none;
   background:
     linear-gradient(45deg,#232029 25%,transparent 25%,transparent 75%,#232029 75%),
@@ -57,6 +57,10 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
   letter-spacing:.06em; font-size:10px;}
 .crow select{flex:1; min-width:0;}
 .crow.empty{opacity:.45;}
+.bulkrow{width:min(560px,92vw); margin-top:12px; display:flex; align-items:center; gap:10px;
+  flex-wrap:wrap; justify-content:center;}
+.hintline{font-size:11.5px; color:var(--dim);}
+#bulknote{width:min(560px,92vw); margin-top:8px; text-align:center;}
 .restore{width:min(560px,92vw); margin-bottom:14px; padding:13px 15px; border-radius:12px;
   background:var(--panel); border:1px solid var(--accent); display:flex; align-items:center;
   gap:12px; flex-wrap:wrap; font-size:13px; color:var(--ink);}
@@ -337,6 +341,7 @@ footer .mono{color:var(--ink);}
       <div class="acts">
         <label class="olchk" style="margin-right:4px"><input type="checkbox" id="cwip"> include wip</label>
         <button class="mini" id="crand">Randomise</button>
+        <button class="mini" id="csheet">Sheet of 12</button>
         <button class="mini" id="cclear">Clear</button>
         <button class="mini go" id="cdl">Download</button>
       </div>
@@ -359,6 +364,12 @@ footer .mono{color:var(--ink);}
     <span>or click to choose a file · nothing leaves your device</span>
   </div>
   <input type="file" id="file" accept="image/png,image/gif,image/webp,image/jpeg" hidden>
+  <div class="bulkrow">
+    <button class="mini" id="bulkbtn">Import a folder of traits</button>
+    <span class="hintline">Reads the layer and the wip / approved / rejected state out of the folder names</span>
+  </div>
+  <input type="file" id="bulkfile" webkitdirectory directory multiple hidden>
+  <p class="note" id="bulknote" hidden></p>
   <p class="err" id="err" role="status"></p>
 
   <div class="how">
@@ -2288,6 +2299,7 @@ function cChosen(){
   return picked;
 }
 async function drawCompose(){
+  sheetMode=false;
   const cv=$("ccanvas"), picked=cChosen();
   /* The canvas takes the LARGEST piece rather than the first: a mismatch is
      the interesting case and shrinking to the smallest would hide it. */
@@ -2334,6 +2346,144 @@ function composeRandom(){
     s.value = skip ? "" : opts[Math.floor(Math.random()*opts.length)].value;
   }
   drawCompose();
+}
+
+/* ================= bulk import ===================================
+   The collection already exists on disk as folders of PNGs. Adding it one
+   file at a time through the drop zone is not a workflow, so the layer and
+   the wip / approved / rejected state are read out of the PATH instead of
+   asked for: a file at traits/chains/approved/dog-tag.png carries all three.
+
+   Matching is done on WHOLE path segments, not with indexOf on the string. A
+   folder called "approved-drafts" contains the word "approved" and means the
+   opposite, and a trait named "masks-off" is not on the masks layer. */
+const STATUSES=["approved","wip","rejected"];
+function readPath(rel){
+  const parts=rel.split(/[\\/]/).filter(Boolean);
+  const file=parts.pop()||"";
+  const name=file.replace(/\.[^.]+$/,"");
+  let layer=null,status=null;
+  /* Last match wins: paths run general to specific, so a deeper folder is the
+     more specific statement about the file. */
+  for(const seg of parts){
+    const s=seg.toLowerCase();
+    if(LAYERS.indexOf(s)>=0) layer=s;
+    if(STATUSES.indexOf(s)>=0) status=s;
+  }
+  return {name:name, layer:layer, status:status,
+          isRef:/^_?reference/i.test(name)||/^_/.test(name)};
+}
+async function bulkImport(files){
+  const note=$("bulknote");
+  const all=[...files];
+  const pngs=all.filter(f=>/\.png$/i.test(f.name));
+  note.hidden=false;
+  if(!pngs.length){
+    note.textContent="No PNGs in that folder"+(all.length?" ("+all.length+" other files ignored)":"")+".";
+    return;
+  }
+  const MAX=1200;
+  const list=pngs.slice(0,MAX);
+  let ok=0,failed=0,refs=0;
+  const perLayer={}, noLayer=[];
+  for(let i=0;i<list.length;i++){
+    const f=list[i];
+    if(i%12===0){
+      note.textContent="Reading "+(i+1)+" of "+list.length+"...";
+      await new Promise(r=>setTimeout(r,0));   /* let the line actually paint */
+    }
+    const info=readPath(f.webkitRelativePath||f.name);
+    let bm=null;
+    try{ bm=await createImageBitmap(f); }catch(_){ failed++; continue; }
+    const w=bm.width,h2=bm.height;
+    bm.close&&bm.close();
+    try{
+      if(info.isRef&&!info.layer){
+        await dbPut({id:"ref_"+info.name, kind:"ref", name:info.name, w:w, h:h2, blob:f, at:Date.now()});
+        refs++;
+      }else{
+        const layer=info.layer||"unsorted";
+        const status=info.status||"wip";
+        if(!info.layer) noLayer.push(info.name);
+        await dbPut({id:"t_"+info.name+"_"+layer+"_"+status, kind:"trait", name:info.name,
+                     layer:layer, status:status, w:w, h:h2, blob:f, at:Date.now()});
+        perLayer[layer]=(perLayer[layer]||0)+1;
+      }
+      ok++;
+    }catch(_){ failed++; }
+  }
+  await renderShelf();
+  /* Report what was GUESSED, not just what was counted: files that landed in
+     unsorted are the ones the folder names did not explain, and silently
+     filing them reads as if they were understood. */
+  const bits=[];
+  bits.push("Imported "+ok+" file"+(ok===1?"":"s"));
+  if(refs) bits.push(refs+" kept as a base");
+  if(noLayer.length) bits.push(noLayer.length+" had no layer in the path and went to unsorted"+
+    (noLayer.length<=4?" ("+noLayer.join(", ")+")":""));
+  if(failed) bits.push(failed+" could not be read");
+  if(pngs.length>MAX) bits.push("stopped at "+MAX+" of "+pngs.length+" PNGs");
+  if(all.length>pngs.length) bits.push((all.length-pngs.length)+" non-PNG ignored");
+  note.textContent=bits.join(". ")+".";
+  toast("Imported "+ok+" file"+(ok===1?"":"s"));
+}
+
+/* ---- a sheet of random characters -------------------------------
+   One character at a time answers "does this trait sit right". Twelve at once
+   answers the question that actually matters for a set: do the COMBINATIONS
+   work. A collision between a hat and a pair of ears only shows up when both
+   happen to be drawn, which one-at-a-time browsing will not find. */
+let sheetMode=false;
+function cPools(){
+  const pools={};
+  $("crows").querySelectorAll("select").forEach(s=>{
+    if(s.disabled) return;
+    pools[s.dataset.layer]=[...s.options].filter(o=>o.value)
+      .map(o=>cItems.find(i=>i.id===o.value)).filter(Boolean);
+  });
+  return pools;
+}
+/* Returns records already in draw order: base, then LAYERS order. Building the
+   list in the order it will be painted keeps the ordering in one place. */
+function randomCombo(pools){
+  const out=[];
+  const base=pools.__base;
+  if(base&&base.length) out.push(base[Math.floor(Math.random()*base.length)]);
+  for(const layer of LAYERS){
+    const p=pools[layer];
+    if(!p||!p.length) continue;
+    if(Math.random()<0.35) continue;   /* an empty layer is what makes them differ */
+    out.push(p[Math.floor(Math.random()*p.length)]);
+  }
+  return out;
+}
+async function drawSheet(count){
+  const pools=cPools();
+  const combos=[];
+  for(let i=0;i<count;i++) combos.push(randomCombo(pools));
+  let W=0,H=0;
+  for(const c of combos) for(const r of c){ if(r.w>W) W=r.w; if(r.h>H) H=r.h; }
+  if(!W||!H){ toast("Nothing saved to build from"); return; }
+  const cols=Math.min(4,count), rows=Math.ceil(count/cols), GAP=2;
+  const cv=$("ccanvas");
+  cv.width=cols*(W+GAP)-GAP; cv.height=rows*(H+GAP)-GAP;
+  const g=cv.getContext("2d");
+  g.imageSmoothingEnabled=false;
+  g.clearRect(0,0,cv.width,cv.height);
+  for(let i=0;i<combos.length;i++){
+    const ox=(i%cols)*(W+GAP), oy=Math.floor(i/cols)*(H+GAP);
+    for(const r of combos[i]){
+      const bm=await cBitmap(r);
+      g.drawImage(bm,ox,oy,W,H);
+    }
+  }
+  sheetMode=true;
+  const empties=combos.filter(c=>c.length<=1).length;
+  $("cnote").textContent=count+" random characters drawn from what is saved"+
+    ($("cwip").checked?"":" and approved")+". Look for traits that collide rather than stack"+
+    (empties?", and note "+empties+" came out with nothing but a base":"")+
+    ". Change any dropdown to go back to one character.";
+  $("cdl").disabled=false;
 }
 
 /* pointers: draw, pan, pinch */
@@ -2439,9 +2589,16 @@ $('dlBig').onclick=()=>download(8);
 /* Strip a flat background by flooding inwards from the border, so only colour
    REACHABLE from the edge goes. A white shirt in the middle of the character is
    never touched, which a plain "delete every white pixel" would wreck. */
+$('bulkbtn').onclick=()=>$('bulkfile').click();
+$('bulkfile').onchange=async e=>{
+  const f=e.target.files;
+  if(f&&f.length) await bulkImport(f);
+  e.target.value='';
+};
 $('fliph').onclick=()=>flip(true);
 $('flipv').onclick=()=>flip(false);
 $('crand').onclick=composeRandom;
+$('csheet').onclick=()=>drawSheet(12);
 $('cclear').onclick=()=>{ $('crows').querySelectorAll('select').forEach(s=>s.value=''); drawCompose(); };
 $('cwip').onchange=()=>{ renderShelf(); };
 $('cdl').onclick=()=>{
@@ -2450,7 +2607,8 @@ $('cdl').onclick=()=>{
     if(!b) return;
     const a=document.createElement("a");
     a.href=URL.createObjectURL(b);
-    a.download="character-"+cChosen().map(p=>p.rec.name).join("-").slice(0,80)+".png";
+    a.download=(sheetMode ? "sheet-of-characters"
+      : "character-"+cChosen().map(p=>p.rec.name).join("-").slice(0,80))+".png";
     a.click();
     setTimeout(()=>URL.revokeObjectURL(a.href),4000);
   },"image/png");

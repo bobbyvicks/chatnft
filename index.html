@@ -509,6 +509,9 @@ footer .mono{color:var(--ink);}
         <button class="mini filt" data-f="approved" aria-pressed="false">approved</button>
         <button class="mini filt" data-f="rejected" aria-pressed="false">rejected</button>
         <button class="mini" id="dlzip">Download all</button>
+        <button class="mini" id="expproj">Export project</button>
+        <button class="mini" id="impproj">Import</button>
+        <input id="impfile" type="file" accept="application/json,.chatnft,.json" hidden>
         <button class="mini" id="clearproj">Clear</button>
       </div>
     </div>
@@ -3102,6 +3105,115 @@ async function openPixelate(d,w,hh,name){
 }
 
 /* pointers: draw, pan, pinch */
+/* ================= project file =================================
+   One file holding the whole collection: the layer order, every trait with
+   its layer, status and rarity, and the references. This exists for its own
+   sake - it is how a collection gets backed up or moved to another machine
+   today, with no account involved - but it is also the shape the server sync
+   will send, so the format is settled here rather than invented twice.
+
+   PNGs go in as base64. That is about a third larger than the bytes, which is
+   a real cost, but a project file that is one self-describing text file can be
+   inspected, diffed and repaired by hand. A zip of loose images cannot carry
+   the layer order or the rarities at all, which is exactly what the existing
+   Download all loses. */
+const PROJECT_FORMAT="chatnft-project";
+const PROJECT_VERSION=1;
+
+function blobToDataURL(b){
+  return new Promise((res,rej)=>{
+    const fr=new FileReader();
+    fr.onload=()=>res(String(fr.result));
+    fr.onerror=()=>rej(new Error("could not read a stored image"));
+    fr.readAsDataURL(b);
+  });
+}
+async function dataURLToBlob(u){ return (await fetch(u)).blob(); }
+
+async function exportProject(){
+  let items=[];
+  try{ items=await dbAll(); }catch(_){ toast("Could not read the project"); return; }
+  const keep=items.filter(i=>i.kind==="trait"||i.kind==="ref");
+  if(!keep.length){ toast("Nothing saved to export"); return; }
+  const out=[];
+  let failed=0;
+  for(const it of keep){
+    try{
+      out.push({id:it.id, kind:it.kind, name:it.name, layer:it.layer||null,
+        status:it.status||null, rarity:typeof it.rarity==="number"?it.rarity:null,
+        w:it.w, h:it.h, at:it.at||null, png:await blobToDataURL(it.blob)});
+    }catch(_){ failed++; }
+  }
+  const doc={format:PROJECT_FORMAT, version:PROJECT_VERSION,
+    savedAt:new Date().toISOString(), layers:LAYERS.slice(), items:out};
+  const b=new Blob([JSON.stringify(doc)],{type:"application/json"});
+  const u=URL.createObjectURL(b), a=document.createElement("a");
+  a.href=u; a.download="chatnft-project.json";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(u),1500);
+  /* Report the failures too. A silent partial export is worse than none: it
+     looks like a backup and is not one. */
+  toast("Exported "+out.length+" item"+(out.length===1?"":"s")+
+        (failed?", "+failed+" could not be read":""));
+}
+
+async function importProject(file){
+  let doc=null;
+  try{ doc=JSON.parse(await file.text()); }
+  catch(_){ toast("That is not a project file"); return; }
+  /* Check the tag before touching anything. Importing whatever JSON happens to
+     be dropped in would scatter junk through someone real collection. */
+  if(!doc||doc.format!==PROJECT_FORMAT||!Array.isArray(doc.items)){
+    toast("That file is not a ChatNFT project"); return;
+  }
+  if(doc.version>PROJECT_VERSION){
+    toast("That project was saved by a newer version of ChatNFT"); return;
+  }
+  let existing=[];
+  try{ existing=await dbAll(); }catch(_){}
+  const taken=new Set(existing.map(i=>i.id));
+  let added=0, renamed=0, failed=0;
+  for(const it of doc.items){
+    if(!it||!it.png||!it.name) { failed++; continue; }
+    let blob=null;
+    try{ blob=await dataURLToBlob(it.png); }catch(_){ failed++; continue; }
+    /* MERGE, never replace. Someone importing a friend's traits should not
+       lose their own, and an id already in use means a different trait with
+       the same name - so it is renamed rather than overwritten. */
+    const layer=it.layer||"unsorted", status=it.status||"wip";
+    let name=it.name;
+    let id=it.kind==="ref" ? "ref_"+name : "t_"+name+"_"+layer+"_"+status;
+    let k=2;
+    while(taken.has(id)){
+      name=it.name+"-"+k;
+      id=it.kind==="ref" ? "ref_"+name : "t_"+name+"_"+layer+"_"+status;
+      k++;
+    }
+    if(name!==it.name) renamed++;
+    taken.add(id);
+    const rec={id:id, kind:it.kind==="ref"?"ref":"trait", name:name,
+      w:it.w||0, h:it.h||0, blob:blob, at:Date.now()};
+    if(rec.kind==="trait"){ rec.layer=layer; rec.status=status;
+      if(typeof it.rarity==="number") rec.rarity=it.rarity; }
+    try{ await dbPut(rec); added++; }catch(_){ failed++; }
+  }
+  /* Layers the file knows about and this browser does not get appended, in the
+     order the file had them. The local order is not rewritten: it is this
+     collection's draw order and the imported file does not get to reorder it. */
+  let newLayers=0;
+  if(Array.isArray(doc.layers)){
+    for(const l of doc.layers) if(LAYERS.indexOf(l)<0){ LAYERS.push(l); newLayers++; }
+    if(newLayers) await saveLayers();
+  }
+  await renderShelf();
+  const bits=["Imported "+added+" item"+(added===1?"":"s")];
+  if(renamed) bits.push(renamed+" renamed to avoid replacing something");
+  if(newLayers) bits.push(newLayers+" new layer"+(newLayers===1?"":"s"));
+  if(failed) bits.push(failed+" could not be read");
+  toast(bits.join(", "));
+}
+
+/* pointers: draw, pan, pinch */
 const pts=new Map(); let pinch=null, pan=null, spaceHeld=false;
 const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
 const mid=(a,b)=>({clientX:(a.x+b.x)/2,clientY:(a.y+b.y)/2});
@@ -3234,6 +3346,13 @@ $('projsearch').addEventListener('keydown',e=>{
   if(e.key==='Escape'){ $('projsearch').value=''; shelfQuery=''; renderShelf(); }
 });
 $('addlayer').onclick=addLayer;
+$('expproj').onclick=exportProject;
+$('impproj').onclick=()=>$('impfile').click();
+$('impfile').onchange=async e=>{
+  const f=e.target.files&&e.target.files[0];
+  if(f) await importProject(f);
+  e.target.value='';
+};
 $('newlayer').onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); addLayer(); } };
 $('bulkbtn').onclick=()=>$('bulkfile').click();
 $('bulkfile').onchange=async e=>{

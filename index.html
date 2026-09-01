@@ -501,6 +501,22 @@ footer .mono{color:var(--ink);}
     <p class="err" id="exerr" role="status"></p>
   </section>
 
+  <section class="proj" id="cloud">
+    <div class="projhead">
+      <h2>Your account</h2>
+      <span class="count" id="cloudwho">not signed in</span>
+      <div class="acts" id="cloudacts">
+        <input id="cloudemail" type="email" placeholder="you@example.com"
+          autocomplete="email" aria-label="Email address">
+        <button class="mini go" id="cloudsend">Email me a link</button>
+        <button class="mini" id="cloudpush" hidden>Save to cloud</button>
+        <button class="mini" id="cloudpull" hidden>Load from cloud</button>
+        <button class="mini" id="cloudout" hidden>Sign out</button>
+      </div>
+    </div>
+    <p class="note" id="cloudnote">Signing in keeps your collection on the server so it follows you to
+      another device. Nothing is uploaded until you press Save to cloud.</p>
+  </section>
   <section class="proj" id="proj" hidden>
     <div class="projhead">
       <h2>Your project</h2>
@@ -3140,7 +3156,6 @@ async function openPixelate(d,w,hh,name){
   pxRender();
 }
 
-/* pointers: draw, pan, pinch */
 /* ================= project file =================================
    One file holding the whole collection: the layer order, every trait with
    its layer, status and rarity, and the references. This exists for its own
@@ -3250,6 +3265,232 @@ async function importProject(file){
 }
 
 /* pointers: draw, pan, pinch */
+/* ================= account and sync ==============================
+   Talks to Supabase over plain fetch rather than pulling in their SDK: this
+   page is one self-contained file with no external scripts, and a CDN import
+   would trade that for about 100KB and a third party in the load path.
+
+   Both values below are MEANT to be public. The publishable key identifies
+   the project, it does not grant anything - row level security decides what
+   each signed-in person can touch, and that is enforced in the database where
+   the browser cannot reach it. A service-role key would be the opposite and
+   must never appear here. */
+const SB_URL="https://dpracoavrcqyenfieksi.supabase.co";
+const SB_KEY="sb_publishable_DipQjG9YE0KZDu10-FvfPQ_Nsmt14bM";
+const SB_SESSION="chatnft.session";
+
+function sbLoadSession(){
+  try{ return JSON.parse(localStorage.getItem(SB_SESSION)||"null"); }catch(_){ return null; }
+}
+function sbSaveSession(s){
+  try{ s ? localStorage.setItem(SB_SESSION,JSON.stringify(s)) : localStorage.removeItem(SB_SESSION); }catch(_){}
+}
+
+/* Refreshes a minute BEFORE expiry rather than after a 401. Retrying on
+   failure would work too, but only for requests that are safe to repeat, and
+   a half-finished upload is not. */
+async function sbToken(){
+  let s=sbLoadSession();
+  if(!s||!s.access_token) return null;
+  if(s.expires_at && Date.now() < (s.expires_at*1000 - 60000)) return s.access_token;
+  if(!s.refresh_token){ sbSaveSession(null); return null; }
+  try{
+    const r=await fetch(SB_URL+"/auth/v1/token?grant_type=refresh_token",{
+      method:"POST", headers:{apikey:SB_KEY,"Content-Type":"application/json"},
+      body:JSON.stringify({refresh_token:s.refresh_token})});
+    if(!r.ok){ sbSaveSession(null); return null; }
+    const j=await r.json();
+    sbSaveSession({access_token:j.access_token, refresh_token:j.refresh_token,
+      expires_at:j.expires_at, user:j.user||s.user});
+    return j.access_token;
+  }catch(_){ return null; }
+}
+async function sbHeaders(extra){
+  const t=await sbToken();
+  if(!t) return null;
+  return Object.assign({apikey:SB_KEY, Authorization:"Bearer "+t}, extra||{});
+}
+
+/* The sign-in email lands back here with the tokens in the URL FRAGMENT.
+   A fragment is never sent to a server, which is why Supabase uses one - so
+   it has to be read and then removed, or the tokens sit in the address bar
+   and in any link the person copies from it. */
+function sbCaptureFromHash(){
+  const h=location.hash||"";
+  if(h.indexOf("access_token=")<0) return false;
+  const p=new URLSearchParams(h.slice(1));
+  const at=p.get("access_token");
+  if(!at) return false;
+  sbSaveSession({access_token:at, refresh_token:p.get("refresh_token"),
+    expires_at:Math.floor(Date.now()/1000)+(parseInt(p.get("expires_in"),10)||3600), user:null});
+  history.replaceState(null,"",location.pathname+location.search);
+  return true;
+}
+
+async function sbUser(){
+  const h=await sbHeaders();
+  if(!h) return null;
+  try{
+    const r=await fetch(SB_URL+"/auth/v1/user",{headers:h});
+    if(!r.ok) return null;
+    return await r.json();
+  }catch(_){ return null; }
+}
+
+async function cloudRender(){
+  const u=await sbUser();
+  const inn=!!(u&&u.id);
+  $("cloudwho").textContent = inn ? (u.email||"signed in") : "not signed in";
+  $("cloudemail").hidden=inn; $("cloudsend").hidden=inn;
+  $("cloudpush").hidden=!inn; $("cloudpull").hidden=!inn; $("cloudout").hidden=!inn;
+  return u;
+}
+
+async function cloudSignIn(){
+  const email=String($("cloudemail").value||"").trim();
+  if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ toast("That does not look like an email address"); return; }
+  $("cloudsend").disabled=true;
+  try{
+    const r=await fetch(SB_URL+"/auth/v1/otp",{method:"POST",
+      headers:{apikey:SB_KEY,"Content-Type":"application/json"},
+      body:JSON.stringify({email:email, create_user:true})});
+    if(!r.ok){
+      /* Say what came back. "Something went wrong" costs the person the one
+         piece of information that would tell them what to do next. */
+      let m=""; try{ m=(await r.json()).msg||(await r.text()); }catch(_){}
+      toast("Could not send the link"+(m?": "+String(m).slice(0,80):""));
+      return;
+    }
+    $("cloudnote").textContent="Check "+email+" for a sign-in link, then come back to this page.";
+    toast("Link sent to "+email);
+  }catch(_){ toast("Could not reach the server"); }
+  finally{ $("cloudsend").disabled=false; }
+}
+
+function cloudSignOut(){
+  sbSaveSession(null);
+  $("cloudnote").textContent="Signed out on this device. Your collection is still here, and still on the server.";
+  cloudRender();
+  toast("Signed out");
+}
+
+/* One collection per person for now. Fetched or created on demand so the
+   caller never has to care which. */
+async function cloudCollection(u){
+  const h=await sbHeaders({"Content-Type":"application/json"});
+  if(!h) return null;
+  let r=await fetch(SB_URL+"/rest/v1/collections?select=id,layers&owner=eq."+u.id+"&limit=1",{headers:h});
+  if(r.ok){ const rows=await r.json(); if(rows.length) return rows[0]; }
+  r=await fetch(SB_URL+"/rest/v1/collections",{method:"POST",
+    headers:Object.assign({Prefer:"return=representation"},h),
+    body:JSON.stringify({owner:u.id, name:"My collection", layers:LAYERS})});
+  if(!r.ok) return null;
+  const made=await r.json();
+  return made[0]||null;
+}
+
+const cloudPath=(u,c,it)=>u.id+"/"+c.id+"/"+
+  (it.kind==="ref"?"ref":"trait")+"-"+String(it.name).replace(/[^a-z0-9._-]+/gi,"-")+
+  "-"+(it.layer||"none")+"-"+(it.status||"none")+".png";
+
+async function cloudPush(){
+  const u=await sbUser();
+  if(!u){ toast("Sign in first"); return; }
+  const c=await cloudCollection(u);
+  if(!c){ toast("Could not open your collection on the server"); return; }
+  let items=[];
+  try{ items=(await dbAll()).filter(i=>i.kind==="trait"||i.kind==="ref"); }catch(_){}
+  if(!items.length){ toast("Nothing saved to upload"); return; }
+  $("cloudpush").disabled=true;
+  $("cloudnote").textContent="Uploading "+items.length+" item"+(items.length===1?"":"s")+"...";
+  let up=0, failed=0;
+  const rows=[];
+  for(const it of items){
+    const p=cloudPath(u,c,it);
+    try{
+      const h=await sbHeaders({"Content-Type":"image/png","x-upsert":"true"});
+      if(!h) throw new Error("no session");
+      const r=await fetch(SB_URL+"/storage/v1/object/traits/"+p,{method:"POST",headers:h,body:it.blob});
+      if(!r.ok) throw new Error("upload "+r.status);
+      rows.push({collection_id:c.id, owner:u.id, kind:it.kind, name:it.name,
+        layer:it.layer||null, status:it.status||null,
+        rarity:(typeof it.rarity==="number"?it.rarity:1), w:it.w||1, h:it.h||1, path:p});
+      up++;
+    }catch(_){ failed++; }
+  }
+  const h=await sbHeaders({"Content-Type":"application/json"});
+  /* Replace rather than merge: this button means "the server copy becomes what
+     is on this device", which is the only reading under which DELETING a trait
+     here also removes it there. A merge would quietly resurrect everything the
+     person has thrown away. */
+  await fetch(SB_URL+"/rest/v1/traits?collection_id=eq."+c.id,{method:"DELETE",headers:h});
+  let saved=0;
+  if(rows.length){
+    const r=await fetch(SB_URL+"/rest/v1/traits",{method:"POST",
+      headers:Object.assign({Prefer:"return=representation"},h), body:JSON.stringify(rows)});
+    if(r.ok) saved=(await r.json()).length;
+  }
+  await fetch(SB_URL+"/rest/v1/collections?id=eq."+c.id,{method:"PATCH",headers:h,
+    body:JSON.stringify({layers:LAYERS})});
+  $("cloudpush").disabled=false;
+  $("cloudnote").textContent="Saved "+saved+" item"+(saved===1?"":"s")+" to the cloud"+
+    (failed?", "+failed+" could not be uploaded":"")+". Load from cloud on another device to get them.";
+  toast("Saved "+saved+" to the cloud"+(failed?", "+failed+" failed":""));
+}
+
+async function cloudPull(){
+  const u=await sbUser();
+  if(!u){ toast("Sign in first"); return; }
+  const c=await cloudCollection(u);
+  if(!c){ toast("Nothing on the server yet"); return; }
+  const h=await sbHeaders();
+  if(!h) return;
+  const r=await fetch(SB_URL+"/rest/v1/traits?select=*&collection_id=eq."+c.id,{headers:h});
+  if(!r.ok){ toast("Could not read your collection"); return; }
+  const rows=await r.json();
+  if(!rows.length){ toast("Nothing saved on the server yet"); return; }
+  $("cloudpull").disabled=true;
+  let existing=[];
+  try{ existing=await dbAll(); }catch(_){}
+  const taken=new Set(existing.map(i=>i.id));
+  let added=0, renamed=0, failed=0;
+  for(const row of rows){
+    let blob=null;
+    try{
+      const g=await fetch(SB_URL+"/storage/v1/object/traits/"+row.path,{headers:h});
+      if(!g.ok) throw new Error("download "+g.status);
+      blob=await g.blob();
+    }catch(_){ failed++; continue; }
+    /* MERGES, never replaces. Pulling is not a reason to lose work done on
+       this device, so a clash is renamed exactly as an import does. */
+    const layer=row.layer||"unsorted", status=row.status||"wip";
+    let name=row.name;
+    let id=row.kind==="ref"?("ref_"+name):("t_"+name+"_"+layer+"_"+status), k=2;
+    while(taken.has(id)){ name=row.name+"-"+k;
+      id=row.kind==="ref"?("ref_"+name):("t_"+name+"_"+layer+"_"+status); k++; }
+    if(name!==row.name) renamed++;
+    taken.add(id);
+    const rec={id:id, kind:row.kind, name:name, w:row.w, h:row.h, blob:blob, at:Date.now()};
+    if(row.kind==="trait"){ rec.layer=layer; rec.status=status;
+      if(typeof row.rarity==="number") rec.rarity=row.rarity; }
+    try{ await dbPut(rec); added++; }catch(_){ failed++; }
+  }
+  let newLayers=0;
+  if(Array.isArray(c.layers)){
+    for(const l of c.layers) if(LAYERS.indexOf(l)<0){ LAYERS.push(l); newLayers++; }
+    if(newLayers) await saveLayers();
+  }
+  await renderShelf();
+  $("cloudpull").disabled=false;
+  const bits=["Loaded "+added+" item"+(added===1?"":"s")];
+  if(renamed) bits.push(renamed+" renamed so nothing here was replaced");
+  if(newLayers) bits.push(newLayers+" new layer"+(newLayers===1?"":"s"));
+  if(failed) bits.push(failed+" could not be read");
+  $("cloudnote").textContent=bits.join(", ")+".";
+  toast(bits.join(", "));
+}
+
+
 const pts=new Map(); let pinch=null, pan=null, spaceHeld=false;
 const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
 const mid=(a,b)=>({clientX:(a.x+b.x)/2,clientY:(a.y+b.y)/2});
@@ -3381,6 +3622,16 @@ $('projsearch').addEventListener('input',()=>{
 $('projsearch').addEventListener('keydown',e=>{
   if(e.key==='Escape'){ $('projsearch').value=''; shelfQuery=''; renderShelf(); }
 });
+$('addlayer').onclick=addLayer;
+$('cloudsend').onclick=cloudSignIn;
+$('cloudemail').onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); cloudSignIn(); } };
+$('cloudout').onclick=cloudSignOut;
+$('cloudpush').onclick=cloudPush;
+$('cloudpull').onclick=cloudPull;
+/* Read the sign-in fragment BEFORE the first render, so someone arriving from
+   the email sees themselves signed in rather than the form again. */
+if(sbCaptureFromHash()) toast("Signed in");
+cloudRender();
 $('addlayer').onclick=addLayer;
 $('expproj').onclick=exportProject;
 $('impproj').onclick=()=>$('impfile').click();

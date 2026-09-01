@@ -235,6 +235,14 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
   border:1px solid var(--line); border-radius:15px; padding:22px;}
 .card h2{font-size:17px; margin-bottom:3px;}
 .card .sub{color:var(--muted); font-size:13.5px; margin-bottom:17px;}
+/* The sign-in rows sat flush against each other: eight pixels of gap INSIDE a
+   row and none at all between them, so four separate boxes read as one lump.
+   Scoped to the gate rather than to .card, because the analysis dialog uses
+   the same class and spaces itself with margins that this would fight.
+   Hidden rows collapse to nothing under flex gap, so the layout does not open
+   a hole where a hidden button used to be. */
+#signin .card{display:flex; flex-direction:column; gap:10px;}
+#signin .card .sub{margin-bottom:2px;}
 .pxwrap{display:flex; gap:16px; flex-wrap:wrap; align-items:flex-start; margin-bottom:14px;}
 #pxout{width:min(220px,52vw); height:auto; image-rendering:pixelated; border-radius:10px;
   border:1px solid var(--line); flex:none;
@@ -407,7 +415,7 @@ footer .mono{color:var(--ink);}
       <span class="logo" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
       <h1>ChatNFT</h1>
     </div>
-    <p class="sub" style="text-align:center">Sign in to build and keep a trait collection. Your work is saved to your account, so it follows you to any device.</p>
+    <p class="sub" id="gatesub" style="text-align:center">Sign in to build and keep a trait collection. Your work is saved to your account, so it follows you to any device.</p>
     <div class="savebar">
       <input id="gateemail" type="email" placeholder="you@example.com" autocomplete="email"
         aria-label="Email address" style="flex:1">
@@ -420,6 +428,9 @@ footer .mono{color:var(--ink);}
     <div class="savebar">
       <button class="btn ghost" id="gateup" style="flex:1">Create an account</button>
       <button class="btn ghost" id="gatesend" style="flex:1">Email me a link instead</button>
+    </div>
+    <div class="savebar">
+      <button class="btn ghost" id="gatereset" style="flex:1">Forgot your password</button>
     </div>
     <p class="note" id="gateinvite" hidden style="color:var(--accent)"></p>
     <p class="note" id="gatenote">Sign in with a password and you stay signed in on this device. The email link is there if you forget it.</p>
@@ -3401,12 +3412,16 @@ async function sbHeaders(extra){
    A fragment is never sent to a server, which is why Supabase uses one - so
    it has to be read and then removed, or the tokens sit in the address bar
    and in any link the person copies from it. */
+/* A recovery link and a sign-in link arrive in the same shape, carrying the
+   same tokens, and only the type tells them apart. */
+let sbRecovery=false;
 function sbCaptureFromHash(){
   const h=location.hash||"";
   if(h.indexOf("access_token=")<0) return false;
   const p=new URLSearchParams(h.slice(1));
   const at=p.get("access_token");
   if(!at) return false;
+  sbRecovery = p.get("type")==="recovery";
   sbSaveSession({access_token:at, refresh_token:p.get("refresh_token"),
     expires_at:Math.floor(Date.now()/1000)+(parseInt(p.get("expires_in"),10)||3600), user:null});
   history.replaceState(null,"",location.pathname+location.search);
@@ -3444,7 +3459,7 @@ async function cloudRender(){
 
 async function cloudSignIn(){
   const email=String($("cloudemail").value||"").trim();
-  if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ toast("That does not look like an email address"); return; }
+  if(!EMAIL_RE.test(email)){ toast("That does not look like an email address"); return; }
   $("cloudsend").disabled=true;
   try{
     const r=await fetch(SB_URL+"/auth/v1/otp",{method:"POST",
@@ -3943,8 +3958,41 @@ function gateShow(on){
   if(on) $("acctpanel").hidden=true;
 }
 
+/* Supabase's own words reach the screen otherwise, and some of them are no
+   use to the person reading them. "email rate limit exceeded" names a limit
+   without saying whose it is, how long it lasts, or what to do next - and the
+   natural reading, that you personally did something too many times, is the
+   wrong one.
+
+   Two DIFFERENT limits wear similar words and must not be explained as each
+   other. One is a short pause between messages, measured in seconds, which the
+   server states. The other caps how many emails the whole site may send in an
+   hour; it is not about the person in front of it, and waiting twenty seconds
+   will not clear it. Telling someone to wait a minute when they need an hour
+   sends them round the same loop until they give up. */
+function authSays(j, fallback){
+  const raw=String((j&&(j.msg||j.error_description||j.message||j.error))||"");
+  const wait=raw.match(/after ([0-9]+) seconds?/i);
+  if(wait) return "Wait "+wait[1]+" seconds and try again - there is a short pause between emails.";
+  if(/email rate limit|over_email_send_rate_limit/i.test(raw))
+    return "This site has sent all the emails it is allowed this hour. That is a cap on the whole site, not on you or your address, so a different email will not help. Try again in an hour.";
+  if(/already registered|already been registered|user already/i.test(raw))
+    return "There is already an account for that address. Sign in with your password, or use the email link if you have forgotten it.";
+  if(/weak.?password|password should be|at least [0-9]+ characters/i.test(raw))
+    return "That password was refused. Try a longer one.";
+  /* Anything unrecognised is passed through rather than flattened into
+     "something went wrong": the server knowing something specific is more use
+     than a tidy sentence that knows nothing. */
+  return raw||fallback;
+}
+
+/* One definition, used everywhere. It was written out three times, which is
+   three chances for them to drift apart and for the rule to depend on which
+   button you pressed. */
+const EMAIL_RE=/^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
 function gateBusy(on){
-  for(const id of ["gatein","gateup","gatesend"]) $(id).disabled=on;
+  for(const id of ["gatein","gateup","gatesend","gatereset"]) $(id).disabled=on;
 }
 /* Both sign-in and sign-up land here, so a session is stored in exactly one
    place and the two cannot drift into remembering different things. */
@@ -3957,11 +4005,90 @@ function gateKeep(j){
 function gateCreds(){
   const email=String($("gateemail").value||"").trim();
   const pass=String($("gatepass").value||"");
-  if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){
+  if(!EMAIL_RE.test(email)){
     $("gatenote").textContent="That does not look like an email address."; return null; }
   if(pass.length<8){
     $("gatenote").textContent="Use a password of at least 8 characters."; return null; }
   return {email:email, password:pass};
+}
+
+/* A password you cannot remember is the same as having no account, and until
+   now the only way back in was the email link - which is the very thing the
+   password exists to stop needing. */
+async function gateReset(){
+  const email=String($("gateemail").value||"").trim();
+  if(!EMAIL_RE.test(email)){
+    $("gatenote").textContent="Put your email address in the box above, then press this again."; return; }
+  gateBusy(true);
+  $("gatenote").textContent="Sending...";
+  try{
+    const r=await fetch(SB_URL+"/auth/v1/recover",{method:"POST",
+      headers:{apikey:SB_KEY,"Content-Type":"application/json"},
+      body:JSON.stringify({email:email})});
+    if(!r.ok){ const j=await r.json().catch(()=>({}));
+      $("gatenote").textContent=authSays(j,"Could not send the reset email."); return; }
+    /* Worded the same whether or not that address has an account. "No account
+       here" would let anyone check which addresses are registered by typing
+       them in one at a time. */
+    $("gatenote").textContent="If there is an account for "+email+", a reset link is on its way. Open it and you can choose a new password.";
+  }catch(_){ $("gatenote").textContent="Could not reach the server."; }
+  finally{ gateBusy(false); }
+}
+
+/* The recovery link signs you in already - that is HOW it lets you set a
+   password without knowing the old one. So the gate is deliberately reopened
+   over a session that is perfectly valid, because being signed in is not what
+   the person came here to do. Dropping them straight into the editor would
+   leave the password still forgotten and no obvious way to change it. */
+let resetMode=false;
+function enterResetMode(){
+  resetMode=true;
+  gateShow(true);
+  $("gateemail").hidden=true;
+  $("gateup").hidden=true; $("gatesend").hidden=true; $("gatereset").hidden=true;
+  $("gatepass").value="";
+  $("gatepass").setAttribute("autocomplete","new-password");
+  $("gatepass").placeholder="new password";
+  /* The blurb invites you to sign in, which is not what is being asked here
+     and reads as though the form has not noticed why you came. */
+  $("gatesub").hidden=true;
+  $("gatein").textContent="Save new password";
+  $("gatenote").textContent="Choose a new password - at least 8 characters. You will stay signed in on this device.";
+  $("gatepass").focus();
+}
+function leaveResetMode(){
+  resetMode=false;
+  $("gateemail").hidden=false;
+  $("gateup").hidden=false; $("gatesend").hidden=false; $("gatereset").hidden=false;
+  $("gatepass").value="";
+  $("gatepass").setAttribute("autocomplete","current-password");
+  $("gatepass").placeholder="password";
+  $("gatesub").hidden=false;
+  $("gatein").textContent="Sign in";
+}
+
+async function saveNewPassword(){
+  const pass=String($("gatepass").value||"");
+  if(pass.length<8){ $("gatenote").textContent="Use a password of at least 8 characters."; return; }
+  gateBusy(true);
+  $("gatenote").textContent="Saving...";
+  try{
+    const h=await sbHeaders({"Content-Type":"application/json"});
+    /* A reset link is good for an hour. Past that there is no session behind
+       this form, and the honest thing is to say so rather than to fail on the
+       save and look like the password was rejected. */
+    if(!h){ leaveResetMode();
+      $("gatenote").textContent="That reset link has expired. Ask for a new one."; return; }
+    const r=await fetch(SB_URL+"/auth/v1/user",{method:"PUT",headers:h,
+      body:JSON.stringify({password:pass})});
+    if(!r.ok){ const j=await r.json().catch(()=>({}));
+      $("gatenote").textContent=authSays(j,"Could not save that password."); return; }
+    leaveResetMode();
+    $("gatenote").textContent="Sign in with a password and you stay signed in on this device. The email link is there if you forget it.";
+    await cloudRender();
+    toast("Password changed");
+  }catch(_){ $("gatenote").textContent="Could not reach the server."; }
+  finally{ gateBusy(false); }
 }
 
 async function gateSignIn(){
@@ -3997,7 +4124,7 @@ async function gateSignUp(){
       headers:{apikey:SB_KEY,"Content-Type":"application/json"}, body:JSON.stringify(c)});
     const j=await r.json().catch(()=>({}));
     if(!r.ok){
-      $("gatenote").textContent=(j&&(j.msg||j.error_description))||"Could not create that account.";
+      $("gatenote").textContent=authSays(j,"Could not create that account.");
       return;
     }
     /* This project has email confirmation on, so a brand new account gets one
@@ -4025,14 +4152,14 @@ async function setPassword(){
     const r=await fetch(SB_URL+"/auth/v1/user",{method:"PUT",headers:h,
       body:JSON.stringify({password:String(p)})});
     if(!r.ok){ const j=await r.json().catch(()=>({}));
-      toast((j&&(j.msg||j.error_description))||"Could not set the password"); return; }
+      toast(authSays(j,"Could not set the password")); return; }
     toast("Password set - you can sign in with it from now on");
   }catch(_){ toast("Could not reach the server"); }
 }
 
 async function gateSend(){
   const email=String($("gateemail").value||"").trim();
-  if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){
+  if(!EMAIL_RE.test(email)){
     $("gatenote").textContent="That does not look like an email address."; return; }
   $("gatesend").disabled=true;
   $("gatenote").textContent="Sending...";
@@ -4041,10 +4168,14 @@ async function gateSend(){
       headers:{apikey:SB_KEY,"Content-Type":"application/json"},
       body:JSON.stringify({email:email, create_user:true})});
     if(!r.ok){
-      let msg=""; try{ msg=(await r.json()).msg||""; }catch(_){}
-      /* Say what the server said. "Something went wrong" removes the one fact
-         that would tell the person what to do about it. */
-      $("gatenote").textContent="Could not send it"+(msg?": "+msg:". Try again in a moment.");
+      let j={}; try{ j=await r.json(); }catch(_){}
+      /* Supersedes "say what the server said", which was right about not
+         hiding the specific fact and wrong about this being enough on its
+         own. The specific fact is kept - anything authSays does not
+         recognise still passes through verbatim - but the handful of
+         messages that name a limit without naming a remedy are turned into
+         the remedy, because that is the part the reader needed. */
+      $("gatenote").textContent=authSays(j,"Could not send it. Try again in a moment.");
       return;
     }
     $("gatenote").textContent="Check "+email+" and click the link. You can close this tab.";
@@ -4194,10 +4325,26 @@ $('projsearch').addEventListener('keydown',e=>{
 $('addlayer').onclick=addLayer;
 $('cloudsend').onclick=cloudSignIn;
 $('gatesend').onclick=gateSend;
-$('gatein').onclick=gateSignIn;
+/* The same button, because it is the same act: the thing standing between
+   you and the editor. Which one it is depends on how you arrived. */
+$('gatein').onclick=()=>{ if(resetMode) saveNewPassword(); else gateSignIn(); };
+$('gatereset').onclick=gateReset;
+
+/* Changing only the fragment does NOT reload the page. Someone who already
+   has ChatNFT open in a tab, and follows an invite or a reset link back to
+   that same address, would otherwise see precisely nothing happen - a silent
+   failure of the one journey these links exist for. This is the boot path
+   again, run when the address changes underneath a page that is already up. */
+addEventListener("hashchange",()=>{
+  const joined=joinFromHash();
+  const signedIn=sbCaptureFromHash();
+  if(!joined && !signedIn) return;
+  if(joined) joinShowPending();
+  cloudRender().then(()=>{ if(signedIn && sbRecovery) enterResetMode(); });
+});
 $('gateup').onclick=gateSignUp;
 $('setpass').onclick=setPassword;
-$('gatepass').onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); gateSignIn(); } };
+$('gatepass').onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); if(resetMode) saveNewPassword(); else gateSignIn(); } };
 $('gateemail').onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); gateSend(); } };
 $('acctbtn').onclick=acctToggle;
 $('teaminvite').onclick=teamInvite;
@@ -4232,8 +4379,11 @@ $('cloudpush').onclick=cloudPush;
 $('cloudpull').onclick=cloudPull;
 /* Read the sign-in fragment BEFORE the first render, so someone arriving from
    the email sees themselves signed in rather than the form again. */
-if(sbCaptureFromHash()) toast("Signed in");
-cloudRender();
+/* A recovery link carries a session, so without this it reads as an ordinary
+   sign-in: "Signed in", straight to the editor, password still forgotten. */
+const cameFromEmail=sbCaptureFromHash();
+if(cameFromEmail && !sbRecovery) toast("Signed in");
+cloudRender().then(()=>{ if(cameFromEmail && sbRecovery) enterResetMode(); });
 $('addlayer').onclick=addLayer;
 $('expproj').onclick=exportProject;
 $('impproj').onclick=()=>$('impfile').click();

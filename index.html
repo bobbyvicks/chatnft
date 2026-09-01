@@ -83,7 +83,24 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
   flex-wrap:wrap; justify-content:center;}
 .hintline{font-size:11.5px; color:var(--dim);}
 #bulknote{width:min(560px,92vw); margin-top:8px; text-align:center;}
-.restore{width:min(560px,92vw); margin-bottom:14px; padding:13px 15px; border-radius:12px;
+/* The landing page centres its children, so the icon is positioned against
+   the page rather than shoved to the end of a flex row that is not full
+   width. Fixed, so it stays put while the long page scrolls under it. */
+.acct{position:fixed; top:14px; right:16px; z-index:15; width:40px; height:40px;
+  border-radius:50%; background:var(--panel); border:1px solid var(--line);
+  color:var(--muted); display:grid; place-items:center;}
+.acct:hover{border-color:var(--accent); color:var(--ink);}
+.acct svg{width:20px; height:20px; fill:none; stroke:currentColor; stroke-width:1.7;
+  stroke-linecap:round; stroke-linejoin:round;}
+.acct[aria-expanded="true"]{border-color:var(--accent); color:var(--accent);}
+.acctpanel{position:fixed; top:62px; right:16px; z-index:15; width:min(430px,92vw);}
+.acctpanel .proj{width:100%; margin:0;}
+.acctpanel .projhead .acts{width:100%; margin-left:0;}
+@media (max-width:620px){
+  .acct{top:10px; right:10px; width:36px; height:36px;}
+  .acctpanel{top:52px; right:8px; left:8px; width:auto;}
+}
+.restore{width:min(560px,92vw); margin-bottom:14px;
   background:var(--panel); border:1px solid var(--accent); display:flex; align-items:center;
   gap:12px; flex-wrap:wrap; font-size:13px; color:var(--ink);}
 .restore .acts{margin-left:auto; display:flex; gap:8px;}
@@ -376,71 +393,49 @@ footer .mono{color:var(--ink);}
 <body>
 
 <!-- ============ landing ============ -->
+<div class="scrim" id="signin" hidden>
+  <div class="card">
+    <div class="brand" style="justify-content:center;margin-bottom:6px">
+      <span class="logo" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+      <h1>ChatNFT</h1>
+    </div>
+    <p class="sub" style="text-align:center">Sign in to build and keep a trait collection. Your work is saved to your account, so it follows you to any device.</p>
+    <div class="savebar">
+      <input id="gateemail" type="email" placeholder="you@example.com" autocomplete="email"
+        aria-label="Email address" style="flex:1">
+      <button class="btn" id="gatesend">Email me a link</button>
+    </div>
+    <p class="note" id="gatenote">No password. We send a link, you click it, you are in.</p>
+  </div>
+</div>
 <main class="land" id="land">
   <div class="brand">
     <span class="logo" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
     <h1>ChatNFT</h1>
   </div>
+  <button class="acct" id="acctbtn" aria-label="Your account" aria-expanded="false" title="Your account">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.6"/>
+      <path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></svg>
+  </button>
+  <div class="acctpanel" id="acctpanel" hidden>
+  <section class="proj" id="cloud">
+    <div class="projhead">
+      <h2>Your account</h2>
+      <span class="count" id="cloudwho">not signed in</span>
+      <div class="acts" id="cloudacts">
+        <input id="cloudemail" type="email" placeholder="you@example.com"
+          autocomplete="email" aria-label="Email address">
+        <button class="mini go" id="cloudsend">Email me a link</button>
+        <button class="mini" id="cloudpush" hidden>Save to cloud</button>
+        <button class="mini" id="cloudpull" hidden>Load from cloud</button>
+        <button class="mini" id="cloudout" hidden>Sign out</button>
+      </div>
+    </div>
+    <p class="note" id="cloudnote">Signing in keeps your collection on the server so it follows you to
+      another device. Nothing is uploaded until you press Save to cloud.</p>
+  </section>
+  </div>
   <p class="tag">A pixel editor that works on the grid your art was actually drawn on. Drop a PNG in, rebuild it at its true resolution, and <b>edit it cell by cell</b> — then download a clean file. Nothing is uploaded anywhere.</p>
-
-  <section class="proj" id="layers" hidden>
-    <div class="projhead">
-      <h2>Layers</h2>
-      <span class="count" id="layercount"></span>
-      <div class="acts">
-        <input id="newlayer" type="text" placeholder="new layer name" aria-label="New layer name">
-        <button class="mini" id="addlayer">Add</button>
-      </div>
-    </div>
-    <div id="layerbody"></div>
-    <p class="note">The top of this list is drawn in front of everything below it. Renaming a layer
-      takes every trait on it along; removing one sends its traits to unsorted rather than deleting
-      them. This order is what the character builder and the sheet draw in.</p>
-  </section>
-  <section class="proj" id="compose" hidden>
-    <div class="projhead">
-      <h2>Build a character</h2>
-      <span class="count" id="ccount"></span>
-      <div class="acts">
-        <label class="olchk" style="margin-right:4px"><input type="checkbox" id="cwip"> include wip</label>
-        <button class="mini" id="crand">Randomise</button>
-        <button class="mini" id="csheet">Sheet of 12</button>
-        <button class="mini" id="cclear">Clear</button>
-        <button class="mini go" id="cdl">Download</button>
-      </div>
-    </div>
-    <div class="cwrap">
-      <canvas id="ccanvas" width="160" height="160"></canvas>
-      <div class="crows" id="crows"></div>
-    </div>
-    <p class="note" id="cnote">Stacks one saved trait per layer, in the order the collection draws them,
-      over a base. This is the check that the set actually works together - a trait can look right on its
-      own and still collide with the hat above it.</p>
-  </section>
-  <div class="restore" id="restore" hidden>
-    <span id="restoretext"></span>
-    <span class="acts"><button class="mini go" id="restoreyes">Pick up where you left off</button>
-    <button class="mini" id="restoreno">Discard</button></span>
-  </div>
-  <div class="drop" id="drop" tabindex="0" role="button" aria-label="Choose a PNG to open">
-    <strong>Drop a PNG here</strong>
-    <span>or click to choose a file · nothing leaves your device</span>
-  </div>
-  <input type="file" id="file" accept="image/png,image/gif,image/webp,image/jpeg" hidden>
-  <div class="bulkrow">
-    <button class="mini" id="bulkbtn">Import a folder of traits</button>
-    <span class="hintline">Reads the layer and the wip / approved / rejected state out of the folder names</span>
-  </div>
-  <input type="file" id="bulkfile" webkitdirectory directory multiple hidden>
-  <p class="note" id="bulknote" hidden></p>
-  <p class="err" id="err" role="status"></p>
-
-  <div class="how">
-    <div><h3>Measures</h3><p>Reads the repeating block size from where the art's own edges fall and suggests a resolution. You confirm it — you know what you drew at.</p></div>
-    <div><h3>Recovers</h3><p>Rebuilds each cell from the median of its source pixels, so no colour appears that was not already there.</p></div>
-    <div><h3>Edits</h3><p>Paint on the true grid with the palette taken from your own image, then download a clean PNG.</p></div>
-  </div>
-
   <section class="extract">
     <h2>Pull a trait off a character</h2>
     <p class="lead">If someone sends you the whole character wearing a hat, a necklace, glasses, drop it here
@@ -501,22 +496,31 @@ footer .mono{color:var(--ink);}
     <p class="err" id="exerr" role="status"></p>
   </section>
 
-  <section class="proj" id="cloud">
-    <div class="projhead">
-      <h2>Your account</h2>
-      <span class="count" id="cloudwho">not signed in</span>
-      <div class="acts" id="cloudacts">
-        <input id="cloudemail" type="email" placeholder="you@example.com"
-          autocomplete="email" aria-label="Email address">
-        <button class="mini go" id="cloudsend">Email me a link</button>
-        <button class="mini" id="cloudpush" hidden>Save to cloud</button>
-        <button class="mini" id="cloudpull" hidden>Load from cloud</button>
-        <button class="mini" id="cloudout" hidden>Sign out</button>
-      </div>
-    </div>
-    <p class="note" id="cloudnote">Signing in keeps your collection on the server so it follows you to
-      another device. Nothing is uploaded until you press Save to cloud.</p>
-  </section>
+  <div class="restore" id="restore" hidden>
+    <span id="restoretext"></span>
+    <span class="acts"><button class="mini go" id="restoreyes">Pick up where you left off</button>
+    <button class="mini" id="restoreno">Discard</button></span>
+  </div>
+  <div class="drop" id="drop" tabindex="0" role="button" aria-label="Choose a PNG to open">
+    <strong>Drop a PNG here</strong>
+    <span>or click to choose a file · nothing leaves your device</span>
+  </div>
+  <input type="file" id="file" accept="image/png,image/gif,image/webp,image/jpeg" hidden>
+  <div class="bulkrow">
+    <button class="mini" id="bulkbtn">Import a folder of traits</button>
+    <span class="hintline">Reads the layer and the wip / approved / rejected state out of the folder names</span>
+  </div>
+  <input type="file" id="bulkfile" webkitdirectory directory multiple hidden>
+  <p class="note" id="bulknote" hidden></p>
+  <p class="err" id="err" role="status"></p>
+
+  <div class="how">
+    <div><h3>Measures</h3><p>Reads the repeating block size from where the art's own edges fall and suggests a resolution. You confirm it — you know what you drew at.</p></div>
+    <div><h3>Recovers</h3><p>Rebuilds each cell from the median of its source pixels, so no colour appears that was not already there.</p></div>
+    <div><h3>Edits</h3><p>Paint on the true grid with the palette taken from your own image, then download a clean PNG.</p></div>
+  </div>
+
+
   <section class="proj" id="proj" hidden>
     <div class="projhead">
       <h2>Your project</h2>
@@ -536,6 +540,40 @@ footer .mono{color:var(--ink);}
       </div>
     </div>
     <div id="projbody"></div>
+  </section>
+  <section class="proj" id="compose" hidden>
+    <div class="projhead">
+      <h2>Build a character</h2>
+      <span class="count" id="ccount"></span>
+      <div class="acts">
+        <label class="olchk" style="margin-right:4px"><input type="checkbox" id="cwip"> include wip</label>
+        <button class="mini" id="crand">Randomise</button>
+        <button class="mini" id="csheet">Sheet of 12</button>
+        <button class="mini" id="cclear">Clear</button>
+        <button class="mini go" id="cdl">Download</button>
+      </div>
+    </div>
+    <div class="cwrap">
+      <canvas id="ccanvas" width="160" height="160"></canvas>
+      <div class="crows" id="crows"></div>
+    </div>
+    <p class="note" id="cnote">Stacks one saved trait per layer, in the order the collection draws them,
+      over a base. This is the check that the set actually works together - a trait can look right on its
+      own and still collide with the hat above it.</p>
+  </section>
+  <section class="proj" id="layers" hidden>
+    <div class="projhead">
+      <h2>Layers</h2>
+      <span class="count" id="layercount"></span>
+      <div class="acts">
+        <input id="newlayer" type="text" placeholder="new layer name" aria-label="New layer name">
+        <button class="mini" id="addlayer">Add</button>
+      </div>
+    </div>
+    <div id="layerbody"></div>
+    <p class="note">The top of this list is drawn in front of everything below it. Renaming a layer
+      takes every trait on it along; removing one sends its traits to unsorted rather than deleting
+      them. This order is what the character builder and the sheet draw in.</p>
   </section>
 </main>
 
@@ -3343,6 +3381,7 @@ async function cloudRender(){
   $("cloudwho").textContent = inn ? (u.email||"signed in") : "not signed in";
   $("cloudemail").hidden=inn; $("cloudsend").hidden=inn;
   $("cloudpush").hidden=!inn; $("cloudpull").hidden=!inn; $("cloudout").hidden=!inn;
+  gateShow(!inn);
   if(inn) cloudStatus(u);
   return u;
 }
@@ -3370,6 +3409,7 @@ async function cloudSignIn(){
 
 function cloudSignOut(){
   sbSaveSession(null);
+  gateShow(true);
   $("cloudnote").textContent="Signed out on this device. Your collection is still here, and still on the server.";
   cloudRender();
   toast("Signed out");
@@ -3563,6 +3603,51 @@ async function cloudPull(){
 }
 
 
+/* ================= the gate ======================================
+   Signing in is required. Everything below the gate belongs to an account
+   now: a collection is saved per person, so there is no sensible anonymous
+   state to be in.
+
+   Hidden by DEFAULT in the markup and shown only once the session is known to
+   be absent. The other order flashes the sign-in card at someone who is
+   already signed in, on every single load. */
+function gateShow(on){
+  $("signin").hidden=!on;
+  $("land").style.visibility = on ? "hidden" : "";
+  $("acctbtn").hidden = on;
+  if(on) $("acctpanel").hidden=true;
+}
+
+async function gateSend(){
+  const email=String($("gateemail").value||"").trim();
+  if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){
+    $("gatenote").textContent="That does not look like an email address."; return; }
+  $("gatesend").disabled=true;
+  $("gatenote").textContent="Sending...";
+  try{
+    const r=await fetch(SB_URL+"/auth/v1/otp",{method:"POST",
+      headers:{apikey:SB_KEY,"Content-Type":"application/json"},
+      body:JSON.stringify({email:email, create_user:true})});
+    if(!r.ok){
+      let msg=""; try{ msg=(await r.json()).msg||""; }catch(_){}
+      /* Say what the server said. "Something went wrong" removes the one fact
+         that would tell the person what to do about it. */
+      $("gatenote").textContent="Could not send it"+(msg?": "+msg:". Try again in a moment.");
+      return;
+    }
+    $("gatenote").textContent="Check "+email+" and click the link. You can close this tab.";
+  }catch(_){ $("gatenote").textContent="Could not reach the server. Check your connection."; }
+  finally{ $("gatesend").disabled=false; }
+}
+
+function acctToggle(){
+  const p=$("acctpanel");
+  const open=p.hidden;
+  p.hidden=!open;
+  $("acctbtn").setAttribute("aria-expanded",String(open));
+  if(open) cloudRender();
+}
+
 const pts=new Map(); let pinch=null, pan=null, spaceHeld=false;
 const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
 const mid=(a,b)=>({clientX:(a.x+b.x)/2,clientY:(a.y+b.y)/2});
@@ -3696,6 +3781,22 @@ $('projsearch').addEventListener('keydown',e=>{
 });
 $('addlayer').onclick=addLayer;
 $('cloudsend').onclick=cloudSignIn;
+$('gatesend').onclick=gateSend;
+$('gateemail').onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); gateSend(); } };
+$('acctbtn').onclick=acctToggle;
+/* Anywhere outside closes it. A panel that only closes via the icon that
+   opened it is a panel people leave open by accident. */
+document.addEventListener('click',e=>{
+  const p=$('acctpanel');
+  if(p.hidden) return;
+  if(p.contains(e.target)||$('acctbtn').contains(e.target)) return;
+  p.hidden=true;
+  $('acctbtn').setAttribute('aria-expanded','false');
+});
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'&&!$('acctpanel').hidden){
+    $('acctpanel').hidden=true; $('acctbtn').setAttribute('aria-expanded','false'); }
+});
 $('cloudemail').onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); cloudSignIn(); } };
 $('cloudout').onclick=cloudSignOut;
 $('cloudpush').onclick=cloudPush;

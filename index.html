@@ -242,6 +242,12 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
    Hidden rows collapse to nothing under flex gap, so the layout does not open
    a hole where a hidden button used to be. */
 #signin .card{display:flex; flex-direction:column; gap:10px;}
+/* The two panes are now the card's children, so the spacing has to live on
+   them as well or the rows inside go back to touching. */
+#signin .gatepane{display:flex; flex-direction:column; gap:10px;}
+.linkish{background:none; border:0; padding:0; font:inherit; color:var(--accent);
+  cursor:pointer; text-decoration:underline; text-underline-offset:2px;}
+.linkish:hover{opacity:.8;}
 #signin .card .sub{margin-bottom:2px;}
 .pxwrap{display:flex; gap:16px; flex-wrap:wrap; align-items:flex-start; margin-bottom:14px;}
 #pxout{width:min(220px,52vw); height:auto; image-rendering:pixelated; border-radius:10px;
@@ -415,7 +421,8 @@ footer .mono{color:var(--ink);}
       <span class="logo" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
       <h1>ChatNFT</h1>
     </div>
-    <p class="sub" id="gatesub" style="text-align:center">Pick a username and a password and you are straight in. Your work is saved to your account, so it follows you to any device.</p>
+    <div class="gatepane" id="gatesignin">
+    <p class="sub" id="gatesub" style="text-align:center">Sign in to get back to your collection. It follows you to any device.</p>
     <div class="savebar">
       <input id="gateuser" type="text" placeholder="username" autocomplete="username"
         aria-label="Username" spellcheck="false" autocapitalize="none" style="flex:1">
@@ -426,13 +433,33 @@ footer .mono{color:var(--ink);}
       <button class="btn" id="gatein">Sign in</button>
     </div>
     <div class="savebar">
-      <button class="btn ghost" id="gateup" style="flex:1">Create an account</button>
-    </div>
-    <div class="savebar">
       <button class="btn ghost" id="gatereset" style="flex:1">Forgot your password</button>
     </div>
     <p class="note" id="gateinvite" hidden style="color:var(--accent)"></p>
-    <p class="note" id="gatenote">No email, no confirmation link, no waiting. Keep the password somewhere safe - an account with no email on it cannot be recovered.</p>
+    <p class="note" id="gatenote">Signed in on this device until you sign out.</p>
+      <p class="note" style="text-align:center">New here? <button class="linkish" id="gotosignup">Create an account</button></p>
+    </div>
+
+    <div class="gatepane" id="gatesignup" hidden>
+      <p class="sub" style="text-align:center">Create your account. No email, no confirmation link, about ten seconds.</p>
+      <div class="savebar">
+        <input id="supname" type="text" placeholder="your name" autocomplete="name"
+          aria-label="Your name" style="flex:1">
+      </div>
+      <div class="savebar">
+        <input id="supuser" type="text" placeholder="account name" autocomplete="username"
+          aria-label="Account name" spellcheck="false" autocapitalize="none" style="flex:1">
+      </div>
+      <div class="savebar">
+        <input id="suppass" type="password" placeholder="password" autocomplete="new-password"
+          aria-label="Password" style="flex:1">
+      </div>
+      <div class="savebar">
+        <button class="btn" id="supgo" style="flex:1">Create account</button>
+      </div>
+      <p class="note" id="supnote">Your account name is what you sign in with. Your name is what people you share a project with will see. There is no email on the account, so keep the password somewhere safe.</p>
+      <p class="note" style="text-align:center">Already have one? <button class="linkish" id="gotosignin">Sign in</button></p>
+    </div>
   </div>
 </div>
 <main class="land" id="land">
@@ -3980,6 +4007,9 @@ const EMAIL_RE=/^[^@\s]+@[^@\s]+\.[^@\s]+$/;
    work out why the password is wrong. */
 const USER_DOMAIN="@chatnft.invalid";
 const USERNAME_RE=/^[a-z0-9_-]{3,20}$/;
+/* One number, in one place. It was written out five times, which is five
+   chances for the rule you are told to differ from the rule you are held to. */
+const MIN_PASS=6;
 /* An address typed with an @ is taken at face value: accounts made before
    usernames existed still sign in with the email they were made with. */
 const looksLikeUsername=id=>id.indexOf("@")<0;
@@ -3990,13 +4020,18 @@ function asLogin(id){
 /* Nobody should ever be shown bob@chatnft.invalid. It is plumbing. */
 function displayName(u){
   const meta=(u&&u.user_metadata)||{};
-  if(meta.username) return String(meta.username);
   const e=String((u&&u.email)||"");
-  return e.endsWith(USER_DOMAIN) ? e.slice(0,e.length-USER_DOMAIN.length) : e;
+  const acct = meta.username ? String(meta.username)
+    : (e.endsWith(USER_DOMAIN) ? e.slice(0,e.length-USER_DOMAIN.length) : e);
+  const nm = meta.name ? String(meta.name).trim() : "";
+  /* Both, because they answer different questions. The name is who you are to
+     the people you share a project with; the account name is the thing you
+     have to type to get back in, which is the one worth not forgetting. */
+  return (nm && nm!==acct) ? nm+" · "+acct : acct;
 }
 
 function gateBusy(on){
-  for(const id of ["gatein","gateup","gatereset"]) $(id).disabled=on;
+  for(const id of ["gatein","gatereset","gotosignup","supgo","gotosignin"]) $(id).disabled=on;
 }
 /* Both sign-in and sign-up land here, so a session is stored in exactly one
    place and the two cannot drift into remembering different things. */
@@ -4013,8 +4048,8 @@ function gateCreds(){
     $("gatenote").textContent="A username is 3 to 20 characters, using letters, numbers, underscore or hyphen."; return null; }
   if(!looksLikeUsername(id) && !EMAIL_RE.test(id)){
     $("gatenote").textContent="That does not look like an email address."; return null; }
-  if(pass.length<8){
-    $("gatenote").textContent="Use a password of at least 8 characters."; return null; }
+  if(pass.length<MIN_PASS){
+    $("gatenote").textContent="Use a password of at least "+MIN_PASS+" characters."; return null; }
   return {email:asLogin(id), password:pass, username:id};
 }
 
@@ -4054,9 +4089,10 @@ async function gateReset(){
 let resetMode=false;
 function enterResetMode(){
   resetMode=true;
+  gateMode("signin");
   gateShow(true);
   $("gateuser").hidden=true;
-  $("gateup").hidden=true; $("gatereset").hidden=true;
+  $("gotosignup").hidden=true; $("gatereset").hidden=true;
   $("gatepass").value="";
   $("gatepass").setAttribute("autocomplete","new-password");
   $("gatepass").placeholder="new password";
@@ -4064,13 +4100,13 @@ function enterResetMode(){
      and reads as though the form has not noticed why you came. */
   $("gatesub").hidden=true;
   $("gatein").textContent="Save new password";
-  $("gatenote").textContent="Choose a new password - at least 8 characters. You will stay signed in on this device.";
+  $("gatenote").textContent="Choose a new password - at least "+MIN_PASS+" characters. You will stay signed in on this device.";
   $("gatepass").focus();
 }
 function leaveResetMode(){
   resetMode=false;
   $("gateuser").hidden=false;
-  $("gateup").hidden=false; $("gatereset").hidden=false;
+  $("gotosignup").hidden=false; $("gatereset").hidden=false;
   $("gatepass").value="";
   $("gatepass").setAttribute("autocomplete","current-password");
   $("gatepass").placeholder="password";
@@ -4080,7 +4116,7 @@ function leaveResetMode(){
 
 async function saveNewPassword(){
   const pass=String($("gatepass").value||"");
-  if(pass.length<8){ $("gatenote").textContent="Use a password of at least 8 characters."; return; }
+  if(pass.length<MIN_PASS){ $("gatenote").textContent="Use a password of at least "+MIN_PASS+" characters."; return; }
   gateBusy(true);
   $("gatenote").textContent="Saving...";
   try{
@@ -4095,7 +4131,7 @@ async function saveNewPassword(){
     if(!r.ok){ const j=await r.json().catch(()=>({}));
       $("gatenote").textContent=authSays(j,"Could not save that password."); return; }
     leaveResetMode();
-    $("gatenote").textContent="No email, no confirmation link, no waiting. Keep the password somewhere safe - an account with no email on it cannot be recovered.";
+    $("gatenote").textContent="Signed in on this device until you sign out.";
     await cloudRender();
     toast("Password changed");
   }catch(_){ $("gatenote").textContent="Could not reach the server."; }
@@ -4126,44 +4162,54 @@ async function gateSignIn(){
   finally{ gateBusy(false); }
 }
 
+/* Creating an account and signing in were the same three controls, so there
+   was no moment that felt like signing up - just a second button under a form
+   you had already filled in. They are separate panes now, and the sign-up one
+   asks for a name, because the person you share a project with should see a
+   person rather than a login. */
+function gateMode(which){
+  const up = which==="signup";
+  $("gatesignin").hidden=up;
+  $("gatesignup").hidden=!up;
+  $(up?"supname":"gateuser").focus();
+}
+
 async function gateSignUp(){
-  const c=gateCreds(); if(!c) return;
+  const name=String($("supname").value||"").trim();
+  const user=String($("supuser").value||"").trim().toLowerCase();
+  const pass=String($("suppass").value||"");
+  if(!name || name.length>40){
+    $("supnote").textContent="Put in a name - whatever you want people you share a project with to call you."; return; }
+  if(!USERNAME_RE.test(user)){
+    $("supnote").textContent="An account name is 3 to 20 characters, using letters, numbers, underscore or hyphen."; return; }
+  if(pass.length<MIN_PASS){
+    $("supnote").textContent="Use a password of at least "+MIN_PASS+" characters."; return; }
   gateBusy(true);
-  $("gatenote").textContent="Creating your account...";
+  $("supnote").textContent="Creating your account...";
   try{
     const r=await fetch(SB_URL+"/auth/v1/signup",{method:"POST",
       headers:{apikey:SB_KEY,"Content-Type":"application/json"},
-      /* The username is kept as it was typed as well as folded into the login,
-         so the account panel has something to show that is not plumbing. */
-      body:JSON.stringify({email:c.email, password:c.password, data:{username:c.username}})});
+      body:JSON.stringify({email:asLogin(user), password:pass, data:{username:user, name:name}})});
     const j=await r.json().catch(()=>({}));
-    if(!r.ok){
-      $("gatenote").textContent=authSays(j,"Could not create that account.",looksLikeUsername(c.username));
-      return;
-    }
+    /* Always the username wording here: this pane cannot be reached with an
+       email address in it. */
+    if(!r.ok){ $("supnote").textContent=authSays(j,"Could not create that account.",true); return; }
     if(gateKeep(j)){
-      $("gatepass").value="";
+      $("suppass").value="";
       await cloudRender();
-      toast("Welcome, "+c.username);
+      toast("Welcome, "+name);
       return;
     }
-    /* No session back means the project still has email confirmation switched
-       on. For a username account that confirmation is posted to an address
-       which cannot exist, so it will never arrive and the person would wait
-       for it forever. Say what is actually wrong rather than pointing them
-       at an inbox. */
-    $("gatenote").textContent = looksLikeUsername(c.username)
-      ? "The account was made, but this site is still set to confirm new accounts by email, so it will not let you in. That setting has to be turned off before usernames work."
-      : "Account created. Confirm it from the email we just sent, then sign in with your password.";
-  }catch(_){ $("gatenote").textContent="Could not reach the server."; }
+    $("supnote").textContent="The account was made, but this site is still set to confirm new accounts by email, so it cannot let you in. That setting has to be turned off.";
+  }catch(_){ $("supnote").textContent="Could not reach the server."; }
   finally{ gateBusy(false); }
 }
 
 /* For anyone who got in by link and never set one. */
 async function setPassword(){
-  const p=prompt("Choose a new password (at least 8 characters).");
+  const p=prompt("Choose a new password (at least "+MIN_PASS+" characters).");
   if(p===null) return;
-  if(String(p).length<8){ toast("At least 8 characters"); return; }
+  if(String(p).length<MIN_PASS){ toast("At least "+MIN_PASS+" characters"); return; }
   const h=await sbHeaders({"Content-Type":"application/json"});
   if(!h){ toast("Sign in first"); return; }
   try{
@@ -4333,7 +4379,11 @@ addEventListener("hashchange",()=>{
   if(joined) joinShowPending();
   cloudRender().then(()=>{ if(signedIn && sbRecovery) enterResetMode(); });
 });
-$('gateup').onclick=gateSignUp;
+$('gotosignup').onclick=()=>gateMode('signup');
+$('gotosignin').onclick=()=>gateMode('signin');
+$('supgo').onclick=gateSignUp;
+for(const id of ['supname','supuser','suppass'])
+  $(id).onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); gateSignUp(); } };
 $('setpass').onclick=setPassword;
 $('gatepass').onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); if(resetMode) saveNewPassword(); else gateSignIn(); } };
 $('gateuser').onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); $('gatepass').focus(); } };

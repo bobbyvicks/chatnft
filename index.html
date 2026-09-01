@@ -358,6 +358,18 @@ input[type=range]{width:100%; accent-color:#f5a524; cursor:pointer;}
 .side section.folded > *:not(h2){display:none;}
 .side h2:hover{color:var(--ink);}
 .side h2:focus-visible{outline:2px solid var(--accent); outline-offset:3px; border-radius:4px;}
+/* 252px held about half of the panel at a time - 2,318px of content in a
+   1,185px window - on a screen with room to spare. The sheet that folds away
+   is a phone answer to a phone problem; on a wide screen the answer is to use
+   the width that is already there. */
+@media (min-width:1100px){ .side{width:310px;} }
+@media (min-width:1280px){
+  /* Two columns roughly halves how far there is to scroll. align-content:start
+     keeps the sections at their natural height instead of stretching them to
+     fill the column. */
+  .side{width:520px; display:grid; grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:15px 16px; align-content:start;}
+}
 .swatches{display:grid; grid-template-columns:repeat(8,1fr); gap:5px;}
 .sw{aspect-ratio:1; min-height:26px; border-radius:5px; border:1px solid #ffffff1a; padding:0;}
 .sw[aria-pressed="true"]{outline:2px solid var(--accent); outline-offset:1px;}
@@ -390,6 +402,7 @@ footer .mono{color:var(--ink);}
 .zb{min-width:38px; height:34px; padding:0 9px; border-radius:8px; background:var(--panel-2);
   border:1px solid var(--line); display:grid; place-items:center; font-size:18px; line-height:1;}
 .zb.lbl{font-size:10.5px; letter-spacing:.09em; text-transform:uppercase; font-weight:600;}
+.zb.on{background:var(--accent-soft); border-color:var(--accent); color:var(--accent);}
 #zlab{min-width:40px; text-align:center; font-size:12.5px;}
 .zb:hover{background:var(--line);}
 .toast{position:fixed; left:50%; bottom:64px; transform:translateX(-50%) translateY(8px);
@@ -433,6 +446,13 @@ footer .mono{color:var(--ink);}
   .side{padding-bottom:calc(14px + env(safe-area-inset-bottom,0px));}
   .swatches{grid-template-columns:repeat(10,1fr);} .sw{min-height:30px;}
   footer{gap:11px; padding:7px 14px; flex-wrap:wrap;} .hint{display:none;}
+  /* Thumb-sized. These were 26px controls being used to fix the very problem
+     of not being able to zoom without drawing, which is not a job for a small
+     button. */
+  .zoom{margin-left:auto; gap:7px;}
+  .zb{min-width:44px; height:40px; font-size:16px;}
+  .zb.lbl{font-size:12px; padding:0 12px;}
+  footer > span:not(.zoom){font-size:10.5px;}
   .facts{grid-template-columns:1fr;}
 }
 </style>
@@ -852,12 +872,13 @@ footer .mono{color:var(--ink);}
     <span>Cell <span class="mono" id="pos">—</span></span>
     <span>Under <span class="mono" id="under">—</span></span>
     <span>Brush <span class="mono" id="bsize">1×1</span></span>
-    <span class="hint">Wheel or pinch to zoom · middle-drag, space-drag or two fingers to pan</span>
+    <span class="hint">Wheel or pinch to zoom · middle-drag, space-drag or two fingers to pan and zoom</span>
     <div class="zoom">
       <button class="zb" id="zout" aria-label="Zoom out">−</button>
       <span class="mono" id="zlab">4×</span>
       <button class="zb" id="zin" aria-label="Zoom in">+</button>
       <button class="zb lbl" id="zfit">Fit</button>
+      <button class="zb lbl" id="zpan" aria-pressed="false" title="Drag to move instead of draw">Move</button>
     </div>
   </footer>
 </div>
@@ -4325,15 +4346,44 @@ function acctToggle(){
   if(open) cloudRender();
 }
 
+/* Everything a committed press does, so that a touch can decide LATER whether
+   it was one. With a mouse there is nothing to decide and this runs straight
+   away; a finger has to wait to find out whether a second one is coming. */
+function beginStroke(e){
+  const c=cellFrom(e); if(!c) return;
+  snapshot();
+  if(tool==="move"){
+    moveBuf=ctx.getImageData(0,0,art.width,art.height);
+    moveFrom=rawCell(e); moveDelta={x:0,y:0};
+    $("olpv").style.display="none";
+    return;
+  }
+  if(tool==="fill"){ floodFill(c.x,c.y,hx2(color)); refreshStats(); return; }
+  painting=true; lastCell=null;
+  stroke(e);
+}
+
+/* A finger that has landed and not yet been explained. The first finger of a
+   pinch used to paint before the second one arrived, so zooming out always
+   left a dab behind and there was no way to move around without drawing. It
+   is held here instead: one finger that moves is a stroke, one finger that
+   lifts without moving is a single dab, and a second finger throws it away -
+   with no mark, and no undo step, because nothing was ever committed. */
+let pendingTouch=null;
+const TOUCH_SLOP=3;
+
 const pts=new Map(); let pinch=null, pan=null, spaceHeld=false;
 const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
 const mid=(a,b)=>({clientX:(a.x+b.x)/2,clientY:(a.y+b.y)/2});
 const stage=$('stage');
 stage.addEventListener('pointerdown',e=>{
   pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
-  if(pts.size===2){ painting=false; lastCell=null;
-    const [a,b]=[...pts.values()];
-    pinch={d:dist(a,b),z:zoom}; hoverCell=null; paintCursor(); return; }
+  if(pts.size===2){
+    /* Whatever the first finger was about to do, it was not this. */
+    pendingTouch=null; painting=false; lastCell=null;
+    const [a,b]=[...pts.values()]; const m0=mid(a,b);
+    pinch={d:dist(a,b),z:zoom,mx:m0.clientX,my:m0.clientY};
+    hoverCell=null; paintCursor(); return; }
   if(e.button===1||panMode||spaceHeld||(e.button===0&&e.target===stage)){
     e.preventDefault();
     pan={x:e.clientX,y:e.clientY,l:stage.scrollLeft,t:stage.scrollTop,id:e.pointerId};
@@ -4344,23 +4394,41 @@ stage.addEventListener('pointerdown',e=>{
   if(e.button!==0||e.target!==art) return;
   const c=cellFrom(e); if(!c) return;
   if(tool==='pick'){ const p=pixelAt(c.x,c.y); if(p.a) setColor(hex(p.r,p.g,p.b)); selectTool('pencil'); return; }
-  snapshot();
-  if(tool==='move'){
-    moveBuf=ctx.getImageData(0,0,art.width,art.height);
-    moveFrom=rawCell(e); moveDelta={x:0,y:0};
-    $('olpv').style.display='none';
+  /* Held rather than drawn. Committed on the first movement, or on lifting. */
+  if(e.pointerType==="touch"){
+    pendingTouch={clientX:e.clientX,clientY:e.clientY,pointerId:e.pointerId};
     try{art.setPointerCapture(e.pointerId);}catch(_){}
     return;
   }
-  if(tool==='fill'){ floodFill(c.x,c.y,hx2(color)); refreshStats(); return; }
-  painting=true; lastCell=null;
   try{art.setPointerCapture(e.pointerId);}catch(_){}
-  stroke(e);
+  beginStroke(e);
 });
 stage.addEventListener('pointermove',e=>{
   if(pts.has(e.pointerId)) pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
-  if(pinch&&pts.size>=2){ const [a,b]=[...pts.values()]; const d=dist(a,b);
-    if(d) setZoom(pinch.z*(d/pinch.d),mid(a,b)); return; }
+  if(pinch&&pts.size>=2){
+    const [a,b]=[...pts.values()]; const d=dist(a,b), m=mid(a,b);
+    if(d) setZoom(pinch.z*(d/pinch.d),m);
+    /* Two fingers moving together is a drag as well as a zoom. Without this
+       the canvas scaled under the fingers but never moved, so anything off
+       the edge of the screen stayed there. Applied as a step from the last
+       position rather than from the start, because setZoom scrolls the stage
+       itself to hold the focal point and the two would otherwise fight. */
+    stage.scrollLeft-=(m.clientX-pinch.mx);
+    stage.scrollTop-=(m.clientY-pinch.my);
+    pinch.mx=m.clientX; pinch.my=m.clientY;
+    return;
+  }
+  if(pendingTouch&&e.pointerId===pendingTouch.pointerId){
+    if(pts.size>=2){ pendingTouch=null; return; }
+    const dx=e.clientX-pendingTouch.clientX, dy=e.clientY-pendingTouch.clientY;
+    /* A few pixels of wobble is holding still, not drawing. Below the slop
+       nothing is committed, so a pinch that starts slightly unevenly still
+       leaves no mark. */
+    if(Math.hypot(dx,dy)<TOUCH_SLOP) return;
+    const first=pendingTouch; pendingTouch=null;
+    /* From where the finger landed, so the stroke does not start late. */
+    beginStroke(first);
+  }
   if(pan){ stage.scrollLeft=pan.l-(e.clientX-pan.x); stage.scrollTop=pan.t-(e.clientY-pan.y); return; }
   const c=cellFrom(e);
   hoverCell=c; paintCursor();
@@ -4389,6 +4457,11 @@ function endPointer(e){
     else toast('Moved '+moveDelta.x+', '+moveDelta.y+' cells');
     refreshStats();
   }
+  if(pendingTouch&&pendingTouch.pointerId===e.pointerId){
+    /* Lifted without moving: a tap, which is one dab where it landed. */
+    const first=pendingTouch; pendingTouch=null;
+    if(pts.size===0) beginStroke(first);
+  }
   if(pts.size===0){ if(painting) refreshStats(); painting=false; lastCell=null; }
 }
 stage.addEventListener('pointerleave',()=>{ hoverCell=null; paintCursor(); });
@@ -4406,6 +4479,17 @@ $('redo').onclick=()=>{ if(!redoStack.length) return; undoStack.push(ctx.getImag
 $('zin').onclick=()=>setZoom(zoom+1);
 $('zout').onclick=()=>setZoom(zoom-1);
 $('zfit').onclick=fitZoom;
+/* One source of truth: this presses the Pan tool rather than keeping a second
+   copy of whether panning is on, which would drift the moment either one was
+   used on its own. */
+$('zpan').onclick=()=>{ $('panbtn').click(); syncPan(); };
+function syncPan(){
+  const on=$('panbtn').getAttribute('aria-pressed')==='true';
+  $('zpan').setAttribute('aria-pressed',String(on));
+  $('zpan').classList.toggle('on',on);
+}
+$('panbtn').addEventListener('click',()=>setTimeout(syncPan,0));
+syncPan();
 $('reset').onclick=()=>{ if(!original) return; snapshot(); ctx.putImageData(original,0,0); refreshStats(); toast('Reset to original'); };
 $('another').onclick=()=>{ $('app').hidden=true; $('land').hidden=false; fileInput.value=''; renderShelf(); };
 
@@ -4516,7 +4600,14 @@ $('cloudout').onclick=cloudSignOut;
    colours in front of you or the art is a working preference and re-making it
    on every load is its own annoyance. */
 const SIDE_KEY="chatnft.sidedown";
+/* The collapse is a phone thing and the CSS for it lives in the phone media
+   query, so on a wide screen the class did nothing - but it was still being
+   set, which is a state waiting to mean something later. Worse, a browser
+   window narrower than 820px gets the phone layout on a desktop too, so a
+   stored "collapsed" really did fold the panel away on a PC. */
+const phoneLayout=()=>matchMedia("(max-width:820px)").matches;
 function sideDown(on,remember){
+  if(!phoneLayout()) on=false;
   $("sidepanel").classList.toggle("down",!!on);
   /* aria-expanded describes the PANEL, so it is the opposite of "down". */
   $("sidegrip").setAttribute("aria-expanded", on?"false":"true");
@@ -4552,6 +4643,12 @@ function sideDown(on,remember){
   let want=false; try{ want=localStorage.getItem(SIDE_KEY)==="1"; }catch(_){}
   /* remember:false - restoring a choice is not making one. */
   sideDown(want,false);
+  /* Dragging a window across the breakpoint has to put it back, or the panel
+     stays folded on a screen that has no handle to unfold it with. */
+  matchMedia("(max-width:820px)").addEventListener("change",()=>{
+    let w=false; try{ w=localStorage.getItem(SIDE_KEY)==="1"; }catch(_){}
+    sideDown(w,false);
+  });
 })();
 $('cloudpush').onclick=cloudPush;
 $('cloudpull').onclick=cloudPull;

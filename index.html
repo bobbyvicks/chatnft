@@ -1906,7 +1906,7 @@ function outlinePreview(){
   const pv=$("olpv"); if(!pv) return;
   const t=+$("olthick").value, B=snapValue();
   $("olthicklab").textContent = t===0 ? "off"
-    : (t*B)+" cell"+(t*B===1?"":"s")+(B>1?" ("+t+X+B+")":"");
+    : (t*B)+" cell"+(t*B===1?"":"s")+(B>1?" ("+t+"×"+B+")":"");
   if(!ctx||t===0||$("app").hidden){ pv.style.display="none"; return; }
   clearTimeout(olPending);
   olPending=setTimeout(function(){

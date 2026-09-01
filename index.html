@@ -1648,6 +1648,9 @@ function setColor(h){
   color=h; $('picker').value=h; $('curhex').textContent=h;
   document.querySelectorAll('.sw').forEach(s=>s.setAttribute('aria-pressed',String(s.dataset.hex===h)));
   outlinePreview();
+  /* The line reads "replacing X with Y", and Y is the CURRENT colour - so it
+     goes stale the moment the colour changes unless it is redrawn here. */
+  if(rcFrom) $('rcfrom').textContent='Replacing '+rcFrom+' with '+color;
 }
 $('picker').oninput=e=>{ setColor(e.target.value); selectTool('pencil'); };
 

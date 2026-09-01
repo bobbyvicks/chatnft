@@ -177,6 +177,10 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
   font-size:10px; border-radius:5px; background:var(--panel-2);
   border:1px solid var(--line); color:var(--muted); text-align:center;}
 .item .rar:hover,.item .rar:focus{border-color:var(--accent); color:var(--ink); outline:none;}
+.item .dup{position:absolute; right:3px; bottom:26px; width:19px; height:19px;
+  border-radius:5px; background:var(--panel-2); border:1px solid var(--line);
+  color:var(--muted); font-size:11px; line-height:1;}
+.item .dup:hover{border-color:var(--accent); color:var(--ink);}
 .item b{display:block; font-size:10.5px; font-weight:500; margin-top:5px; color:var(--muted);
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
 .item .x{position:absolute; top:3px; right:3px; width:19px; height:19px; border-radius:5px;
@@ -895,6 +899,32 @@ function canvasFrom(data,w,h){
   c.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(data),w,h),0,0);
   return c;
 }
+/* A colourway is the same trait in another palette, so it starts as a copy.
+   Redrawing it by hand is the thing this saves, and Recolour is right there.
+
+   The copy comes back as wip whatever the original was: an approved trait that
+   has been recoloured is a different decision, and inheriting the approval
+   would let an unreviewed colourway into a generated character. */
+async function duplicateTrait(t){
+  let items=[];
+  try{ items=await dbAll(); }catch(_){ toast("Could not read the project"); return null; }
+  const taken=new Set(items.map(i=>i.id));
+  /* Strip any -2 the name already carries so a third copy is -3, not -2-2. */
+  const stem=String(t.name||"trait").replace(/-copy(-[0-9]+)?$/,"");
+  let name=stem+"-copy", id="t_"+name+"_"+t.layer+"_wip", k=2;
+  while(taken.has(id)){ name=stem+"-copy-"+k; id="t_"+name+"_"+t.layer+"_wip"; k++; }
+  /* The blob is shared, not cloned. Blobs are immutable, and every edit path
+     here writes a NEW blob rather than mutating one, so the copy cannot change
+     under the original. Cloning the bytes would only double the storage. */
+  const rec={id:id, kind:"trait", name:name, layer:t.layer, status:"wip",
+    w:t.w, h:t.h, blob:t.blob, at:Date.now()};
+  if(typeof t.rarity==="number") rec.rarity=t.rarity;
+  try{ await dbPut(rec); }catch(_){ toast("Could not save the copy"); return null; }
+  await renderShelf();
+  toast("Copied to "+name+", marked wip");
+  return rec;
+}
+
 async function renderShelf(){
   let items=[];
   /* Both early exits have to take the compose panel down with them, or
@@ -980,6 +1010,12 @@ async function renderShelf(){
         await dbPut({...t, id:'t_'+t.name+'_'+t.layer+'_'+next, status:next});
         renderShelf(); toast(t.name+' -> '+next); };
       el.appendChild(cyc);
+      const dup=document.createElement('button');
+      dup.className='dup'; dup.textContent='\u29c9';
+      dup.title='Duplicate as a wip copy, ready to recolour';
+      dup.setAttribute('aria-label','Duplicate '+t.name);
+      dup.onclick=async ev=>{ ev.stopPropagation(); await duplicateTrait(t); };
+      el.appendChild(dup);
       const rar=document.createElement('input');
       rar.className='rar'; rar.type='number'; rar.min='1'; rar.max='99';
       rar.value=String(traitWeight(t));

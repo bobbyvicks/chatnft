@@ -392,6 +392,7 @@ input[type=range]{width:100%; accent-color:#f5a524; cursor:pointer;}
 .btn:hover{filter:brightness(1.08);}
 .btn.ghost{background:var(--panel-2); border:1px solid var(--line); color:var(--ink); font-weight:500;}
 .btn.ghost:hover{background:var(--line);}
+.btn.ghost.on{background:var(--accent-soft); border-color:var(--accent); color:var(--accent);}
 .stack{display:flex; flex-direction:column; gap:8px;}
 .note{font-size:11.5px; color:var(--muted); line-height:1.45;}
 footer{grid-area:foot; display:flex; align-items:center; gap:15px; padding:8px 16px;
@@ -765,7 +766,6 @@ footer .mono{color:var(--ink);}
     <section id="brushsec">
       <h2>Brush size</h2>
       <div class="sizes" id="sizes"></div>
-      <p class="note">Square tip, centred on the cell under the cursor. <kbd>[</kbd> and <kbd>]</kbd> step it.</p>
     </section>
     <section><h2>From your image</h2><div class="swatches" id="pal"></div></section>
     <section>
@@ -774,7 +774,7 @@ footer .mono{color:var(--ink);}
         <button class="btn ghost" id="debg" style="flex:1">Clear flat background</button>
         <input id="bgtol" type="number" min="0" max="120" value="24" style="width:64px" aria-label="Background tolerance">
       </div>
-      <p class="note">Floods in from the edges, so only colour connected to the border goes. A white shirt in the middle stays.</p>
+      <p class="note">Only colour connected to the border goes. A white shirt in the middle stays.</p>
     </section>
     <section>
       <h2>Transform</h2>
@@ -782,8 +782,7 @@ footer .mono{color:var(--ink);}
         <button class="btn ghost" id="fliph" style="flex:1">Flip across</button>
         <button class="btn ghost" id="flipv" style="flex:1">Flip down</button>
       </div>
-      <p class="note">Mirrors the whole canvas, so a trait drawn for one side becomes the other without
-        redrawing it. The canvas keeps its size, which is what keeps the trait lining up on a character.</p>
+      <p class="note">Mirrors the whole canvas, so the trait still lines up afterwards.</p>
     </section>
     <section>
       <h2>Recolour</h2>
@@ -795,8 +794,7 @@ footer .mono{color:var(--ink);}
           <input id="rctol" type="number" min="1" max="120" value="24" style="width:64px"></div>
         <button class="btn ghost" id="rcgo" disabled>Replace</button>
       </div>
-      <p class="note">Swaps one colour for the current one everywhere it appears, which is how you get
-        five versions of the same trait without redrawing it. Transparent cells are never touched.</p>
+      <p class="note">Swaps one colour for the current one everywhere. Transparent cells are never touched.</p>
     </section>
     <section>
       <h2>Base layer</h2>
@@ -809,9 +807,9 @@ footer .mono{color:var(--ink);}
           <span class="mono" id="baseoplab" style="margin-left:auto">55%</span></div>
         <input id="baseop" type="range" min="10" max="100" step="5" value="55" aria-label="Base opacity">
         <input id="basefile" type="file" accept="image/*" hidden>
+        <button class="btn ghost" id="baseoutline" aria-pressed="false">Show base outline</button>
       </div>
-      <p class="note">Sits behind the trait so you can see how it lines up. It is never drawn into the
-        artwork, so it cannot end up in a save or an export. Pick <kbd>M</kbd> to drag the trait over it.</p>
+      <p class="note">Never drawn into the artwork, so it cannot reach a save or an export. <kbd>M</kbd> drags the trait over it.</p>
     </section>
     <section>
       <h2>Outline</h2>
@@ -829,15 +827,7 @@ footer .mono{color:var(--ink);}
         <label class="olchk"><input type="checkbox" id="olpatch"> Patch holes left by the crop</label>
         <button class="btn" id="oladd">Add outline</button>
       </div>
-      <p class="note" id="olnote">Drawn in the current colour, outside the art, never over it. Snapping rounds the
-        silhouette to whole blocks before the outline is grown, so a ragged crop cannot leave one-cell
-        indents in it — at the cost of detail finer than a block.</p>
-    </section>
-    <section id="aisec">
-      <h2>Ask Claude</h2>
-      <button class="btn ghost" id="askai">What is this trait?</button>
-      <p class="note" id="ainote" hidden></p>
-      <p class="note">Names it and picks a layer from the image. Runs on the server so no key is exposed.</p>
+      <p class="note" id="olnote">Outside the art, never over it. Snapping squares off the silhouette first, so a ragged crop cannot leave one-cell indents — at the cost of detail finer than a block.</p>
     </section>
     <section>
       <h2>Save to project</h2>
@@ -853,7 +843,7 @@ footer .mono{color:var(--ink);}
         </div>
         <button class="btn" id="saveproj">Save to project</button>
       </div>
-      <p class="note">Kept in this browser under the layer you choose, so you can reopen it later or download the whole set at once.</p>
+      <p class="note">Kept in this browser under the layer you choose.</p>
     </section>
     <section>
       <h2>Export</h2>
@@ -864,7 +854,7 @@ footer .mono{color:var(--ink);}
         <button class="btn ghost" id="reset">Reset to original</button>
         <button class="btn ghost" id="another">Open another image</button>
       </div>
-      <p class="note">All exports are PNG with no smoothing. Keep the full canvas for anything you will layer back onto a character — that is what makes it line up. Trimmed puts the crop offset in the filename so the position is not lost.</p>
+      <p class="note">PNG, no smoothing. Keep the full canvas for anything you will layer back onto a character — that is what makes it line up.</p>
     </section>
   </aside>
 
@@ -1252,21 +1242,6 @@ async function ask(mode,dataUrl){
 }
 function canvasDataUrl(){ return art.toDataURL('image/png'); }
 
-$('askai').onclick=async()=>{
-  const b=$('askai'); const was=b.textContent;
-  b.disabled=true; b.textContent='Asking Claude…';
-  try{
-    const j=await ask('identify',canvasDataUrl());
-    $('tname').value=j.name||'';
-    if(j.layer) $('tlayer').value=j.layer;
-    toast(j.name+' → '+j.layer+' ('+j.confidence+' confidence)');
-    $('ainote').textContent=j.description||'';
-    $('ainote').hidden=false;
-  }catch(e){
-    if(aiReady===false){ $('aisec').hidden=true; toast('Claude is not configured on this site'); }
-    else toast(String(e.message||e));
-  }finally{ b.disabled=false; b.textContent=was; }
-};
 
 $('saveproj').onclick=async()=>{
   if(!ctx) return;
@@ -2591,7 +2566,9 @@ function applyOutline(){
 }
 
 /* ================= base layer ==================================== */
+let baseOutline=false;
 function drawBase(){
+  /* set by the Show base outline button */
   const bc=$("base");
   if(!baseBitmap||!ctx){ bc.style.display="none"; return; }
   bc.width=art.width; bc.height=art.height;
@@ -2602,7 +2579,24 @@ function drawBase(){
      160px trait has to land on the same footprint or it proves nothing. */
   g.drawImage(baseBitmap,0,0,bc.width,bc.height);
   bc.style.width=(art.width*zoom)+"px"; bc.style.height=(art.height*zoom)+"px";
-  bc.style.opacity=(+$("baseop").value/100);
+  if(baseOutline){
+    /* The base is a whole character, and behind a small trait most of it is
+       flat skin covering the very thing being worked on. The linework alone
+       answers the only question being asked of it - is this in the right
+       place - so it can be shown without the fill. These characters are drawn
+       as dark lines over flat colour, so darkness is what tells the two
+       apart. */
+    const im=g.getImageData(0,0,bc.width,bc.height), d=im.data;
+    for(let p=0;p<bc.width*bc.height;p++){
+      const i=p*4;
+      if(d[i+3]<8 || lum(d[i],d[i+1],d[i+2])>90) d[i+3]=0;
+    }
+    g.putImageData(im,0,0);
+  }
+  /* A thin line at 55% is barely there, so the outline is shown as drawn and
+     the strength slider goes back to meaning what it says once the whole base
+     is on screen again. */
+  bc.style.opacity = baseOutline ? 1 : (+$("baseop").value/100);
   bc.style.display="block";
 }
 async function setBaseFromBlob(b){
@@ -4711,6 +4705,15 @@ $('basepick').onchange=async()=>{
   try{ rec=(await dbAll()).find(i=>i.id===id); }catch(_){}
   if(!rec){ toast('That base is no longer saved'); fillBasePicker(); return; }
   await setBaseFromBlob(rec.blob);
+};
+$('baseoutline').onclick=()=>{
+  if(!baseBitmap){ toast('Pick a base first'); return; }
+  baseOutline=!baseOutline;
+  const b=$('baseoutline');
+  b.setAttribute('aria-pressed',String(baseOutline));
+  b.classList.toggle('on',baseOutline);
+  b.textContent = baseOutline ? 'Show the whole base' : 'Show base outline';
+  drawBase();
 };
 $('basefile').onchange=async e=>{
   const f=e.target.files[0]; if(!f) return;

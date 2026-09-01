@@ -157,6 +157,10 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
     linear-gradient(45deg,#232029 25%,transparent 25%,transparent 75%,#232029 75%),
     linear-gradient(45deg,#232029 25%,#1a1720 25%,#1a1720 75%,#232029 75%);
   background-size:12px 12px; background-position:0 0,6px 6px;}
+.item .rar{position:absolute; left:3px; top:3px; width:36px; padding:2px 3px;
+  font-size:10px; border-radius:5px; background:var(--panel-2);
+  border:1px solid var(--line); color:var(--muted); text-align:center;}
+.item .rar:hover,.item .rar:focus{border-color:var(--accent); color:var(--ink); outline:none;}
 .item b{display:block; font-size:10.5px; font-weight:500; margin-top:5px; color:var(--muted);
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
 .item .x{position:absolute; top:3px; right:3px; width:19px; height:19px; border-radius:5px;
@@ -931,6 +935,25 @@ async function renderShelf(){
         await dbPut({...t, id:'t_'+t.name+'_'+t.layer+'_'+next, status:next});
         renderShelf(); toast(t.name+' -> '+next); };
       el.appendChild(cyc);
+      const rar=document.createElement('input');
+      rar.className='rar'; rar.type='number'; rar.min='1'; rar.max='99';
+      rar.value=String(traitWeight(t));
+      rar.setAttribute('aria-label','Rarity weight for '+t.name);
+      rar.title='How often this is picked by Randomise and the sheet. 1 is normal, 5 is five times as likely.';
+      /* The tile itself opens the trait for editing, so the number box has to
+         swallow its own clicks or every attempt to retype the weight opens the
+         editor instead. */
+      rar.onclick=ev=>ev.stopPropagation();
+      rar.onchange=async ev=>{
+        ev.stopPropagation();
+        const v=Math.max(1,Math.min(99,parseInt(rar.value,10)||1));
+        rar.value=String(v);
+        /* rarity is not part of the id, so this updates in place rather than
+           creating a second record for the same trait. */
+        await dbPut({...t, rarity:v});
+        renderShelf();
+      };
+      el.appendChild(rar);
       const x=document.createElement('button'); x.className='x'; x.textContent='×';
       x.title='Remove'; x.setAttribute('aria-label','Remove '+t.name);
       x.onclick=async ev=>{ ev.stopPropagation(); await dbDel(t.id); renderShelf(); toast('Removed '+t.name); };
@@ -2544,7 +2567,11 @@ function composeRandom(){
     /* The base always gets one; a trait layer may legitimately be empty, which
        is what makes generated characters differ at all. */
     const skip = s.dataset.layer!=="__base" && Math.random()<0.35;
-    s.value = skip ? "" : opts[Math.floor(Math.random()*opts.length)].value;
+    /* The dropdown holds ids; the weights live on the records, so the options
+       are resolved back to records before picking. */
+    const recs=opts.map(o=>cItems.find(i=>i.id===o.value)).filter(Boolean);
+    const hit=recs.length?weightedPick(recs):null;
+    s.value = (skip||!hit) ? "" : hit.id;
   }
   drawCompose();
 }
@@ -2635,6 +2662,25 @@ async function bulkImport(files){
    work. A collision between a hat and a pair of ears only shows up when both
    happen to be drawn, which one-at-a-time browsing will not find. */
 let sheetMode=false;
+/* A collection needs some traits to be rarer than others. Uniform picking makes
+   every trait equally common, which is the one thing a rarity system exists to
+   prevent. Both Randomise and the sheet go through THIS function, so the two
+   cannot drift into disagreeing about how often something appears. */
+function traitWeight(rec){
+  const w = rec && typeof rec.rarity==="number" ? rec.rarity : 1;
+  /* Guard the arithmetic, not just the input. A zero, a negative or a NaN would
+     corrupt the running total and could walk off the end of the list. */
+  return (isFinite(w) && w>0) ? w : 1;
+}
+function weightedPick(recs){
+  if(!recs||!recs.length) return null;
+  let total=0;
+  for(const r of recs) total+=traitWeight(r);
+  let n=Math.random()*total;
+  for(const r of recs){ n-=traitWeight(r); if(n<=0) return r; }
+  /* Only reachable through floating-point drift, never through the weights. */
+  return recs[recs.length-1];
+}
 function cPools(){
   const pools={};
   $("crows").querySelectorAll("select").forEach(s=>{
@@ -2649,12 +2695,12 @@ function cPools(){
 function randomCombo(pools){
   const out=[];
   const base=pools.__base;
-  if(base&&base.length) out.push(base[Math.floor(Math.random()*base.length)]);
+  if(base&&base.length) out.push(weightedPick(base));
   for(const layer of LAYERS){
     const p=pools[layer];
     if(!p||!p.length) continue;
     if(Math.random()<0.35) continue;   /* an empty layer is what makes them differ */
-    out.push(p[Math.floor(Math.random()*p.length)]);
+    out.push(weightedPick(p));
   }
   return out;
 }

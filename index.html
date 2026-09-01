@@ -1616,6 +1616,64 @@ function reclaimOutline(t,src,ref,W,H,darkMax,passes,maxOutline){
   return added;
 }
 
+/* reclaimOutline grows outward from the trait's LIGHT pixels and gives up
+   maxOutline away from them. That covers a trait with a coloured body whose
+   own dark edge is hidden under the character's outline. It cannot cover a
+   trait that is dark all the way through.
+
+   The arm of a pair of sunglasses is black for its entire length. Where it
+   crosses the character's black outline the two pixels are identical, so the
+   difference is zero; and the nearest light pixel is the glare on the lens,
+   far further than maxOutline, so reclaim refuses every pixel of the gap. The
+   arm comes back in two pieces with a hole where the ear is. Measured: none
+   of the hidden pixels were recovered, and the result was two components.
+
+   So ask a different question. Not "how far is this from the body" but "is
+   this dark pixel BETWEEN two pieces of trait" - trait within reach one way,
+   trait within reach the opposite way, and nothing but dark pixels in
+   between. That is what a trait outline passing behind the character's
+   outline looks like. It is deliberately not what an edge looks like: an edge
+   has trait on one side only, so this cannot push the trait outwards, and it
+   cannot jump a gap of skin because the path has to stay dark. */
+function bridgeOutline(t,src,W,H,darkMax,reach){
+  const m=maskOfImg(t,W*H,127);
+  const dark=p=>{ const i=p*4;
+    return src[i+3]>=128 && lum(src[i],src[i+1],src[i+2])<=darkMax; };
+  /* Horizontal, vertical and both diagonals. An arm can cross an outline at
+     any angle, and a purely horizontal test misses a sloped one. */
+  const dirs=[[1,0],[0,1],[1,1],[1,-1]];
+  const add=[];
+  for(let y=0;y<H;y++) for(let x=0;x<W;x++){
+    const p=y*W+x;
+    if(m[p]||!dark(p)) continue;
+    for(const d of dirs){
+      let one=false,other=false;
+      for(let k=1;k<=reach;k++){
+        const xx=x-d[0]*k, yy=y-d[1]*k;
+        if(xx<0||yy<0||xx>=W||yy>=H) break;
+        const q=yy*W+xx;
+        if(m[q]){ one=true; break; }
+        if(!dark(q)) break;
+      }
+      if(!one) continue;
+      for(let k=1;k<=reach;k++){
+        const xx=x+d[0]*k, yy=y+d[1]*k;
+        if(xx<0||yy<0||xx>=W||yy>=H) break;
+        const q=yy*W+xx;
+        if(m[q]){ other=true; break; }
+        if(!dark(q)) break;
+      }
+      if(other){ add.push(p); break; }
+    }
+  }
+  /* Every test reads the mask as it was when this started, so filling a gap
+     cannot become an anchor for filling the next one along. One pass, and the
+     reach is what bounds how far this can ever go. */
+  for(const p of add){ const i=p*4;
+    t[i]=src[i]; t[i+1]=src[i+1]; t[i+2]=src[i+2]; t[i+3]=255; }
+  return add.length;
+}
+
 function defringe(t,ref,W,H,thresh,passes,neutralMax){
   let removed=0;
   for(let pass=0;pass<passes;pass++){
@@ -1884,7 +1942,7 @@ function extractTrait(sub,ref,o){
     if(R[i+3]>=128 && !far) continue;
     t[i]=src[i]; t[i+1]=src[i+1]; t[i+2]=src[i+2]; t[i+3]=255; diffed++;
   }
-  const stats={diffed,align:alignInfo,reclaimed:0,defringed:0,edgeDropped:0,edgeBlacked:0,opened:0,tendrils:0,despeckled:0,
+  const stats={diffed,align:alignInfo,reclaimed:0,bridged:0,defringed:0,edgeDropped:0,edgeBlacked:0,opened:0,tendrils:0,despeckled:0,
     bgCleared:strippedSub.cleared,bgPeeled:strippedSub.peeled};
   if(o.reclaim) stats.reclaimed=reclaimOutline(t,src,R,W,H,o.darkMax,o.reclaimPasses,o.maxOutline);
   if(o.defringe) stats.defringed=defringe(t,R,W,H,o.fringeThresh,o.fringePasses,o.neutralMax);
@@ -1896,6 +1954,13 @@ function extractTrait(sub,ref,o){
     stats.edgeBlacked=blackenEdge(t,W,H);
   }
   if(o.open){ const r=openMask(t,W,H,o.openR,o.minRemove); stats.opened=r.removed; stats.tendrils=r.tendrils; }
+  /* AFTER the opening, deliberately. A glasses arm is long and thin, which is
+     exactly what the tendril rule is looking for - joining its two halves
+     turned two pieces that were each under the threshold into one that was
+     over it, and the whole arm was deleted. Bridging here leaves the tendril
+     rule seeing the same mask it always saw, and nothing downstream of this
+     splits a component. */
+  if(o.reclaim) stats.bridged=bridgeOutline(t,src,W,H,o.darkMax,o.bridgeReach);
   if(o.despeckle){ const r=despeckle(t,W,H,o.minBlob,o.relative); stats.despeckled=r.dropped; }
   let kept=0;
   for(let p=0;p<W*H;p++) if(t[p*4+3]) kept++;
@@ -1909,7 +1974,9 @@ function currentOpts(){
     thresh:+$("sens").value,
     align:$("cbAlign").checked, band:JSON.parse($("bandsel").value),
     strip:$("cbStrip").checked, haloTol:150, haloPasses:6,
-    reclaim:$("cbReclaim").checked, darkMax:110, reclaimPasses:40, maxOutline:6,
+    /* bridgeReach 6 spans a gap up to twelve pixels wide, since it reaches
+       from both sides. A character outline is three or four pixels. */
+    reclaim:$("cbReclaim").checked, darkMax:110, reclaimPasses:40, maxOutline:6, bridgeReach:6,
     defringe:$("cbFringe").checked, fringeThresh:+$("sens").value*2.1, fringePasses:4, neutralMax:18,
     snap:$("cbSnap").checked, edgeLum:110, edgeStep:25, hardPasses:6,
     open:$("cbOpen").checked, openR:3, minRemove:150,
@@ -1959,6 +2026,7 @@ function renderPreview(){
       if(s.align) bits.push("aligned x"+s.align.scale.toFixed(3)+" "+s.align.dx+","+s.align.dy);
       if(s.bgCleared) bits.push("background "+s.bgCleared.toLocaleString()+" +halo "+s.bgPeeled);
       if(s.reclaimed) bits.push("outline +"+s.reclaimed.toLocaleString());
+      if(s.bridged) bits.push("bridged +"+s.bridged.toLocaleString());
       if(s.defringed) bits.push("fringe -"+s.defringed.toLocaleString());
       if(s.opened) bits.push("tendrils -"+s.opened.toLocaleString());
       if(s.edgeDropped||s.edgeBlacked) bits.push("edge -"+s.edgeDropped+", "+s.edgeBlacked+" blacked");

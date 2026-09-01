@@ -342,6 +342,9 @@ input[type=range]{width:100%; accent-color:#f5a524; cursor:pointer;}
   border:1px solid #f5a524cc;}
 .side{grid-area:side; width:252px; padding:14px; border-left:1px solid var(--line);
   background:var(--panel); overflow-y:auto; display:flex; flex-direction:column; gap:15px;}
+/* The handle is a phone thing. On a wide screen the panel is a column beside
+   the art and is not in the way of anything. */
+.grip{display:none;}
 .side h2{font-size:10.5px; text-transform:uppercase; letter-spacing:.12em; color:var(--muted);
   display:flex; align-items:center; gap:8px;}
 .side h2::after{content:""; flex:1; height:1px; background:var(--line); order:1;}
@@ -405,7 +408,29 @@ footer .mono{color:var(--ink);}
   .tool{width:42px; height:42px;}
   .rule{width:1px; height:26px; margin:2px 4px; align-self:center;}
   .stage{padding:12px;}
-  .side{width:auto; max-height:44dvh; border-left:none; border-top:1px solid var(--line);}
+  /* On a phone the panel is a bottom sheet across nearly half the screen, and
+     what is underneath it is the art someone is in the middle of editing. It
+     drags out of the way now. The transition is on max-height rather than
+     transform so the stage above genuinely grows into the space instead of
+     the sheet sliding over it. */
+  .side{width:auto; max-height:44dvh; border-left:none; border-top:1px solid var(--line);
+    padding-top:0; transition:max-height .22s ease;}
+  .grip{display:flex; align-items:center; justify-content:center; gap:9px;
+    position:sticky; top:0; z-index:3; height:34px; flex:none; width:100%;
+    background:var(--panel); border:0; padding:0; cursor:grab;
+    color:var(--dim); font-size:9.5px; text-transform:uppercase; letter-spacing:.12em;
+    /* the browser must not claim the vertical drag for scrolling */
+    touch-action:none;}
+  .grip::before{content:""; width:34px; height:4px; border-radius:2px; background:var(--line);}
+  .grip:focus-visible{outline:2px solid var(--accent); outline-offset:-2px;}
+  /* Collapsed to the handle and nothing else, so there is always something
+     left to grab. A sheet that closes completely cannot be reopened. */
+  /* env() is zero on anything without an inset, so this costs nothing on a
+     phone that does not need it. The extra 2px is slack: the handle is 34
+     and a container of exactly 34 clips it by a subpixel. */
+  .side.down{max-height:calc(36px + env(safe-area-inset-bottom,0px));
+    overflow:hidden; padding-bottom:env(safe-area-inset-bottom,0px);}
+  .side{padding-bottom:calc(14px + env(safe-area-inset-bottom,0px));}
   .swatches{grid-template-columns:repeat(10,1fr);} .sw{min-height:30px;}
   footer{gap:11px; padding:7px 14px; flex-wrap:wrap;} .hint{display:none;}
   .facts{grid-template-columns:1fr;}
@@ -710,7 +735,9 @@ footer .mono{color:var(--ink);}
     <div class="frame" id="frame"><canvas id="base"></canvas><canvas id="art"></canvas><div id="grid"></div><canvas id="olpv"></canvas><div id="bcur"></div></div>
   </main>
 
-  <aside class="side">
+  <aside class="side" id="sidepanel">
+    <button class="grip" id="sidegrip" type="button" aria-controls="sidepanel"
+      aria-expanded="true" title="Hide the tools">Tools</button>
     <div class="cur">
       <input type="color" id="picker" value="#000000" aria-label="Pick any colour">
       <span><small>Current</small><span class="mono" id="curhex">#000000</span></span>
@@ -4415,6 +4442,49 @@ document.addEventListener('keydown',e=>{
     $('acctpanel').hidden=true; $('acctbtn').setAttribute('aria-expanded','false'); }
 });
 $('cloudout').onclick=cloudSignOut;
+
+/* Drag the handle down and the tools get out of the way; drag it up, or just
+   tap it, and they come back. Kept per device, because whether you want the
+   colours in front of you or the art is a working preference and re-making it
+   on every load is its own annoyance. */
+const SIDE_KEY="chatnft.sidedown";
+function sideDown(on,remember){
+  $("sidepanel").classList.toggle("down",!!on);
+  /* aria-expanded describes the PANEL, so it is the opposite of "down". */
+  $("sidegrip").setAttribute("aria-expanded", on?"false":"true");
+  $("sidegrip").title = on ? "Show the tools" : "Hide the tools";
+  if(remember!==false){ try{ localStorage.setItem(SIDE_KEY, on?"1":"0"); }catch(_){} }
+}
+(function(){
+  const grip=$("sidegrip"), side=$("sidepanel");
+  let y0=null, moved=false;
+  const isDown=()=>side.classList.contains("down");
+  grip.addEventListener("pointerdown",e=>{
+    y0=e.clientY; moved=false;
+    try{ grip.setPointerCapture(e.pointerId); }catch(_){}
+  });
+  grip.addEventListener("pointermove",e=>{
+    if(y0===null) return;
+    const dy=e.clientY-y0;
+    if(Math.abs(dy)>6) moved=true;
+    /* Acted on during the drag rather than on release, so the sheet follows
+       the finger instead of waiting to find out what was meant. */
+    if(dy>24){ sideDown(true); y0=null; }
+    else if(dy<-24){ sideDown(false); y0=null; }
+  });
+  grip.addEventListener("pointerup",()=>{
+    /* A tap is a drag that went nowhere, and it is asking for the same thing. */
+    if(y0!==null && !moved) sideDown(!isDown());
+    y0=null;
+  });
+  grip.addEventListener("pointercancel",()=>{ y0=null; });
+  grip.addEventListener("keydown",e=>{
+    if(e.key==="Enter"||e.key===" "){ e.preventDefault(); sideDown(!isDown()); }
+  });
+  let want=false; try{ want=localStorage.getItem(SIDE_KEY)==="1"; }catch(_){}
+  /* remember:false - restoring a choice is not making one. */
+  sideDown(want,false);
+})();
 $('cloudpush').onclick=cloudPush;
 $('cloudpull').onclick=cloudPull;
 /* Read the sign-in fragment BEFORE the first render, so someone arriving from

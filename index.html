@@ -1877,10 +1877,14 @@ function outlinePlan(){
   for(let p=0;p<NP;p++){ if(!ring[p]) continue; if(d[p*4+3]>=128) ring[p]=0; else n++; }
   let holes=null, hcol=null, hn=0;
   if(patch){
-    const holeB=new Uint8Array(bw*bh);
-    for(let p=0;p<bw*bh;p++) holeB[p]=(filled[p]&&!b0[p])?1:0;
-    holes=fromBlocks(holeB,bw,bh,B,W,H);
-    for(let p=0;p<NP;p++) if(holes[p]&&d[p*4+3]>=128) holes[p]=0;
+    /* At CELL resolution, and deliberately bounded: a closing only fills
+       concavities and a hole fill only fills enclosed regions, so neither can
+       put a fringe of invented pixels around the outside of the figure the way
+       the block silhouette would at snap 4 or 8. */
+    let rep=erodeB(dilateB(cell,W,H,1),W,H,1);
+    rep=fillHolesB(rep,W,H);
+    holes=new Uint8Array(NP);
+    for(let p=0;p<NP;p++) holes[p]=(rep[p]&&d[p*4+3]<128)?1:0;
     /* Nearest opaque colour, spread inwards from the surviving art. A flat fill
        would band across a gradient; this continues whatever bordered the gap. */
     const src=new Int32Array(NP).fill(-1), q=[];
@@ -1896,6 +1900,7 @@ function outlinePlan(){
     hcol=src;
     for(let p=0;p<NP;p++){ if(!holes[p]) continue; if(src[p]<0) holes[p]=0; else hn++; }
   }
+  if(holes){ for(let p=0;p<NP;p++) if(holes[p]&&ring[p]){ ring[p]=0; n--; } }
   return {ring:ring,n:n,holes:holes,hcol:hcol,hn:hn,W:W,H:H,B:B,t:t,src:d};
 }
 
@@ -1924,8 +1929,9 @@ function outlinePreview(){
       g.putImageData(im,0,0);
       pv.style.width=(plan.W*zoom)+"px"; pv.style.height=(plan.H*zoom)+"px";
       pv.style.display="block";
-      $("oladd").textContent = plan.n||plan.hn
-        ? "Add outline ("+plan.n.toLocaleString()+" cells)" : "Add outline";
+      $("oladd").textContent = (plan.n||plan.hn)
+        ? "Add outline ("+plan.n.toLocaleString()+" cells"+(plan.hn?", patch "+plan.hn:"")+")"
+        : "Add outline";
     } finally { olBusy=false; }
   },40);
 }

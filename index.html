@@ -57,6 +57,10 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
 .lbtn:hover:not([disabled]){border-color:var(--accent); color:var(--ink);}
 .lbtn[disabled]{opacity:.28; cursor:not-allowed;}
 .projhead .acts input{width:150px;}
+#projsearch{padding:7px 10px; border-radius:8px; background:var(--ground);
+  border:1px solid var(--line); color:var(--ink); font:inherit; font-size:12.5px;}
+#projsearch:focus{border-color:var(--accent); outline:none;}
+#projsearch::placeholder{color:var(--dim);}
 /* The label is a flex row inside a flex row; without this it stretches into
    the free space and wraps "include wip" onto two lines. */
 .projhead .acts .olchk{flex:none; white-space:nowrap;}
@@ -486,6 +490,8 @@ footer .mono{color:var(--ink);}
       <h2>Your project</h2>
       <span class="count" id="projcount"></span>
       <div class="acts">
+        <input id="projsearch" type="search" placeholder="find a trait"
+          aria-label="Filter traits by name" autocomplete="off">
         <button class="mini filt" data-f="all" aria-pressed="true">all</button>
         <button class="mini filt" data-f="wip" aria-pressed="false">wip</button>
         <button class="mini filt" data-f="approved" aria-pressed="false">approved</button>
@@ -884,6 +890,14 @@ async function renderShelf(){
      the default list is only what it starts from. */
   applyLayers(items);
   const traits=items.filter(i=>i.kind==='trait');
+  /* ONE predicate for both the layer list and the tiles inside it. When these
+     were written out twice, a layer could survive the header check and then
+     render empty - so search and status are combined in a single place.
+     Declared HERE, above every use: it was first placed next to the layer list
+     further down, which put the no-hits check inside its temporal dead zone and
+     threw on every search. Parsing cannot see that; only running it can. */
+  const shows=t=>(shelfFilter==="all"||(t.status||"wip")===shelfFilter)
+    && (!shelfQuery || String(t.name||"").toLowerCase().indexOf(shelfQuery)>=0);
   const savedRefs=items.filter(i=>i.kind==='ref');
   $('proj').hidden=!items.length;
   if(!items.length){ $('compose').hidden=true; $('layers').hidden=true; return; }
@@ -907,11 +921,27 @@ async function renderShelf(){
     }
     rw.appendChild(rg); body.appendChild(rw);
   }
-  const used=LAYERS.filter(l=>traits.some(t=>t.layer===l&&(shelfFilter==="all"||(t.status||"wip")===shelfFilter)));
-  if(!used.length){ body.innerHTML='<p class="empty">No traits saved yet. Open an image, then use Save to project.</p>'; }
+  const used=LAYERS.filter(l=>traits.some(t=>t.layer===l&&shows(t)));
+  if(!used.length){
+    /* This said "No traits saved yet" whenever nothing was on screen, which was
+       already wrong before search existed: filtering to rejected with no rejected
+       traits claimed the project was empty. An empty shelf has three different
+       causes and the message has to name which one. */
+    const why = shelfQuery
+      ? 'Nothing matching "'+shelfQuery+'"'+
+        (shelfFilter==="all"?"":" that is "+shelfFilter)+", out of "+traits.length+" saved."
+      : (shelfFilter!=="all"
+          ? "Nothing marked "+shelfFilter+", out of "+traits.length+" saved."
+          : "No traits saved yet. Open an image, then use Save to project.");
+    const p=document.createElement('p');
+    p.className='empty'; p.textContent=why;
+    /* appendChild, not innerHTML: replacing the body here also wiped the
+       references row, so a project holding a base and no matching traits lost it. */
+    body.appendChild(p);
+  }
   for(const layer of used){
     const wrap=document.createElement('div'); wrap.className='layer';
-    const mine=traits.filter(t=>t.layer===layer&&(shelfFilter==="all"||(t.status||"wip")===shelfFilter)).sort((a,b)=>b.at-a.at);
+    const mine=traits.filter(t=>t.layer===layer&&shows(t)).sort((a,b)=>b.at-a.at);
     if(!mine.length) continue;
     wrap.innerHTML='<h3>'+layer+' <span style="color:var(--dim)">'+mine.length+'</span></h3>';
     const grid=document.createElement('div'); grid.className='items';
@@ -1734,6 +1764,7 @@ function renderPreview(){
 }
 let lastResult=null;
 let shelfFilter='all';
+let shelfQuery='';   /* what is typed in the shelf search box, already lowercased */
 $('sens').addEventListener('input',()=>{ $('sensv').textContent=$('sens').value; renderPreview(); });
 $('minblob').addEventListener('input',()=>{ $('minblobv').textContent=$('minblob').value; renderPreview(); });
 $('pvResult').onclick=()=>{ pvMode='result'; $('pvResult').setAttribute('aria-pressed','true');
@@ -3175,6 +3206,21 @@ $('pxgo').onclick=()=>{
               palette(pxData.data,n*n,24,64),true);
   toast('Pixelated to '+n+String.fromCharCode(215)+n);
 };
+/* Typing re-renders the shelf, which decodes a thumbnail per tile, so it is
+   debounced - on a few hundred traits every keystroke would otherwise queue
+   another full rebuild behind the last one. */
+let shelfSearchPending=null;
+$('projsearch').addEventListener('input',()=>{
+  clearTimeout(shelfSearchPending);
+  shelfSearchPending=setTimeout(()=>{
+    shelfSearchPending=null;
+    shelfQuery=$('projsearch').value.trim().toLowerCase();
+    renderShelf();
+  },120);
+});
+$('projsearch').addEventListener('keydown',e=>{
+  if(e.key==='Escape'){ $('projsearch').value=''; shelfQuery=''; renderShelf(); }
+});
 $('addlayer').onclick=addLayer;
 $('newlayer').onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); addLayer(); } };
 $('bulkbtn').onclick=()=>$('bulkfile').click();

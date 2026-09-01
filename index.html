@@ -25,6 +25,7 @@ body{
   font-family:Archivo,system-ui,-apple-system,"Segoe UI",sans-serif;
   font-size:14px; line-height:1.5; -webkit-font-smoothing:antialiased;
   overscroll-behavior:none;
+  max-width:100%; overflow-x:hidden;
 }
 h1,h2,h3{margin:0; text-wrap:balance;}
 button{font:inherit; color:inherit; background:none; border:none; cursor:pointer;}
@@ -143,6 +144,17 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
 .projhead h2{font-size:13px; text-transform:uppercase; letter-spacing:.1em; color:var(--accent);}
 .projhead .count{font-size:12px; color:var(--dim);}
 .projhead .acts{margin-left:auto; display:flex; gap:8px;}
+/* Wrapping, not overflowing. Measured at 375px: this row was 568px wide and
+   pushed the document to 602px, so every page scrolled sideways. */
+.projhead .acts{flex-wrap:wrap;}
+@media (max-width:620px){
+  .projhead{gap:9px;}
+  .projhead .acts{margin-left:0; width:100%;}
+  /* Buttons share the row instead of each demanding its natural width. */
+  .projhead .acts .mini{flex:1 1 auto; min-width:0;}
+  #projsearch{width:100%; flex:1 1 100%;}
+  .projhead .acts .olchk{flex:1 1 100%;}
+}
 .mini{padding:7px 12px; border-radius:8px; background:var(--panel-2); border:1px solid var(--line);
   font-size:12.5px; color:var(--ink);}
 .mini:hover{border-color:var(--accent);}

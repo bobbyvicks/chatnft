@@ -3945,14 +3945,16 @@ function gateShow(on){
    hour; it is not about the person in front of it, and waiting twenty seconds
    will not clear it. Telling someone to wait a minute when they need an hour
    sends them round the same loop until they give up. */
-function authSays(j, fallback){
+function authSays(j, fallback, isUsername){
   const raw=String((j&&(j.msg||j.error_description||j.message||j.error))||"");
   const wait=raw.match(/after ([0-9]+) seconds?/i);
   if(wait) return "Wait "+wait[1]+" seconds and try again - there is a short pause between emails.";
   if(/email rate limit|over_email_send_rate_limit/i.test(raw))
     return "This site has sent all the emails it is allowed this hour. That is a cap on the whole site, not on you or your address, so a different email will not help. Try again in an hour.";
   if(/already registered|already been registered|user already/i.test(raw))
-    return "There is already an account for that address. Sign in with your password, or use the email link if you have forgotten it.";
+    return isUsername
+      ? "That username is taken. Pick another one, or sign in if it is already yours."
+      : "There is already an account for that address. Sign in with your password instead.";
   if(/weak.?password|password should be|at least [0-9]+ characters/i.test(raw))
     return "That password was refused. Try a longer one.";
   /* Anything unrecognised is passed through rather than flattened into
@@ -4136,7 +4138,7 @@ async function gateSignUp(){
       body:JSON.stringify({email:c.email, password:c.password, data:{username:c.username}})});
     const j=await r.json().catch(()=>({}));
     if(!r.ok){
-      $("gatenote").textContent=authSays(j,"Could not create that account.");
+      $("gatenote").textContent=authSays(j,"Could not create that account.",looksLikeUsername(c.username));
       return;
     }
     if(gateKeep(j)){
@@ -4159,7 +4161,7 @@ async function gateSignUp(){
 
 /* For anyone who got in by link and never set one. */
 async function setPassword(){
-  const p=prompt("Choose a password (at least 8 characters). You can then sign in without the email link.");
+  const p=prompt("Choose a new password (at least 8 characters).");
   if(p===null) return;
   if(String(p).length<8){ toast("At least 8 characters"); return; }
   const h=await sbHeaders({"Content-Type":"application/json"});

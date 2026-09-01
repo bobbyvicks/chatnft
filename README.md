@@ -1,8 +1,12 @@
-# Pixel Bench
+# ChatNFT
 
 A pixel art editor that works on the grid your art was actually drawn on.
 
-Live: https://pixelart-trellis67.vercel.app
+Live: https://pixelbench.vercel.app
+
+(The name is ChatNFT; the URL still says pixelbench because chatnft.vercel.app and
+chat-nft.vercel.app are both already taken by other people. Free at time of writing:
+chatnfts, chatnft-app, chatnftapp, getchatnft, chatnft-io.)
 
 ## What it does
 

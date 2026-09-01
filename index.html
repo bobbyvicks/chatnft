@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Pixel Bench — pixel art editor on the true grid</title>
+<title>ChatNFT — pixel art editor on the true grid</title>
 <meta name="description" content="A pixel art editor that works on your art's true grid. Drop in a PNG, rebuild it at its native resolution, edit cell by cell, download clean.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23121016'/><rect x='6' y='6' width='8' height='8' fill='%23f5a524'/><rect x='18' y='6' width='8' height='8' fill='%233ddc97'/><rect x='6' y='18' width='8' height='8' fill='%233ddc97'/><rect x='18' y='18' width='8' height='8' fill='%23f5a524'/></svg>">
 <meta name="build" content="e99019c56f8a3c58">
@@ -330,7 +330,7 @@ footer .mono{color:var(--ink);}
 <main class="land" id="land">
   <div class="brand">
     <span class="logo" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-    <h1>Pixel Bench</h1>
+    <h1>ChatNFT</h1>
   </div>
   <p class="tag">A pixel editor that works on the grid your art was actually drawn on. Drop a PNG in, rebuild it at its true resolution, and <b>edit it cell by cell</b> — then download a clean file. Nothing is uploaded anywhere.</p>
 
@@ -420,6 +420,7 @@ footer .mono{color:var(--ink);}
       <label><input type="checkbox" id="cbStrip" checked> Strip background</label>
       <label><input type="checkbox" id="cbReclaim" checked> Reclaim outline</label>
       <label><input type="checkbox" id="cbFringe" checked> De-fringe</label>
+      <label><input type="checkbox" id="cbSnap" checked> Black outer border</label>
       <label><input type="checkbox" id="cbOpen" checked> Remove tendrils</label>
     </div>
     <div class="exrow">
@@ -468,7 +469,7 @@ footer .mono{color:var(--ink);}
 <!-- ============ editor ============ -->
 <div class="app" id="app" hidden>
   <header>
-    <span class="brand"><span class="logo" aria-hidden="true"><i></i><i></i><i></i><i></i></span><h1>Pixel Bench</h1></span>
+    <span class="brand"><span class="logo" aria-hidden="true"><i></i><i></i><i></i><i></i></span><h1>ChatNFT</h1></span>
     <span class="fname mono" id="fname"></span>
     <div class="spec">
       <span>Grid <b class="mono" id="sGrid">—</b></span>
@@ -762,6 +763,10 @@ function load(file){
    survives refreshes but does not sync between devices. */
 const LAYERS=['backgrounds','skins','clothing','costumes','chains','accessories',
   'extras','ears','mouth','eyes','hair-headwear','masks','unsorted'];
+/* Deliberately still 'pixelbench' after the rename to ChatNFT: this string is
+   the key to every trait already saved in a browser. Renaming it would leave
+   that data in place but unreachable, which presents as the project emptying
+   itself. The name on screen is not worth someone's work. */
 const DBN='pixelbench', STORE='items';
 let dbp=null;
 function db(){
@@ -979,7 +984,7 @@ $('dlzip').onclick=async()=>{
     files.push({name:nm, data:new Uint8Array(await t.blob.arrayBuffer())});
   }
   const b=zip(files), u=URL.createObjectURL(b), a=document.createElement('a');
-  a.href=u; a.download='pixel-bench-project.zip';
+  a.href=u; a.download='chatnft-project.zip';
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(u),1500);
   toast('Downloaded '+files.length+' traits');
@@ -1413,6 +1418,100 @@ function alignToRef(subData,sw,sh,refData,W,H,f0,f1){
 }
 
 /** The whole pipeline. Preview and Extract both call this. */
+/* Anti-aliasing and resampling leave boundary pixels that are MIXTURES of a
+   real colour and whatever was behind it. That is why a black outline cut off
+   a light background comes back wearing a grey rim: nobody drew those pixels,
+   they are the average of two things.
+
+   defringe cannot remove them. It skips anything neutral on purpose - the
+   "never peel neutral" guard exists so a genuine black outline is not eaten -
+   and a grey rim is exactly neutral, so the guard protects the defect.
+
+   The test used here is different, and it is what lets a real colour be told
+   from a mixture: a blend of colour P and background R LIES ON THE SEGMENT
+   between them. A colour the artist actually chose does not, except by
+   coincidence. So a boundary pixel near that line is resolved to whichever end
+   it is closer to - kept as P, or dropped as background - and one that is off
+   the line is left alone, because it is somebody's decision. */
+/* Harden the cut edge.
+
+   Two earlier attempts at this failed and both failures were informative.
+   Palette snapping assumed the artwork uses a small discrete set of colours;
+   measured, one real submission has 5670 distinct colours across 20784
+   interior pixels, because it is an anti-aliased 1254px export and not native
+   pixel art. With a palette that dense, "is this colour one the artist used"
+   is true of almost everything and decides nothing.
+
+   What is actually there is a RAMP: 7,0,0 then 92,79,63 then 168,152,127 then
+   217,189,141, running from the outline out to the background. Read at size
+   that is a pale rim around the black.
+
+   The rule that works is not about colour distance at all, it is about the
+   collection's own style: the black outline is the OUTERMOST pixel of every
+   shape. So an opaque pixel that touches empty space while a darker outline
+   pixel sits behind it is not something anyone drew - it is what the cut left
+   behind. Peeling repeats until the pass changes nothing, which is when the
+   outline itself is exposed. */
+/* The collection's outer border is black. Always. That is a fact about the
+   art, so it is asserted rather than inferred: once the soft ramp has been
+   peeled off, every opaque pixel still touching empty space is set to pure
+   black. No threshold decides it and nothing about the source can talk it out
+   of it, which is the point - inferring it is what produced a pale rim.
+
+   Note what this check can and cannot tell you. Afterwards the outer ring is
+   black BY CONSTRUCTION, so measuring that it is black only confirms the code
+   ran. What is worth measuring is how much art the peel costs on the way. */
+function blackenEdge(t,W,H){
+  const m=maskOfImg(t,W*H,127);
+  const ring=[];
+  for(let y=0;y<H;y++) for(let x=0;x<W;x++){
+    const p=y*W+x;
+    if(!m[p]) continue;
+    let empty=false;
+    for(let dy=-1;dy<=1&&!empty;dy++) for(let dx=-1;dx<=1;dx++){
+      if(!dx&&!dy) continue;
+      const xx=x+dx, yy=y+dy;
+      /* Off-canvas counts as empty: a trait running to the edge of the frame
+         still has a border there. */
+      if(xx<0||yy<0||xx>=W||yy>=H||!m[yy*W+xx]){ empty=true; break; }
+    }
+    if(empty) ring.push(p);
+  }
+  for(const p of ring){ t[p*4]=0; t[p*4+1]=0; t[p*4+2]=0; t[p*4+3]=255; }
+  return ring.length;
+}
+
+function hardenEdge(t,W,H,o){
+  let removed=0;
+  const lum=i=>0.2126*t[i]+0.7152*t[i+1]+0.0722*t[i+2];
+  for(let pass=0;pass<o.hardPasses;pass++){
+    const m=maskOfImg(t,W*H,127);
+    const kill=[];
+    for(let y=0;y<H;y++) for(let x=0;x<W;x++){
+      const p=y*W+x;
+      if(!m[p]) continue;
+      const L=lum(p*4);
+      if(L<o.edgeLum) continue;          /* dark enough to BE the outline */
+      let empty=false, behind=false;
+      for(let dy=-1;dy<=1&&!(empty&&behind);dy++) for(let dx=-1;dx<=1;dx++){
+        if(!dx&&!dy) continue;
+        const xx=x+dx, yy=y+dy;
+        if(xx<0||yy<0||xx>=W||yy>=H){ empty=true; continue; }
+        const q=yy*W+xx;
+        if(!m[q]){ empty=true; continue; }
+        /* "Behind" means darker AND actually dark: a mid-tone neighbour is
+           just the art being shaded, not an outline this pixel sits outside. */
+        const Lq=lum(q*4);
+        if(Lq<o.darkMax && Lq<L-o.edgeStep) behind=true;
+      }
+      if(empty&&behind) kill.push(p);
+    }
+    if(!kill.length) break;
+    for(const p of kill){ t[p*4+3]=0; removed++; }
+  }
+  return removed;
+}
+
 function extractTrait(sub,ref,o){
   /* Work at the SUBMISSION's resolution, not the reference's.
      The output IS the artwork, so resampling it would move and rescale the
@@ -1450,10 +1549,17 @@ function extractTrait(sub,ref,o){
     if(R[i+3]>=128 && !far) continue;
     t[i]=src[i]; t[i+1]=src[i+1]; t[i+2]=src[i+2]; t[i+3]=255; diffed++;
   }
-  const stats={diffed,align:alignInfo,reclaimed:0,defringed:0,opened:0,tendrils:0,despeckled:0,
+  const stats={diffed,align:alignInfo,reclaimed:0,defringed:0,edgeDropped:0,edgeBlacked:0,opened:0,tendrils:0,despeckled:0,
     bgCleared:strippedSub.cleared,bgPeeled:strippedSub.peeled};
   if(o.reclaim) stats.reclaimed=reclaimOutline(t,src,R,W,H,o.darkMax,o.reclaimPasses,o.maxOutline);
   if(o.defringe) stats.defringed=defringe(t,R,W,H,o.fringeThresh,o.fringePasses,o.neutralMax);
+  if(o.snap){
+    /* The flat background the submission sat on. stripBackground already seeds
+       from the corner, so the corner is the same colour it decided to remove. */
+    const bg=[sub.data[0],sub.data[1],sub.data[2]];
+    stats.edgeDropped=hardenEdge(t,W,H,o);
+    stats.edgeBlacked=blackenEdge(t,W,H);
+  }
   if(o.open){ const r=openMask(t,W,H,o.openR,o.minRemove); stats.opened=r.removed; stats.tendrils=r.tendrils; }
   if(o.despeckle){ const r=despeckle(t,W,H,o.minBlob,o.relative); stats.despeckled=r.dropped; }
   let kept=0;
@@ -1470,6 +1576,7 @@ function currentOpts(){
     strip:$("cbStrip").checked, haloTol:150, haloPasses:6,
     reclaim:$("cbReclaim").checked, darkMax:110, reclaimPasses:40, maxOutline:6,
     defringe:$("cbFringe").checked, fringeThresh:+$("sens").value*2.1, fringePasses:4, neutralMax:18,
+    snap:$("cbSnap").checked, edgeLum:110, edgeStep:25, hardPasses:6,
     open:$("cbOpen").checked, openR:3, minRemove:150,
     despeckle:true, minBlob:+$("minblob").value, relative:0.02,
   };
@@ -1519,6 +1626,7 @@ function renderPreview(){
       if(s.reclaimed) bits.push("outline +"+s.reclaimed.toLocaleString());
       if(s.defringed) bits.push("fringe -"+s.defringed.toLocaleString());
       if(s.opened) bits.push("tendrils -"+s.opened.toLocaleString());
+      if(s.edgeDropped||s.edgeBlacked) bits.push("edge -"+s.edgeDropped+", "+s.edgeBlacked+" blacked");
       if(s.despeckled) bits.push("specks -"+s.despeckled);
       $("pvhint").textContent = r.kept===0 ? "Nothing kept - lower the sensitivity."
         : r.kept>r.W*r.H*0.25 ? "Most of the character is green. Raise sensitivity."

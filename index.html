@@ -199,7 +199,13 @@ header .logo{width:24px; height:24px; border-radius:6px;}
   background-size:16px 16px; background-position:0 0,8px 8px;}
 .frame{position:relative; box-shadow:0 0 0 1px var(--line),0 18px 50px #0009;}
 canvas{display:block; image-rendering:pixelated; cursor:crosshair; touch-action:none;}
-#grid{position:absolute; inset:0; pointer-events:none; opacity:0;
+/* The base sits BEHIND the art and is never part of it: no export, no save,
+   no undo entry. It exists so you can see where the trait lands. */
+#base{position:absolute; left:0; top:0; z-index:0; display:none;
+  pointer-events:none; image-rendering:pixelated;}
+#art{position:relative; z-index:1;}
+#art.mv{cursor:move;}
+#grid{position:absolute; inset:0; z-index:3; pointer-events:none; opacity:0;
   background-image:
     repeating-linear-gradient(to right,#ffffff30 0 1px,transparent 1px var(--z)),
     repeating-linear-gradient(to bottom,#ffffff30 0 1px,transparent 1px var(--z)),
@@ -209,11 +215,20 @@ canvas{display:block; image-rendering:pixelated; cursor:crosshair; touch-action:
 /* The exact cells the next dab will cover. Two rings - dark outside, light
    inside - so it stays readable over black outlines and white highlights
    alike, which a single-colour outline does not. */
-#bcur{position:absolute; display:none; pointer-events:none; z-index:3;
+#bcur{position:absolute; display:none; pointer-events:none; z-index:4;
   background:#ffffff14; box-shadow:0 0 0 1px #000c, inset 0 0 0 1px #fffc;}
 #bcur.erase{background:#ff5f5622; box-shadow:0 0 0 1px #000c, inset 0 0 0 1px #ff9d96;}
 /* A 1-cell box at low zoom is a couple of pixels wide and reads as nothing.
    The halo sits OUTSIDE the box so the footprint shown stays exact. */
+/* The outline preview sits between the art and the brush cursor, at the art's
+   own resolution, so it never touches a pixel until Add outline is pressed. */
+#olpv{position:absolute; left:0; top:0; display:none; pointer-events:none; z-index:2;
+  image-rendering:pixelated;}
+input[type=range]{width:100%; accent-color:#f5a524; cursor:pointer;}
+.olrow{display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--muted);}
+.olrow select,.olrow input[type=number]{margin-left:auto;}
+.olchk{display:flex; align-items:center; gap:6px; font-size:12.5px; cursor:pointer;}
+.olchk input{accent-color:var(--good); cursor:pointer;}
 #bcur.tiny::after{content:""; position:absolute; inset:-4px; border-radius:3px;
   border:1px solid #f5a524cc;}
 .side{grid-area:side; width:252px; padding:14px; border-left:1px solid var(--line);
@@ -401,6 +416,7 @@ footer .mono{color:var(--ink);}
     <button class="tool" data-tool="pencil" aria-pressed="true" title="Pencil (B)"><svg viewBox="0 0 24 24"><path d="M4 20h4L20 8a2.8 2.8 0 0 0-4-4L4 16v4Z"/><path d="M14 6l4 4"/></svg><span class="k">B</span></button>
     <button class="tool" data-tool="eraser" aria-pressed="false" title="Eraser (E)"><svg viewBox="0 0 24 24"><path d="M6 18h12"/><path d="M9 18 4 13a2 2 0 0 1 0-3l7-7a2 2 0 0 1 3 0l5 5a2 2 0 0 1 0 3l-7 7Z"/></svg><span class="k">E</span></button>
     <button class="tool" data-tool="fill" aria-pressed="false" title="Fill (G)"><svg viewBox="0 0 24 24"><path d="M5 12 12 5l7 7-7 7-7-7Z"/><path d="M19 15c1.2 1.6 1.6 2.5 1.6 3.2a1.6 1.6 0 0 1-3.2 0c0-.7.4-1.6 1.6-3.2Z"/></svg><span class="k">G</span></button>
+    <button class="tool" data-tool="move" aria-pressed="false" title="Move the art (M)"><svg viewBox="0 0 24 24"><path d="M12 3v18M3 12h18"/><path d="m9 6 3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"/></svg><span class="k">M</span></button>
     <button class="tool" data-tool="pick" aria-pressed="false" title="Eyedropper (I)"><svg viewBox="0 0 24 24"><path d="m4 20 1-4 9-9 3 3-9 9-4 1Z"/><path d="m15 5 2-2a2 2 0 0 1 3 3l-2 2"/></svg><span class="k">I</span></button>
     <div class="rule"></div>
     <button class="tool" id="undo" title="Undo (Ctrl+Z)"><svg viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg></button>
@@ -411,7 +427,7 @@ footer .mono{color:var(--ink);}
   </nav>
 
   <main class="stage" id="stage">
-    <div class="frame" id="frame"><canvas id="art"></canvas><div id="grid"></div><div id="bcur"></div></div>
+    <div class="frame" id="frame"><canvas id="base"></canvas><canvas id="art"></canvas><div id="grid"></div><canvas id="olpv"></canvas><div id="bcur"></div></div>
   </main>
 
   <aside class="side">
@@ -432,6 +448,41 @@ footer .mono{color:var(--ink);}
         <input id="bgtol" type="number" min="0" max="120" value="24" style="width:64px" aria-label="Background tolerance">
       </div>
       <p class="note">Floods in from the edges, so only colour connected to the border goes. A white shirt in the middle stays.</p>
+    </section>
+    <section>
+      <h2>Base layer</h2>
+      <div class="stack">
+        <div class="savebar">
+          <select id="basepick" aria-label="Base image" style="flex:1"></select>
+          <button class="mini" id="basedrop" title="Remove the base">Remove</button>
+        </div>
+        <div class="olrow"><label for="baseop">Strength</label>
+          <span class="mono" id="baseoplab" style="margin-left:auto">55%</span></div>
+        <input id="baseop" type="range" min="10" max="100" step="5" value="55" aria-label="Base opacity">
+        <input id="basefile" type="file" accept="image/*" hidden>
+      </div>
+      <p class="note">Sits behind the trait so you can see how it lines up. It is never drawn into the
+        artwork, so it cannot end up in a save or an export. Pick <kbd>M</kbd> to drag the trait over it.</p>
+    </section>
+    <section>
+      <h2>Outline</h2>
+      <div class="stack">
+        <div class="olrow"><label for="olthick">Thickness</label>
+          <span class="mono" id="olthicklab" style="margin-left:auto">1 cell</span></div>
+        <input id="olthick" type="range" min="0" max="6" step="1" value="1" aria-label="Outline thickness">
+        <div class="olrow"><label for="olsnap">Snap to</label>
+          <select id="olsnap" aria-label="Snap grid">
+            <option value="auto">auto</option><option value="1" selected>1 cell</option>
+            <option value="2">2 cells</option><option value="3">3 cells</option>
+            <option value="4">4 cells</option><option value="6">6 cells</option>
+            <option value="8">8 cells</option></select></div>
+        <label class="olchk"><input type="checkbox" id="oltidy" checked> Tidy the edge first</label>
+        <label class="olchk"><input type="checkbox" id="olpatch"> Patch holes left by the crop</label>
+        <button class="btn" id="oladd">Add outline</button>
+      </div>
+      <p class="note" id="olnote">Drawn in the current colour, outside the art, never over it. Snapping rounds the
+        silhouette to whole blocks before the outline is grown, so a ragged crop cannot leave one-cell
+        indents in it — at the cost of detail finer than a block.</p>
     </section>
     <section id="aisec">
       <h2>Ask Claude</h2>
@@ -489,6 +540,9 @@ const $=id=>document.getElementById(id);
 const MAXZ=48;
 let N=0, art=$('art'), ctx=null, zoom=4, tool='pencil', color='#000000';
 let hoverCell=null;   /* cell under the pointer, or null when the cursor is away */
+let gridBlock=1;      /* measured block size of the open image, in canvas cells */
+let baseBitmap=null;  /* the image drawn behind the art, never part of it */
+let moveBuf=null, moveFrom=null, moveDelta={x:0,y:0};
 let undoStack=[], redoStack=[], original=null, painting=false, panMode=false, fileName='pixel-art.png';
 let brush=1;
 
@@ -1438,7 +1492,11 @@ function analyse(im,file){
       fact('Confidence',px?(px.R*100).toFixed(0)+'%':'—');
 
     const v=$('anVerdict'), ch=$('anChoices');
-    const editRaw=()=>startEditor(d,w,h,w,h,pal,false);
+    /* Opening raw keeps the source resolution, so the measured period IS the
+       block size in canvas cells and "snap: auto" has something real to use.
+       Rebuilding makes one cell one pixel, where the only honest answer is 1. */
+    const editRaw=()=>{ startEditor(d,w,h,w,h,pal,false);
+      gridBlock=(B&&B>=1.5)?Math.round(B):1; outlinePreview(); };
 
     // The measurement SUGGESTS a resolution, it does not decide. Telling
     // "already at native size" apart from "upscaled" proved unreliable on real
@@ -1520,6 +1578,9 @@ function startEditor(data,w,h,srcW,srcH,pal,recovered){
   $('scrim').hidden=true; $('land').hidden=true; $('app').hidden=false;
   N=w;
   art.width=w; art.height=h;
+  gridBlock=1;   /* callers that measured a block size set it after this */
+  const opv=$('olpv'); opv.width=w; opv.height=h; opv.style.display='none';
+  drawBase(); fillBasePicker();
   ctx=art.getContext('2d',{willReadFrequently:true});
   const id=new ImageData(new Uint8ClampedArray(data),w,h);
   ctx.putImageData(id,0,0);
@@ -1549,11 +1610,15 @@ function buildPalette(list){
 function setColor(h){
   color=h; $('picker').value=h; $('curhex').textContent=h;
   document.querySelectorAll('.sw').forEach(s=>s.setAttribute('aria-pressed',String(s.dataset.hex===h)));
+  outlinePreview();
 }
 $('picker').oninput=e=>{ setColor(e.target.value); selectTool('pencil'); };
 
 function applyZoom(){
   art.style.width=(art.width*zoom)+'px'; art.style.height=(art.height*zoom)+'px';
+  const opv=$('olpv');
+  if(opv.style.display!=='none'){ opv.style.width=(art.width*zoom)+'px'; opv.style.height=(art.height*zoom)+'px'; }
+  if(baseBitmap){ const bc=$('base'); bc.style.width=(art.width*zoom)+'px'; bc.style.height=(art.height*zoom)+'px'; }
   $('frame').style.setProperty('--z',zoom+'px'); $('zlab').textContent=zoom+'×';
   paintCursor();
 }
@@ -1673,7 +1738,7 @@ function stepBrush(d){
    other has to, and a mismatch would be visible immediately. */
 function paintCursor(){
   const el=$('bcur');
-  if(!hoverCell||!N||panMode||tool==='pan'){ el.style.display='none'; return; }
+  if(!hoverCell||!N||panMode||tool==='pan'||tool==='move'){ el.style.display='none'; return; }
   const n=(tool==='pencil'||tool==='eraser')?brush:1;
   const off=Math.floor((n-1)/2), s=n*zoom;
   el.className=(tool==='eraser'?'erase':'')+(s<9?' tiny':'');
@@ -1686,6 +1751,9 @@ function refreshStats(){
   const d=ctx.getImageData(0,0,art.width,art.height).data;
   let n=0; for(let i=3;i<d.length;i+=4) if(d[i]!==0) n++;
   $('count').textContent=n.toLocaleString();
+  /* The outline is computed FROM the artwork, so any committed edit
+     invalidates it. This is the one call every edit path already makes. */
+  outlinePreview();
 }
 function selectTool(t){
   tool=t; panMode=(t==='pan');
@@ -1693,9 +1761,240 @@ function selectTool(t){
   $('panbtn').setAttribute('aria-pressed',String(panMode));
   $('stage').style.cursor=panMode?'grab':'';
   $('brushsec').hidden=!(t==='pencil'||t==='eraser');
+  art.classList.toggle('mv',t==='move');
   paintCursor();
 }
 function toast(m){ const el=$('toast'); el.textContent=m; el.classList.add('show'); setTimeout(()=>el.classList.remove('show'),1700); }
+
+/* ================= outline ======================================
+   A crop - by hand or by a model - leaves the silhouette ragged: one-cell
+   notches along an edge, pinholes inside, specks floating off it. Dilating
+   THAT reproduces every flaw at full thickness, which is what makes a naive
+   outline look chewed. So the mask is repaired and quantised first, and the
+   growing happens in BLOCK space: one block in, one block out, in every
+   direction. Thickness is then uniform by construction rather than by luck. */
+
+/* Majority per block. Neither "any" (which inflates every edge by up to B-1
+   cells) nor "all" (which eats thin features whole) is neutral; majority puts
+   the error either side of the true edge instead of all on one side. */
+function toBlocks(m,W,H,B){
+  const bw=Math.ceil(W/B), bh=Math.ceil(H/B), out=new Uint8Array(bw*bh);
+  for(let by=0;by<bh;by++) for(let bx=0;bx<bw;bx++){
+    let hit=0,n=0;
+    for(let y=by*B;y<Math.min(H,by*B+B);y++) for(let x=bx*B;x<Math.min(W,bx*B+B);x++){ n++; if(m[y*W+x]) hit++; }
+    out[by*bw+bx]= (n&&hit*2>=n)?1:0;
+  }
+  return {m:out,bw,bh};
+}
+function fromBlocks(bm,bw,bh,B,W,H){
+  const out=new Uint8Array(W*H);
+  for(let y=0;y<H;y++) for(let x=0;x<W;x++) if(bm[((y/B)|0)*bw+((x/B)|0)]) out[y*W+x]=1;
+  return out;
+}
+/* Chebyshev, and separable because of it: a square structuring element is what
+   makes the ring the same thickness on the diagonals as on the flats. */
+function dilateB(m,w,hh,t){
+  if(t<=0) return Uint8Array.from(m);
+  const a=new Uint8Array(w*hh), b=new Uint8Array(w*hh);
+  for(let y=0;y<hh;y++) for(let x=0;x<w;x++){ let v=0;
+    for(let d=-t;d<=t;d++){ const xx=x+d; if(xx<0||xx>=w) continue; if(m[y*w+xx]){v=1;break;} }
+    a[y*w+x]=v; }
+  for(let y=0;y<hh;y++) for(let x=0;x<w;x++){ let v=0;
+    for(let d=-t;d<=t;d++){ const yy=y+d; if(yy<0||yy>=hh) continue; if(a[yy*w+x]){v=1;break;} }
+    b[y*w+x]=v; }
+  return b;
+}
+/* Out of bounds counts as filled, so eroding does not nibble the canvas edge
+   off a figure that legitimately runs to it. */
+function erodeB(m,w,hh,t){
+  if(t<=0) return Uint8Array.from(m);
+  const a=new Uint8Array(w*hh), b=new Uint8Array(w*hh);
+  for(let y=0;y<hh;y++) for(let x=0;x<w;x++){ let v=1;
+    for(let d=-t;d<=t;d++){ const xx=x+d; if(xx<0||xx>=w) continue; if(!m[y*w+xx]){v=0;break;} }
+    a[y*w+x]=v; }
+  for(let y=0;y<hh;y++) for(let x=0;x<w;x++){ let v=1;
+    for(let d=-t;d<=t;d++){ const yy=y+d; if(yy<0||yy>=hh) continue; if(!a[yy*w+x]){v=0;break;} }
+    b[y*w+x]=v; }
+  return b;
+}
+/* Anything the background cannot reach from the border is enclosed, so it is a
+   hole in the figure rather than a gap around it. */
+function fillHolesB(m,w,hh){
+  const seen=new Uint8Array(w*hh), q=[];
+  for(let x=0;x<w;x++){ q.push(x); q.push((hh-1)*w+x); }
+  for(let y=0;y<hh;y++){ q.push(y*w); q.push(y*w+w-1); }
+  for(let i=0;i<q.length;i++){ const p=q[i];
+    if(p<0||p>=w*hh||seen[p]||m[p]) continue;
+    seen[p]=1; const x=p%w,y=(p/w)|0;
+    if(x>0)q.push(p-1); if(x<w-1)q.push(p+1); if(y>0)q.push(p-w); if(y<hh-1)q.push(p+w);
+  }
+  const out=Uint8Array.from(m);
+  for(let p=0;p<w*hh;p++) if(!m[p]&&!seen[p]) out[p]=1;
+  return out;
+}
+function dropSpecksB(m,w,hh){
+  const lab=new Int32Array(w*hh).fill(-1), comps=[];
+  for(let p=0;p<w*hh;p++){
+    if(!m[p]||lab[p]>=0) continue;
+    const c=[],q=[p]; lab[p]=comps.length;
+    while(q.length){ const k=q.pop(); c.push(k); const x=k%w,y=(k/w)|0;
+      for(const n of [x>0?k-1:-1,x<w-1?k+1:-1,y>0?k-w:-1,y<hh-1?k+w:-1])
+        if(n>=0&&m[n]&&lab[n]<0){ lab[n]=comps.length; q.push(n); } }
+    comps.push(c);
+  }
+  const big=comps.reduce((a,c)=>Math.max(a,c.length),0);
+  const floor=Math.max(2,Math.round(big*0.005));
+  const out=Uint8Array.from(m);
+  for(const c of comps) if(c.length<floor) for(const p of c) out[p]=0;
+  return out;
+}
+
+function snapValue(){ const v=$("olsnap").value;
+  return v==="auto" ? Math.max(1,Math.min(16,Math.round(gridBlock))) : (parseInt(v,10)||1); }
+
+/* The cells the outline would occupy and, when asked, the cells a crop ate out
+   of the middle together with the colour to put back into them. */
+function outlinePlan(){
+  if(!ctx) return null;
+  const W=art.width,H=art.height,NP=W*H;
+  const t=+$("olthick").value;
+  const B=snapValue(), tidy=$("oltidy").checked, patch=$("olpatch").checked;
+  const d=ctx.getImageData(0,0,W,H).data;
+  const cell=maskOfImg(d,NP,127);
+  const bl=toBlocks(cell,W,H,B), bw=bl.bw, bh=bl.bh, b0=bl.m;
+  let sil=b0;
+  if(tidy){ sil=erodeB(dilateB(sil,bw,bh,1),bw,bh,1); sil=dropSpecksB(sil,bw,bh); }
+  const filled=fillHolesB(sil,bw,bh);
+  /* The outline hugs the repaired silhouette with its holes closed, or it would
+     be drawn around the inside of every hole as well. */
+  const grown=dilateB(filled,bw,bh,t);
+  const ringB=new Uint8Array(bw*bh);
+  for(let p=0;p<bw*bh;p++) ringB[p]=(grown[p]&&!filled[p])?1:0;
+  const ring=fromBlocks(ringB,bw,bh,B,W,H);
+  let n=0;
+  /* Never over the art: snapping can put a ring block on top of a cell that is
+     genuinely drawn, and overwriting it would be the tool eating the artwork. */
+  for(let p=0;p<NP;p++){ if(!ring[p]) continue; if(d[p*4+3]>=128) ring[p]=0; else n++; }
+  let holes=null, hcol=null, hn=0;
+  if(patch){
+    const holeB=new Uint8Array(bw*bh);
+    for(let p=0;p<bw*bh;p++) holeB[p]=(filled[p]&&!b0[p])?1:0;
+    holes=fromBlocks(holeB,bw,bh,B,W,H);
+    for(let p=0;p<NP;p++) if(holes[p]&&d[p*4+3]>=128) holes[p]=0;
+    /* Nearest opaque colour, spread inwards from the surviving art. A flat fill
+       would band across a gradient; this continues whatever bordered the gap. */
+    const src=new Int32Array(NP).fill(-1), q=[];
+    for(let p=0;p<NP;p++){
+      if(holes[p]||d[p*4+3]<128) continue;
+      const x=p%W,y=(p/W)|0;
+      for(const nb of [x>0?p-1:-1,x<W-1?p+1:-1,y>0?p-W:-1,y<H-1?p+W:-1])
+        if(nb>=0&&holes[nb]&&src[p]<0){ src[p]=p; q.push(p); }
+    }
+    for(let i=0;i<q.length;i++){ const p=q[i],x=p%W,y=(p/W)|0;
+      for(const nb of [x>0?p-1:-1,x<W-1?p+1:-1,y>0?p-W:-1,y<H-1?p+W:-1]){
+        if(nb<0||!holes[nb]||src[nb]>=0) continue; src[nb]=src[p]; q.push(nb); } }
+    hcol=src;
+    for(let p=0;p<NP;p++){ if(!holes[p]) continue; if(src[p]<0) holes[p]=0; else hn++; }
+  }
+  return {ring:ring,n:n,holes:holes,hcol:hcol,hn:hn,W:W,H:H,B:B,t:t,src:d};
+}
+
+/* rAF does not fire while the tab is not compositing, so a flag cleared inside
+   one can stay set forever. Debounce on a timer instead. */
+let olPending=null, olBusy=false;
+function outlinePreview(){
+  const pv=$("olpv"); if(!pv) return;
+  const t=+$("olthick").value, B=snapValue();
+  $("olthicklab").textContent = t===0 ? "off"
+    : (t*B)+" cell"+(t*B===1?"":"s")+(B>1?" ("+t+X+B+")":"");
+  if(!ctx||t===0||$("app").hidden){ pv.style.display="none"; return; }
+  clearTimeout(olPending);
+  olPending=setTimeout(function(){
+    olPending=null; if(olBusy) return; olBusy=true;
+    try{
+      const plan=outlinePlan(); if(!plan){ pv.style.display="none"; return; }
+      pv.width=plan.W; pv.height=plan.H;
+      const g=pv.getContext("2d"); g.clearRect(0,0,plan.W,plan.H);
+      const im=g.createImageData(plan.W,plan.H), o=im.data, rgb=hx2(color);
+      for(let p=0;p<plan.W*plan.H;p++){
+        if(plan.ring[p]){ o[p*4]=rgb[0];o[p*4+1]=rgb[1];o[p*4+2]=rgb[2];o[p*4+3]=255; }
+        else if(plan.holes&&plan.holes[p]){ const s=plan.hcol[p]*4;
+          o[p*4]=plan.src[s];o[p*4+1]=plan.src[s+1];o[p*4+2]=plan.src[s+2];o[p*4+3]=255; }
+      }
+      g.putImageData(im,0,0);
+      pv.style.width=(plan.W*zoom)+"px"; pv.style.height=(plan.H*zoom)+"px";
+      pv.style.display="block";
+      $("oladd").textContent = plan.n||plan.hn
+        ? "Add outline ("+plan.n.toLocaleString()+" cells)" : "Add outline";
+    } finally { olBusy=false; }
+  },40);
+}
+function applyOutline(){
+  const plan=outlinePlan();
+  if(!plan||(!plan.n&&!plan.hn)){ toast("Nothing to outline"); return; }
+  snapshot();
+  const img=ctx.getImageData(0,0,plan.W,plan.H), d=img.data, rgb=hx2(color);
+  for(let p=0;p<plan.W*plan.H;p++){
+    if(plan.ring[p]){ d[p*4]=rgb[0];d[p*4+1]=rgb[1];d[p*4+2]=rgb[2];d[p*4+3]=255; }
+    else if(plan.holes&&plan.holes[p]){ const s=plan.hcol[p]*4;
+      d[p*4]=plan.src[s];d[p*4+1]=plan.src[s+1];d[p*4+2]=plan.src[s+2];d[p*4+3]=255; }
+  }
+  ctx.putImageData(img,0,0); refreshStats(); outlinePreview();
+  toast("Outlined "+plan.n.toLocaleString()+" cells"+(plan.hn?", patched "+plan.hn:""));
+}
+
+/* ================= base layer ==================================== */
+function drawBase(){
+  const bc=$("base");
+  if(!baseBitmap||!ctx){ bc.style.display="none"; return; }
+  bc.width=art.width; bc.height=art.height;
+  const g=bc.getContext("2d");
+  g.imageSmoothingEnabled=false;
+  g.clearRect(0,0,bc.width,bc.height);
+  /* Scaled to the canvas, not to its own size: a 1254px character behind a
+     160px trait has to land on the same footprint or it proves nothing. */
+  g.drawImage(baseBitmap,0,0,bc.width,bc.height);
+  bc.style.width=(art.width*zoom)+"px"; bc.style.height=(art.height*zoom)+"px";
+  bc.style.opacity=(+$("baseop").value/100);
+  bc.style.display="block";
+}
+async function setBaseFromBlob(b){
+  try{ baseBitmap=await createImageBitmap(b); drawBase(); toast("Base added"); }
+  catch(_){ toast("Could not read that image"); }
+}
+async function fillBasePicker(){
+  const sel=$("basepick"); const keep=sel.value;
+  let refs=[];
+  try{ refs=(await dbAll()).filter(i=>i.kind==="ref").sort((a,b)=>b.at-a.at); }catch(_){}
+  sel.innerHTML="";
+  const none=document.createElement("option");
+  none.value=""; none.textContent=refs.length?"Add base\u2026":"No saved base \u2014 upload one";
+  sel.appendChild(none);
+  for(const r of refs){
+    const o=document.createElement("option");
+    o.value="ref:"+r.id; o.textContent=r.name; sel.appendChild(o);
+  }
+  const up=document.createElement("option");
+  up.value="upload"; up.textContent="Upload an image\u2026"; sel.appendChild(up);
+  if(keep&&[...sel.options].some(o=>o.value===keep)) sel.value=keep;
+}
+
+/* ================= move ==========================================
+   Every frame is drawn from the pristine buffer captured on pointerdown, so
+   dragging past an edge and back does not shave the art off: the clipping is
+   in the drawing, never in the source. */
+function rawCell(e){
+  const r=art.getBoundingClientRect();
+  return {x:Math.floor((e.clientX-r.left)/zoom), y:Math.floor((e.clientY-r.top)/zoom)};
+}
+function nudge(dx,dy){
+  if(!ctx||(!dx&&!dy)) return;
+  snapshot();
+  const b=ctx.getImageData(0,0,art.width,art.height);
+  ctx.clearRect(0,0,art.width,art.height);
+  ctx.putImageData(b,dx,dy);
+  refreshStats();
+}
 
 /* pointers: draw, pan, pinch */
 const pts=new Map(); let pinch=null, pan=null, spaceHeld=false;
@@ -1718,6 +2017,13 @@ stage.addEventListener('pointerdown',e=>{
   const c=cellFrom(e); if(!c) return;
   if(tool==='pick'){ const p=pixelAt(c.x,c.y); if(p.a) setColor(hex(p.r,p.g,p.b)); selectTool('pencil'); return; }
   snapshot();
+  if(tool==='move'){
+    moveBuf=ctx.getImageData(0,0,art.width,art.height);
+    moveFrom=rawCell(e); moveDelta={x:0,y:0};
+    $('olpv').style.display='none';
+    try{art.setPointerCapture(e.pointerId);}catch(_){}
+    return;
+  }
   if(tool==='fill'){ floodFill(c.x,c.y,hx2(color)); refreshStats(); return; }
   painting=true; lastCell=null;
   try{art.setPointerCapture(e.pointerId);}catch(_){}
@@ -1732,6 +2038,14 @@ stage.addEventListener('pointermove',e=>{
   hoverCell=c; paintCursor();
   $('pos').textContent=c?(c.x+', '+c.y):'—';
   if(c){ const p=pixelAt(c.x,c.y); $('under').textContent=p.a?hex(p.r,p.g,p.b):'transparent'; }
+  if(moveBuf){
+    const rc=rawCell(e);
+    moveDelta={x:rc.x-moveFrom.x, y:rc.y-moveFrom.y};
+    ctx.clearRect(0,0,art.width,art.height);
+    ctx.putImageData(moveBuf,moveDelta.x,moveDelta.y);
+    $('pos').textContent=(moveDelta.x>=0?'+':'')+moveDelta.x+', '+(moveDelta.y>=0?'+':'')+moveDelta.y;
+    return;
+  }
   if(painting) stroke(e);
 });
 function endPointer(e){
@@ -1739,6 +2053,14 @@ function endPointer(e){
   if(pts.size<2) pinch=null;
   if(pan&&pan.id===e.pointerId){ try{stage.releasePointerCapture(pan.id);}catch(_){} pan=null;
     stage.style.cursor=(panMode||spaceHeld)?'grab':''; }
+  if(moveBuf&&pts.size===0){
+    moveBuf=null;
+    /* A drag that ended where it started is not an edit, so it does not earn
+       an undo step that appears to do nothing. */
+    if(!moveDelta.x&&!moveDelta.y) undoStack.pop();
+    else toast('Moved '+moveDelta.x+', '+moveDelta.y+' cells');
+    refreshStats();
+  }
   if(pts.size===0){ if(painting) refreshStats(); painting=false; lastCell=null; }
 }
 stage.addEventListener('pointerleave',()=>{ hoverCell=null; paintCursor(); });
@@ -1777,6 +2099,37 @@ $('dlBig').onclick=()=>download(8);
 /* Strip a flat background by flooding inwards from the border, so only colour
    REACHABLE from the edge goes. A white shirt in the middle of the character is
    never touched, which a plain "delete every white pixel" would wreck. */
+$('baseop').addEventListener('input',()=>{
+  $('baseoplab').textContent=$('baseop').value+'%';
+  if(baseBitmap) $('base').style.opacity=(+$('baseop').value/100);
+});
+$('basepick').onchange=async()=>{
+  const v=$('basepick').value;
+  if(v==='upload'){ $('basefile').click(); $('basepick').value=''; return; }
+  if(!v){ return; }
+  const id=v.slice(4);
+  let rec=null;
+  try{ rec=(await dbAll()).find(i=>i.id===id); }catch(_){}
+  if(!rec){ toast('That base is no longer saved'); fillBasePicker(); return; }
+  await setBaseFromBlob(rec.blob);
+};
+$('basefile').onchange=async e=>{
+  const f=e.target.files[0]; if(!f) return;
+  await setBaseFromBlob(f);
+  e.target.value='';
+};
+$('basedrop').onclick=()=>{
+  if(!baseBitmap){ toast('No base to remove'); return; }
+  baseBitmap=null; $('base').style.display='none'; $('basepick').value=''; toast('Base removed');
+};
+
+["olthick","olsnap","oltidy","olpatch"].forEach(function(id){
+  const el=$(id);
+  el.addEventListener("input",outlinePreview);
+  el.addEventListener("change",outlinePreview);
+});
+$('oladd').onclick=applyOutline;
+
 $('debg').onclick=()=>{
   if(!ctx) return;
   const W=art.width,H=art.height, img=ctx.getImageData(0,0,W,H), d=img.data;
@@ -1834,6 +2187,13 @@ addEventListener('keydown',e=>{
   if(k==='e') selectTool('eraser');
   if(k==='g') selectTool('fill');
   if(k==='i') selectTool('pick');
+  if(k==='m') selectTool('move');
+  if(tool==='move'&&e.key.indexOf('Arrow')===0){
+    e.preventDefault();
+    nudge(e.key==='ArrowLeft'?-1:e.key==='ArrowRight'?1:0,
+          e.key==='ArrowUp'?-1:e.key==='ArrowDown'?1:0);
+    return;
+  }
   if(k==='h') selectTool(panMode?'pencil':'pan');
   if(k==='3') $('gridbtn').click();
   if(e.key==='[') stepBrush(-1);

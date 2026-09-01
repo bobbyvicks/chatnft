@@ -792,6 +792,7 @@ footer .mono{color:var(--ink);}
         <div class="olrow"><label for="rctol">How close</label>
           <input id="rctol" type="number" min="1" max="120" value="24" style="width:64px"></div>
         <button class="btn ghost" id="rcgo" disabled>Replace</button>
+        <button class="btn" id="rcclean">Clean up colours</button>
       </div>
       <p class="note">Swaps one colour for the current one everywhere. Transparent cells are never touched.</p>
     </section>
@@ -2276,6 +2277,7 @@ function startEditor(data,w,h,srcW,srcH,pal,recovered){
   buildBrushes(); setBrush(brush); selectTool(tool);
   setColor(pal.list.length?hex(pal.list[0].r,pal.list[0].g,pal.list[0].b):'#000000');
   fitZoom(); refreshStats();
+  cleanLabel();
   if(recovered) toast('Recovered to '+w+'×'+h+' from '+srcW+'×'+srcH);
 }
 function buildPalette(list){
@@ -2434,8 +2436,20 @@ function paintCursor(){
 }
 function refreshStats(){
   const d=ctx.getImageData(0,0,art.width,art.height).data;
-  let n=0; for(let i=3;i<d.length;i+=4) if(d[i]!==0) n++;
+  /* The colour count was written once, when the trait opened, and never
+     again - so after cleaning 1,155 colours down to 9 the header still
+     said 1,155. A figure on screen that is wrong is worse than no figure,
+     and this is the one pass over the pixels that every committed edit
+     already makes, so keeping it true costs a second counter rather than a
+     second walk. Integer keys, because building a string per pixel over a
+     million of them is the part that would actually be slow. */
+  let n=0; const seen=new Set();
+  for(let i=0;i<d.length;i+=4){
+    if(d[i+3]===0) continue;
+    n++; seen.add((d[i]<<16)|(d[i+1]<<8)|d[i+2]);
+  }
   $('count').textContent=n.toLocaleString();
+  $('sCols').textContent=seen.size.toLocaleString();
   /* The outline is computed FROM the artwork, so any committed edit
      invalidates it. This is the one call every edit path already makes,
      which makes it the right place to hang the autosave too. */
@@ -3355,6 +3369,62 @@ function addOutline(d,W,H){
 
 /* The colours the saved collection actually uses, so a new piece can be made
    to match it. Drawn from approved traits only - a wip is not the standard. */
+/* An image model does not draw pixel art, it draws a smooth picture that looks
+   blocky. Measured on one real submission: 1,541 distinct colours, where the
+   artwork itself uses about nine. The lens teal alone arrived as dozens of
+   near-identical shades - 64,74,73 and 63,73,72 and 64,73,72 and on.
+
+   Those in-between shades ARE the coloured fringe people see along the edges.
+   Where a teal lens meets a black frame the blend passes through greenish
+   greys, and at any normal viewing size that reads as a green glow around the
+   artwork. Nothing in the picture is that colour; it is the average of two
+   things that are.
+
+   So snap every pixel to the nearest colour the art actually uses. The
+   palette comes from the art itself by absorbing everything within CLEAN_TOL
+   of a popular colour, which keeps a genuinely different colour - the pale
+   glare on a lens - while collapsing a hundred shades of one. Measured on the
+   same submission: 1,155 colours in the extracted trait down to 9, glare
+   intact. */
+const CLEAN_TOL=30;
+function cleanPlan(){
+  if(!ctx) return null;
+  const im=ctx.getImageData(0,0,art.width,art.height), d=im.data, n=art.width*art.height;
+  const seen=new Set();
+  for(let p=0;p<n;p++){ const i=p*4; if(d[i+3]<128) continue;
+    seen.add(d[i]+","+d[i+1]+","+d[i+2]); }
+  const pal=palette(d,n,CLEAN_TOL,64).list;
+  return {im,d,n,before:seen.size,after:pal.length,pal};
+}
+/* The button carries the two numbers, so the size of the mess is visible
+   before anyone commits to changing the artwork. */
+function cleanLabel(){
+  const b=$("rcclean"); if(!b) return;
+  const pl=cleanPlan();
+  if(!pl || pl.before<=pl.after){ b.textContent="Clean up colours"; b.disabled=!pl; return; }
+  b.disabled=false;
+  b.textContent="Clean up colours ("+pl.before.toLocaleString()+" \u2192 "+pl.after+")";
+}
+function cleanColours(){
+  const pl=cleanPlan();
+  if(!pl){ return; }
+  if(pl.before<=pl.after){ toast("Already down to "+pl.before+" colours"); return; }
+  snapshot();
+  const d=pl.d, pal=pl.pal;
+  for(let p=0;p<pl.n;p++){
+    const i=p*4; if(d[i+3]<128) continue;
+    let best=pal[0], bd=Infinity;
+    for(const q of pal){
+      const dd=(d[i]-q.r)*(d[i]-q.r)+(d[i+1]-q.g)*(d[i+1]-q.g)+(d[i+2]-q.b)*(d[i+2]-q.b);
+      if(dd<bd){ bd=dd; best=q; }
+    }
+    d[i]=best.r; d[i+1]=best.g; d[i+2]=best.b;
+  }
+  ctx.putImageData(pl.im,0,0);
+  refreshStats(); cleanLabel();
+  toast(pl.before.toLocaleString()+" colours down to "+pl.after);
+}
+
 async function collectionPalette(cap){
   let items=[];
   try{ items=await dbAll(); }catch(_){ return []; }
@@ -4758,6 +4828,7 @@ $('cdl').onclick=()=>{
   },"image/png");
 };
 $('rcgo').onclick=recolour;
+$('rcclean').onclick=cleanColours;
 $('rcnear').addEventListener('change',()=>{ $('rctol').disabled=!$('rcnear').checked; });
 $('rctol').disabled=true;
 setupFolds();

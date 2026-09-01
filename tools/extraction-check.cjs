@@ -30,7 +30,7 @@ function carve(sig){
   }
   throw new Error('unbalanced '+sig);
 }
-let NEEDED=['const lum =','function maskOfImg(','function bodyDistance(','function fitTo(',
+let NEEDED=['const lum =','const TRAIT_BLACK','function maskOfImg(','function bodyDistance(','function fitTo(',
   'function stripBackground(','function alignToRef(','function reclaimOutline(','function defringe(',
   'function hardenEdge(','function blackenEdge(','function openMask(','function despeckle(',
   'function extractTrait('];

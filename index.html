@@ -588,7 +588,6 @@ footer .mono{color:var(--ink);}
       <label><input type="checkbox" id="cbStrip" checked> Strip background</label>
       <label><input type="checkbox" id="cbReclaim" checked> Reclaim outline</label>
       <label><input type="checkbox" id="cbFringe" checked> De-fringe</label>
-      <label><input type="checkbox" id="cbSnap" checked> Black outer border</label>
       <label><input type="checkbox" id="cbOpen" checked> Remove tendrils</label>
     </div>
     <div class="exrow">
@@ -852,7 +851,8 @@ footer .mono{color:var(--ink);}
         <button class="btn ghost" id="dlBig">Download at 8×</button>
         <button class="btn ghost" id="dlTrim">Download trimmed to the art</button>
         <button class="btn ghost" id="reset">Reset to original</button>
-        <button class="btn ghost" id="another">Open another image</button>
+        <button class="btn" id="saveclose">Save and close</button>
+        <button class="btn ghost" id="closeed">Close</button>
       </div>
       <p class="note">PNG, no smoothing. Keep the full canvas for anything you will layer back onto a character — that is what makes it line up.</p>
     </section>
@@ -1243,12 +1243,40 @@ async function ask(mode,dataUrl){
 function canvasDataUrl(){ return art.toDataURL('image/png'); }
 
 
-$('saveproj').onclick=async()=>{
+/* THE RULE. The outermost ring of pixels of a trait is TRAIT_BLACK, on
+   everything that leaves this editor - saved, downloaded, trimmed, zipped or
+   pushed - whatever route the artwork arrived by. Extraction applies it too,
+   so what is on screen already obeys it; this is here for the traits that
+   never went through extraction: drawn by hand, pixelated, bulk imported.
+
+   Applied at grid size and before any scaling. Blackening a one-pixel ring of
+   an eight-times-enlarged copy paints a sliver down one side of a cell rather
+   than the cell the artist actually drew.
+
+   The autosave deliberately does NOT go through here. That is a snapshot of
+   work in progress, not a trait leaving, and rewriting someone's pixels
+   behind their back while they are still drawing is a different thing from
+   holding what ships to a standard. */
+function traitCanvas(){
+  const c=document.createElement("canvas");
+  c.width=art.width; c.height=art.height;
+  const g=c.getContext("2d"); g.imageSmoothingEnabled=false;
+  g.drawImage(art,0,0);
+  const im=g.getImageData(0,0,c.width,c.height);
+  blackenEdge(im.data,c.width,c.height);
+  g.putImageData(im,0,0);
+  return c;
+}
+
+/* Was an inline handler, which meant Save and close could not wait for it and
+   would have had to keep its own copy of how a trait is saved. It reports
+   whether it worked, so closing after a failed save does not throw the work
+   off the screen. */
+async function saveTrait(){
   if(!ctx) return;
   const name=($('tname').value.trim()||fileName.replace(/\.png$/,'')||'trait').slice(0,60);
   const layer=$('tlayer').value||'unsorted';
-  const c=document.createElement('canvas'); c.width=art.width; c.height=art.height;
-  c.getContext('2d').drawImage(art,0,0);
+  const c=traitCanvas();
   const blob=await blobOf(c);
   try{
     const status=$('tstatus').value||'wip';
@@ -1256,7 +1284,31 @@ $('saveproj').onclick=async()=>{
       w:art.width, h:art.height, at:Date.now()});
     await renderShelf();
     toast('Saved '+name+' to '+layer+'/'+status);
-  }catch(e){ toast('Could not save: '+(e&&e.name||'storage error')); }
+    return true;
+  }catch(e){ toast('Could not save: '+(e&&e.name||'storage error')); return false; }
+}
+$('saveproj').onclick=saveTrait;
+
+/* One way out of the editor, and everything that leaves uses it.
+
+   Backspace was the browser's own "go back", which on a single page means
+   leaving the site altogether - so the key sitting next to the button did
+   something completely different from the button, and lost the editor doing
+   it. It closes the trait now, exactly as the button does.
+
+   Nothing is lost either way: the working canvas is autosaved, so a closed
+   trait is offered back as "pick up where you left off". */
+function closeEditor(){
+  $("app").hidden=true; $("land").hidden=false;
+  fileInput.value="";
+  renderShelf();
+}
+$("closeed").onclick=closeEditor;
+$("saveclose").onclick=async()=>{
+  const b=$("saveclose"), was=b.textContent;
+  b.disabled=true; b.textContent="Saving...";
+  try{ if(await saveTrait()) closeEditor(); }
+  finally{ b.disabled=false; b.textContent=was; }
 };
 document.querySelectorAll('.mini.filt').forEach(btn=>{
   btn.onclick=()=>{ shelfFilter=btn.dataset.f;
@@ -1850,6 +1902,9 @@ function alignToRef(subData,sw,sh,refData,W,H,f0,f1){
    Note what this check can and cannot tell you. Afterwards the outer ring is
    black BY CONSTRUCTION, so measuring that it is black only confirms the code
    ran. What is worth measuring is how much art the peel costs on the way. */
+/* The darkest black there is. Written down once so that every place the rule
+   is applied cannot disagree about what "black" means. */
+const TRAIT_BLACK=[0,0,0];
 function blackenEdge(t,W,H){
   const m=maskOfImg(t,W*H,127);
   const ring=[];
@@ -1866,7 +1921,7 @@ function blackenEdge(t,W,H){
     }
     if(empty) ring.push(p);
   }
-  for(const p of ring){ t[p*4]=0; t[p*4+1]=0; t[p*4+2]=0; t[p*4+3]=255; }
+  for(const p of ring){ t[p*4]=TRAIT_BLACK[0]; t[p*4+1]=TRAIT_BLACK[1]; t[p*4+2]=TRAIT_BLACK[2]; t[p*4+3]=255; }
   return ring.length;
 }
 
@@ -1960,10 +2015,11 @@ function extractTrait(sub,ref,o){
     bgCleared:strippedSub.cleared,bgPeeled:strippedSub.peeled};
   if(o.reclaim) stats.reclaimed=reclaimOutline(t,src,R,W,H,o.darkMax,o.reclaimPasses,o.maxOutline);
   if(o.defringe) stats.defringed=defringe(t,R,W,H,o.fringeThresh,o.fringePasses,o.neutralMax);
-  if(o.snap){
-    stats.edgeDropped=hardenEdge(t,W,H,o);
-    stats.edgeBlacked=blackenEdge(t,W,H);
-  }
+  /* Not a setting. A rule that can be switched off is not a rule, and this
+     one was asked for twice - the first time it became a checkbox, which is
+     how a trait with a pale fringe still reached a character. */
+  stats.edgeDropped=hardenEdge(t,W,H,o);
+  stats.edgeBlacked=blackenEdge(t,W,H);
   if(o.open){ const r=openMask(t,W,H,o.openR,o.minRemove); stats.opened=r.removed; stats.tendrils=r.tendrils; }
   /* AFTER the opening, deliberately. A glasses arm is long and thin, which is
      exactly what the tendril rule is looking for - joining its two halves
@@ -1989,7 +2045,7 @@ function currentOpts(){
        from both sides. A character outline is three or four pixels. */
     reclaim:$("cbReclaim").checked, darkMax:110, reclaimPasses:40, maxOutline:6, bridgeReach:6,
     defringe:$("cbFringe").checked, fringeThresh:+$("sens").value*2.1, fringePasses:4, neutralMax:18,
-    snap:$("cbSnap").checked, edgeLum:110, edgeStep:25, hardPasses:6,
+    edgeLum:110, edgeStep:25, hardPasses:6,
     open:$("cbOpen").checked, openR:3, minRemove:150,
     despeckle:true, minBlob:+$("minblob").value, relative:0.02,
   };
@@ -4500,13 +4556,13 @@ function syncPan(){
 $('panbtn').addEventListener('click',()=>setTimeout(syncPan,0));
 syncPan();
 $('reset').onclick=()=>{ if(!original) return; snapshot(); ctx.putImageData(original,0,0); refreshStats(); toast('Reset to original'); };
-$('another').onclick=()=>{ $('app').hidden=true; $('land').hidden=false; fileInput.value=''; renderShelf(); };
+
 
 function download(scale){
   const W=art.width*scale, H=art.height*scale;
   const c=document.createElement('canvas'); c.width=W; c.height=H;
   const g=c.getContext('2d'); g.imageSmoothingEnabled=false;
-  g.drawImage(art,0,0,W,H);
+  g.drawImage(traitCanvas(),0,0,W,H);
   c.toBlob(b=>{
     const u=URL.createObjectURL(b), a=document.createElement('a');
     a.href=u; a.download=scale===1?fileName:fileName.replace(/\.png$/,'@'+scale+'x.png');
@@ -4784,7 +4840,7 @@ $('dlTrim').onclick=()=>{
   if(b.w===art.width&&b.h===art.height){ toast('Already tight to the art'); return; }
   const c=document.createElement('canvas'); c.width=b.w; c.height=b.h;
   const g=c.getContext('2d'); g.imageSmoothingEnabled=false;
-  g.drawImage(art,b.x0,b.y0,b.w,b.h,0,0,b.w,b.h);
+  g.drawImage(traitCanvas(),b.x0,b.y0,b.w,b.h,0,0,b.w,b.h);
   c.toBlob(bl=>{
     const u=URL.createObjectURL(bl), a=document.createElement('a');
     a.href=u; a.download=fileName.replace(/\.png$/,'')+'_'+b.w+'x'+b.h+'_at'+b.x0+'-'+b.y0+'.png';
@@ -4797,6 +4853,9 @@ $('dlTrim').onclick=()=>{
 addEventListener('keydown',e=>{
   if($('app').hidden) return;
   if(/^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
+  if(e.target.isContentEditable) return;
+  /* Before anything else, because the browser acts on this one itself. */
+  if(e.key==="Backspace"){ e.preventDefault(); closeEditor(); return; }
   if(e.code==='Space'){ e.preventDefault(); if(!spaceHeld){spaceHeld=true; stage.style.cursor='grab';} return; }
   const k=e.key.toLowerCase();
   if((e.ctrlKey||e.metaKey)&&k==='z'){ e.preventDefault(); $(e.shiftKey?'redo':'undo').click(); return; }

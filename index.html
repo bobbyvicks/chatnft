@@ -1957,6 +1957,75 @@ function hardenEdge(t,W,H,o){
   return removed;
 }
 
+/* THE RULE: a colour the character uses is not allowed to survive in a trait
+   unless it is drawn there. Asked for twice, and the obvious version of it is
+   wrong twice over.
+
+   Banning every colour the base uses deletes the whole trait. These glasses
+   are black and the character's outline is black too, deliberately - measured
+   at a distance of 2. A ban within 30 of any base colour removed 100% of it.
+
+   Judging a whole COLOUR by how spread out it is fails as well, and it fails
+   quietly. The hinge on the right temple is a solid 14x7 block of a pale grey;
+   the same pale grey also turns up as loose specks across the artwork. Group
+   them by colour and the block is dragged down by the specks and deleted with
+   them. That is not a hypothetical - it is what the first version of this did
+   to the test below.
+
+   So the unit is a REGION, not a colour. A patch of a character colour that is
+   joined up is something somebody drew; the same colour arriving as scattered
+   grains is the character showing through. Everything the character and the
+   trait genuinely share - the black - is one enormous joined-up region and is
+   never in danger. The lens glare is not even considered: it sits 17 away from
+   the closest base colour, outside BASE_TOL. */
+const BASE_TOL=12;      /* near enough to be the character's own colour */
+const BLEED_BLOB=8;     /* joined-up pixels; fewer than this is not a drawn shape */
+function dropBaseBleed(t,R,W,H){
+  const n=W*H;
+  const mine=palette(t,n,20,64).list, base=palette(R,n,20,64).list;
+  if(!mine.length||!base.length) return 0;
+  const suspect=mine.map(c=>{
+    let bd=Infinity;
+    for(const b of base){
+      const d2=(c.r-b.r)*(c.r-b.r)+(c.g-b.g)*(c.g-b.g)+(c.b-b.b)*(c.b-b.b);
+      if(d2<bd) bd=d2;
+    }
+    return Math.sqrt(bd)<=BASE_TOL;
+  });
+  /* mark every pixel wearing one of the character's colours */
+  const flag=new Uint8Array(n);
+  for(let p=0;p<n;p++){
+    const i=p*4; if(t[i+3]<128) continue;
+    let k=0, bd=Infinity;
+    for(let j=0;j<mine.length;j++){
+      const c=mine[j];
+      const d2=(t[i]-c.r)*(t[i]-c.r)+(t[i+1]-c.g)*(t[i+1]-c.g)+(t[i+2]-c.b)*(t[i+2]-c.b);
+      if(d2<bd){ bd=d2; k=j; }
+    }
+    if(suspect[k]) flag[p]=1;
+  }
+  /* then judge each joined-up patch of them on its own */
+  const seen=new Uint8Array(n); let dropped=0;
+  const stack=new Int32Array(n); const comp=new Int32Array(n);
+  for(let s=0;s<n;s++){
+    if(!flag[s]||seen[s]) continue;
+    let top=0, len=0;
+    stack[top++]=s; seen[s]=1;
+    while(top){
+      const c=stack[--top]; comp[len++]=c;
+      const x=c%W, y=(c/W)|0;
+      if(x>0   && flag[c-1] && !seen[c-1]){ seen[c-1]=1; stack[top++]=c-1; }
+      if(x<W-1 && flag[c+1] && !seen[c+1]){ seen[c+1]=1; stack[top++]=c+1; }
+      if(y>0   && flag[c-W] && !seen[c-W]){ seen[c-W]=1; stack[top++]=c-W; }
+      if(y<H-1 && flag[c+W] && !seen[c+W]){ seen[c+W]=1; stack[top++]=c+W; }
+    }
+    if(len<BLEED_BLOB){
+      for(let q=0;q<len;q++){ t[comp[q]*4+3]=0; dropped++; }
+    }
+  }
+  return dropped;
+}
+
 function extractTrait(sub,ref,o){
   /* Work at the SUBMISSION's resolution, not the reference's.
      The output IS the artwork, so resampling it would move and rescale the
@@ -2012,7 +2081,7 @@ function extractTrait(sub,ref,o){
     }
     t[i]=src[i]; t[i+1]=src[i+1]; t[i+2]=src[i+2]; t[i+3]=255; diffed++;
   }
-  const stats={diffed,align:alignInfo,reclaimed:0,bridged:0,defringed:0,edgeDropped:0,edgeBlacked:0,opened:0,tendrils:0,despeckled:0,
+  const stats={diffed,align:alignInfo,reclaimed:0,bridged:0,baseBleed:0,defringed:0,edgeDropped:0,edgeBlacked:0,opened:0,tendrils:0,despeckled:0,
     bgCleared:strippedSub.cleared,bgPeeled:strippedSub.peeled};
   if(o.reclaim) stats.reclaimed=reclaimOutline(t,src,R,W,H,o.darkMax,o.reclaimPasses,o.maxOutline);
   if(o.defringe) stats.defringed=defringe(t,R,W,H,o.fringeThresh,o.fringePasses,o.neutralMax);
@@ -2029,6 +2098,10 @@ function extractTrait(sub,ref,o){
      rule seeing the same mask it always saw, and nothing downstream of this
      splits a component. */
   if(o.reclaim) stats.bridged=bridgeOutline(t,src,W,H,o.darkMax,o.bridgeReach);
+  /* After the trait is whole, so the palette judged here is the finished one,
+     and before despeckle so anything left stranded is tidied by the step that
+     already does that. */
+  stats.baseBleed=dropBaseBleed(t,R,W,H);
   if(o.despeckle){ const r=despeckle(t,W,H,o.minBlob,o.relative); stats.despeckled=r.dropped; }
   let kept=0;
   for(let p=0;p<W*H;p++) if(t[p*4+3]) kept++;
@@ -2095,6 +2168,7 @@ function renderPreview(){
       if(s.bgCleared) bits.push("background "+s.bgCleared.toLocaleString()+" +halo "+s.bgPeeled);
       if(s.reclaimed) bits.push("outline +"+s.reclaimed.toLocaleString());
       if(s.bridged) bits.push("bridged +"+s.bridged.toLocaleString());
+      if(s.baseBleed) bits.push("character's colour -"+s.baseBleed.toLocaleString());
       if(s.defringed) bits.push("fringe -"+s.defringed.toLocaleString());
       if(s.opened) bits.push("tendrils -"+s.opened.toLocaleString());
       if(s.edgeDropped||s.edgeBlacked) bits.push("edge -"+s.edgeDropped+", "+s.edgeBlacked+" blacked");

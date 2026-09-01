@@ -30,11 +30,12 @@ function carve(sig){
   }
   throw new Error('unbalanced '+sig);
 }
-let NEEDED=['const lum =','const TRAIT_BLACK','function maskOfImg(','function bodyDistance(','function fitTo(',
+let NEEDED=['const lum =','const TRAIT_BLACK','const BASE_TOL','const BLEED_BLOB','function palette(','function maskOfImg(','function bodyDistance(','function fitTo(',
   'function stripBackground(','function alignToRef(','function reclaimOutline(','function defringe(',
   'function hardenEdge(','function blackenEdge(','function openMask(','function despeckle(',
   'function extractTrait('];
 if(SCRIPT.indexOf('function bridgeOutline(')>=0) NEEDED.splice(NEEDED.length-1,0,'function bridgeOutline(');
+if(SCRIPT.indexOf('function dropBaseBleed(')>=0) NEEDED.splice(NEEDED.length-1,0,'function dropBaseBleed(');
 let src='';
 for(const sig of NEEDED){
   if(sig.startsWith('const ')){

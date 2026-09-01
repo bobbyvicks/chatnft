@@ -429,10 +429,16 @@ footer .mono{color:var(--ink);}
         <button class="mini" id="cloudpush" hidden>Save to cloud</button>
         <button class="mini" id="cloudpull" hidden>Load from cloud</button>
         <button class="mini" id="cloudout" hidden>Sign out</button>
+        <button class="mini" id="teaminvite" hidden>Invite someone</button>
       </div>
     </div>
     <p class="note" id="cloudnote">Signing in keeps your collection on the server so it follows you to
       another device. Nothing is uploaded until you press Save to cloud.</p>
+    <div class="savebar" id="teamrow" hidden>
+      <input id="teamlink" type="text" readonly aria-label="Invite link" style="flex:1">
+      <button class="mini" id="teamcopy">Copy</button>
+    </div>
+    <p class="note" id="teamnote" hidden></p>
   </section>
   </div>
   <p class="tag">A pixel editor that works on the grid your art was actually drawn on. Drop a PNG in, rebuild it at its true resolution, and <b>edit it cell by cell</b> — then download a clean file. Nothing is uploaded anywhere.</p>
@@ -3382,6 +3388,9 @@ async function cloudRender(){
   $("cloudemail").hidden=inn; $("cloudsend").hidden=inn;
   $("cloudpush").hidden=!inn; $("cloudpull").hidden=!inn; $("cloudout").hidden=!inn;
   gateShow(!inn);
+  if(inn) joinIfPending();
+  $("teaminvite").hidden=!inn;
+  if(!inn){ $("teamrow").hidden=true; $("teamnote").hidden=true; }
   if(inn) cloudStatus(u);
   return u;
 }
@@ -3417,14 +3426,32 @@ function cloudSignOut(){
 
 /* One collection per person for now. Fetched or created on demand so the
    caller never has to care which. */
-async function cloudCollection(u){
+let cloudTeamId=null;
+/* my_team() creates the team AND the membership row in one server-side step.
+   Doing it from here in two calls can leave a team nobody belongs to, which
+   nothing can then read or delete because every policy needs membership. */
+async function cloudTeam(){
+  if(cloudTeamId) return cloudTeamId;
   const h=await sbHeaders({"Content-Type":"application/json"});
   if(!h) return null;
-  let r=await fetch(SB_URL+"/rest/v1/collections?select=id,layers&owner=eq."+u.id+"&limit=1",{headers:h});
+  try{
+    const r=await fetch(SB_URL+"/rest/v1/rpc/my_team",{method:"POST",headers:h,body:"{}"});
+    if(!r.ok) return null;
+    cloudTeamId=await r.json();
+    return cloudTeamId;
+  }catch(_){ return null; }
+}
+
+async function cloudCollection(u){
+  const team=await cloudTeam();
+  if(!team) return null;
+  const h=await sbHeaders({"Content-Type":"application/json"});
+  if(!h) return null;
+  let r=await fetch(SB_URL+"/rest/v1/collections?select=id,layers&team_id=eq."+team+"&limit=1",{headers:h});
   if(r.ok){ const rows=await r.json(); if(rows.length) return rows[0]; }
   r=await fetch(SB_URL+"/rest/v1/collections",{method:"POST",
     headers:Object.assign({Prefer:"return=representation"},h),
-    body:JSON.stringify({owner:u.id, name:"My collection", layers:LAYERS})});
+    body:JSON.stringify({team_id:team, owner:u.id, name:"My collection", layers:LAYERS})});
   if(!r.ok) return null;
   const made=await r.json();
   return made[0]||null;
@@ -3438,10 +3465,10 @@ async function cloudCollection(u){
    Listed and diffed rather than tracked: a delete log would have to be right
    about every past delete, whereas the bucket contents and the row set are
    both observable right now. */
-async function cloudSweep(u,c,keepPaths){
+async function cloudSweep(team,c,keepPaths){
   const h=await sbHeaders({"Content-Type":"application/json"});
   if(!h) return 0;
-  const prefix=u.id+"/"+c.id;
+  const prefix=team+"/"+c.id;
   let found=[], offset=0;
   for(let page=0; page<20; page++){
     const r=await fetch(SB_URL+"/storage/v1/object/list/traits",{method:"POST",headers:h,
@@ -3471,7 +3498,7 @@ async function cloudStatus(u){
   if(!h) return;
   let remoteN=null, when=null;
   try{
-    const cr=await fetch(SB_URL+"/rest/v1/collections?select=id,updated_at&owner=eq."+u.id+"&limit=1",{headers:h});
+    const cr=await fetch(SB_URL+"/rest/v1/collections?select=id,updated_at&team_id=eq."+(await cloudTeam())+"&limit=1",{headers:h});
     if(cr.ok){
       const rows=await cr.json();
       if(rows.length){
@@ -3499,7 +3526,7 @@ async function cloudStatus(u){
         : ". Load from cloud to fetch the "+(remoteN-localN)+" that are only there."));
 }
 
-const cloudPath=(u,c,it)=>u.id+"/"+c.id+"/"+
+const cloudPath=(team,c,it)=>team+"/"+c.id+"/"+
   (it.kind==="ref"?"ref":"trait")+"-"+String(it.name).replace(/[^a-z0-9._-]+/gi,"-")+
   "-"+(it.layer||"none")+"-"+(it.status||"none")+".png";
 
@@ -3508,6 +3535,8 @@ async function cloudPush(){
   if(!u){ toast("Sign in first"); return; }
   const c=await cloudCollection(u);
   if(!c){ toast("Could not open your collection on the server"); return; }
+  const team=await cloudTeam();
+  if(!team){ toast("Could not open your team"); return; }
   let items=[];
   try{ items=(await dbAll()).filter(i=>i.kind==="trait"||i.kind==="ref"); }catch(_){}
   if(!items.length){ toast("Nothing saved to upload"); return; }
@@ -3516,13 +3545,13 @@ async function cloudPush(){
   let up=0, failed=0;
   const rows=[];
   for(const it of items){
-    const p=cloudPath(u,c,it);
+    const p=cloudPath(team,c,it);
     try{
       const h=await sbHeaders({"Content-Type":"image/png","x-upsert":"true"});
       if(!h) throw new Error("no session");
       const r=await fetch(SB_URL+"/storage/v1/object/traits/"+p,{method:"POST",headers:h,body:it.blob});
       if(!r.ok) throw new Error("upload "+r.status);
-      rows.push({collection_id:c.id, owner:u.id, kind:it.kind, name:it.name,
+      rows.push({collection_id:c.id, team_id:team, owner:u.id, kind:it.kind, name:it.name,
         layer:it.layer||null, status:it.status||null,
         rarity:(typeof it.rarity==="number"?it.rarity:1), w:it.w||1, h:it.h||1, path:p});
       up++;
@@ -3540,7 +3569,7 @@ async function cloudPush(){
       headers:Object.assign({Prefer:"return=representation"},h), body:JSON.stringify(rows)});
     if(r.ok) saved=(await r.json()).length;
   }
-  const swept=await cloudSweep(u,c,rows.map(r=>r.path));
+  const swept=await cloudSweep(team,c,rows.map(r=>r.path));
   await fetch(SB_URL+"/rest/v1/collections?id=eq."+c.id,{method:"PATCH",headers:h,
     body:JSON.stringify({layers:LAYERS})});
   $("cloudpush").disabled=false;
@@ -3602,6 +3631,80 @@ async function cloudPull(){
   toast(bits.join(", "));
 }
 
+
+/* ================= teams =========================================
+   An invite is a link carrying a token. The token is minted in the database
+   by make_invite - never here, because Math.random is predictable and a
+   guessable invite opens the team's whole collection to whoever guesses it. */
+async function teamInvite(){
+  const team=await cloudTeam();
+  if(!team){ toast("Could not open your team"); return; }
+  const h=await sbHeaders({"Content-Type":"application/json"});
+  if(!h) return;
+  $("teaminvite").disabled=true;
+  try{
+    const r=await fetch(SB_URL+"/rest/v1/rpc/make_invite",{method:"POST",headers:h,
+      body:JSON.stringify({p_team:team})});
+    if(!r.ok){ toast("Could not create an invite"); return; }
+    const tok=await r.json();
+    /* The token goes in the FRAGMENT, not the query string. A fragment is
+       never sent to a server, so the invite does not end up in access logs,
+       referrer headers or anything sitting between the two people. */
+    const link=location.origin+location.pathname+"#join="+encodeURIComponent(tok);
+    $("teamrow").hidden=false;
+    $("teamlink").value=link;
+    $("teamlink").select();
+    $("teamnote").hidden=false;
+    $("teamnote").textContent="Anyone who opens this and signs in joins your team and shares this collection. It stops working in 14 days.";
+  }catch(_){ toast("Could not reach the server"); }
+  finally{ $("teaminvite").disabled=false; }
+}
+
+async function teamCopy(){
+  const v=$("teamlink").value;
+  if(!v) return;
+  try{ await navigator.clipboard.writeText(v); toast("Invite link copied"); }
+  catch(_){
+    /* Clipboard access is refused in plenty of ordinary situations. Selecting
+       the text so it can be copied by hand beats a dead button. */
+    $("teamlink").select(); toast("Press Ctrl+C to copy");
+  }
+}
+
+/* A join link is read once, acted on, and stripped from the address bar so it
+   is not re-run on every refresh and not carried into anything copied later. */
+let pendingJoin=null;
+function joinFromHash(){
+  const h=location.hash||"";
+  const m=h.match(/[#&]join=([^&]+)/);
+  if(!m) return false;
+  pendingJoin=decodeURIComponent(m[1]);
+  history.replaceState(null,"",location.pathname+location.search);
+  return true;
+}
+async function joinIfPending(){
+  if(!pendingJoin) return;
+  const tok=pendingJoin; pendingJoin=null;
+  const h=await sbHeaders({"Content-Type":"application/json"});
+  /* Held, not discarded, if the person is not signed in yet: they arrived
+     from an invite and are about to sign in, and losing the token there would
+     make the link look broken. */
+  if(!h){ pendingJoin=tok; return; }
+  try{
+    const r=await fetch(SB_URL+"/rest/v1/rpc/join_team",{method:"POST",headers:h,
+      body:JSON.stringify({p_token:tok})});
+    if(!r.ok){
+      let msg=""; try{ msg=(await r.json()).message||""; }catch(_){}
+      toast(msg||"That invite is not valid");
+      return;
+    }
+    /* The team changed underneath us, so the cached id has to go or every
+       later call would still be aimed at the old team. */
+    cloudTeamId=null;
+    toast("You have joined the team");
+    await cloudRender();
+  }catch(_){ toast("Could not reach the server"); }
+}
 
 /* ================= the gate ======================================
    Signing in is required. Everything below the gate belongs to an account
@@ -3784,6 +3887,11 @@ $('cloudsend').onclick=cloudSignIn;
 $('gatesend').onclick=gateSend;
 $('gateemail').onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); gateSend(); } };
 $('acctbtn').onclick=acctToggle;
+$('teaminvite').onclick=teamInvite;
+$('teamcopy').onclick=teamCopy;
+/* Read the token before anything renders, so a signed-in person arriving from
+   an invite joins on this load rather than the next one. */
+joinFromHash();
 /* Anywhere outside closes it. A panel that only closes via the icon that
    opened it is a panel people leave open by accident. */
 document.addEventListener('click',e=>{

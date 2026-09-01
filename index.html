@@ -44,6 +44,10 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
 .brand h1{font-size:23px; font-weight:700; letter-spacing:-.01em;}
 .tag{max-width:52ch; color:var(--muted); font-size:15.5px;}
 .tag b{color:var(--ink); font-weight:600;}
+.restore{width:min(560px,92vw); margin-bottom:14px; padding:13px 15px; border-radius:12px;
+  background:var(--panel); border:1px solid var(--accent); display:flex; align-items:center;
+  gap:12px; flex-wrap:wrap; font-size:13px; color:var(--ink);}
+.restore .acts{margin-left:auto; display:flex; gap:8px;}
 .drop{width:min(560px,92vw); padding:44px 26px; border-radius:16px; cursor:pointer;
   border:2px dashed var(--line); background:var(--panel);
   transition:border-color .16s,background .16s;}
@@ -235,7 +239,17 @@ input[type=range]{width:100%; accent-color:#f5a524; cursor:pointer;}
   background:var(--panel); overflow-y:auto; display:flex; flex-direction:column; gap:15px;}
 .side h2{font-size:10.5px; text-transform:uppercase; letter-spacing:.12em; color:var(--muted);
   display:flex; align-items:center; gap:8px;}
-.side h2::after{content:""; flex:1; height:1px; background:var(--line);}
+.side h2::after{content:""; flex:1; height:1px; background:var(--line); order:1;}
+/* The panel is 1445px of content. On a phone it gets a 356px window onto it,
+   so anything past the third section may as well not exist. Folding is the
+   difference between "scroll and hope" and "see what is there". */
+.side h2{cursor:pointer; user-select:none;}
+.side h2 .fold{order:2; font-size:13px; line-height:1; color:var(--dim);
+  transition:transform .15s; flex:none;}
+.side section.folded h2 .fold{transform:rotate(-90deg);}
+.side section.folded > *:not(h2){display:none;}
+.side h2:hover{color:var(--ink);}
+.side h2:focus-visible{outline:2px solid var(--accent); outline-offset:3px; border-radius:4px;}
 .swatches{display:grid; grid-template-columns:repeat(8,1fr); gap:5px;}
 .sw{aspect-ratio:1; min-height:26px; border-radius:5px; border:1px solid #ffffff1a; padding:0;}
 .sw[aria-pressed="true"]{outline:2px solid var(--accent); outline-offset:1px;}
@@ -279,9 +293,12 @@ footer .mono{color:var(--ink);}
   .app{grid-template-columns:1fr; grid-template-rows:auto auto minmax(0,1fr) auto auto;
     grid-template-areas:"head" "tools" "stage" "foot" "side";}
   .spec{width:100%; margin-left:0; gap:11px; font-size:9.5px;}
-  .tools{flex-direction:row; overflow-x:auto; padding:8px 10px;
-    border-right:none; border-bottom:1px solid var(--line);}
-  .rule{width:1px; height:auto; margin:2px 4px;}
+  /* Wrapping, not scrolling. A sideways-scrolling rail with no scrollbar hid
+     the last two tools completely - they were at x=500 on a 375px screen. */
+  .tools{flex-direction:row; flex-wrap:wrap; justify-content:center; overflow-x:visible;
+    padding:8px 10px; border-right:none; border-bottom:1px solid var(--line);}
+  .tool{width:42px; height:42px;}
+  .rule{width:1px; height:26px; margin:2px 4px; align-self:center;}
   .stage{padding:12px;}
   .side{width:auto; max-height:44dvh; border-left:none; border-top:1px solid var(--line);}
   .swatches{grid-template-columns:repeat(10,1fr);} .sw{min-height:30px;}
@@ -300,6 +317,11 @@ footer .mono{color:var(--ink);}
   </div>
   <p class="tag">A pixel editor that works on the grid your art was actually drawn on. Drop a PNG in, rebuild it at its true resolution, and <b>edit it cell by cell</b> — then download a clean file. Nothing is uploaded anywhere.</p>
 
+  <div class="restore" id="restore" hidden>
+    <span id="restoretext"></span>
+    <span class="acts"><button class="mini go" id="restoreyes">Pick up where you left off</button>
+    <button class="mini" id="restoreno">Discard</button></span>
+  </div>
   <div class="drop" id="drop" tabindex="0" role="button" aria-label="Choose a PNG to open">
     <strong>Drop a PNG here</strong>
     <span>or click to choose a file · nothing leaves your device</span>
@@ -450,6 +472,19 @@ footer .mono{color:var(--ink);}
       <p class="note">Floods in from the edges, so only colour connected to the border goes. A white shirt in the middle stays.</p>
     </section>
     <section>
+      <h2>Recolour</h2>
+      <div class="stack">
+        <div class="swatches" id="rcpal"></div>
+        <p class="note" id="rcfrom">Pick a colour above to replace.</p>
+        <label class="olchk"><input type="checkbox" id="rcnear"> Include shades close to it</label>
+        <div class="olrow"><label for="rctol">How close</label>
+          <input id="rctol" type="number" min="1" max="120" value="24" style="width:64px"></div>
+        <button class="btn ghost" id="rcgo" disabled>Replace</button>
+      </div>
+      <p class="note">Swaps one colour for the current one everywhere it appears, which is how you get
+        five versions of the same trait without redrawing it. Transparent cells are never touched.</p>
+    </section>
+    <section>
       <h2>Base layer</h2>
       <div class="stack">
         <div class="savebar">
@@ -543,6 +578,8 @@ let hoverCell=null;   /* cell under the pointer, or null when the cursor is away
 let gridBlock=1;      /* measured block size of the open image, in canvas cells */
 let baseBitmap=null;  /* the image drawn behind the art, never part of it */
 let moveBuf=null, moveFrom=null, moveDelta={x:0,y:0};
+let rcFrom=null;      /* the colour Recolour will replace, as a hex string */
+let autoPending=null; /* debounce handle for the working-canvas autosave */
 let undoStack=[], redoStack=[], original=null, painting=false, panMode=false, fileName='pixel-art.png';
 let brush=1;
 
@@ -1590,7 +1627,7 @@ function startEditor(data,w,h,srcW,srcH,pal,recovered){
   $('tname').value=fileName.replace(/[.]png$/,'');
   $('sGrid').textContent=w+'×'+h;
   $('sCols').textContent=pal.distinct.toLocaleString();
-  buildPalette(pal.list);
+  buildPalette(pal.list); buildRecolour(pal.list);
   buildBrushes(); setBrush(brush); selectTool(tool);
   setColor(pal.list.length?hex(pal.list[0].r,pal.list[0].g,pal.list[0].b):'#000000');
   fitZoom(); refreshStats();
@@ -1752,8 +1789,10 @@ function refreshStats(){
   let n=0; for(let i=3;i<d.length;i+=4) if(d[i]!==0) n++;
   $('count').textContent=n.toLocaleString();
   /* The outline is computed FROM the artwork, so any committed edit
-     invalidates it. This is the one call every edit path already makes. */
+     invalidates it. This is the one call every edit path already makes,
+     which makes it the right place to hang the autosave too. */
   outlinePreview();
+  autosave();
 }
 function selectTool(t){
   tool=t; panMode=(t==='pan');
@@ -2002,6 +2041,124 @@ function nudge(dx,dy){
   refreshStats();
 }
 
+/* ================= folding ======================================= */
+function setupFolds(){
+  const secs=[...document.querySelectorAll(".side > section")];
+  /* Narrow screens get everything folded but the first: the panel is taller
+     than the window there, so an open-by-default panel buries its own tail. */
+  const narrow=matchMedia("(max-width:820px)").matches;
+  let saved=null;
+  try{ saved=JSON.parse(localStorage.getItem("pb.folds")||"null"); }catch(_){}
+  secs.forEach((s,i)=>{
+    const t=s.querySelector("h2"); if(!t||t.dataset.fold) return;
+    t.dataset.fold="1";
+    const c=document.createElement("span");
+    c.className="fold"; c.textContent=String.fromCharCode(9662); t.appendChild(c);
+    t.setAttribute("role","button"); t.setAttribute("tabindex","0");
+    const key=(t.textContent||"").replace(/[^a-z]/gi,"").toLowerCase();
+    const start = saved && key in saved ? saved[key] : (narrow && i>0);
+    s.classList.toggle("folded",!!start);
+    t.setAttribute("aria-expanded",String(!start));
+    const flip=()=>{
+      const now=s.classList.toggle("folded");
+      t.setAttribute("aria-expanded",String(!now));
+      let all={}; try{ all=JSON.parse(localStorage.getItem("pb.folds")||"{}"); }catch(_){}
+      all[key]=now;
+      try{ localStorage.setItem("pb.folds",JSON.stringify(all)); }catch(_){}
+    };
+    t.onclick=flip;
+    t.onkeydown=e=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); flip(); } };
+  });
+}
+
+/* ================= autosave ======================================
+   Everything lives in memory until Save to project is pressed, so a reload,
+   a crash or a stray gesture takes the lot. This keeps the working canvas in
+   the same store the project uses, under one fixed id, and offers it back. */
+const AUTO_ID="autosave.working";
+function autosave(){
+  if(!ctx||$("app").hidden) return;
+  clearTimeout(autoPending);
+  autoPending=setTimeout(()=>{
+    autoPending=null;
+    if(!ctx) return;
+    art.toBlob(b=>{
+      if(!b) return;
+      dbPut({id:AUTO_ID, kind:"autosave", name:fileName||"untitled.png",
+             w:art.width, h:art.height, blob:b, at:Date.now()}).catch(()=>{});
+    },"image/png");
+  },1500);
+}
+async function offerRestore(){
+  let rec=null;
+  try{ rec=(await dbAll()).find(i=>i.id===AUTO_ID); }catch(_){}
+  const bar=$("restore");
+  if(!rec||!rec.blob){ bar.hidden=true; return; }
+  const when=new Date(rec.at);
+  $("restoretext").textContent=rec.name+" - "+rec.w+String.fromCharCode(215)+rec.h+
+    ", last edited "+when.toLocaleTimeString([],{hour:"numeric",minute:"2-digit"});
+  bar.hidden=false;
+  $("restoreyes").onclick=async()=>{
+    bar.hidden=true;
+    const bm=await createImageBitmap(rec.blob);
+    const c=document.createElement("canvas"); c.width=rec.w; c.height=rec.h;
+    const g=c.getContext("2d",{willReadFrequently:true});
+    g.imageSmoothingEnabled=false; g.drawImage(bm,0,0);
+    const d=g.getImageData(0,0,rec.w,rec.h).data;
+    fileName=rec.name;
+    startEditor(d,rec.w,rec.h,rec.w,rec.h,palette(d,rec.w*rec.h,24,64),false);
+    toast("Restored "+rec.name);
+  };
+  $("restoreno").onclick=async()=>{ bar.hidden=true; try{ await dbDel(AUTO_ID); }catch(_){} };
+}
+
+/* ================= recolour ======================================= */
+function buildRecolour(list){
+  const wrap=$("rcpal"); wrap.innerHTML=""; rcFrom=null;
+  $("rcgo").disabled=true;
+  $("rcfrom").textContent="Pick a colour above to replace.";
+  list.forEach(c=>{
+    const hx=hex(c.r,c.g,c.b);
+    const b=document.createElement("button");
+    /* Deliberately NOT class "sw": setColor sweeps every .sw to mark the active
+       swatch, and these track a different selection. */
+    b.className="sw rsw"; b.dataset.hex=hx; b.style.background=hx;
+    b.title=hx+" \u00b7 "+c.n.toLocaleString()+" px";
+    b.setAttribute("aria-pressed","false");
+    b.setAttribute("aria-label","Replace colour "+hx);
+    b.onclick=()=>{
+      rcFrom=hx;
+      document.querySelectorAll(".rsw").forEach(s=>s.setAttribute("aria-pressed",String(s.dataset.hex===hx)));
+      $("rcfrom").textContent="Replacing "+hx+" with "+color;
+      $("rcgo").disabled=false;
+    };
+    wrap.appendChild(b);
+  });
+}
+function recolour(){
+  if(!ctx||!rcFrom){ toast("Pick a colour to replace first"); return; }
+  const from=hx2(rcFrom), to=hx2(color);
+  const near=$("rcnear").checked, tol=Math.max(1,Math.min(120,+$("rctol").value||24)), t2=tol*tol;
+  const img=ctx.getImageData(0,0,art.width,art.height), d=img.data;
+  let n=0;
+  for(let p=0;p<art.width*art.height;p++){
+    const i=p*4;
+    /* Transparent cells are not "a colour" - filling them would silently grow
+       the artwork, which is the opposite of a recolour. */
+    if(d[i+3]<128) continue;
+    const hit = near
+      ? ((d[i]-from[0])**2+(d[i+1]-from[1])**2+(d[i+2]-from[2])**2)<=t2
+      : (d[i]===from[0]&&d[i+1]===from[1]&&d[i+2]===from[2]);
+    if(!hit) continue;
+    d[i]=to[0]; d[i+1]=to[1]; d[i+2]=to[2]; n++;
+  }
+  if(!n){ toast("No cells matched "+rcFrom); return; }
+  snapshot(); ctx.putImageData(img,0,0); refreshStats();
+  const fresh=palette(ctx.getImageData(0,0,art.width,art.height).data,art.width*art.height,24,64);
+  buildPalette(fresh.list); buildRecolour(fresh.list);
+  toast("Recoloured "+n.toLocaleString()+" cells");
+}
+
 /* pointers: draw, pan, pinch */
 const pts=new Map(); let pinch=null, pan=null, spaceHeld=false;
 const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
@@ -2105,6 +2262,12 @@ $('dlBig').onclick=()=>download(8);
 /* Strip a flat background by flooding inwards from the border, so only colour
    REACHABLE from the edge goes. A white shirt in the middle of the character is
    never touched, which a plain "delete every white pixel" would wreck. */
+$('rcgo').onclick=recolour;
+$('rcnear').addEventListener('change',()=>{ $('rctol').disabled=!$('rcnear').checked; });
+$('rctol').disabled=true;
+setupFolds();
+offerRestore();
+
 $('baseop').addEventListener('input',()=>{
   $('baseoplab').textContent=$('baseop').value+'%';
   if(baseBitmap) $('base').style.opacity=(+$('baseop').value/100);

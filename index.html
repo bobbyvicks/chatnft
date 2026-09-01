@@ -3343,6 +3343,7 @@ async function cloudRender(){
   $("cloudwho").textContent = inn ? (u.email||"signed in") : "not signed in";
   $("cloudemail").hidden=inn; $("cloudsend").hidden=inn;
   $("cloudpush").hidden=!inn; $("cloudpull").hidden=!inn; $("cloudout").hidden=!inn;
+  if(inn) cloudStatus(u);
   return u;
 }
 
@@ -3389,6 +3390,75 @@ async function cloudCollection(u){
   return made[0]||null;
 }
 
+/* Deleting a trait removed its row and left the PNG in the bucket forever.
+   Storage is not free and an orphan is invisible - nothing lists it, so it
+   accumulates silently. After a push, anything under this collection that the
+   new set of rows does not reference is gone.
+
+   Listed and diffed rather than tracked: a delete log would have to be right
+   about every past delete, whereas the bucket contents and the row set are
+   both observable right now. */
+async function cloudSweep(u,c,keepPaths){
+  const h=await sbHeaders({"Content-Type":"application/json"});
+  if(!h) return 0;
+  const prefix=u.id+"/"+c.id;
+  let found=[], offset=0;
+  for(let page=0; page<20; page++){
+    const r=await fetch(SB_URL+"/storage/v1/object/list/traits",{method:"POST",headers:h,
+      body:JSON.stringify({prefix:prefix, limit:100, offset:offset})});
+    if(!r.ok) return 0;
+    const batch=await r.json();
+    if(!Array.isArray(batch)||!batch.length) break;
+    for(const o of batch) if(o&&o.name) found.push(prefix+"/"+o.name);
+    if(batch.length<100) break;
+    offset+=batch.length;
+  }
+  const keep=new Set(keepPaths);
+  const dead=found.filter(p=>!keep.has(p));
+  if(!dead.length) return 0;
+  const d=await fetch(SB_URL+"/storage/v1/object/traits",{method:"DELETE",headers:h,
+    body:JSON.stringify({prefixes:dead})});
+  return d.ok ? dead.length : 0;
+}
+
+/* Save to cloud is a shot in the dark without this: it says what is here, what
+   is on the server, and when the two were last made to agree. */
+async function cloudStatus(u){
+  if(!u){ return; }
+  let localN=0;
+  try{ localN=(await dbAll()).filter(i=>i.kind==="trait"||i.kind==="ref").length; }catch(_){}
+  const h=await sbHeaders();
+  if(!h) return;
+  let remoteN=null, when=null;
+  try{
+    const cr=await fetch(SB_URL+"/rest/v1/collections?select=id,updated_at&owner=eq."+u.id+"&limit=1",{headers:h});
+    if(cr.ok){
+      const rows=await cr.json();
+      if(rows.length){
+        when=rows[0].updated_at;
+        const tr=await fetch(SB_URL+"/rest/v1/traits?select=id&collection_id=eq."+rows[0].id,{headers:h});
+        if(tr.ok) remoteN=(await tr.json()).length;
+      } else remoteN=0;
+    }
+  }catch(_){}
+  if(remoteN===null){ $("cloudnote").textContent="Signed in. Could not read the server just now."; return; }
+  const ago=(()=>{
+    if(!when) return "";
+    const s=Math.max(0,Math.round((Date.now()-Date.parse(when))/1000));
+    if(s<90) return ", saved just now";
+    if(s<5400) return ", saved "+Math.round(s/60)+" minutes ago";
+    if(s<172800) return ", saved "+Math.round(s/3600)+" hours ago";
+    return ", saved "+Math.round(s/86400)+" days ago";
+  })();
+  /* Name the difference rather than only the numbers. "14 here, 9 there" makes
+     the reader do the subtraction and decide which button is safe. */
+  const same=localN===remoteN;
+  $("cloudnote").textContent=localN+" here, "+remoteN+" on the server"+ago+    (same?". They match."
+      :(localN>remoteN
+        ? ". Save to cloud to upload the "+(localN-remoteN)+" that are only here."
+        : ". Load from cloud to fetch the "+(remoteN-localN)+" that are only there."));
+}
+
 const cloudPath=(u,c,it)=>u.id+"/"+c.id+"/"+
   (it.kind==="ref"?"ref":"trait")+"-"+String(it.name).replace(/[^a-z0-9._-]+/gi,"-")+
   "-"+(it.layer||"none")+"-"+(it.status||"none")+".png";
@@ -3430,12 +3500,13 @@ async function cloudPush(){
       headers:Object.assign({Prefer:"return=representation"},h), body:JSON.stringify(rows)});
     if(r.ok) saved=(await r.json()).length;
   }
+  const swept=await cloudSweep(u,c,rows.map(r=>r.path));
   await fetch(SB_URL+"/rest/v1/collections?id=eq."+c.id,{method:"PATCH",headers:h,
     body:JSON.stringify({layers:LAYERS})});
   $("cloudpush").disabled=false;
-  $("cloudnote").textContent="Saved "+saved+" item"+(saved===1?"":"s")+" to the cloud"+
-    (failed?", "+failed+" could not be uploaded":"")+". Load from cloud on another device to get them.";
-  toast("Saved "+saved+" to the cloud"+(failed?", "+failed+" failed":""));
+  await cloudStatus(u);
+  toast("Saved "+saved+" to the cloud"+(failed?", "+failed+" failed":"")+
+        (swept?", removed "+swept+" old image"+(swept===1?"":"s"):""));
 }
 
 async function cloudPull(){
@@ -3482,6 +3553,7 @@ async function cloudPull(){
   }
   await renderShelf();
   $("cloudpull").disabled=false;
+  await cloudStatus(u);
   const bits=["Loaded "+added+" item"+(added===1?"":"s")];
   if(renamed) bits.push(renamed+" renamed so nothing here was replaced");
   if(newLayers) bits.push(newLayers+" new layer"+(newLayers===1?"":"s"));

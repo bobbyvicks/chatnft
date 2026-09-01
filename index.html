@@ -407,9 +407,17 @@ footer .mono{color:var(--ink);}
     <div class="savebar">
       <input id="gateemail" type="email" placeholder="you@example.com" autocomplete="email"
         aria-label="Email address" style="flex:1">
-      <button class="btn" id="gatesend">Email me a link</button>
     </div>
-    <p class="note" id="gatenote">No password. We send a link, you click it, you are in.</p>
+    <div class="savebar">
+      <input id="gatepass" type="password" placeholder="password" autocomplete="current-password"
+        aria-label="Password" style="flex:1">
+      <button class="btn" id="gatein">Sign in</button>
+    </div>
+    <div class="savebar">
+      <button class="btn ghost" id="gateup" style="flex:1">Create an account</button>
+      <button class="btn ghost" id="gatesend" style="flex:1">Email me a link instead</button>
+    </div>
+    <p class="note" id="gatenote">Sign in with a password and you stay signed in on this device. The email link is there if you forget it.</p>
   </div>
 </div>
 <main class="land" id="land">
@@ -440,6 +448,7 @@ footer .mono{color:var(--ink);}
         <button class="mini" id="cloudpull" hidden>Load from cloud</button>
         <button class="mini" id="cloudout" hidden>Sign out</button>
         <button class="mini" id="teaminvite" hidden>Invite someone</button>
+        <button class="mini" id="setpass" hidden>Set a password</button>
       </div>
     </div>
     <p class="note" id="cloudnote">Signing in keeps your collection on the server so it follows you to
@@ -3363,7 +3372,14 @@ async function sbToken(){
     const r=await fetch(SB_URL+"/auth/v1/token?grant_type=refresh_token",{
       method:"POST", headers:{apikey:SB_KEY,"Content-Type":"application/json"},
       body:JSON.stringify({refresh_token:s.refresh_token})});
-    if(!r.ok){ sbSaveSession(null); return null; }
+    /* ONLY a definitive rejection clears the session. A 500, a timeout or a
+       dropped connection means "ask again later", and treating those as
+       "you are signed out" is exactly what makes someone need a fresh email
+       after every hiccup. */
+    if(!r.ok){
+      if(r.status===400||r.status===401||r.status===403) sbSaveSession(null);
+      return null;
+    }
     const j=await r.json();
     sbSaveSession({access_token:j.access_token, refresh_token:j.refresh_token,
       expires_at:j.expires_at, user:j.user||s.user});
@@ -3411,6 +3427,7 @@ async function cloudRender(){
   gateShow(!inn);
   if(inn) joinIfPending();
   $("teaminvite").hidden=!inn;
+  $("setpass").hidden=!inn;
   if(inn) wsRender();
   if(!inn){ $("teamrow").hidden=true; $("teamnote").hidden=true; }
   if(inn) cloudStatus(u);
@@ -3826,6 +3843,14 @@ async function joinIfPending(){
 }
 
 /* ================= the gate ======================================
+   Passwords are here because a link in an inbox every single time is not a
+   sign-in, it is an obstacle. The link stays as the way in when the password
+   is forgotten, and as the way to make the very first account on a device.
+
+   A session already survives a reload; what it did not survive was a failed
+   refresh, which used to delete it. That is fixed above, and it matters more
+   than any of this: it is the reason signing in seemed not to stick.
+
    Signing in is required. Everything below the gate belongs to an account
    now: a collection is saved per person, so there is no sensible anonymous
    state to be in.
@@ -3838,6 +3863,93 @@ function gateShow(on){
   $("land").style.visibility = on ? "hidden" : "";
   $("acctbtn").hidden = on;
   if(on) $("acctpanel").hidden=true;
+}
+
+function gateBusy(on){
+  for(const id of ["gatein","gateup","gatesend"]) $(id).disabled=on;
+}
+/* Both sign-in and sign-up land here, so a session is stored in exactly one
+   place and the two cannot drift into remembering different things. */
+function gateKeep(j){
+  if(!j||!j.access_token) return false;
+  sbSaveSession({access_token:j.access_token, refresh_token:j.refresh_token,
+    expires_at:j.expires_at||Math.floor(Date.now()/1000)+(j.expires_in||3600), user:j.user||null});
+  return true;
+}
+function gateCreds(){
+  const email=String($("gateemail").value||"").trim();
+  const pass=String($("gatepass").value||"");
+  if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){
+    $("gatenote").textContent="That does not look like an email address."; return null; }
+  if(pass.length<8){
+    $("gatenote").textContent="Use a password of at least 8 characters."; return null; }
+  return {email:email, password:pass};
+}
+
+async function gateSignIn(){
+  const c=gateCreds(); if(!c) return;
+  gateBusy(true);
+  $("gatenote").textContent="Signing in...";
+  try{
+    const r=await fetch(SB_URL+"/auth/v1/token?grant_type=password",{method:"POST",
+      headers:{apikey:SB_KEY,"Content-Type":"application/json"}, body:JSON.stringify(c)});
+    const j=await r.json().catch(()=>({}));
+    if(!r.ok||!gateKeep(j)){
+      /* Deliberately the same wording whether the address is unknown or the
+         password is wrong - saying which tells someone probing that an
+         account exists at that address. */
+      $("gatenote").textContent=(j&&/confirm/i.test(j.error_description||j.msg||""))
+        ? "Check your email and confirm the account first."
+        : "That email and password do not match an account.";
+      return;
+    }
+    $("gatepass").value="";
+    await cloudRender();
+    toast("Signed in");
+  }catch(_){ $("gatenote").textContent="Could not reach the server."; }
+  finally{ gateBusy(false); }
+}
+
+async function gateSignUp(){
+  const c=gateCreds(); if(!c) return;
+  gateBusy(true);
+  $("gatenote").textContent="Creating your account...";
+  try{
+    const r=await fetch(SB_URL+"/auth/v1/signup",{method:"POST",
+      headers:{apikey:SB_KEY,"Content-Type":"application/json"}, body:JSON.stringify(c)});
+    const j=await r.json().catch(()=>({}));
+    if(!r.ok){
+      $("gatenote").textContent=(j&&(j.msg||j.error_description))||"Could not create that account.";
+      return;
+    }
+    /* This project has email confirmation on, so a brand new account gets one
+       message and no session. Say that plainly rather than leaving someone
+       staring at a form that looks like it did nothing. */
+    if(gateKeep(j)){
+      $("gatepass").value="";
+      await cloudRender();
+      toast("Account created");
+    }else{
+      $("gatenote").textContent="Account created. Confirm it from the email we just sent, then sign in with your password - that is the only email you will need.";
+    }
+  }catch(_){ $("gatenote").textContent="Could not reach the server."; }
+  finally{ gateBusy(false); }
+}
+
+/* For anyone who got in by link and never set one. */
+async function setPassword(){
+  const p=prompt("Choose a password (at least 8 characters). You can then sign in without the email link.");
+  if(p===null) return;
+  if(String(p).length<8){ toast("At least 8 characters"); return; }
+  const h=await sbHeaders({"Content-Type":"application/json"});
+  if(!h){ toast("Sign in first"); return; }
+  try{
+    const r=await fetch(SB_URL+"/auth/v1/user",{method:"PUT",headers:h,
+      body:JSON.stringify({password:String(p)})});
+    if(!r.ok){ const j=await r.json().catch(()=>({}));
+      toast((j&&(j.msg||j.error_description))||"Could not set the password"); return; }
+    toast("Password set - you can sign in with it from now on");
+  }catch(_){ toast("Could not reach the server"); }
 }
 
 async function gateSend(){
@@ -4004,6 +4116,10 @@ $('projsearch').addEventListener('keydown',e=>{
 $('addlayer').onclick=addLayer;
 $('cloudsend').onclick=cloudSignIn;
 $('gatesend').onclick=gateSend;
+$('gatein').onclick=gateSignIn;
+$('gateup').onclick=gateSignUp;
+$('setpass').onclick=setPassword;
+$('gatepass').onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); gateSignIn(); } };
 $('gateemail').onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); gateSend(); } };
 $('acctbtn').onclick=acctToggle;
 $('teaminvite').onclick=teamInvite;

@@ -417,6 +417,7 @@ footer .mono{color:var(--ink);}
       <button class="btn ghost" id="gateup" style="flex:1">Create an account</button>
       <button class="btn ghost" id="gatesend" style="flex:1">Email me a link instead</button>
     </div>
+    <p class="note" id="gateinvite" hidden style="color:var(--accent)"></p>
     <p class="note" id="gatenote">Sign in with a password and you stay signed in on this device. The email link is there if you forget it.</p>
   </div>
 </div>
@@ -3806,34 +3807,90 @@ async function teamCopy(){
 
 /* A join link is read once, acted on, and stripped from the address bar so it
    is not re-run on every refresh and not carried into anything copied later. */
-let pendingJoin=null;
+/* An invite used to live in a variable, which is fine right up until the
+   moment it matters. Someone with no account opens the link, creates one,
+   goes to their email, clicks confirm - and lands on a FRESH page load where
+   that variable is gone. They end up signed in and not in the project, with
+   nothing on screen explaining why. It goes in localStorage instead, so it
+   survives the round trip through the inbox.
+
+   Stamped and expired after a day. The invite itself lasts a fortnight on the
+   server; this copy only has to bridge one sign-up, and a token left lying in
+   a browser for a month is a loose end nobody remembers leaving. */
+const JOIN_KEY="chatnft.join";
+const JOIN_MAX_AGE=24*60*60*1000;
+function joinLoad(){
+  try{
+    const j=JSON.parse(localStorage.getItem(JOIN_KEY)||"null");
+    if(!j||!j.token) return null;
+    if(Date.now()-(j.at||0) > JOIN_MAX_AGE){ joinClear(); return null; }
+    return j.token;
+  }catch(_){ return null; }
+}
+function joinKeep(tok){
+  try{ localStorage.setItem(JOIN_KEY,JSON.stringify({token:tok,at:Date.now()})); }catch(_){}
+}
+function joinClear(){ try{ localStorage.removeItem(JOIN_KEY); }catch(_){} }
+
 function joinFromHash(){
   const h=location.hash||"";
   const m=h.match(/[#&]join=([^&]+)/);
   if(!m) return false;
-  pendingJoin=decodeURIComponent(m[1]);
+  joinKeep(decodeURIComponent(m[1]));
+  /* Stripped immediately: the token should not sit in the address bar, ride
+     along in anything copied from it, or be re-read on every refresh. */
   history.replaceState(null,"",location.pathname+location.search);
   return true;
 }
+
+/* Tell someone what they are being invited to BEFORE asking for an email.
+   invite_info returns only the name, and works signed out, which is the whole
+   point - there is no account yet. */
+async function joinShowPending(){
+  const tok=joinLoad();
+  if(!tok) return;
+  try{
+    const r=await fetch(SB_URL+"/rest/v1/rpc/invite_info",{method:"POST",
+      headers:{apikey:SB_KEY,"Content-Type":"application/json"},
+      body:JSON.stringify({p_token:tok})});
+    if(!r.ok) return;
+    const name=await r.json();
+    if(!name){
+      /* A dead link should say so here rather than after someone has gone to
+         the trouble of making an account. */
+      joinClear();
+      $("gatenote").textContent="That invite link has expired or been withdrawn. Ask for a new one - you can still sign in and use your own page.";
+      return;
+    }
+    $("gateinvite").hidden=false;
+    $("gateinvite").textContent="You have been invited to join "+name+". Sign in or create an account and you will go straight there.";
+  }catch(_){}
+}
+
 async function joinIfPending(){
-  if(!pendingJoin) return;
-  const tok=pendingJoin; pendingJoin=null;
+  const tok=joinLoad();
+  if(!tok) return;
   const h=await sbHeaders({"Content-Type":"application/json"});
   /* Held, not discarded, if the person is not signed in yet: they arrived
      from an invite and are about to sign in, and losing the token there would
      make the link look broken. */
-  if(!h){ pendingJoin=tok; return; }
+  if(!h) return;   /* still signed out - the stored token waits */
   try{
     const r=await fetch(SB_URL+"/rest/v1/rpc/join_team",{method:"POST",headers:h,
       body:JSON.stringify({p_token:tok})});
     if(!r.ok){
       let msg=""; try{ msg=(await r.json()).message||""; }catch(_){}
+      /* Cleared rather than retried: a token the server has rejected will be
+         rejected again on every load, and a message on every load is worse
+         than none. */
+      joinClear();
       toast(msg||"That invite is not valid");
       return;
     }
     /* The team changed underneath us, so the cached id has to go or every
        later call would still be aimed at the old team. */
     cloudTeamId=null;
+    joinClear();
     const joined=await r.json();
     await wsRender();
     await wsSwitch(joined);
@@ -4134,6 +4191,7 @@ $('wsleave').onclick=wsLeave;
 /* Read the token before anything renders, so a signed-in person arriving from
    an invite joins on this load rather than the next one. */
 joinFromHash();
+joinShowPending();
 /* Anywhere outside closes it. A panel that only closes via the icon that
    opened it is a panel people leave open by accident. */
 document.addEventListener('click',e=>{

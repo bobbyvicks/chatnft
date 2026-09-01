@@ -415,10 +415,10 @@ footer .mono{color:var(--ink);}
       <span class="logo" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
       <h1>ChatNFT</h1>
     </div>
-    <p class="sub" id="gatesub" style="text-align:center">Sign in to build and keep a trait collection. Your work is saved to your account, so it follows you to any device.</p>
+    <p class="sub" id="gatesub" style="text-align:center">Pick a username and a password and you are straight in. Your work is saved to your account, so it follows you to any device.</p>
     <div class="savebar">
-      <input id="gateemail" type="email" placeholder="you@example.com" autocomplete="email"
-        aria-label="Email address" style="flex:1">
+      <input id="gateuser" type="text" placeholder="username" autocomplete="username"
+        aria-label="Username" spellcheck="false" autocapitalize="none" style="flex:1">
     </div>
     <div class="savebar">
       <input id="gatepass" type="password" placeholder="password" autocomplete="current-password"
@@ -427,13 +427,12 @@ footer .mono{color:var(--ink);}
     </div>
     <div class="savebar">
       <button class="btn ghost" id="gateup" style="flex:1">Create an account</button>
-      <button class="btn ghost" id="gatesend" style="flex:1">Email me a link instead</button>
     </div>
     <div class="savebar">
       <button class="btn ghost" id="gatereset" style="flex:1">Forgot your password</button>
     </div>
     <p class="note" id="gateinvite" hidden style="color:var(--accent)"></p>
-    <p class="note" id="gatenote">Sign in with a password and you stay signed in on this device. The email link is there if you forget it.</p>
+    <p class="note" id="gatenote">No email, no confirmation link, no waiting. Keep the password somewhere safe - an account with no email on it cannot be recovered.</p>
   </div>
 </div>
 <main class="land" id="land">
@@ -463,9 +462,6 @@ footer .mono{color:var(--ink);}
       </div>
       <span class="count" id="cloudwho">not signed in</span>
       <div class="acts" id="cloudacts">
-        <input id="cloudemail" type="email" placeholder="you@example.com"
-          autocomplete="email" aria-label="Email address">
-        <button class="mini go" id="cloudsend">Email me a link</button>
         <button class="mini" id="cloudpush" hidden>Save to cloud</button>
         <button class="mini" id="cloudpull" hidden>Load from cloud</button>
         <button class="mini" id="cloudout" hidden>Sign out</button>
@@ -3441,8 +3437,7 @@ async function sbUser(){
 async function cloudRender(){
   const u=await sbUser();
   const inn=!!(u&&u.id);
-  $("cloudwho").textContent = inn ? (u.email||"signed in") : "not signed in";
-  $("cloudemail").hidden=inn; $("cloudsend").hidden=inn;
+  $("cloudwho").textContent = inn ? (displayName(u)||"signed in") : "not signed in";
   $("cloudpush").hidden=!inn; $("cloudpull").hidden=!inn; $("cloudout").hidden=!inn;
   gateShow(!inn);
   if(inn) joinIfPending();
@@ -3457,26 +3452,6 @@ async function cloudRender(){
   return u;
 }
 
-async function cloudSignIn(){
-  const email=String($("cloudemail").value||"").trim();
-  if(!EMAIL_RE.test(email)){ toast("That does not look like an email address"); return; }
-  $("cloudsend").disabled=true;
-  try{
-    const r=await fetch(SB_URL+"/auth/v1/otp",{method:"POST",
-      headers:{apikey:SB_KEY,"Content-Type":"application/json"},
-      body:JSON.stringify({email:email, create_user:true})});
-    if(!r.ok){
-      /* Say what came back. "Something went wrong" costs the person the one
-         piece of information that would tell them what to do next. */
-      let m=""; try{ m=(await r.json()).msg||(await r.text()); }catch(_){}
-      toast("Could not send the link"+(m?": "+String(m).slice(0,80):""));
-      return;
-    }
-    $("cloudnote").textContent="Check "+email+" for a sign-in link, then come back to this page.";
-    toast("Link sent to "+email);
-  }catch(_){ toast("Could not reach the server"); }
-  finally{ $("cloudsend").disabled=false; }
-}
 
 function cloudSignOut(){
   sbSaveSession(null);
@@ -3991,8 +3966,35 @@ function authSays(j, fallback){
    button you pressed. */
 const EMAIL_RE=/^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
+/* Supabase Auth is built around email addresses, so a username has to become
+   one somewhere. It becomes one here and nowhere else.
+
+   .invalid is reserved by RFC 2606 precisely so that it can never be a real
+   domain. Nothing can be delivered to it, and no stranger can ever own the
+   address a username maps to - which a made-up domain like chatnft.local or
+   chatnft.fake could not promise, since anyone may register those.
+
+   Lowercased so Bob and bob are one account rather than two people who cannot
+   work out why the password is wrong. */
+const USER_DOMAIN="@chatnft.invalid";
+const USERNAME_RE=/^[a-z0-9_-]{3,20}$/;
+/* An address typed with an @ is taken at face value: accounts made before
+   usernames existed still sign in with the email they were made with. */
+const looksLikeUsername=id=>id.indexOf("@")<0;
+function asLogin(id){
+  const s=String(id||"").trim().toLowerCase();
+  return looksLikeUsername(s) ? s+USER_DOMAIN : s;
+}
+/* Nobody should ever be shown bob@chatnft.invalid. It is plumbing. */
+function displayName(u){
+  const meta=(u&&u.user_metadata)||{};
+  if(meta.username) return String(meta.username);
+  const e=String((u&&u.email)||"");
+  return e.endsWith(USER_DOMAIN) ? e.slice(0,e.length-USER_DOMAIN.length) : e;
+}
+
 function gateBusy(on){
-  for(const id of ["gatein","gateup","gatesend","gatereset"]) $(id).disabled=on;
+  for(const id of ["gatein","gateup","gatereset"]) $(id).disabled=on;
 }
 /* Both sign-in and sign-up land here, so a session is stored in exactly one
    place and the two cannot drift into remembering different things. */
@@ -4003,34 +4005,41 @@ function gateKeep(j){
   return true;
 }
 function gateCreds(){
-  const email=String($("gateemail").value||"").trim();
+  const id=String($("gateuser").value||"").trim().toLowerCase();
   const pass=String($("gatepass").value||"");
-  if(!EMAIL_RE.test(email)){
+  if(looksLikeUsername(id) && !USERNAME_RE.test(id)){
+    $("gatenote").textContent="A username is 3 to 20 characters, using letters, numbers, underscore or hyphen."; return null; }
+  if(!looksLikeUsername(id) && !EMAIL_RE.test(id)){
     $("gatenote").textContent="That does not look like an email address."; return null; }
   if(pass.length<8){
     $("gatenote").textContent="Use a password of at least 8 characters."; return null; }
-  return {email:email, password:pass};
+  return {email:asLogin(id), password:pass, username:id};
 }
 
 /* A password you cannot remember is the same as having no account, and until
    now the only way back in was the email link - which is the very thing the
    password exists to stop needing. */
 async function gateReset(){
-  const email=String($("gateemail").value||"").trim();
-  if(!EMAIL_RE.test(email)){
-    $("gatenote").textContent="Put your email address in the box above, then press this again."; return; }
+  const id=String($("gateuser").value||"").trim().toLowerCase();
+  /* A username account has no address to send anything to. Saying so is the
+     only honest answer; pretending to send a link that can never arrive is
+     worse than having no button at all. */
+  if(looksLikeUsername(id)){
+    $("gatenote").textContent="There is no email on a username account, so there is nothing to send a reset to. That is the trade for signing up without one.";
+    return; }
+  if(!EMAIL_RE.test(id)){
+    $("gatenote").textContent="Put the email address the account was made with in the box above, then press this again."; return; }
   gateBusy(true);
   $("gatenote").textContent="Sending...";
   try{
     const r=await fetch(SB_URL+"/auth/v1/recover",{method:"POST",
       headers:{apikey:SB_KEY,"Content-Type":"application/json"},
-      body:JSON.stringify({email:email})});
+      body:JSON.stringify({email:id})});
     if(!r.ok){ const j=await r.json().catch(()=>({}));
       $("gatenote").textContent=authSays(j,"Could not send the reset email."); return; }
-    /* Worded the same whether or not that address has an account. "No account
-       here" would let anyone check which addresses are registered by typing
-       them in one at a time. */
-    $("gatenote").textContent="If there is an account for "+email+", a reset link is on its way. Open it and you can choose a new password.";
+    /* Worded the same whether or not that address has an account, so nobody
+       can check which addresses are registered by typing them in. */
+    $("gatenote").textContent="If there is an account for "+id+", a reset link is on its way.";
   }catch(_){ $("gatenote").textContent="Could not reach the server."; }
   finally{ gateBusy(false); }
 }
@@ -4044,8 +4053,8 @@ let resetMode=false;
 function enterResetMode(){
   resetMode=true;
   gateShow(true);
-  $("gateemail").hidden=true;
-  $("gateup").hidden=true; $("gatesend").hidden=true; $("gatereset").hidden=true;
+  $("gateuser").hidden=true;
+  $("gateup").hidden=true; $("gatereset").hidden=true;
   $("gatepass").value="";
   $("gatepass").setAttribute("autocomplete","new-password");
   $("gatepass").placeholder="new password";
@@ -4058,8 +4067,8 @@ function enterResetMode(){
 }
 function leaveResetMode(){
   resetMode=false;
-  $("gateemail").hidden=false;
-  $("gateup").hidden=false; $("gatesend").hidden=false; $("gatereset").hidden=false;
+  $("gateuser").hidden=false;
+  $("gateup").hidden=false; $("gatereset").hidden=false;
   $("gatepass").value="";
   $("gatepass").setAttribute("autocomplete","current-password");
   $("gatepass").placeholder="password";
@@ -4084,7 +4093,7 @@ async function saveNewPassword(){
     if(!r.ok){ const j=await r.json().catch(()=>({}));
       $("gatenote").textContent=authSays(j,"Could not save that password."); return; }
     leaveResetMode();
-    $("gatenote").textContent="Sign in with a password and you stay signed in on this device. The email link is there if you forget it.";
+    $("gatenote").textContent="No email, no confirmation link, no waiting. Keep the password somewhere safe - an account with no email on it cannot be recovered.";
     await cloudRender();
     toast("Password changed");
   }catch(_){ $("gatenote").textContent="Could not reach the server."; }
@@ -4121,22 +4130,29 @@ async function gateSignUp(){
   $("gatenote").textContent="Creating your account...";
   try{
     const r=await fetch(SB_URL+"/auth/v1/signup",{method:"POST",
-      headers:{apikey:SB_KEY,"Content-Type":"application/json"}, body:JSON.stringify(c)});
+      headers:{apikey:SB_KEY,"Content-Type":"application/json"},
+      /* The username is kept as it was typed as well as folded into the login,
+         so the account panel has something to show that is not plumbing. */
+      body:JSON.stringify({email:c.email, password:c.password, data:{username:c.username}})});
     const j=await r.json().catch(()=>({}));
     if(!r.ok){
       $("gatenote").textContent=authSays(j,"Could not create that account.");
       return;
     }
-    /* This project has email confirmation on, so a brand new account gets one
-       message and no session. Say that plainly rather than leaving someone
-       staring at a form that looks like it did nothing. */
     if(gateKeep(j)){
       $("gatepass").value="";
       await cloudRender();
-      toast("Account created");
-    }else{
-      $("gatenote").textContent="Account created. Confirm it from the email we just sent, then sign in with your password - that is the only email you will need.";
+      toast("Welcome, "+c.username);
+      return;
     }
+    /* No session back means the project still has email confirmation switched
+       on. For a username account that confirmation is posted to an address
+       which cannot exist, so it will never arrive and the person would wait
+       for it forever. Say what is actually wrong rather than pointing them
+       at an inbox. */
+    $("gatenote").textContent = looksLikeUsername(c.username)
+      ? "The account was made, but this site is still set to confirm new accounts by email, so it will not let you in. That setting has to be turned off before usernames work."
+      : "Account created. Confirm it from the email we just sent, then sign in with your password.";
   }catch(_){ $("gatenote").textContent="Could not reach the server."; }
   finally{ gateBusy(false); }
 }
@@ -4157,31 +4173,6 @@ async function setPassword(){
   }catch(_){ toast("Could not reach the server"); }
 }
 
-async function gateSend(){
-  const email=String($("gateemail").value||"").trim();
-  if(!EMAIL_RE.test(email)){
-    $("gatenote").textContent="That does not look like an email address."; return; }
-  $("gatesend").disabled=true;
-  $("gatenote").textContent="Sending...";
-  try{
-    const r=await fetch(SB_URL+"/auth/v1/otp",{method:"POST",
-      headers:{apikey:SB_KEY,"Content-Type":"application/json"},
-      body:JSON.stringify({email:email, create_user:true})});
-    if(!r.ok){
-      let j={}; try{ j=await r.json(); }catch(_){}
-      /* Supersedes "say what the server said", which was right about not
-         hiding the specific fact and wrong about this being enough on its
-         own. The specific fact is kept - anything authSays does not
-         recognise still passes through verbatim - but the handful of
-         messages that name a limit without naming a remedy are turned into
-         the remedy, because that is the part the reader needed. */
-      $("gatenote").textContent=authSays(j,"Could not send it. Try again in a moment.");
-      return;
-    }
-    $("gatenote").textContent="Check "+email+" and click the link. You can close this tab.";
-  }catch(_){ $("gatenote").textContent="Could not reach the server. Check your connection."; }
-  finally{ $("gatesend").disabled=false; }
-}
 
 function acctToggle(){
   const p=$("acctpanel");
@@ -4323,8 +4314,6 @@ $('projsearch').addEventListener('keydown',e=>{
   if(e.key==='Escape'){ $('projsearch').value=''; shelfQuery=''; renderShelf(); }
 });
 $('addlayer').onclick=addLayer;
-$('cloudsend').onclick=cloudSignIn;
-$('gatesend').onclick=gateSend;
 /* The same button, because it is the same act: the thing standing between
    you and the editor. Which one it is depends on how you arrived. */
 $('gatein').onclick=()=>{ if(resetMode) saveNewPassword(); else gateSignIn(); };
@@ -4345,7 +4334,7 @@ addEventListener("hashchange",()=>{
 $('gateup').onclick=gateSignUp;
 $('setpass').onclick=setPassword;
 $('gatepass').onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); if(resetMode) saveNewPassword(); else gateSignIn(); } };
-$('gateemail').onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); gateSend(); } };
+$('gateuser').onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); $('gatepass').focus(); } };
 $('acctbtn').onclick=acctToggle;
 $('teaminvite').onclick=teamInvite;
 $('teamcopy').onclick=teamCopy;
@@ -4373,7 +4362,6 @@ document.addEventListener('keydown',e=>{
   if(e.key==='Escape'&&!$('acctpanel').hidden){
     $('acctpanel').hidden=true; $('acctbtn').setAttribute('aria-expanded','false'); }
 });
-$('cloudemail').onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); cloudSignIn(); } };
 $('cloudout').onclick=cloudSignOut;
 $('cloudpush').onclick=cloudPush;
 $('cloudpull').onclick=cloudPull;

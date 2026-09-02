@@ -154,6 +154,9 @@ test("authorizes anchored-white recolor only for conservative explicit artwork i
   for (const instruction of [
     "Make the T the same colour as the NEE.",
     "Recolour the NEET text gray.",
+    "Change the NEET lettering to red",
+    "Change NEET letters to blue.",
+    "Change the emblem to #838383.",
     "Change the color of the white emblem artwork to gray.",
     "Darken the lettering inside the logo.",
   ]) assert.equal(core.allowsAnchoredWhiteRecolor(instruction), true, instruction);
@@ -165,9 +168,17 @@ test("authorizes anchored-white recolor only for conservative explicit artwork i
     "Lighten the hat and keep the lettering intact.",
     "Lighten the hat without changing the NEET text.",
     "Do not recolor the NEET emblem.",
+    "No recolor of the NEET text",
+    "No change to the NEET lettering color.",
+    "Don't change the NEET lettering to red.",
     "Change the outline color to black.",
     "Make the hat the same colour as the reference.",
     "Recolor the hat artwork blue.",
+    "Recolor the logo background blue",
+    "Recolor the NEET logo's background blue.",
+    "Recolor the text box blue",
+    "Recolor the artwork blue.",
+    "Recolor the hat blue behind the NEET text.",
   ]) assert.equal(core.allowsAnchoredWhiteRecolor(instruction), false, instruction);
 });
 

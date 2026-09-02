@@ -100,19 +100,20 @@
   function allowsAnchoredWhiteRecolor(instruction) {
     const text = String(instruction || "").slice(0, 2000).replace(/[’]/g, "'");
     if (!text.trim()) return false;
-    const target = "(?:the\\s+t|neet(?:\\s+(?:text|letters?|lettering|emblem|logo))?|(?:white\\s+)?(?:text|letters?|lettering|emblem|logo|globe)|white\\s+artwork)";
+    const namedNeetPart = "(?:text|letters?|lettering|emblem|logo)";
+    const targetNoun = `(?:t\\b|neet\\s+${namedNeetPart}\\b|neet(?!\\s+${namedNeetPart}\\b)\\b|(?:white\\s+)?(?:text|letters?|lettering|emblem|logo|globe)\\b(?:\\s+artwork\\b)?)`;
+    const target = `(?:the\\s+)?${targetNoun}(?!\\s*(?:'s\\s+)?(?:background|backdrop|box|container|panel|field|area|border|outline)\\b)`;
+    const colorValue = "(?:#[0-9a-f]{3,8}\\b|(?:the\\s+)?(?:same|different)\\s+(?:colou?r|shade|tone)\\b(?:\\s+as\\b.{0,32})?|(?:bright|dark|light)?\\s*(?:red|orange|yellow|green|cyan|blue|indigo|purple|violet|magenta|pink|brown|tan|beige|gr[ae]y|white|black)\\b|darker\\b|lighter\\b)";
     const clauses = text.split(/(?:[.;\n]+|\bbut\b|\bwhile\b)/i);
-    const directAction = new RegExp(`\\b(?:recolou?r|darken|lighten)\\b.{0,40}\\b${target}\\b`, "i");
-    const reverseAction = new RegExp(`\\b${target}\\b.{0,40}\\b(?:recolou?r|darken|lighten)\\b`, "i");
-    const changeColor = new RegExp(`\\bchange\\b.{0,24}\\b(?:colou?r|shade|tone)\\b.{0,24}\\b${target}\\b|\\bchange\\b.{0,24}\\b${target}\\b.{0,24}\\b(?:colou?r|shade|tone)\\b`, "i");
-    const makeColor = new RegExp(`\\bmake\\b.{0,40}\\b${target}\\b.{0,50}\\b(?:same|different|colou?r|shade|tone|gr[ae]y|white|black|darker|lighter)\\b`, "i");
-    const setColor = new RegExp(`\\b(?:set|turn)\\b.{0,32}\\b${target}\\b.{0,32}\\b(?:to|into)\\b.{0,20}\\b(?:a\\s+)?(?:colou?r|gr[ae]y|white|black|darker|lighter)\\b`, "i");
-    const protectedTarget = new RegExp(`\\b(?:keep|preserve|retain)\\b.{0,40}?\\b${target}\\b`, "ig");
-    const negatedAction = /\b(?:do\s+not|don't|dont|never|without)\b.{0,32}\b(?:recolou?r(?:ing)?|darken(?:ing)?|lighten(?:ing)?|chang(?:e|ing)|mak(?:e|ing)|set(?:ting)?|turn(?:ing)?)\b/i;
+    const directAction = new RegExp(`\\b(?:recolou?r|darken|lighten)\\s+(?:only\\s+)?${target}`, "i");
+    const changeTarget = new RegExp(`\\bchange\\s+${target}(?:\\s*'s)?(?:\\s+(?:colou?r|shade|tone))?\\s+(?:to|into)\\s+(?:a\\s+)?${colorValue}`, "i");
+    const changeTargetColor = new RegExp(`\\bchange\\s+(?:the\\s+)?(?:colou?r|shade|tone)\\s+of\\s+${target}\\s+(?:to|into)\\s+(?:a\\s+)?${colorValue}`, "i");
+    const makeColor = new RegExp(`\\bmake\\s+${target}\\s+(?:a\\s+)?${colorValue}`, "i");
+    const setColor = new RegExp(`\\b(?:set|turn)\\s+${target}\\s+(?:to|into)\\s+(?:a\\s+)?${colorValue}`, "i");
+    const negatedOrPreserved = /\b(?:no|not|never|without|don't|dont|do\s+not|keep|preserve|retain|leave|unchanged|intact)\b/i;
     return clauses.some((clause) => {
-      if (negatedAction.test(clause)) return false;
-      const actionable = clause.replace(protectedTarget, "");
-      return directAction.test(actionable) || reverseAction.test(actionable) || changeColor.test(actionable) || makeColor.test(actionable) || setColor.test(actionable);
+      if (negatedOrPreserved.test(clause)) return false;
+      return directAction.test(clause) || changeTarget.test(clause) || changeTargetColor.test(clause) || makeColor.test(clause) || setColor.test(clause);
     });
   }
 

@@ -922,7 +922,7 @@ footer .mono{color:var(--ink);}
 <script>
 "use strict";
 const $=id=>document.getElementById(id);
-let vividContract=null, vividCore=null, vividResult=null, editorVivid=false;
+let vividContract=null, vividCore=null, vividResult=null, editorVivid=false, editorVividOwner=null;
 
 async function initVividAgent(){
   try{
@@ -2578,6 +2578,7 @@ function analyse(im,file){
 function startEditor(data,w,h,srcW,srcH,pal,recovered,meta={}){
   $('scrim').hidden=true; $('land').hidden=true; $('app').hidden=false;
   editorVivid=meta.vivid===true;
+  editorVividOwner=editorVivid?(meta.owner||null):null;
   $('dlVivid').hidden=!editorVivid;
   $('dlVividSwatch').hidden=!editorVivid;
   N=w;
@@ -3860,6 +3861,7 @@ async function collectionPalette(cap){
 }
 
 let pxSrc=null, pxName="", pxData=null, pxPending=null, pxFixed=null;
+let vividGenerationEpoch=0;
 function pixelate(src,w,hh,o){
   const N=o.size;
   const d=recover(src,w,hh,N);
@@ -3881,6 +3883,16 @@ function pxOpts(){
           fixed:$("pxmatch").checked?pxFixed:null};
 }
 function pxVividOpts(){ return {size:+$('pxvividgrid').value}; }
+function invalidateVividGeneration(){ return ++vividGenerationEpoch; }
+function vividRequestCurrent(request){
+  return request.epoch===vividGenerationEpoch
+    &&request.source===pxSrc
+    &&request.grid===pxVividOpts().size
+    &&request.mode===$('pxvivid').checked;
+}
+function syncVividGenerationButton(){
+  $('pxgenerate').disabled=!$('pxvivid').checked||!vividCore;
+}
 function renderVividSwatches(colors){
   const wrap=$('pxswatches'); wrap.innerHTML='';
   colors.forEach(color=>{
@@ -3904,7 +3916,8 @@ function deterministicVividResult(grid){
   const violations=vividCore.verify(repaired.data,grid,grid,{grid});
   if(violations.length) throw new Error(violations.join('; '));
   return {data:repaired.data,size:grid,colors:repaired.colors,
-          originalWidth:pxSrc.width,originalHeight:pxSrc.height};
+          originalWidth:pxSrc.width,originalHeight:pxSrc.height,mode:'vivid',
+          owner:{epoch:vividGenerationEpoch,source:pxSrc,grid,mode:true}};
 }
 function pxRender(){
   $("pxsizelab").textContent=$("pxsize").value+String.fromCharCode(215)+$("pxsize").value;
@@ -3931,7 +3944,7 @@ function pxRender(){
       return;
     }
     const o=pxOpts();
-    const r=pixelate(pxSrc.data,pxSrc.width,pxSrc.height,o);
+    const r={...pixelate(pxSrc.data,pxSrc.width,pxSrc.height,o),mode:'generic',owner:{source:pxSrc}};
     pxData=r;
     const cv=$("pxout");
     cv.width=r.size; cv.height=r.size;
@@ -3950,7 +3963,7 @@ function syncVividControls(){
   const enabled=$('pxvivid').checked;
   $('pxgenericcontrols').hidden=enabled;
   $('pxvividcontrols').hidden=!enabled;
-  $('pxgenerate').disabled=!enabled||!vividCore;
+  syncVividGenerationButton();
   pxRender();
 }
 function canvasFromRgba(data,width,height){
@@ -3971,15 +3984,16 @@ function decodePngDataUrl(dataUrl){
   });
 }
 async function generateVivid(){
-  if(!vividCore||!pxSrc){
+  if(!vividCore||!pxSrc||!$('pxvivid').checked){
     $('pxagentstatus').textContent='Waiting for the saved Vivid Agent rules…';
     return;
   }
+  const request={epoch:invalidateVividGeneration(),source:pxSrc,grid:pxVividOpts().size,mode:$('pxvivid').checked};
   const button=$('pxgenerate'); button.disabled=true;
   $('pxagentstatus').textContent='Generating locally with ComfyUI…';
   try{
-    const grid=pxVividOpts().size;
-    const canvas=vividCore.resizeNearest(pxSrc.data,pxSrc.width,pxSrc.height,1024,1024);
+    const grid=request.grid;
+    const canvas=vividCore.resizeNearest(request.source.data,request.source.width,request.source.height,1024,1024);
     const recovered=vividCore.recoverToGrid(canvas.data,canvas.width,canvas.height,grid);
     const input=vividCore.renderGridToCanvas(recovered.data,grid);
     const response=await fetch('/api/pixel-agent/generate',{
@@ -3998,20 +4012,24 @@ async function generateVivid(){
     const repaired=vividCore.repair(normalized.data,grid,grid,{grid});
     const violations=vividCore.verify(repaired.data,grid,grid,{grid});
     if(violations.length) throw new Error(violations.join('; '));
+    if(!vividRequestCurrent(request)) return;
     const next={data:repaired.data,size:grid,colors:repaired.colors,
-                originalWidth:pxSrc.width,originalHeight:pxSrc.height};
+                originalWidth:request.source.width,originalHeight:request.source.height,
+                mode:'vivid',owner:request};
     vividResult=next;
     renderVividSwatches(next.colors);
     showPixelResult(next,next.colors.length+' saved colors used · local generation repaired and verified.');
     $('pxagentstatus').textContent='Generated, repaired, and verified locally.';
   }catch(error){
-    $('pxagentstatus').textContent=error.message||'Local generation failed.';
+    if(vividRequestCurrent(request)) $('pxagentstatus').textContent=error.message||'Local generation failed.';
   }finally{
-    button.disabled=!$('pxvivid').checked||!vividCore;
+    if(vividRequestCurrent(request)) syncVividGenerationButton();
   }
 }
 async function openPixelate(d,w,hh,name){
   pxSrc={data:d,width:w,height:hh};
+  invalidateVividGeneration();
+  syncVividGenerationButton();
   pxName=name;
   $("scrim").hidden=true;
   $("pxscrim").hidden=false;
@@ -5429,8 +5447,8 @@ $('dlVividSwatch').onclick=()=>{
   e.addEventListener("input",pxRender);
   e.addEventListener("change",pxRender);
 });
-$('pxvivid').addEventListener('change',syncVividControls);
-$('pxvividgrid').addEventListener('change',pxRender);
+$('pxvivid').addEventListener('change',()=>{ invalidateVividGeneration(); syncVividControls(); });
+$('pxvividgrid').addEventListener('change',()=>{ invalidateVividGeneration(); syncVividGenerationButton(); pxRender(); });
 $('pxgenerate').onclick=generateVivid;
 syncVividControls();
 $('pxback').onclick=()=>{ $('pxscrim').hidden=true; $('scrim').hidden=false; };
@@ -5438,8 +5456,8 @@ $('pxgo').onclick=()=>{
   if(!pxData) return;
   $('pxscrim').hidden=true;
   const n=pxData.size;
-  startEditor(pxData.data,n,n,pxSrc.width,pxSrc.height,
-              palette(pxData.data,n*n,24,64),true,{vivid:$('pxvivid').checked});
+  startEditor(pxData.data,n,n,pxData.originalWidth||pxSrc.width,pxData.originalHeight||pxSrc.height,
+              palette(pxData.data,n*n,24,64),true,{vivid:pxData.mode==='vivid',owner:pxData.owner});
   toast('Pixelated to '+n+String.fromCharCode(215)+n);
 };
 /* Typing re-renders the shelf, which decodes a thumbnail per tile, so it is

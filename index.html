@@ -2371,8 +2371,21 @@ $('pvOverlay').onclick=()=>{ pvMode='overlay'; $('pvOverlay').setAttribute('aria
    178.8) - so the outline still reads as an outline to whoever draws on it.
    Measured worst-case precision over 55 scenes: 100% this way round, 98.87%
    the other. tools/key-colours-check.cjs asserts all of this and fails if
+
+   CORRECTION. The fill above was #00FFFF (cyan) and that was wrong, for the
+   reason the note beneath the original search already warned about: the trait
+   colours it was ranked against were a list I wrote, not the collection.
+   Measured against the 61 real approved trait files, cyan is distance 0.0 from
+   a colour they actually use - an exact match, in two backgrounds and, worse,
+   in eyes/approved/pit-vipers.png. Eyes are drawn ON the character, so a cyan
+   lens would sit over cyan skin and be invisible to the differencer.
+
+   #3CFFB4 is the furthest a fill can get from the real collection while still
+   pairing with green: 30.1 from the nearest colour used on 20 or more pixels,
+   against cyan's 0.0. The ink was measured too and kept - green #00FF00 is
+   42.0 away and collides with nothing. tools/skins/bestfill.cjs is the search.
    anyone changes these two values to something that breaks it. */
-const KEY_FILL=[0,255,255], KEY_INK=[0,255,0];
+const KEY_FILL=[60,255,180], KEY_INK=[0,255,0];
 function keyCharacter(src,W,H){
   /* The background is found the way it always is, so the character keeps the
      same silhouette it had and nothing about alignment changes. */

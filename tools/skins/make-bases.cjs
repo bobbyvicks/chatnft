@@ -24,7 +24,11 @@ const MASTER='E:/X content/pixel art_/normalized/masters/light.png';
 const OUT=process.argv[2]||path.join(__dirname,'bases-fixed');
 fs.mkdirSync(OUT,{recursive:true});
 
-const KEY_FILL=[0,255,255], KEY_INK=[0,255,0];   /* cyan body, green outline */
+/* Mint body, green outline. NOT cyan: measured against the 61 real approved
+   trait files, #00FFFF is distance 0.0 from a colour they already use - two
+   backgrounds and eyes/approved/pit-vipers.png, which is drawn ON the character.
+   #3CFFB4 is 30.1 from the nearest real colour; the green ink is 42.0. */
+const KEY_FILL=[60,255,180], KEY_INK=[0,255,0];
 const DARK_MAX=110;
 const lum=(r,g,b)=>0.299*r+0.587*g+0.114*b;
 

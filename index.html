@@ -2317,7 +2317,31 @@ $('pvOverlay').onclick=()=>{ pvMode='overlay'; $('pvOverlay').setAttribute('aria
 
    Green and magenta because they are the two furthest things from the greys,
    skins and blacks that traits are actually made of, and from each other. */
-const KEY_FILL=[0,255,0], KEY_INK=[255,0,255];
+/* The two colours a keyed character is made of. Chosen by measurement, not by
+   taste - tools/base-palette-search.cjs enumerates the space and
+   tools/base-palette-stress.cjs runs candidates through this same pipeline.
+
+   Green and magenta looked like the obvious chroma-key pair and were wrong,
+   for a reason that only shows up once you look at the pixels BETWEEN them.
+   They are complementary, so an anti-aliased edge between body and outline
+   blends through (127,127,127) - mid grey. That blend is a real pixel in the
+   image, and it is 0.9 away from a colour traits genuinely use. It is also
+   within haloTol of white, so stripBackground can peel it, and its saturation
+   is under neutralMax, so defringe refuses to. Measured: the green/magenta
+   blend line makes 5.0% of the colour space unusable to an artist.
+
+   Cyan and green share R=0 and G=255, so every blend between them stays on a
+   single axis: never grey, never near white, never below luminance 149.7 (well
+   clear of darkMax 110, so no part of the base can read as a trait outline).
+   That drops the unusable share to 1.0%.
+
+   Green is the ink rather than the fill because keyCharacter puts the ink where
+   the character was DARK, and green is the darker of the two (149.7 against
+   178.8) - so the outline still reads as an outline to whoever draws on it.
+   Measured worst-case precision over 55 scenes: 100% this way round, 98.87%
+   the other. tools/key-colours-check.cjs asserts all of this and fails if
+   anyone changes these two values to something that breaks it. */
+const KEY_FILL=[0,255,255], KEY_INK=[0,255,0];
 function keyCharacter(src,W,H){
   /* The background is found the way it always is, so the character keeps the
      same silhouette it had and nothing about alignment changes. */

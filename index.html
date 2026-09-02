@@ -1188,7 +1188,17 @@ async function renderShelf(){
   const savedRefs=items.filter(i=>i.kind==='ref');
   $('proj').hidden=!items.length;
   if(!items.length){ $('compose').hidden=true; $('layers').hidden=true; return; }
-  $('projcount').textContent=traits.length+(traits.length===1?' trait':' traits');
+  /* What is on screen, not what is in the database. The empty-shelf message
+     below was already fixed to name which of three causes emptied it, but the
+     count beside it was left saying the total - so a search that narrowed 300
+     traits down to 10 still read '300 traits', and filtering to a status with
+     no matches read '300 traits' over an empty shelf. Same defect, one element
+     across: fixing the message did not cover its neighbour. */
+  const shownCount=traits.filter(shows).length;
+  const noun=n=>n+(n===1?' trait':' traits');
+  $('projcount').textContent = shownCount===traits.length
+    ? noun(traits.length)
+    : shownCount+' of '+noun(traits.length);
   $('dlzip').disabled=!traits.length;
   const body=$('projbody'); body.innerHTML='';
   if(savedRefs.length){

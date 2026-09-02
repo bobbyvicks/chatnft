@@ -100,6 +100,14 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
   padding-bottom:10px; margin-bottom:4px; border-bottom:1px solid var(--line);}
 .wsrow label{font-size:10px; text-transform:uppercase; letter-spacing:.1em; color:var(--dim);}
 .wsrow select{flex:1; min-width:120px;}
+/* Loud on purpose. Saving into the wrong project is invisible - the trait
+   saves, the toast says saved, and only the people who cannot see it ever
+   find out. */
+#wsbanner{padding:8px 10px; border-radius:8px; font-size:11.5px; line-height:1.45;}
+#wsbanner.warn{background:var(--accent-soft); border:1px solid var(--accent); color:var(--accent);}
+#wsbanner.calm{background:var(--panel-2); border:1px solid var(--line); color:var(--muted);}
+#wsbanner button{margin-left:8px; font:inherit; cursor:pointer; border-radius:6px;
+  border:1px solid currentColor; background:transparent; color:inherit; padding:2px 8px;}
 /* the invite link and its explanation belong to the group row, so they take a
    line of their own inside it rather than sitting beside the picker */
 .wsrow #teamrow, .wsrow #teamnote{width:100%;}
@@ -633,6 +641,7 @@ footer .mono{color:var(--ink);}
   <section class="proj" id="proj" hidden>
     <div class="projhead">
       <h2>Your project</h2>
+      <p class="note" id="wsbanner" hidden style="width:100%;margin:0 0 6px"></p>
       <span class="count" id="projcount"></span>
       <div class="acts">
         <input id="projsearch" type="search" placeholder="find a trait"
@@ -1094,6 +1103,7 @@ async function duplicateTrait(t){
 }
 
 async function renderShelf(){
+  /* Filled in at the end, once the records have been read. */
   let items=[];
   /* Both early exits have to take the compose panel down with them, or
      clearing the project leaves it on screen listing traits that are gone. */
@@ -1103,6 +1113,34 @@ async function renderShelf(){
      the default list is only what it starts from. */
   applyLayers(items);
   const traits=items.filter(i=>i.kind==='trait');
+  /* Which project you are in, and whether what you have saved is actually in
+     it. Nothing about a save tells you this otherwise: it saves, it says so,
+     and the only people who find out are the ones who cannot see it. */
+  (function(){
+    const b=$("wsbanner"); if(!b) return;
+    const sel=$("wssel");
+    const where=activeWs ? ((sel&&sel.selectedOptions[0]&&sel.selectedOptions[0].textContent)||"this group") : null;
+    if(!traits.length){ b.hidden=true; return; }
+    if(!activeWs){
+      b.hidden=false; b.className="calm";
+      b.textContent="These are on your own page, which only you can see. To share them, "
+        +"switch Working in to a group project at the top of your account and save them there.";
+      return;
+    }
+    const behind=traits.filter(function(t){ return !t.synced; });
+    if(!behind.length){
+      b.hidden=false; b.className="calm";
+      b.textContent="All "+traits.length+" of these are in "+where+", so everyone in it can see them.";
+      return;
+    }
+    b.hidden=false; b.className="warn";
+    b.textContent=behind.length+" of these "+(behind.length===1?"is":"are")+" only on this device and nobody else in "
+      +where+" can see "+(behind.length===1?"it":"them")+". ";
+    const go=document.createElement("button");
+    go.textContent="Send to "+where;
+    go.onclick=async function(){ go.disabled=true; go.textContent="Sending..."; await cloudPush(); await renderShelf(); };
+    b.appendChild(go);
+  })();
   /* ONE predicate for both the layer list and the tiles inside it. When these
      were written out twice, a layer could survive the header check and then
      render empty - so search and status are combined in a single place.
@@ -3123,14 +3161,23 @@ async function bulkImport(files){
     bm.close&&bm.close();
     try{
       if(info.isRef&&!info.layer){
-        await dbPut({id:"ref_"+info.name, kind:"ref", name:info.name, w:w, h:h2, blob:f, at:Date.now()});
+        const rrec={id:"ref_"+info.name, kind:"ref", name:info.name, w:w, h:h2, blob:f, at:Date.now()};
+        await dbPut(rrec);
+        /* Importing a folder writes straight to this browser and always did.
+           It is a save like any other - the traits are just arriving by the
+           hundred instead of one at a time - so in a group they go up too.
+           Without this, importing a folder into a shared project put nothing
+           anywhere anyone else could reach, and said "Imported 40 files". */
+        if(activeWs) await cloudSyncOne(rrec);
         refs++;
       }else{
         const layer=info.layer||"unsorted";
         const status=info.status||"wip";
         if(!info.layer) noLayer.push(info.name);
-        await dbPut({id:"t_"+info.name+"_"+layer+"_"+status, kind:"trait", name:info.name,
-                     layer:layer, status:status, w:w, h:h2, blob:f, at:Date.now()});
+        const trec={id:"t_"+info.name+"_"+layer+"_"+status, kind:"trait", name:info.name,
+                    layer:layer, status:status, w:w, h:h2, blob:f, at:Date.now()};
+        await dbPut(trec);
+        if(activeWs) await cloudSyncOne(trec);
         perLayer[layer]=(perLayer[layer]||0)+1;
       }
       ok++;

@@ -342,10 +342,10 @@ canvas{display:block; image-rendering:pixelated; cursor:crosshair; touch-action:
 #art.mv{cursor:move;}
 #grid{position:absolute; inset:0; z-index:3; pointer-events:none; opacity:0;
   background-image:
-    repeating-linear-gradient(to right,#ffffff30 0 1px,transparent 1px var(--z)),
-    repeating-linear-gradient(to bottom,#ffffff30 0 1px,transparent 1px var(--z)),
-    repeating-linear-gradient(to right,#f5a524bb 0 1px,transparent 1px calc(var(--z) * 8)),
-    repeating-linear-gradient(to bottom,#f5a524bb 0 1px,transparent 1px calc(var(--z) * 8));}
+    repeating-linear-gradient(to right,var(--fine,#ffffff30) 0 1px,transparent 1px var(--z)),
+    repeating-linear-gradient(to bottom,var(--fine,#ffffff30) 0 1px,transparent 1px var(--z)),
+    repeating-linear-gradient(to right,var(--coarse,#f5a524bb) 0 1px,transparent 1px calc(var(--z) * 8)),
+    repeating-linear-gradient(to bottom,var(--coarse,#f5a524bb) 0 1px,transparent 1px calc(var(--z) * 8));}
 #grid.on{opacity:1;}
 /* The exact cells the next dab will cover. Two rings - dark outside, light
    inside - so it stays readable over black outlines and white highlights
@@ -935,6 +935,12 @@ footer .mono{color:var(--ink);}
 "use strict";
 const $=id=>document.getElementById(id);
 const MAXZ=48;
+/* Below 1 the view is showing less than one screen pixel per canvas pixel,
+   which is not good for editing but is the only way to see a whole 1254px
+   trait at once. Fit used to clamp at 1: measured, a 1254px trait in a 900px
+   viewport showed 72% of its width, and on a 360px phone 29% - about 8% of
+   its area, with no way to see the rest. */
+const MINZ=0.05;
 let N=0, art=$('art'), ctx=null, zoom=4, tool='pencil', color='#000000';
 let hoverCell=null;   /* cell under the pointer, or null when the cursor is away */
 let gridBlock=1;      /* measured block size of the open image, in canvas cells */
@@ -2775,11 +2781,25 @@ function applyZoom(){
   const opv=$('olpv');
   if(opv.style.display!=='none'){ opv.style.width=(art.width*zoom)+'px'; opv.style.height=(art.height*zoom)+'px'; }
   if(baseBitmap){ const bc=$('base'); bc.style.width=(art.width*zoom)+'px'; bc.style.height=(art.height*zoom)+'px'; }
-  $('frame').style.setProperty('--z',zoom+'px'); $('zlab').textContent=zoom+'×';
+  /* The grid marks the CELLS the art is drawn on, not the canvas pixels. It
+     used to repeat every zoom px - one line per canvas pixel - so at 1x it was
+     a line every pixel, which is a grey film, not a grid. gridBlock is the
+     measured block size and is 1 only when the art really is one pixel per
+     cell. Below four screen pixels a line per cell is unreadable, so the fine
+     lines are dropped and only the every-eighth ones remain. */
+  const cellPx=Math.max(1,gridBlock)*zoom;
+  const f=$('frame');
+  f.style.setProperty('--z',cellPx+'px');
+  f.style.setProperty('--fine', cellPx<4 ? 'transparent' : '#ffffff30');
+  f.style.setProperty('--coarse', cellPx*8<4 ? 'transparent' : '#f5a524bb');
+  $('zlab').textContent = zoom>=1 ? zoom+'\u00d7' : Math.round(zoom*100)+'%';
   paintCursor();
 }
 function setZoom(z,anchor){
-  const prev=zoom, next=Math.max(1,Math.min(MAXZ,Math.round(z)));
+  /* Whole numbers at 1x and above, so pixel art stays crisp; below 1 there is
+     no crisp option and two decimals is finer than anyone can perceive. */
+  const want = z>=1 ? Math.round(z) : Math.round(z*100)/100;
+  const prev=zoom, next=Math.max(MINZ,Math.min(MAXZ,want));
   if(next===prev) return;
   const st=$('stage'), r=art.getBoundingClientRect();
   const ax=anchor?anchor.clientX:r.left+st.clientWidth/2, ay=anchor?anchor.clientY:r.top+st.clientHeight/2;
@@ -2810,8 +2830,14 @@ function fitZoom(){
   const box=contentBox();
   const useBox = box && (box.w*box.h) < (art.width*art.height)*0.5;
   const w=useBox?box.w:art.width, h=useBox?box.h:art.height;
-  const z=Math.floor(Math.min(st.clientWidth-pad,st.clientHeight-pad)/Math.max(w,h));
-  zoom=Math.max(1,Math.min(MAXZ,z||1)); applyZoom();
+  /* The exact ratio, floored to two decimals rather than to a whole number.
+     Flooring to a WHOLE number is what produced the 1x clamp: for anything
+     wider than the viewport that floor is 0, and 0 became 1. Rounding the
+     decimals instead of flooring them overshoots - 360/1254 rounds up to
+     0.29, which draws 364px into a 360px viewport and still hides a sliver. */
+  const raw=Math.min(st.clientWidth-pad,st.clientHeight-pad)/Math.max(w,h);
+  const z = raw>=1 ? Math.floor(raw) : Math.floor(raw*100)/100;
+  zoom=Math.max(MINZ,Math.min(MAXZ,z||1)); applyZoom();
   /* Always centre the view. A big image at zoom 1 overflows the stage and the
      scroll starts at the top-left corner, which on art with a white or empty
      border is a screen of nothing - it reads as a broken editor. */

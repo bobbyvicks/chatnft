@@ -690,6 +690,8 @@ footer .mono{color:var(--ink);}
       <span class="count" id="ccount"></span>
       <div class="acts">
         <label class="olchk" style="margin-right:4px"><input type="checkbox" id="cwip"> include wip</label>
+        <label class="olchk" style="margin-right:4px" title="How often a layer is left out when randomising. Skins is always drawn.">empty
+          <input id="cempty" type="number" min="0" max="90" step="5" value="35" style="width:52px">%</label>
         <button class="mini" id="crand">Randomise</button>
         <button class="mini" id="csheet">Sheet of 12</button>
         <button class="mini" id="cclear">Clear</button>
@@ -1080,6 +1082,21 @@ function load(file){
    survives refreshes but does not sync between devices. */
 /* The draw order is the user's, not ours. It starts as this list and is then
    whatever they have saved - so LAYERS is read at use, never captured. */
+/* How often a layer is left empty when randomising a character, and the layers
+   that are never left empty.
+
+   This was a bare 0.35 written twice, with no control and no exception. Two
+   consequences. Skins was skipped 35% of the time, and a character with no
+   skin is the bare base model - a grey mannequin, never a character - so more
+   than a third of every preview was showing something that cannot exist. And
+   because it applied before the weights, it outranked them: whatever rarity
+   you set on a trait, its layer was still empty 35% of the time, which made
+   "empty" the most common outcome in every layer.
+
+   Still 0.35 by default, so nothing about the preview changes except that the
+   number is now visible and skins always appears. */
+let emptyChance=0.35;
+const ALWAYS_PRESENT=["skins"];
 const DEFAULT_LAYERS=['backgrounds','skins','clothing','costumes','chains','accessories',
   'extras','ears','mouth','eyes','hair-headwear','masks','unsorted'];
 let LAYERS=DEFAULT_LAYERS.slice();
@@ -3491,7 +3508,9 @@ function composeRandom(){
     if(!opts.length) continue;
     /* The base always gets one; a trait layer may legitimately be empty, which
        is what makes generated characters differ at all. */
-    const skip = s.dataset.layer!=="__base" && Math.random()<0.35;
+    const skip = s.dataset.layer!=="__base"
+      && ALWAYS_PRESENT.indexOf(s.dataset.layer)<0
+      && Math.random()<emptyChance;
     /* The dropdown holds ids; the weights live on the records, so the options
        are resolved back to records before picking. */
     const recs=opts.map(o=>cItems.find(i=>i.id===o.value)).filter(Boolean);
@@ -3523,8 +3542,17 @@ function readPath(rel){
     if(LAYERS.indexOf(s)>=0) layer=s;
     if(STATUSES.indexOf(s)>=0) status=s;
   }
+  /* A folder named base (or references) holds base characters, not traits.
+     Without this the only thing that marked a base was a leading underscore
+     in the FILENAME, so importing the real collection classified all eight
+     files in traits/base as ordinary traits with no layer - and no layer
+     means unsorted, which is last in the draw order, so the base model was
+     painted on top of every trait it was supposed to sit under. Measured on
+     495 real files: 8 with no layer, and all 8 were the base models. */
+  const inBaseFolder = parts.some(function(seg){
+    const s=seg.toLowerCase(); return s==="base"||s==="bases"||s==="references"; });
   return {name:name, layer:layer, status:status,
-          isRef:/^_?reference/i.test(name)||/^_/.test(name)};
+          isRef:inBaseFolder||/^_?reference/i.test(name)||/^_/.test(name)};
 }
 async function bulkImport(files){
   const note=$("bulknote");
@@ -3633,7 +3661,9 @@ function randomCombo(pools){
   for(const layer of LAYERS){
     const p=pools[layer];
     if(!p||!p.length) continue;
-    if(Math.random()<0.35) continue;   /* an empty layer is what makes them differ */
+    /* An empty layer is what makes characters differ, but not every layer can
+       be empty - see ALWAYS_PRESENT. */
+    if(ALWAYS_PRESENT.indexOf(layer)<0 && Math.random()<emptyChance) continue;
     out.push(weightedPick(p));
   }
   return out;
@@ -5583,6 +5613,12 @@ $('bulkfile').onchange=async e=>{
 };
 $('fliph').onclick=()=>flip(true);
 $('flipv').onclick=()=>flip(false);
+$('cempty').addEventListener('input',()=>{
+  /* Clamped here rather than trusted from the box: a number input still
+     accepts anything typed, and a chance above 1 would empty every layer. */
+  const v=Math.max(0,Math.min(90,+$('cempty').value||0));
+  emptyChance=v/100;
+});
 $('crand').onclick=composeRandom;
 $('csheet').onclick=()=>drawSheet(12);
 $('cclear').onclick=()=>{ $('crows').querySelectorAll('select').forEach(s=>s.value=''); drawCompose(); };

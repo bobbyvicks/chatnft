@@ -36,6 +36,11 @@ test("uses ComfyUI HTTP routes to upload, queue, poll its prompt, and fetch the 
       response.end(JSON.stringify(historyCalls === 1 ? {} : {
         "prompt-1": {
           outputs: {
+            "3": {
+              images: [
+                { filename: "preview.png", subfolder: "chatnft", type: "output" },
+              ],
+            },
             "9": {
               images: [
                 { filename: "result.png", subfolder: "chatnft", type: "output" },

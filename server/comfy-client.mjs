@@ -1,13 +1,8 @@
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 const firstSaveImagePng = (history, promptId) => {
-  const outputs = history[promptId]?.outputs ?? {};
-  for (const output of Object.values(outputs)) {
-    for (const image of output.images ?? []) {
-      if (String(image.filename).toLowerCase().endsWith(".png")) return image;
-    }
-  }
-  return null;
+  const images = history[promptId]?.outputs?.["9"]?.images ?? [];
+  return images.find((image) => String(image.filename).toLowerCase().endsWith(".png")) ?? null;
 };
 
 export function createComfyClient({

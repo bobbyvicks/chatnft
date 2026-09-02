@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { request as httpRequest } from "node:http";
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { constants } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -19,15 +19,16 @@ const close = (server) => new Promise((resolve, reject) => server.close((error) 
 const rawGet = (origin, path) => new Promise((resolve, reject) => {
   const target = new URL(origin);
   const request = httpRequest({ hostname: target.hostname, port: target.port, path }, (response) => {
-    response.resume();
-    response.once("end", () => resolve(response));
+    const chunks = [];
+    response.on("data", (chunk) => chunks.push(chunk));
+    response.once("end", () => resolve({ statusCode: response.statusCode, body: Buffer.concat(chunks).toString("utf8") }));
   });
   request.once("error", reject);
   request.end();
 });
 
-const withServer = async (t, service) => {
-  const server = createLocalServer({ service, rootDir: projectRoot });
+const withServer = async (t, service, rootDir = projectRoot) => {
+  const server = createLocalServer({ service, rootDir });
   await listen(server, "127.0.0.1", 0);
   t.after(() => close(server));
   return `http://127.0.0.1:${server.address().port}`;
@@ -146,15 +147,53 @@ test("does not resolve encoded static paths outside the repository root", async 
   assert.equal(response.statusCode, 404);
 });
 
-test("reports a refused ComfyUI connection as a safe 503", async (t) => {
+test("does not serve a static file through a symlink that escapes its root", async (t) => {
+  const sandbox = await mkdtemp(join(tmpdir(), "pixel-agent-static-"));
+  t.after(() => rm(sandbox, { recursive: true, force: true }));
+  const staticRoot = join(sandbox, "static");
+  const outside = join(sandbox, "outside");
+  await mkdir(staticRoot);
+  await mkdir(outside);
+  await writeFile(join(outside, "secret.txt"), "outside contents must not be served");
+  await symlink(outside, join(staticRoot, "escape"), process.platform === "win32" ? "junction" : "dir");
+
+  const origin = await withServer(t, succeedingService, staticRoot);
+  const response = await rawGet(origin, "/escape/secret.txt");
+  assert.equal(response.statusCode, 404);
+  assert.doesNotMatch(response.body, /outside contents/);
+});
+
+test("reports fetch-style refused ComfyUI connections as safe 503 responses", async (t) => {
+  const refused = () => new TypeError("fetch failed", {
+    cause: Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:8188"), { code: "ECONNREFUSED" }),
+  });
   const origin = await withServer(t, {
     ...succeedingService,
-    generate: async () => { throw new Error("connect ECONNREFUSED 127.0.0.1:8188"); },
+    health: async () => { throw refused(); },
+    generate: async () => { throw refused(); },
   });
+  const health = await fetch(`${origin}/api/pixel-agent/health`);
+  assert.equal(health.status, 503);
+  assert.equal((await health.json()).error, "ComfyUI is not running");
   const response = await fetch(`${origin}/api/pixel-agent/generate`, {
     method: "POST", headers: { "content-type": "application/json" },
     body: JSON.stringify({ imageDataUrl: VALID_TINY_PNG, instruction: "cleanup", grid: 128 }),
   });
   assert.equal(response.status, 503);
   assert.equal((await response.json()).error, "ComfyUI is not running");
+});
+
+test("maps unrelated internal TypeErrors to a stack-free 502", async (t) => {
+  const origin = await withServer(t, {
+    ...succeedingService,
+    generate: async () => { throw new TypeError("cannot read properties of undefined"); },
+  });
+  const response = await fetch(`${origin}/api/pixel-agent/generate`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ imageDataUrl: VALID_TINY_PNG, instruction: "cleanup", grid: 128 }),
+  });
+  assert.equal(response.status, 502);
+  const body = await response.json();
+  assert.equal(body.error, "Generation failed");
+  assert.doesNotMatch(JSON.stringify(body), /undefined/);
 });

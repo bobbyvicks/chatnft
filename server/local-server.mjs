@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { readFile, stat } from "node:fs/promises";
+import { readFile, realpath, stat } from "node:fs/promises";
 import { dirname, extname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createPixelAgentService } from "./pixel-agent-service.mjs";
@@ -18,25 +18,39 @@ const staticTypes = {
   ".webp": "image/webp",
 };
 
+class RequestValidationError extends Error {
+  constructor(statusCode, message) {
+    super(message);
+    this.statusCode = statusCode;
+  }
+}
+
 const sendJson = (response, status, payload) => {
   response.writeHead(status, { "content-type": "application/json; charset=utf-8" });
   response.end(JSON.stringify(payload));
 };
 
+const isConnectionRefusal = (error) => {
+  const seen = new Set();
+  for (let current = error; current && !seen.has(current); current = current.cause) {
+    seen.add(current);
+    if (current.code === "ECONNREFUSED" || /ECONNREFUSED|connection refused/i.test(String(current.message))) {
+      return true;
+    }
+  }
+  return false;
+};
+
 const safeError = (error) => {
+  if (isConnectionRefusal(error)) return [503, "ComfyUI is not running"];
+  if (error instanceof RequestValidationError) return [error.statusCode, error.message];
   if (error instanceof RangeError) return [413, "Request payload is too large"];
-  if (error instanceof TypeError) {
-    return [/unsupported image mime/i.test(error.message) ? 415 : 400, error.message];
-  }
-  if (/ECONNREFUSED|connection refused/i.test(String(error?.message))) {
-    return [503, "ComfyUI is not running"];
-  }
   return [502, "Generation failed"];
 };
 
 async function readJson(request) {
   if (!/^application\/json(?:\s*;|$)/i.test(request.headers["content-type"] || "")) {
-    throw Object.assign(new TypeError("Expected application/json"), { statusCode: 415 });
+    throw new RequestValidationError(415, "Expected application/json");
   }
   const declaredLength = Number(request.headers["content-length"] || 0);
   if (declaredLength > maxJsonBytes) throw new RangeError("Request body exceeds 25 MiB");
@@ -52,15 +66,16 @@ async function readJson(request) {
   try {
     return JSON.parse(Buffer.concat(chunks).toString("utf8"));
   } catch {
-    throw new TypeError("Malformed JSON");
+    throw new RequestValidationError(400, "Malformed JSON");
   }
 }
 
 function validateRequest(body) {
-  if (!body || typeof body !== "object" || Array.isArray(body)) throw new TypeError("Malformed request");
-  if (!allowedGrids.has(body.grid)) throw new TypeError("Unsupported working grid");
+  if (!body || typeof body !== "object" || Array.isArray(body)) throw new RequestValidationError(400, "Malformed request");
+  if (!allowedGrids.has(body.grid)) throw new RequestValidationError(400, "Unsupported working grid");
   const type = /^data:([^;,]+);base64,/.exec(body.imageDataUrl || "")?.[1];
-  if (type && !allowedImageMimes.has(type)) throw new TypeError("Unsupported image MIME type");
+  if (!type) throw new RequestValidationError(400, "Malformed image data");
+  if (!allowedImageMimes.has(type)) throw new RequestValidationError(415, "Unsupported image MIME type");
 }
 
 async function serveStatic(response, rootDir, pathname, method) {
@@ -79,9 +94,11 @@ async function serveStatic(response, rootDir, pathname, method) {
     return;
   }
   try {
-    if (!(await stat(target)).isFile()) throw new Error("not a file");
-    response.writeHead(200, { "content-type": staticTypes[extname(target).toLowerCase()] || "application/octet-stream" });
-    response.end(method === "HEAD" ? undefined : await readFile(target));
+    const [realRoot, realTarget] = await Promise.all([realpath(root), realpath(target)]);
+    if (!(realTarget === realRoot || realTarget.startsWith(realRoot + sep))) throw new Error("outside static root");
+    if (!(await stat(realTarget)).isFile()) throw new Error("not a file");
+    response.writeHead(200, { "content-type": staticTypes[extname(realTarget).toLowerCase()] || "application/octet-stream" });
+    response.end(method === "HEAD" ? undefined : await readFile(realTarget));
   } catch {
     sendJson(response, 404, { error: "Not found" });
   }
@@ -108,7 +125,7 @@ export function createLocalServer({ service, rootDir = projectRoot } = {}) {
         sendJson(response, 200, await service.generate(body));
       } catch (error) {
         const [fallbackStatus, message] = safeError(error);
-        sendJson(response, error.statusCode || fallbackStatus, { error: message });
+        sendJson(response, fallbackStatus, { error: message });
       }
       return;
     }

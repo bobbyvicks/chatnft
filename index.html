@@ -352,6 +352,30 @@ canvas{display:block; image-rendering:pixelated; cursor:crosshair; touch-action:
 #base{position:absolute; left:0; top:0; z-index:0; display:none;
   pointer-events:none; image-rendering:pixelated;}
 #art{position:relative; z-index:1;}
+/* Sits exactly over the artwork - the frame is sized by the art - so the box
+   tracks zoom and panning with no arithmetic of its own. */
+#tbox{position:absolute; inset:0; z-index:6; display:none; pointer-events:none;
+  outline:1px dashed var(--accent); outline-offset:0;}
+#tbox.on{display:block;}
+#tbox .th{position:absolute; width:13px; height:13px; margin:-7px 0 0 -7px; padding:0;
+  background:#fff; border:2px solid #14131a; border-radius:3px; pointer-events:auto;
+  box-shadow:0 1px 5px #0006; touch-action:none;}
+#tbox .tc{border-radius:50%;}
+#tbox .trot{background:var(--accent); border-color:#14131a; border-radius:50%; cursor:grab;}
+#tbox .tline{position:absolute; left:50%; top:-36px; width:1px; height:36px;
+  background:var(--accent); opacity:.55; pointer-events:none;}
+#tbox .tang{position:absolute; left:50%; top:-62px; transform:translateX(-50%);
+  font:600 11px/1 "JetBrains Mono",monospace; color:#14131a; background:var(--accent);
+  padding:3px 7px; border-radius:5px; pointer-events:none; display:none; white-space:nowrap;}
+#tbox .th[data-h="nw"]{left:0;top:0;cursor:nwse-resize}
+#tbox .th[data-h="n"] {left:50%;top:0;cursor:ns-resize}
+#tbox .th[data-h="ne"]{left:100%;top:0;cursor:nesw-resize}
+#tbox .th[data-h="w"] {left:0;top:50%;cursor:ew-resize}
+#tbox .th[data-h="e"] {left:100%;top:50%;cursor:ew-resize}
+#tbox .th[data-h="sw"]{left:0;top:100%;cursor:nesw-resize}
+#tbox .th[data-h="s"] {left:50%;top:100%;cursor:ns-resize}
+#tbox .th[data-h="se"]{left:100%;top:100%;cursor:nwse-resize}
+#tbox .th[data-h="rot"]{left:50%;top:-36px}
 #art.mv{cursor:move;}
 #grid{position:absolute; inset:0; z-index:3; pointer-events:none; opacity:0;
   background-image:
@@ -804,6 +828,7 @@ footer .mono{color:var(--ink);}
     <button class="tool" data-tool="fill" aria-pressed="false" title="Fill (G)"><svg viewBox="0 0 24 24"><path d="M5 12 12 5l7 7-7 7-7-7Z"/><path d="M19 15c1.2 1.6 1.6 2.5 1.6 3.2a1.6 1.6 0 0 1-3.2 0c0-.7.4-1.6 1.6-3.2Z"/></svg><span class="k">G</span></button>
     <button class="tool" data-tool="move" aria-pressed="false" title="Move the art (M)"><svg viewBox="0 0 24 24"><path d="M12 3v18M3 12h18"/><path d="m9 6 3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"/></svg><span class="k">M</span></button>
     <button class="tool" data-tool="pick" aria-pressed="false" title="Eyedropper (I)"><svg viewBox="0 0 24 24"><path d="m4 20 1-4 9-9 3 3-9 9-4 1Z"/><path d="m15 5 2-2a2 2 0 0 1 3 3l-2 2"/></svg><span class="k">I</span></button>
+    <button class="tool" data-tool="transform" aria-pressed="false" title="Resize and rotate by dragging"><svg viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/><path d="M4 4h4v4H4zM16 4h4v4h-4zM4 16h4v4H4zM16 16h4v4h-4z"/></svg></button>
     <div class="rule"></div>
     <button class="tool" id="undo" title="Undo (Ctrl+Z)"><svg viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg></button>
     <button class="tool" id="redo" title="Redo (Ctrl+Shift+Z)"><svg viewBox="0 0 24 24"><path d="m15 14 5-5-5-5"/><path d="M20 9H10a6 6 0 0 0 0 12h3"/></svg></button>
@@ -814,7 +839,14 @@ footer .mono{color:var(--ink);}
   </nav>
 
   <main class="stage" id="stage">
-    <div class="frame" id="frame"><canvas id="base"></canvas><canvas id="art"></canvas><div id="grid"></div><canvas id="olpv"></canvas><div id="bcur"></div></div>
+    <div class="frame" id="frame"><canvas id="base"></canvas><canvas id="art"></canvas><div id="grid"></div><canvas id="olpv"></canvas><div id="bcur"></div>
+      <div id="tbox" aria-hidden="true">
+        <div class="tline"></div><div class="tang" id="tang"></div>
+        <div class="th tc" data-h="nw"></div><div class="th" data-h="n"></div><div class="th tc" data-h="ne"></div>
+        <div class="th" data-h="w"></div><div class="th" data-h="e"></div>
+        <div class="th tc" data-h="sw"></div><div class="th" data-h="s"></div><div class="th tc" data-h="se"></div>
+        <div class="th trot" data-h="rot" title="Drag to rotate"></div>
+      </div></div>
   </main>
 
   <aside class="side" id="sidepanel">
@@ -847,7 +879,9 @@ footer .mono{color:var(--ink);}
         <button class="tool" id="rotl" title="Turn a quarter to the left"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg></button>
         <button class="tool" id="rotr" title="Turn a quarter to the right"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/></svg></button>
       </div>
-      <p class="note">Flip across, flip down, then a quarter turn each way. All of these act on the whole canvas so the
+      <p class="note">Flip across, flip down, then a quarter turn each way, or pick the Transform tool and drag the box:
+        corners resize, the handle above rotates. Snap covers all three - the angle to 15 degrees, a move to whole cells,
+        a size to whole multiples of the cell count - and off, the angle is free to a tenth of a degree. All of these act on the whole canvas so the
         trait still lines up, and a turn moves every pixel to another whole pixel without changing a colour.</p>
       <div class="olrow" style="margin-top:10px"><label for="rsw">Size</label>
         <input id="rsw" type="number" min="1" max="4096" style="width:70px">
@@ -863,7 +897,9 @@ footer .mono{color:var(--ink);}
         <select id="rspreset" style="flex:1"></select></div>
       <div class="olrow"><label for="rsgrid">Cells</label>
         <input id="rsgrid" type="number" min="4" max="1024" value="160" style="width:70px">
-        <label class="olchk" style="margin-left:4px"><input type="checkbox" id="rssnap" checked> snap</label></div>
+        <button class="btn ghost" id="rssnap" aria-pressed="true"
+          style="width:auto;padding:6px 12px;font-size:12px;margin-left:4px"
+          title="Snap the angle to 15 degrees, moves to whole cells, and sizes to whole multiples of the cell count">Snap</button></div>
       <button class="btn ghost" id="rsgo">Resize</button>
       <p class="note">Now <span class="mono" id="rsnow">-</span>. Sizes that are a whole multiple of the cell count keep every
         cell the same width; anything else makes them alternate. Growing by a whole number copies each cell exactly.
@@ -2788,6 +2824,7 @@ function startEditor(data,w,h,srcW,srcH,pal,recovered){
   original=ctx.getImageData(0,0,w,h);
   undoStack=[]; redoStack=[];
   resizeBoxes();
+  tboxShow();
   $('fname').textContent=fileName;
   $('tname').value=fileName.replace(/[.]png$/,'');
   $('sGrid').textContent=w+'×'+h;
@@ -3003,10 +3040,75 @@ function rotateQuarter(cw){
   toast("Turned a quarter "+(cw?"right":"left")+" - now "+nw+" by "+nh);
 }
 
+/* Rotate by any angle.
+
+   A quarter turn is exact, so those four angles go through rotateQuarter and
+   nothing is resampled. Every other angle has to sample, and this samples
+   NEAREST: each destination pixel takes one whole source pixel, so no colour
+   is averaged into existence. The shape of a diagonal edge changes - it has
+   to, the grid moved under it - but the palette does not. */
+function rotateFree(deg){
+  if(!ctx) return;
+  const d=((deg%360)+360)%360;
+  if(d<0.05||d>359.95) return;
+  if(Math.abs(d-90)<0.05){ rotateQuarter(true); return; }
+  if(Math.abs(d-270)<0.05){ rotateQuarter(false); return; }
+  if(Math.abs(d-180)<0.05){ rotateQuarter(true); rotateQuarter(true); return; }
+  const W=art.width, H=art.height;
+  const rad=d*Math.PI/180, c=Math.cos(rad), s=Math.sin(rad);
+  const nw=Math.max(1,Math.ceil(Math.abs(W*c)+Math.abs(H*s)));
+  const nh=Math.max(1,Math.ceil(Math.abs(W*s)+Math.abs(H*c)));
+  const src=ctx.getImageData(0,0,W,H).data;
+  const out=new Uint8ClampedArray(nw*nh*4);
+  const ocx=W/2, ocy=H/2, ncx=nw/2, ncy=nh/2;
+  for(let y=0;y<nh;y++) for(let x=0;x<nw;x++){
+    const dx=x+0.5-ncx, dy=y+0.5-ncy;
+    const sx=Math.floor(ocx+dx*c+dy*s), sy=Math.floor(ocy-dx*s+dy*c);
+    if(sx<0||sy<0||sx>=W||sy>=H) continue;
+    const a=(sy*W+sx)*4, b=(y*nw+x)*4;
+    out[b]=src[a]; out[b+1]=src[a+1]; out[b+2]=src[a+2]; out[b+3]=src[a+3];
+  }
+  snapshot();
+  restoreImage(new ImageData(out,nw,nh));
+  refreshStats(); fitZoom(); resizeBoxes();
+  toast("Turned "+d.toFixed(1)+String.fromCharCode(176)+" - now "+nw+" by "+nh);
+}
+
+/* Resize to an exact size, shared by the Resize button and the drag handles. */
+function resizeTo(nw,nh,keepArt){
+  if(!ctx) return false;
+  const W=art.width, H=art.height;
+  nw=Math.max(1,Math.min(4096,Math.round(nw)));
+  nh=Math.max(1,Math.min(4096,Math.round(nh)));
+  if(nw===W && nh===H) return false;
+  const src=ctx.getImageData(0,0,W,H).data;
+  snapshot();
+  restoreImage(new ImageData(keepArt?recanvas(src,W,H,nw,nh):scaleArt(src,W,H,nw,nh),nw,nh));
+  refreshStats();
+  const p=palette(ctx.getImageData(0,0,nw,nh).data,nw*nh,24,64);
+  buildPalette(p.list); buildRecolour(p.list);
+  resizeBoxes();
+  return true;
+}
+
+/* Show the box only while the transform tool is active and a canvas is open. */
+/* Everything that can snap asks this. One switch rather than one per feature,
+   because "is snapping on" is a single idea and three checkboxes that can
+   disagree is three things to get wrong. */
+function snapOn(){
+  const b=$("rssnap");
+  return !!b && b.getAttribute("aria-pressed")==="true";
+}
+
+function tboxShow(){
+  const b=$("tbox"); if(!b) return;
+  b.classList.toggle("on", tool==="transform" && !!ctx);
+}
+
 function applyResize(){
   if(!ctx) return;
   const W=art.width, H=art.height;
-  const snap=$("rssnap")&&$("rssnap").checked;
+  const snap=snapOn();
   /* Snapped before clamping, so a snap can never push a size out of range. */
   let nw=Math.max(1,Math.min(4096,parseInt($("rsw").value,10)||0));
   if(snap) nw=Math.min(4096,snapToGrid(nw));
@@ -3183,6 +3285,7 @@ function selectTool(t){
   $('stage').style.cursor=panMode?'grab':'';
   $('brushsec').hidden=!(t==='pencil'||t==='eraser');
   art.classList.toggle('mv',t==='move');
+  tboxShow();
   paintCursor();
 }
 function toast(m){ const el=$('toast'); el.textContent=m; el.classList.add('show'); setTimeout(()=>el.classList.remove('show'),1700); }
@@ -5668,7 +5771,15 @@ stage.addEventListener('pointermove',e=>{
   if(c){ const p=pixelAt(c.x,c.y); $('under').textContent=p.a?hex(p.r,p.g,p.b):'transparent'; }
   if(moveBuf){
     const rc=rawCell(e);
-    moveDelta={x:rc.x-moveFrom.x, y:rc.y-moveFrom.y};
+    /* Whole cells when snapping is on. gridBlock is the measured block size,
+       so on art that is one pixel per cell this is the same as not snapping -
+       correctly, because then a cell IS a pixel. */
+    let mdx=rc.x-moveFrom.x, mdy=rc.y-moveFrom.y;
+    if(snapOn()){
+      const g=Math.max(1,Math.round(gridBlock));
+      mdx=Math.round(mdx/g)*g; mdy=Math.round(mdy/g)*g;
+    }
+    moveDelta={x:mdx, y:mdy};
     ctx.clearRect(0,0,art.width,art.height);
     ctx.putImageData(moveBuf,moveDelta.x,moveDelta.y);
     $('pos').textContent=(moveDelta.x>=0?'+':'')+moveDelta.x+', '+(moveDelta.y>=0?'+':'')+moveDelta.y;
@@ -5917,6 +6028,89 @@ $('cempty').addEventListener('input',()=>{
 $('filltol').addEventListener('input',()=>{
   fillTol=Math.max(0,Math.min(120,+$('filltol').value||0));
 });
+/* Dragging a handle.
+
+   While dragging, only the CSS size of the canvas changes, or the frame gets a
+   CSS rotation - the pixels are not touched until the pointer is released. So a
+   drag costs nothing however large the trait is, and abandoning one costs
+   nothing either.
+
+   The angle is NOT snapped. A garden bed wants 15-degree steps; a trait does
+   not, and the number above the handle is there so a precise angle can be
+   read off while setting it. */
+(function(){
+  const box=$("tbox");
+  let drag=null;
+  const live=(w,h)=>{ art.style.width=w+"px"; art.style.height=h+"px";
+    const opv=$("olpv"); if(opv.style.display!=="none"){ opv.style.width=w+"px"; opv.style.height=h+"px"; }
+    if(baseBitmap){ const bc=$("base"); bc.style.width=w+"px"; bc.style.height=h+"px"; } };
+  box.addEventListener("pointerdown",ev=>{
+    const h=ev.target.closest(".th"); if(!h||!ctx) return;
+    ev.preventDefault(); ev.stopPropagation();
+    try{ h.setPointerCapture(ev.pointerId); }catch(_){}
+    const r=art.getBoundingClientRect();
+    drag={ type:h.dataset.h, r:r, cx:r.left+r.width/2, cy:r.top+r.height/2,
+           W:art.width, H:art.height, w:r.width, h:r.height, deg:0 };
+    if(drag.type==="rot"){ $("tang").style.display="block"; $("tang").textContent="0.0"+String.fromCharCode(176); }
+  });
+  box.addEventListener("pointermove",ev=>{
+    if(!drag) return;
+    if(drag.type==="rot"){
+      const a=Math.atan2(ev.clientY-drag.cy, ev.clientX-drag.cx)*180/Math.PI+90;
+      /* Free by default so an angle can be set precisely; 15-degree steps when
+         snapping is on, which is the Trellis behaviour and the right one for
+         lining a trait up with something. */
+      const raw=((a%360)+360)%360;
+      drag.deg = snapOn() ? (Math.round(raw/15)*15)%360 : raw;
+
+      $("frame").style.transform="rotate("+drag.deg+"deg)";
+      $("tang").textContent=drag.deg.toFixed(1)+String.fromCharCode(176);
+      return;
+    }
+    const t=drag.type;
+    let w=drag.w, h=drag.h;
+    if(t.indexOf("e")>=0) w=ev.clientX-drag.r.left;
+    if(t.indexOf("w")>=0) w=drag.r.right-ev.clientX;
+    if(t.indexOf("s")>=0) h=ev.clientY-drag.r.top;
+    if(t.indexOf("n")>=0) h=drag.r.bottom-ev.clientY;
+    /* A corner keeps the shape unless the keep-shape box is unticked, which is
+       the same control the Resize fields use rather than a second rule. */
+    const corner=t.length===2;
+    if(corner && $("rslock").checked){
+      const k=Math.max(w/drag.w, h/drag.h);
+      w=drag.w*k; h=drag.h*k;
+    }
+    /* Snapped in CANVAS pixels, not screen pixels, or the step would change
+       with the zoom. */
+    if(snapOn()){
+      w=Math.max(1,snapToGrid(w/zoom))*zoom;
+      h=Math.max(1,snapToGrid(h/zoom))*zoom;
+    }
+    drag.w=Math.max(4,w); drag.h=Math.max(4,h);
+    live(drag.w,drag.h);
+  });
+  const finish=ev=>{
+    if(!drag) return;
+    const d=drag; drag=null;
+    $("tang").style.display="none";
+    if(d.type==="rot"){
+      $("frame").style.transform="";
+      rotateFree(d.deg);
+      return;
+    }
+    /* Back to whatever the zoom says, then commit in canvas pixels. */
+    const nw=d.w/zoom, nh=d.h/zoom;
+    applyZoom();
+    if(resizeTo(nw,nh,$("rsmode").value==="canvas")){ fitZoom(); toast("Resized to "+art.width+" by "+art.height); }
+  };
+  box.addEventListener("pointerup",finish);
+  box.addEventListener("pointercancel",()=>{ if(drag){ drag=null; $("tang").style.display="none";
+    $("frame").style.transform=""; applyZoom(); } });
+})();
+$('rssnap').onclick=()=>{
+  const b=$('rssnap');
+  b.setAttribute('aria-pressed', b.getAttribute('aria-pressed')==='true' ? 'false' : 'true');
+};
 $('rsgo').onclick=applyResize;
 $('rotl').onclick=()=>rotateQuarter(false);
 $('rotr').onclick=()=>rotateQuarter(true);

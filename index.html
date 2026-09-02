@@ -4156,30 +4156,67 @@ async function cloudPull(opts){
   let existing=[];
   try{ existing=await dbAll(); }catch(_){}
   const taken=new Set(existing.map(i=>i.id));
-  let added=0, renamed=0, failed=0;
+  let added=0, renamed=0, failed=0, done=0;
+
+  /* Two passes, because the two halves want opposite things.
+
+     Working out what each row is called here has to be sequential: a clash
+     is renamed, and renaming needs to see every name handed out before it.
+     Downloading the images does not care about order at all, and doing that
+     one at a time was the whole problem - a project with 310 traits meant
+     310 round trips in a row, awaited before a single thing was drawn, on a
+     pull that is deliberately silent. Somebody opening a shared project sat
+     looking at an empty page for minutes with no reason to think it was
+     working, and concluded it was not. */
+  const wanted=[];
   for(const row of rows){
-    let blob=null;
-    try{
-      const g=await fetch(SB_URL+"/storage/v1/object/traits/"+row.path,{headers:h});
-      if(!g.ok) throw new Error("download "+g.status);
-      blob=await g.blob();
-    }catch(_){ failed++; continue; }
+    const layer=row.layer||"unsorted", status=row.status||"wip";
+    const baseId=row.kind==="ref"?("ref_"+row.name):("t_"+row.name+"_"+layer+"_"+status);
     /* MERGES, never replaces. Pulling is not a reason to lose work done on
        this device, so a clash is renamed exactly as an import does. */
-    const layer=row.layer||"unsorted", status=row.status||"wip";
-    let name=row.name;
-    const baseId=row.kind==="ref"?("ref_"+row.name):("t_"+row.name+"_"+layer+"_"+status);
     if(opts.keepMine && taken.has(baseId)) continue;
+    let name=row.name;
     let id=row.kind==="ref"?("ref_"+name):("t_"+name+"_"+layer+"_"+status), k=2;
     while(taken.has(id)){ name=row.name+"-"+k;
       id=row.kind==="ref"?("ref_"+name):("t_"+name+"_"+layer+"_"+status); k++; }
     if(name!==row.name) renamed++;
     taken.add(id);
-    const rec={id:id, kind:row.kind, name:name, w:row.w, h:row.h, blob:blob, at:Date.now(), synced:true};
-    if(row.kind==="trait"){ rec.layer=layer; rec.status=status;
-      if(typeof row.rarity==="number") rec.rarity=row.rarity; }
-    try{ await dbPut(rec); added++; }catch(_){ failed++; }
+    wanted.push({row:row, id:id, name:name, layer:layer, status:status});
   }
+
+  /* Say what is happening while it happens. Silence is what made this look
+     broken rather than slow. */
+  const banner=$("wsbanner");
+  const say=function(){
+    if(!banner||!wanted.length) return;
+    banner.hidden=false; banner.className="calm";
+    banner.textContent="Loading "+done+" of "+wanted.length+" from the group...";
+  };
+  say();
+
+  const PULL_AT_ONCE=8;
+  let next=0;
+  async function puller(){
+    while(next<wanted.length){
+      const w=wanted[next++];
+      try{
+        const g=await fetch(SB_URL+"/storage/v1/object/traits/"+w.row.path,{headers:h});
+        if(!g.ok) throw new Error("download "+g.status);
+        const blob=await g.blob();
+        const rec={id:w.id, kind:w.row.kind, name:w.name, w:w.row.w, h:w.row.h,
+          blob:blob, at:Date.now(), synced:true};
+        if(w.row.kind==="trait"){ rec.layer=w.layer; rec.status=w.status;
+          if(typeof w.row.rarity==="number") rec.rarity=w.row.rarity; }
+        await dbPut(rec); added++;
+      }catch(_){ failed++; }
+      done++;
+      say();
+      /* The shelf reads every saved blob, so drawing it is the expensive part.
+         Often enough to watch it fill, rarely enough not to be the bottleneck. */
+      if(done%40===0) try{ await renderShelf(); }catch(_){}
+    }
+  }
+  await Promise.all(Array.from({length:Math.min(PULL_AT_ONCE,wanted.length)},puller));
   let newLayers=0;
   if(Array.isArray(c.layers)){
     for(const l of c.layers) if(LAYERS.indexOf(l)<0){ LAYERS.push(l); newLayers++; }

@@ -73,9 +73,12 @@ async function readJson(request) {
 function validateRequest(body) {
   if (!body || typeof body !== "object" || Array.isArray(body)) throw new RequestValidationError(400, "Malformed request");
   if (!allowedGrids.has(body.grid)) throw new RequestValidationError(400, "Unsupported working grid");
-  const type = /^data:([^;,]+);base64,/.exec(body.imageDataUrl || "")?.[1];
-  if (!type) throw new RequestValidationError(400, "Malformed image data");
+  const match = /^data:([^;,]+);base64,([A-Za-z0-9+/]+={0,2})$/.exec(body.imageDataUrl || "");
+  if (!match || match[2].length % 4 !== 0) throw new RequestValidationError(400, "Malformed image data");
+  const type = match[1];
   if (!allowedImageMimes.has(type)) throw new RequestValidationError(415, "Unsupported image MIME type");
+  const bytes = Buffer.from(match[2], "base64");
+  if (!bytes.length || bytes.toString("base64") !== match[2]) throw new RequestValidationError(400, "Malformed image data");
 }
 
 async function serveStatic(response, rootDir, pathname, method) {

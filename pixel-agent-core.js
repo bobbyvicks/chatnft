@@ -49,12 +49,26 @@
 
     function finalizeCreative(input, source, width, height, options = {}) {
       const alphaMask = repair(source, width, height, options).data;
+      const anchoredWhiteMask = new Uint8Array(width * height);
+      for (let point = 0; point < anchoredWhiteMask.length; point++) {
+        const offset = point * 4;
+        if (alphaMask[offset] === 255 && alphaMask[offset + 1] === 255 && alphaMask[offset + 2] === 255 && alphaMask[offset + 3] === 255) {
+          anchoredWhiteMask[point] = 1;
+        }
+      }
       const masked = new Uint8ClampedArray(input);
       for (let offset = 0; offset < masked.length; offset += 4) {
         if (alphaMask[offset + 3] === 0) masked.set([0, 0, 0, 0], offset);
         else masked[offset + 3] = 255;
       }
-      return { ...repair(masked, width, height, options), alphaMask };
+      let finalized = repair(masked, width, height, options);
+      for (let point = 0; point < anchoredWhiteMask.length; point++) {
+        if (anchoredWhiteMask[point]) finalized.data.set([255, 255, 255, 255], point * 4);
+      }
+      // Re-run palette reduction after restoring white so the anchors count
+      // toward the same sixteen-color ceiling instead of becoming color 17.
+      finalized = repair(finalized.data, width, height, options);
+      return { ...finalized, alphaMask, anchoredWhiteMask };
     }
 
     return Object.freeze({
@@ -184,7 +198,7 @@
     return false;
   }
 
-  function removeExteriorSpecks(data, width, height, minimumCells) {
+  function removeExteriorSpecks(data, width, height, maximumArtifactCells) {
     const exterior = exteriorTransparent(data, width, height);
     const visited = new Uint8Array(width * height);
     for (let start = 0; start < visited.length; start++) {
@@ -208,7 +222,7 @@
           }
         }
       }
-      if (touches && component.length < minimumCells) {
+      if (touches && component.length <= maximumArtifactCells) {
         for (const point of component) data.set([0, 0, 0, 0], point * 4);
       }
     }
@@ -240,10 +254,13 @@
     if (!config.grid.allowed.includes(grid) || grid !== width || grid !== height) errors.push("Unsupported grid: use an approved square working grid");
     const paletteSet = new Set(palette);
     const alphaMask = options && options.alphaMask;
+    const anchoredWhiteMask = options && options.anchoredWhiteMask;
     if (alphaMask && alphaMask.length !== data.length) errors.push("Invalid source alpha mask");
+    if (anchoredWhiteMask && anchoredWhiteMask.length !== width * height) errors.push("Invalid anchored white mask");
     const colors = new Set();
     let alphaReported = false;
     let silhouetteReported = false;
+    let anchoredWhiteReported = false;
     let paletteReported = false;
     for (let offset = 0; offset < data.length; offset += 4) {
       const alpha = data[offset + 3];
@@ -256,6 +273,13 @@
         if (alpha !== expectedAlpha) {
           errors.push(`Source silhouette mismatch at pixel ${offset / 4}`);
           silhouetteReported = true;
+        }
+      }
+      const point = offset / 4;
+      if (!anchoredWhiteReported && anchoredWhiteMask && anchoredWhiteMask.length === width * height && anchoredWhiteMask[point]) {
+        if (data[offset] !== 255 || data[offset + 1] !== 255 || data[offset + 2] !== 255 || alpha !== 255) {
+          errors.push(`Anchored white detail mismatch at pixel ${point}`);
+          anchoredWhiteReported = true;
         }
       }
       if (alpha === 0) continue;

@@ -1,4 +1,17 @@
-const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+const delay = (milliseconds, signal) => new Promise((resolve, reject) => {
+  const finish = () => {
+    signal.removeEventListener("abort", abort);
+    resolve();
+  };
+  const timer = setTimeout(finish, milliseconds);
+  const abort = () => {
+    clearTimeout(timer);
+    signal.removeEventListener("abort", abort);
+    reject(signal.reason || new Error("ComfyUI request aborted"));
+  };
+  if (signal.aborted) abort();
+  else signal.addEventListener("abort", abort, { once: true });
+});
 
 const firstSaveImagePng = (history, promptId) => {
   const images = history[promptId]?.outputs?.["9"]?.images ?? [];
@@ -13,10 +26,33 @@ export function createComfyClient({
 }) {
   const origin = baseUrl.replace(/\/$/, "");
 
+  async function withinTimeout(label, operation) {
+    const controller = new AbortController();
+    const timeoutError = new Error(`ComfyUI ${label} timed out after ${timeoutMilliseconds} ms`);
+    let timer;
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        controller.abort(timeoutError);
+        reject(timeoutError);
+      }, timeoutMilliseconds);
+      timer.unref?.();
+    });
+    try {
+      return await Promise.race([operation(controller.signal), timeout]);
+    } catch (error) {
+      if (controller.signal.aborted) throw timeoutError;
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   async function health() {
-    const response = await fetchImpl(`${origin}/system_stats`);
-    if (!response.ok) throw new Error(`ComfyUI health failed (${response.status})`);
-    return response.json();
+    return withinTimeout("health check", async (signal) => {
+      const response = await fetchImpl(`${origin}/system_stats`, { signal });
+      if (!response.ok) throw new Error(`ComfyUI health failed (${response.status})`);
+      return response.json();
+    });
   }
 
   async function uploadImage(bytes, fileName) {
@@ -24,36 +60,38 @@ export function createComfyClient({
     form.append("image", new Blob([bytes], { type: "image/png" }), fileName);
     form.append("subfolder", "chatnft");
     form.append("type", "input");
-    const response = await fetchImpl(`${origin}/upload/image`, { method: "POST", body: form });
-    if (!response.ok) throw new Error(`ComfyUI upload failed (${response.status})`);
-    const uploaded = await response.json();
-    return uploaded.subfolder ? `${uploaded.subfolder}/${uploaded.name}` : uploaded.name;
+    return withinTimeout("upload", async (signal) => {
+      const response = await fetchImpl(`${origin}/upload/image`, { method: "POST", body: form, signal });
+      if (!response.ok) throw new Error(`ComfyUI upload failed (${response.status})`);
+      const uploaded = await response.json();
+      return uploaded.subfolder ? `${uploaded.subfolder}/${uploaded.name}` : uploaded.name;
+    });
   }
 
   async function queue(graph) {
-    const response = await fetchImpl(`${origin}/prompt`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ prompt: graph }),
+    return withinTimeout("queue", async (signal) => {
+      const response = await fetchImpl(`${origin}/prompt`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ prompt: graph }),
+        signal,
+      });
+      if (!response.ok) throw new Error(`ComfyUI queue failed (${response.status})`);
+      const queued = await response.json();
+      return queued.prompt_id;
     });
-    if (!response.ok) throw new Error(`ComfyUI queue failed (${response.status})`);
-    const queued = await response.json();
-    return queued.prompt_id;
   }
 
   async function waitForOutput(promptId) {
-    const deadline = Date.now() + timeoutMilliseconds;
-    while (Date.now() <= deadline) {
-      const response = await fetchImpl(`${origin}/history/${encodeURIComponent(promptId)}`);
-      if (!response.ok) throw new Error(`ComfyUI history failed (${response.status})`);
-      const image = firstSaveImagePng(await response.json(), promptId);
-      if (image) return image;
-
-      const remaining = deadline - Date.now();
-      if (remaining <= 0) break;
-      await delay(Math.min(pollMilliseconds, remaining));
-    }
-    throw new Error(`ComfyUI generation timed out after ${timeoutMilliseconds} ms`);
+    return withinTimeout("generation", async (signal) => {
+      while (true) {
+        const response = await fetchImpl(`${origin}/history/${encodeURIComponent(promptId)}`, { signal });
+        if (!response.ok) throw new Error(`ComfyUI history failed (${response.status})`);
+        const image = firstSaveImagePng(await response.json(), promptId);
+        if (image) return image;
+        await delay(pollMilliseconds, signal);
+      }
+    });
   }
 
   async function fetchOutput(imageRecord) {
@@ -62,9 +100,11 @@ export function createComfyClient({
       subfolder: imageRecord.subfolder ?? "",
       type: imageRecord.type ?? "output",
     });
-    const response = await fetchImpl(`${origin}/view?${query}`);
-    if (!response.ok) throw new Error(`ComfyUI output fetch failed (${response.status})`);
-    return response.arrayBuffer();
+    return withinTimeout("output download", async (signal) => {
+      const response = await fetchImpl(`${origin}/view?${query}`, { signal });
+      if (!response.ok) throw new Error(`ComfyUI output fetch failed (${response.status})`);
+      return response.arrayBuffer();
+    });
   }
 
   return { health, uploadImage, queue, waitForOutput, fetchOutput };

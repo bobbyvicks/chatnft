@@ -122,6 +122,23 @@ test("rejects unsupported image MIME types with 415", async (t) => {
   assert.equal(response.status, 415);
 });
 
+test("rejects noncanonical and zero-byte base64 before invoking ComfyUI", async (t) => {
+  let generateCalls = 0;
+  const origin = await withServer(t, {
+    ...succeedingService,
+    generate: async () => { generateCalls += 1; return succeedingService.generate({ instruction: "", grid: 128 }); },
+  });
+  for (const imageDataUrl of ["data:image/png;base64,A", "data:image/png;base64,"]) {
+    const response = await fetch(`${origin}/api/pixel-agent/generate`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ imageDataUrl, instruction: "cleanup", grid: 128 }),
+    });
+    assert.equal(response.status, 400, imageDataUrl);
+  }
+  assert.equal(generateCalls, 0, "invalid image bytes reached the generation service");
+});
+
 test("rejects working grids outside the contract with 400", async (t) => {
   const origin = await withServer(t, succeedingService);
   const response = await fetch(`${origin}/api/pixel-agent/generate`, {

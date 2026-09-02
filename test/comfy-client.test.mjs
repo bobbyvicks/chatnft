@@ -98,3 +98,43 @@ test("uses ComfyUI HTTP routes to upload, queue, poll its prompt, and fetch the 
     ],
   );
 });
+
+test("aborts a hanging ComfyUI history fetch at the configured timeout", async () => {
+  let observedSignal;
+  const client = createComfyClient({
+    baseUrl: "http://127.0.0.1:8188",
+    pollMilliseconds: 1,
+    timeoutMilliseconds: 30,
+    fetchImpl: async (_url, options = {}) => {
+      observedSignal = options.signal;
+      return new Promise((resolve, reject) => {
+        options.signal.addEventListener("abort", () => reject(options.signal.reason), { once: true });
+      });
+    },
+  });
+
+  const started = Date.now();
+  await assert.rejects(client.waitForOutput("hung-prompt"), /timed out after 30 ms/);
+  assert.ok(Date.now() - started < 500, "timeout did not bound the hanging fetch");
+  assert.equal(observedSignal?.aborted, true);
+});
+
+test("aborts a hanging ComfyUI response body read at the configured timeout", async () => {
+  let observedSignal;
+  const client = createComfyClient({
+    baseUrl: "http://127.0.0.1:8188",
+    timeoutMilliseconds: 30,
+    fetchImpl: async (_url, options = {}) => {
+      observedSignal = options.signal;
+      return {
+        ok: true,
+        json: () => new Promise((resolve, reject) => {
+          options.signal.addEventListener("abort", () => reject(options.signal.reason), { once: true });
+        }),
+      };
+    },
+  });
+
+  await assert.rejects(client.waitForOutput("hung-body"), /timed out after 30 ms/);
+  assert.equal(observedSignal?.aborted, true);
+});

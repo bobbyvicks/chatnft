@@ -93,9 +93,70 @@ test("finalizes an opaque creative draft with the repaired bucket-hat silhouette
   assert.deepEqual(alphaMask(finalized.data), alphaMask(faithful.data), "source silhouette changed");
   assert.deepEqual(opaqueBounds(finalized.data, 128, 128), opaqueBounds(faithful.data, 128, 128));
   assert.deepEqual(
-    [...core.verify(finalized.data, 128, 128, { grid: 128, alphaMask: faithful.data })],
+    [...core.verify(finalized.data, 128, 128, {
+      grid: 128,
+      alphaMask: faithful.data,
+      anchoredWhiteMask: finalized.anchoredWhiteMask,
+    })],
     [],
   );
+});
+
+test("restores the real fixture's anchored white NEET cells while keeping creative RGB elsewhere", async () => {
+  const sourcePng = PNG.sync.read(await readFile(new URL("./fixtures/neet-bucket-hat.png", import.meta.url)));
+  const sourceGrid = normalizedGrid(sourcePng, 128);
+  const faithful = core.repair(sourceGrid.data, 128, 128, { grid: 128 });
+  const draft = new Uint8ClampedArray(faithful.data);
+  const anchorCells = whiteCells(faithful.data, 128, 64, 20, 84, 41);
+  assert.ok(anchorCells.length > 20, "fixture no longer contains the anchored NEET art");
+  for (const point of anchorCells) draft.set([128, 128, 128, 255], point * 4);
+
+  const creativeRgb = mostCommonInteriorRgb(faithful.data, 128, -1);
+  const creativePoint = findInteriorColorCell(faithful.data, 128, anchorCells, creativeRgb);
+  assert.notEqual(creativePoint, -1, "fixture has no differently colored creative cell");
+  assert.notDeepEqual(Array.from(faithful.data.slice(creativePoint * 4, creativePoint * 4 + 3)), creativeRgb);
+  draft.set([...creativeRgb, 255], creativePoint * 4);
+
+  const finalized = core.finalizeCreative(draft, sourceGrid.data, 128, 128, { grid: 128 });
+  assert.equal(
+    whiteMask(finalized.data, 128, 64, 20, 84, 41),
+    whiteMask(faithful.data, 128, 64, 20, 84, 41),
+    "anchored NEET whites were not restored",
+  );
+  assert.deepEqual(
+    Array.from(finalized.data.slice(creativePoint * 4, creativePoint * 4 + 3)),
+    creativeRgb,
+    "creative RGB outside the anchored white art was frozen to the source",
+  );
+
+  const drifted = new Uint8ClampedArray(finalized.data);
+  drifted.set([131, 131, 131, 255], anchorCells[0] * 4);
+  assert.deepEqual(
+    [...core.verify(drifted, 128, 128, {
+      grid: 128,
+      alphaMask: finalized.alphaMask,
+      anchoredWhiteMask: finalized.anchoredWhiteMask,
+    })],
+    [`Anchored white detail mismatch at pixel ${anchorCells[0]}`],
+  );
+  assert.deepEqual(
+    [...core.verify(finalized.data, 128, 128, {
+      grid: 128,
+      alphaMask: finalized.alphaMask,
+      anchoredWhiteMask: finalized.anchoredWhiteMask,
+    })],
+    [],
+  );
+});
+
+test("removes one-cell and two-cell detached exterior components but keeps connected details", () => {
+  const data = fixtureWithDetachedExteriorComponents();
+  const repaired = core.repair(data, 12, 12, { grid: 32 });
+
+  assert.equal(alphaAt(repaired.data, 0, 0, 12), 0, "one-cell artifact survived");
+  assert.equal(alphaAt(repaired.data, 9, 1, 12), 0, "first cell of two-cell artifact survived");
+  assert.equal(alphaAt(repaired.data, 10, 1, 12), 0, "second cell of two-cell artifact survived");
+  assert.equal(alphaAt(repaired.data, 8, 6, 12), 255, "connected one-cell subject detail was deleted");
 });
 
 function setPixel(data, width, x, y, [r, g, b, a = 255]) {
@@ -110,6 +171,18 @@ function fixtureWithBlackBoxWhiteCenterAndOutsideWhiteDot() {
   }
   setPixel(data, 9, 4, 4, [255, 255, 255, 255]);
   setPixel(data, 9, 8, 0, [255, 255, 255, 255]);
+  return data;
+}
+
+function fixtureWithDetachedExteriorComponents() {
+  const data = new Uint8ClampedArray(12 * 12 * 4);
+  for (let y = 4; y <= 8; y++) for (let x = 4; x <= 7; x++) {
+    setPixel(data, 12, x, y, [64, 96, 128, 255]);
+  }
+  setPixel(data, 12, 8, 6, [64, 96, 128, 255]);
+  setPixel(data, 12, 0, 0, [255, 255, 255, 255]);
+  setPixel(data, 12, 9, 1, [255, 255, 255, 255]);
+  setPixel(data, 12, 10, 1, [255, 255, 255, 255]);
   return data;
 }
 
@@ -220,6 +293,38 @@ function whiteMask(data, width, x0, y0, x1, y1) {
     if (pixelHex(data, x, y, width) === "#FFFFFF" && alphaAt(data, x, y, width) === 255) cells.push(`${x},${y}`);
   }
   return cells.join(";");
+}
+
+function whiteCells(data, width, x0, y0, x1, y1) {
+  const cells = [];
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+    if (pixelHex(data, x, y, width) === "#FFFFFF" && alphaAt(data, x, y, width) === 255) cells.push(y * width + x);
+  }
+  return cells;
+}
+
+function findInteriorColorCell(data, width, excluded, replacementRgb) {
+  const excludedSet = new Set(excluded);
+  for (let y = 1; y < width - 1; y++) for (let x = 1; x < width - 1; x++) {
+    const point = y * width + x;
+    if (excludedSet.has(point) || alphaAt(data, x, y, width) !== 255) continue;
+    const hex = pixelHex(data, x, y, width);
+    const currentRgb = [data[point * 4], data[point * 4 + 1], data[point * 4 + 2]];
+    if (hex !== "#000000" && hex !== "#FFFFFF" && currentRgb.some((value, index) => value !== replacementRgb[index])) return point;
+  }
+  return -1;
+}
+
+function mostCommonInteriorRgb(data, width, excludedPoint) {
+  const counts = new Map();
+  for (let point = 0; point < width * width; point++) {
+    if (point === excludedPoint || data[point * 4 + 3] !== 255) continue;
+    const rgb = `${data[point * 4]},${data[point * 4 + 1]},${data[point * 4 + 2]}`;
+    if (rgb === "0,0,0" || rgb === "255,255,255") continue;
+    counts.set(rgb, (counts.get(rgb) || 0) + 1);
+  }
+  const [rgb] = [...counts].sort((a, b) => b[1] - a[1])[0];
+  return rgb.split(",").map(Number);
 }
 
 function scaledBounds(bounds, sourceSize, targetSize) {

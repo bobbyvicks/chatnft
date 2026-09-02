@@ -167,7 +167,9 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
    stretched a wide trait into a square - and this preview is the first look anyone
    gets at an extraction, so it is the worst place to lie about shape. A small trait
    still scales up to fill the box, which plain max-width would have lost. */
-.preview canvas{width:220px; height:220px; object-fit:contain;
+.preview canvas{width:220px; height:220px; object-fit:contain; cursor:crosshair; touch-action:none;
+  /* crosshair because it is draggable, and touch-action:none so a drag on a
+     phone chooses an area instead of scrolling the page */
   flex:none; border-radius:9px; border:1px solid var(--line);
   image-rendering:pixelated; background:
     linear-gradient(45deg,#232029 25%,transparent 25%,transparent 75%,#232029 75%),
@@ -602,6 +604,8 @@ footer .mono{color:var(--ink);}
       <div class="pvinfo">
         <span class="mono" id="pvcount">—</span>
         <span id="pvhint">Green is what will be kept. Raise sensitivity until only the trait is green.</span>
+        <button class="btn ghost" id="exarea" hidden style="width:auto;padding:6px 10px;font-size:12px">Use the whole image again</button>
+        <span class="note" id="exareanote">Drag on the preview to search one area only. Everything outside it is ignored, and nothing moves.</span>
       </div>
     </div>
     <div class="exrow cleanup">
@@ -2207,6 +2211,17 @@ function extractTrait(sub,ref,o){
     const al=alignToRef(src,W,H,R,W,H,f0,f1);
     if(al.data){ src=al.data; alignInfo=al; }
   }
+  /* An area the person drew on the preview, held as fractions of the image so
+     it still means the same region when the reference is fitted to a different
+     size. It decides what is CONSIDERED, never where anything ends up: the
+     canvas stays W by H and a kept pixel keeps the coordinates it had.
+     Choosing an area must not move the trait, or every trait cut this way
+     would sit wrong on a character. */
+  const box = o.region ? {
+    x0:Math.max(0,Math.floor(o.region.x0*W)), x1:Math.min(W-1,Math.ceil(o.region.x1*W)),
+    y0:Math.max(0,Math.floor(o.region.y0*H)), y1:Math.min(H-1,Math.ceil(o.region.y1*H))} : null;
+  const inBox = box ? function(p){ const x=p%W, y=(p/W)|0;
+    return x>=box.x0 && x<=box.x1 && y>=box.y0 && y<=box.y1; } : null;
   const t=new Uint8ClampedArray(W*H*4);
   let diffed=0;
   const th=o.thresh;
@@ -2234,6 +2249,7 @@ function extractTrait(sub,ref,o){
       const br=src[i]-bg[0], bgd=src[i+1]-bg[1], bb=src[i+2]-bg[2];
       if(Math.sqrt(br*br+bgd*bgd+bb*bb) < th) continue;
     }
+    if(box && !inBox(p)) continue;   /* outside the chosen area, never a trait pixel */
     t[i]=src[i]; t[i+1]=src[i+1]; t[i+2]=src[i+2]; t[i+3]=255; diffed++;
   }
   const stats={diffed,align:alignInfo,reclaimed:0,bridged:0,baseBleed:0,defringed:0,edgeDropped:0,edgeBlacked:0,opened:0,tendrils:0,despeckled:0,
@@ -2258,6 +2274,10 @@ function extractTrait(sub,ref,o){
      already does that. */
   stats.baseBleed=dropBaseBleed(t,R,W,H);
   if(o.despeckle){ const r=despeckle(t,W,H,o.minBlob,o.relative); stats.despeckled=r.dropped; }
+  /* Again at the end. reclaimOutline and bridgeOutline ADD pixels and work
+     outwards from the mask, so either can reach past the boundary that the
+     difference stage already respected. */
+  if(box) for(let p=0;p<W*H;p++) if(!inBox(p)) t[p*4+3]=0;
   let kept=0;
   for(let p=0;p<W*H;p++) if(t[p*4+3]) kept++;
   return {data:t,W,H,kept,src,stats};
@@ -2277,8 +2297,30 @@ function currentOpts(){
     edgeLum:110, edgeStep:25, hardPasses:6,
     open:$("cbOpen").checked, openR:3, minRemove:150,
     despeckle:true, minBlob:+$("minblob").value, relative:0.02,
+    region:exRegion,
   };
 }
+/* The area to look in, as fractions of the image, or null for all of it. */
+let exRegion=null;
+let exDrag=null;
+
+/* Where the bitmap actually sits inside the preview box. The canvas is styled
+   object-fit:contain, so it is letterboxed - the drawn area is smaller than the
+   element and offset inside it. A pointer position has to be mapped through
+   that or the area lands somewhere other than where it was drawn. */
+function pvToImage(cv,ev){
+  const r=cv.getBoundingClientRect();
+  const bw=cv.width||1, bh=cv.height||1;
+  const s=Math.min(r.width/bw, r.height/bh);
+  const left=r.left+(r.width-bw*s)/2, top=r.top+(r.height-bh*s)/2;
+  return { x:Math.min(1,Math.max(0,(ev.clientX-left)/(bw*s))),
+           y:Math.min(1,Math.max(0,(ev.clientY-top)/(bh*s))) };
+}
+function exAreaLabel(){
+  const b=$("exarea"); if(!b) return;
+  b.hidden=!exRegion;
+}
+
 let pvPending=null, pvBusy=false, pvMode="result";
 function renderPreview(){
   if(!subData){ $("previewwrap").hidden=true; return; }
@@ -2315,6 +2357,22 @@ function renderPreview(){
         }
       }
       g.putImageData(img,0,0);
+      /* Drawn after the image, in image coordinates, so what is marked is
+         exactly the region the pipeline was handed. */
+      const shown = exDrag || exRegion;
+      if(shown){
+        const x0=Math.round(shown.x0*r.W), x1=Math.round(shown.x1*r.W);
+        const y0=Math.round(shown.y0*r.H), y1=Math.round(shown.y1*r.H);
+        g.save();
+        g.fillStyle="rgba(0,0,0,0.5)";
+        g.fillRect(0,0,r.W,y0);
+        g.fillRect(0,y1,r.W,r.H-y1);
+        g.fillRect(0,y0,x0,y1-y0);
+        g.fillRect(x1,y0,r.W-x1,y1-y0);
+        g.strokeStyle="#3CFFB4"; g.lineWidth=Math.max(1,Math.round(r.W/200));
+        g.strokeRect(x0+0.5,y0+0.5,Math.max(1,x1-x0-1),Math.max(1,y1-y0-1));
+        g.restore();
+      }
       $("previewwrap").hidden=false;
       const s=r.stats;
       $("pvcount").textContent=r.kept.toLocaleString()+" px kept ("+(100*r.kept/(r.W*r.H)).toFixed(1)+"%)";
@@ -2339,6 +2397,37 @@ let shelfFilter='all';
 let shelfQuery='';   /* what is typed in the shelf search box, already lowercased */
 $('sens').addEventListener('input',()=>{ $('sensv').textContent=$('sens').value; renderPreview(); });
 $('minblob').addEventListener('input',()=>{ $('minblobv').textContent=$('minblob').value; renderPreview(); });
+/* Drag on the preview to choose the area. A click without a drag clears it, so
+   there is always a way back to the whole image. */
+(function(){
+  const cv=$("preview");
+  let from=null;
+  const rect=(a,b)=>({ x0:Math.min(a.x,b.x), y0:Math.min(a.y,b.y),
+                       x1:Math.max(a.x,b.x), y1:Math.max(a.y,b.y) });
+  cv.addEventListener("pointerdown",ev=>{
+    if(!subData||!refData) return;
+    try{ cv.setPointerCapture(ev.pointerId); }catch(_){}
+    from=pvToImage(cv,ev); exDrag=null; ev.preventDefault();
+  });
+  cv.addEventListener("pointermove",ev=>{
+    if(!from) return;
+    exDrag=rect(from,pvToImage(cv,ev));
+    renderPreview();
+  });
+  cv.addEventListener("pointerup",ev=>{
+    if(!from) return;
+    const a=from; from=null; exDrag=null;
+    const b=pvToImage(cv,ev);
+    /* A tiny drag is a click, and a click means "use all of it". Without this a
+       stray click would shrink the area to nothing and the preview would empty
+       with no visible cause. */
+    exRegion = (Math.abs(b.x-a.x)<0.02 || Math.abs(b.y-a.y)<0.02) ? null : rect(a,b);
+    exAreaLabel(); renderPreview();
+  });
+  cv.addEventListener("pointercancel",()=>{ from=null; exDrag=null; renderPreview(); });
+})();
+$('exarea').onclick=()=>{ exRegion=null; exDrag=null; exAreaLabel(); renderPreview(); };
+
 $('pvResult').onclick=()=>{ pvMode='result'; $('pvResult').setAttribute('aria-pressed','true');
   $('pvOverlay').setAttribute('aria-pressed','false'); renderPreview(); };
 $('pvOverlay').onclick=()=>{ pvMode='overlay'; $('pvOverlay').setAttribute('aria-pressed','true');

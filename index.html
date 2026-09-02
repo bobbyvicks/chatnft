@@ -450,15 +450,6 @@ input[type=range]{width:100%; accent-color:#f5a524; cursor:pointer;}
    above is drawn in the accent colour - which disappears on a swatch that IS
    roughly the accent colour. The inset pair reads against any fill. */
 .rsw[aria-pressed="true"]{box-shadow:inset 0 0 0 2px #000000aa, inset 0 0 0 4px #ffffffcc;}
-.sizes{display:grid; grid-template-columns:repeat(6,1fr); gap:5px;}
-.bs{aspect-ratio:1; min-height:32px; border-radius:7px; background:var(--panel-2);
-  border:1px solid var(--line); display:grid; place-items:center; padding:0;}
-.bs:hover{border-color:var(--accent);}
-.bs[aria-pressed="true"]{background:var(--accent-soft); border-color:var(--accent);}
-.bs i{display:block; background:var(--ink); border-radius:1px;}
-.bs[aria-pressed="true"] i{background:var(--accent);}
-.bs b{font:600 11px/1 "JetBrains Mono",monospace; color:var(--dim); position:absolute;
-  transform:translateY(13px);}
 .cur{display:flex; align-items:center; gap:9px; padding:8px; border-radius:9px;
   background:var(--panel-2); border:1px solid var(--line);}
 .cur input[type=color]{width:34px; height:34px; padding:0; border:1px solid #ffffff24;
@@ -868,7 +859,9 @@ footer .mono{color:var(--ink);}
     </div>
     <section id="brushsec">
       <h2>Brush size</h2>
-      <div class="sizes" id="sizes"></div>
+      <div class="olrow"><label for="bslider">Size</label>
+        <span class="mono" id="bslab" style="margin-left:auto">1 x 1</span></div>
+      <input id="bslider" type="range" min="1" max="8" step="1" value="1" aria-label="Brush size">
       <div class="olrow"><label for="filltol" title="How far from the colour you click the fill spreads">Fill spread</label>
         <input id="filltol" type="number" min="0" max="120" value="8" style="width:64px"></div>
     </section>
@@ -932,11 +925,16 @@ footer .mono{color:var(--ink);}
           <input id="rctol" type="number" min="1" max="120" value="24" style="width:64px"></div>
         <div class="savebar">
           <button class="btn ghost" id="rcgo" disabled style="flex:2">Replace</button>
-          <button class="btn ghost" id="rcnone" disabled style="flex:1">Clear</button>
+          <button class="btn ghost" id="rcerase" disabled style="flex:2"
+            title="Take those colours out of the trait completely, leaving nothing there">Erase</button>
+          <button class="btn ghost" id="rcnone" disabled style="flex:1"
+            title="Unpick the colours you chose - does not change the artwork">Deselect</button>
         </div>
         <button class="btn" id="rcclean">Clean up colours</button>
       </div>
-      <p class="note">Swaps every colour you pick for the current one, everywhere. Pick several to merge them into one. Transparent cells are never touched.</p>
+      <p class="note">Swaps every colour you pick for the current one, everywhere. Pick several to merge them into one.
+        Erase takes them out instead, leaving nothing there - useful for lifting a background or a stray shade off a trait.
+        Cells that are already empty are never touched by either.</p>
     </section>
     <section>
       <h2>Base layer</h2>
@@ -2999,6 +2997,9 @@ function restoreImage(im){
     /* olpv is resized just above, which CLEARS it. The preview was left blank
        after any size change until the next thing happened to redraw it. */
     outlinePreview();
+    /* The slider ceiling comes from the canvas, so it moves when the canvas
+       does - and a brush wider than the new canvas has to come down with it. */
+    setBrush(brush);
   }
   ctx.putImageData(im,0,0);
   applyZoom();
@@ -3334,29 +3335,34 @@ function stroke(e){
   }
   lastCell=c;
 }
-const BRUSHES=[1,2,3,4,6,8];
+/* The top of the slider, from the canvas rather than a constant: a fixed 128
+   is absurd on a 40px trait and a fixed 16 is useless on a 1280 one. Capped
+   at 128 because dab() writes brush^2 pixels per interpolated point, so that
+   is already 16,384 writes each and the next doubling would be felt. */
+function brushMax(){
+  return Math.max(8, Math.min(128, Math.round((art.width||160)/2)));
+}
+/* Kept under its old name because startEditor calls it; what it builds is
+   now the slider range rather than a row of buttons. */
 function buildBrushes(){
-  const wrap=$('sizes'); wrap.innerHTML='';
-  BRUSHES.forEach(n=>{
-    const b=document.createElement('button');
-    b.className='bs'; b.dataset.n=n; b.title=n+'×'+n+' cells';
-    b.setAttribute('aria-label','Brush '+n+' by '+n);
-    const px=Math.min(18,3+n*2);
-    b.innerHTML='<i style="width:'+px+'px;height:'+px+'px"></i>';
-    b.onclick=()=>setBrush(n);
-    wrap.appendChild(b);
-  });
+  const sl=$("bslider"); if(!sl) return;
+  sl.max=String(brushMax());
+  setBrush(brush);
 }
 function setBrush(n){
-  brush=Math.max(1,Math.min(32,n));
-  document.querySelectorAll('.bs').forEach(b=>b.setAttribute('aria-pressed',String(+b.dataset.n===brush)));
-  $('bsize').textContent=brush+'×'+brush;
+  /* The ceiling is re-read every time rather than cached, so a brush set on
+     a big canvas is pulled back down when the canvas shrinks under it. */
+  const hi=brushMax();
+  brush=Math.max(1,Math.min(hi,Math.round(n)||1));
+  const sl=$("bslider");
+  if(sl){ sl.max=String(hi); sl.value=String(brush); }
+  const lab=$("bslab"); if(lab) lab.textContent=brush+" x "+brush;
+  $("bsize").textContent=brush+"\u00d7"+brush;
   paintCursor();
 }
-function stepBrush(d){
-  const i=BRUSHES.indexOf(brush);
-  setBrush(i<0 ? BRUSHES[0] : BRUSHES[Math.max(0,Math.min(BRUSHES.length-1,i+d))]);
-}
+/* One at a time. Walking a six-item list could not reach 5, 7 or anything
+   above 8, and with a slider the exact number is the point. */
+function stepBrush(d){ setBrush(brush+d); }
 /* Drawn from dab()'s own offset, not a second guess at it: if one changes the
    other has to, and a mismatch would be visible immediately. */
 function paintCursor(){
@@ -3840,7 +3846,7 @@ function rcSummary(){
     s.setAttribute("aria-pressed",String(rcPick.has(s.dataset.hex))));
   const n=rcPick.size;
   $("rcgo").disabled=!n;
-  $("rcnone").disabled=!n;
+  $("rcnone").disabled=!n; $("rcerase").disabled=!n;
   if(!n){ $("rcfrom").textContent="Pick one or more colours above to replace."; return; }
   const names=[...rcPick];
   /* Named in full up to three, counted past that - a dozen hex codes in a row
@@ -3854,7 +3860,10 @@ function rcClear(){
   rcSummary();
 }
 
-function recolour(){
+/* erase=true takes the chosen colours OUT rather than swapping them. Same
+   matching, same tolerance, same undo entry - only what is written differs,
+   so the two can never disagree about WHICH cells they act on. */
+function recolour(erase){
   if(!ctx||!rcPick.size){ toast("Pick a colour to replace first"); return; }
   /* Captured now: buildRecolour below clears the selection, so reading it
      afterwards for the message would always say zero. */
@@ -3886,14 +3895,23 @@ function recolour(){
       hit=exact.has((d[i]<<16)|(d[i+1]<<8)|d[i+2]);
     }
     if(!hit) continue;
-    d[i]=to[0]; d[i+1]=to[1]; d[i+2]=to[2]; n++;
+    if(erase){
+      /* Exactly what the eraser tool writes - dab(x,y,[0,0,0],0) - rather than
+         alpha alone. A transparent pixel that keeps its old RGB fringes when
+         it is scaled, and these traits get scaled. */
+      d[i]=0; d[i+1]=0; d[i+2]=0; d[i+3]=0;
+    } else {
+      d[i]=to[0]; d[i+1]=to[1]; d[i+2]=to[2];
+    }
+    n++;
   }
   if(!n){ toast(rcPick.size===1 ? ("No cells matched "+[...rcPick][0])
     : ("No cells matched any of those "+rcPick.size+" colours")); return; }
   snapshot(); ctx.putImageData(img,0,0); refreshStats();
   const fresh=palette(ctx.getImageData(0,0,art.width,art.height).data,art.width*art.height,24,64);
   buildPalette(fresh.list); buildRecolour(fresh.list);
-  toast("Recoloured "+n.toLocaleString()+" cells"+(from>1?(" from "+from+" colours"):""));
+  toast((erase?"Erased ":"Recoloured ")+n.toLocaleString()+" cells"
+    +(from>1?(" from "+from+" colours"):""));
 }
 
 /* ================= transform ===================================== */
@@ -6346,7 +6364,11 @@ $('cdl').onclick=()=>{
     setTimeout(()=>URL.revokeObjectURL(a.href),4000);
   },"image/png");
 };
-$('rcgo').onclick=recolour;
+/* Passed explicitly. onclick=recolour would hand the click EVENT in as the
+   first argument, and an event object is truthy - so Replace would erase. */
+$('bslider').oninput=e=>setBrush(+e.target.value);
+$('rcgo').onclick=()=>recolour(false);
+$('rcerase').onclick=()=>recolour(true);
 $('rcnone').onclick=rcClear;
 $('rcclean').onclick=cleanColours;
 $('rcnear').onclick=()=>{ toggle('rcnear'); $('rctol').disabled=!pressed('rcnear'); };

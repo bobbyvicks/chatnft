@@ -1281,10 +1281,20 @@ async function saveTrait(){
   const blob=await blobOf(c);
   try{
     const status=$('tstatus').value||'wip';
-    await dbPut({id:'t_'+name+'_'+layer+'_'+status, kind:'trait', name, layer, status, blob,
-      w:art.width, h:art.height, at:Date.now()});
+    const rec={id:'t_'+name+'_'+layer+'_'+status, kind:'trait', name, layer, status, blob,
+      w:art.width, h:art.height, at:Date.now()};
+    await dbPut(rec);
     await renderShelf();
-    toast('Saved '+name+' to '+layer+'/'+status);
+    if(activeWs){
+      /* Told plainly either way. A save that reached this browser but not the
+         group is not a failure worth hiding - it is the difference between
+         your friends seeing it and not. */
+      const shared=activeWs ? await cloudSyncOne(rec) : null;
+      toast(shared ? "Saved "+name+" and shared it with the group"
+        : "Saved "+name+" here only - could not reach the group. Press Save to cloud when you are back.");
+    } else {
+      toast('Saved '+name+' to '+layer+'/'+status);
+    }
     return true;
   }catch(e){ toast('Could not save: '+(e&&e.name||'storage error')); return false; }
 }
@@ -3923,6 +3933,51 @@ const cloudPath=(team,c,it)=>team+"/"+c.id+"/"+
   (it.kind==="ref"?"ref":"trait")+"-"+String(it.name).replace(/[^a-z0-9._-]+/gi,"-")+
   "-"+(it.layer||"none")+"-"+(it.status||"none")+".png";
 
+/* A group project is shared storage. Saving into one that only ever wrote to
+   this browser is not a group project, it is a private folder with other
+   people's names on it - which is exactly how it behaved: nobody else could
+   see anything, and neither could you in another tab.
+
+   So a save inside a group goes straight up. One trait, not the whole
+   collection, because this runs on every save and re-uploading everything
+   each time would be slow and would keep overwriting work that has not
+   changed.
+
+   Your own page is untouched by this. It stays local until you ask, which is
+   what the page has always promised. */
+async function cloudSyncOne(rec){
+  /* No guard here: the caller decides. saveTrait only calls this inside a
+     group, and cloudPush calls it for everything on either kind of page. */
+  const u=await sbUser(); if(!u) return null;
+  const team=await cloudTeam(); if(!team) return null;
+  const c=await cloudCollection(u); if(!c) return null;
+  const p=cloudPath(team,c,rec);
+  try{
+    const hb=await sbHeaders({"Content-Type":"image/png","x-upsert":"true"});
+    if(!hb) return null;
+    const up=await fetch(SB_URL+"/storage/v1/object/traits/"+p,
+      {method:"POST",headers:hb,body:rec.blob});
+    if(!up.ok) return null;
+    const h=await sbHeaders({"Content-Type":"application/json"});
+    if(!h) return null;
+    /* Identified the same way the local store identifies it - name, layer and
+       status - so saving the same trait twice replaces it rather than leaving
+       two of it on the server. */
+    const q="collection_id=eq."+c.id
+      +"&name=eq."+encodeURIComponent(rec.name)
+      +"&layer=eq."+encodeURIComponent(rec.layer||"unsorted")
+      +"&status=eq."+encodeURIComponent(rec.status||"wip");
+    await fetch(SB_URL+"/rest/v1/traits?"+q,{method:"DELETE",headers:h});
+    const r=await fetch(SB_URL+"/rest/v1/traits",{method:"POST",headers:h,
+      body:JSON.stringify([{collection_id:c.id, team_id:team, owner:u.id,
+        kind:rec.kind, name:rec.name,
+        layer:rec.layer||"unsorted", status:rec.status||"wip",
+        rarity:(typeof rec.rarity==="number"?rec.rarity:1),
+        w:rec.w||1, h:rec.h||1, path:p}])});
+    return r.ok;
+  }catch(_){ return null; }
+}
+
 async function cloudPush(){
   const u=await sbUser();
   if(!u){ toast("Sign in first"); return; }
@@ -3935,32 +3990,31 @@ async function cloudPush(){
   if(!items.length){ toast("Nothing saved to upload"); return; }
   $("cloudpush").disabled=true;
   $("cloudnote").textContent="Uploading "+items.length+" item"+(items.length===1?"":"s")+"...";
-  let up=0, failed=0;
+  /* One item at a time, through the same routine a save uses.
+
+     It used to build every row and post them as a single insert. In a shared
+     project that is fatal: the moment one row collides with a trait somebody
+     else already put there - and the unique index is on collection, kind,
+     name, layer and status, so a shared name is enough - Postgres rejects the
+     WHOLE batch. Measured: Bob pressed Save to cloud, his own trait was
+     deleted ready to be rewritten, the batch failed on Alice's row, and his
+     work was simply gone. One at a time, a collision costs one item.
+
+     The blanket delete now only happens on your own page, where "the server
+     copy becomes what is on this device" is a sentence that makes sense and
+     where you are the only member. In a group it would mean deleting work
+     that is not yours to delete, and a stale row left behind is a far smaller
+     harm than someone else losing a day. */
+  const h=await sbHeaders({"Content-Type":"application/json"});
+  if(!activeWs){
+    await fetch(SB_URL+"/rest/v1/traits?collection_id=eq."+c.id,{method:"DELETE",headers:h});
+  }
+  let saved=0, failed=0;
   const rows=[];
   for(const it of items){
-    const p=cloudPath(team,c,it);
-    try{
-      const h=await sbHeaders({"Content-Type":"image/png","x-upsert":"true"});
-      if(!h) throw new Error("no session");
-      const r=await fetch(SB_URL+"/storage/v1/object/traits/"+p,{method:"POST",headers:h,body:it.blob});
-      if(!r.ok) throw new Error("upload "+r.status);
-      rows.push({collection_id:c.id, team_id:team, owner:u.id, kind:it.kind, name:it.name,
-        layer:it.layer||null, status:it.status||null,
-        rarity:(typeof it.rarity==="number"?it.rarity:1), w:it.w||1, h:it.h||1, path:p});
-      up++;
-    }catch(_){ failed++; }
-  }
-  const h=await sbHeaders({"Content-Type":"application/json"});
-  /* Replace rather than merge: this button means "the server copy becomes what
-     is on this device", which is the only reading under which DELETING a trait
-     here also removes it there. A merge would quietly resurrect everything the
-     person has thrown away. */
-  await fetch(SB_URL+"/rest/v1/traits?collection_id=eq."+c.id,{method:"DELETE",headers:h});
-  let saved=0;
-  if(rows.length){
-    const r=await fetch(SB_URL+"/rest/v1/traits",{method:"POST",
-      headers:Object.assign({Prefer:"return=representation"},h), body:JSON.stringify(rows)});
-    if(r.ok) saved=(await r.json()).length;
+    const okd=await cloudSyncOne(it);
+    if(okd){ saved++; rows.push({path:cloudPath(team,c,it)}); }
+    else failed++;
   }
   const swept=await cloudSweep(team,c,rows.map(r=>r.path));
   await fetch(SB_URL+"/rest/v1/collections?id=eq."+c.id,{method:"PATCH",headers:h,
@@ -3971,7 +4025,14 @@ async function cloudPush(){
         (swept?", removed "+swept+" old image"+(swept===1?"":"s"):""));
 }
 
-async function cloudPull(){
+/* opts.quiet    - no toast, for the pull that happens on opening a project
+   opts.keepMine - leave anything already here alone, rather than renaming it.
+     The manual button renames on a clash so that pressing it can never lose
+     local work. That is right for a button somebody chose to press, and wrong
+     for a pull that happens every time a project opens - it would breed
+     hat-2, hat-3, hat-4 on every visit. */
+async function cloudPull(opts){
+  opts=opts||{};
   const u=await sbUser();
   if(!u){ toast("Sign in first"); return; }
   const c=await cloudCollection(u);
@@ -3998,6 +4059,8 @@ async function cloudPull(){
        this device, so a clash is renamed exactly as an import does. */
     const layer=row.layer||"unsorted", status=row.status||"wip";
     let name=row.name;
+    const baseId=row.kind==="ref"?("ref_"+row.name):("t_"+row.name+"_"+layer+"_"+status);
+    if(opts.keepMine && taken.has(baseId)) continue;
     let id=row.kind==="ref"?("ref_"+name):("t_"+name+"_"+layer+"_"+status), k=2;
     while(taken.has(id)){ name=row.name+"-"+k;
       id=row.kind==="ref"?("ref_"+name):("t_"+name+"_"+layer+"_"+status); k++; }
@@ -4021,7 +4084,7 @@ async function cloudPull(){
   if(newLayers) bits.push(newLayers+" new layer"+(newLayers===1?"":"s"));
   if(failed) bits.push(failed+" could not be read");
   $("cloudnote").textContent=bits.join(", ")+".";
-  toast(bits.join(", "));
+  if(!opts.quiet) toast(bits.join(", "));
 }
 
 
@@ -4055,6 +4118,13 @@ async function wsSwitch(id){
   LAYERS=DEFAULT_LAYERS.slice();
   await renderShelf();
   await cloudRender();
+  if(activeWs){
+    /* Whatever the group already has, before anything else happens - this is
+       the other half of why nothing was shared. Saving went nowhere and
+       opening asked for nothing. */
+    try{ await cloudPull({quiet:true, keepMine:true}); }catch(_){}
+    await renderShelf();
+  }
   toast(activeWs?"Opened the group project":"Back on your page");
 }
 

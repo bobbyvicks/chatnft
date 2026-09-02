@@ -826,6 +826,10 @@ footer .mono{color:var(--ink);}
         <div class="olrow"><label for="olthick">Thickness</label>
           <span class="mono" id="olthicklab" style="margin-left:auto">1 cell</span></div>
         <input id="olthick" type="range" min="0" max="6" step="1" value="1" aria-label="Outline thickness">
+        <div class="olrow"><label for="olcol">Colour</label>
+          <input type="color" id="olcol" value="#000000" aria-label="Outline colour"
+            style="margin-left:auto; width:54px">
+          <button class="mini" id="olcurrent" title="Use the colour you are painting with">match brush</button></div>
         <div class="olrow"><label for="olsnap">Snap to</label>
           <select id="olsnap" aria-label="Snap grid">
             <option value="auto">auto</option><option value="1" selected>1 cell</option>
@@ -2404,7 +2408,15 @@ function startEditor(data,w,h,srcW,srcH,pal,recovered){
   buildPalette(pal.list); buildRecolour(pal.list);
   buildBrushes(); setBrush(brush); selectTool(tool);
   setColor(pal.list.length?hex(pal.list[0].r,pal.list[0].g,pal.list[0].b):'#000000');
+  /* Every image starts with the outline off and the grid guessed. These
+     carried over from the last picture otherwise, so opening something new
+     came with a one-cell outline already promised and a block size chosen for
+     a different image entirely. */
+  $("olthick").value=0;
+  $("olsnap").value="auto";
+  $("olcol").value="#000000";
   fitZoom(); refreshStats();
+  outlinePreview();
   cleanLabel();
   if(recovered) toast('Recovered to '+w+'×'+h+' from '+srcW+'×'+srcH);
 }
@@ -2739,6 +2751,22 @@ let olPending=null, olBusy=false;
 function outlinePreview(){
   const pv=$("olpv"); if(!pv) return;
   const t=+$("olthick").value, B=snapValue();
+  /* Two rules the artist asked for pull against each other here, and the loser
+     is invisible: the outermost ring of a trait is forced black on the way out,
+     so a coloured outline one cell thick is entirely inside that ring and comes
+     out black. Measured: 66 red cells drawn, 0 red cells in the saved file. At
+     two cells only the outer one goes. Rather than quietly ignore the colour,
+     or quietly weaken the black rule, say which is about to happen. */
+  (function(){
+    const note=$("olnote"); if(!note) return;
+    const col=($("olcol").value||"#000000").toLowerCase();
+    const plain="Outside the art, never over it. Snapping squares off the silhouette first, so a ragged crop cannot leave one-cell indents — at the cost of detail finer than a block.";
+    if(t===0 || col==="#000000"){ note.textContent=plain; note.style.color=""; return; }
+    note.style.color="var(--accent)";
+    note.textContent = t===1
+      ? "The outer ring of a trait is always black, and at one cell thick that is the" + " whole outline - it will save as black. Use two cells or more to keep this colour."
+      : "The outer ring of a trait is always black, so the outermost cell of this" + " outline will save as black and the rest will keep this colour.";
+  })();
   $("olthicklab").textContent = t===0 ? "off"
     : (t*B)+" cell"+(t*B===1?"":"s")+(B>1?" ("+t+"×"+B+")":"");
   if(!ctx||t===0||$("app").hidden){ pv.style.display="none"; return; }
@@ -2749,7 +2777,7 @@ function outlinePreview(){
       const plan=outlinePlan(); if(!plan){ pv.style.display="none"; return; }
       pv.width=plan.W; pv.height=plan.H;
       const g=pv.getContext("2d"); g.clearRect(0,0,plan.W,plan.H);
-      const im=g.createImageData(plan.W,plan.H), o=im.data, rgb=hx2(color);
+      const im=g.createImageData(plan.W,plan.H), o=im.data, rgb=hx2($("olcol").value);
       for(let p=0;p<plan.W*plan.H;p++){
         if(plan.ring[p]){ o[p*4]=rgb[0];o[p*4+1]=rgb[1];o[p*4+2]=rgb[2];o[p*4+3]=255; }
         else if(plan.holes&&plan.holes[p]){ const s=plan.hcol[p]*4;
@@ -2768,7 +2796,7 @@ function applyOutline(){
   const plan=outlinePlan();
   if(!plan||(!plan.n&&!plan.hn)){ toast("Nothing to outline"); return; }
   snapshot();
-  const img=ctx.getImageData(0,0,plan.W,plan.H), d=img.data, rgb=hx2(color);
+  const img=ctx.getImageData(0,0,plan.W,plan.H), d=img.data, rgb=hx2($("olcol").value);
   for(let p=0;p<plan.W*plan.H;p++){
     if(plan.ring[p]){ d[p*4]=rgb[0];d[p*4+1]=rgb[1];d[p*4+2]=rgb[2];d[p*4+3]=255; }
     else if(plan.holes&&plan.holes[p]){ const s=plan.hcol[p]*4;
@@ -5184,6 +5212,8 @@ $('basedrop').onclick=()=>{
   el.addEventListener("change",outlinePreview);
 });
 $('oladd').onclick=applyOutline;
+$('olcol').oninput=outlinePreview;
+$('olcurrent').onclick=()=>{ $('olcol').value=color; outlinePreview(); };
 
 $('debg').onclick=()=>{
   if(!ctx) return;

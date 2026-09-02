@@ -93,6 +93,12 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
 .acct svg{width:20px; height:20px; fill:none; stroke:currentColor; stroke-width:1.7;
   stroke-linecap:round; stroke-linejoin:round;}
 .acct[aria-expanded="true"]{border-color:var(--accent); color:var(--accent);}
+/* Two columns, not a flex row: a long description then wraps under itself
+   instead of shoving the key column out of alignment. */
+.kslist{display:grid; grid-template-columns:auto 1fr; gap:9px 14px; align-items:baseline;}
+.kskey{justify-self:start; padding:3px 8px; border-radius:6px; font-size:11.5px;
+  background:var(--panel-2); border:1px solid var(--line); color:var(--ink); white-space:nowrap;}
+.ksdesc{color:var(--muted); font-size:13px; line-height:1.45;}
 .acctpanel{position:fixed; top:62px; right:16px; z-index:15; width:min(430px,92vw);}
 .acctpanel .proj{width:100%; margin:0;}
 .acctpanel .projhead .acts{width:100%; margin-left:0;}
@@ -740,6 +746,18 @@ footer .mono{color:var(--ink);}
 </div>
 
 <!-- ============ editor ============ -->
+<div class="scrim" id="ksscrim" hidden>
+  <div class="card" role="dialog" aria-modal="true" aria-labelledby="kstitle">
+    <h2 id="kstitle">Keyboard shortcuts</h2>
+    <p class="sub">Printed from the same table the editor runs, so this list
+      cannot drift away from what the keys actually do.</p>
+    <div class="kslist" id="kslist"></div>
+    <div class="savebar" style="margin-top:18px">
+      <button class="btn ghost" id="ksclose" style="flex:1">Close</button>
+    </div>
+  </div>
+</div>
+
 <div class="app" id="app" hidden>
   <header>
     <span class="brand"><span class="logo" aria-hidden="true"><i></i><i></i><i></i><i></i></span><h1>ChatNFT</h1></span>
@@ -762,6 +780,7 @@ footer .mono{color:var(--ink);}
     <button class="tool" id="redo" title="Redo (Ctrl+Shift+Z)"><svg viewBox="0 0 24 24"><path d="m15 14 5-5-5-5"/><path d="M20 9H10a6 6 0 0 0 0 12h3"/></svg></button>
     <div class="rule"></div>
     <button class="tool" id="gridbtn" aria-pressed="false" title="Grid (3)"><svg viewBox="0 0 24 24"><path d="M4 9h16M4 15h16M9 4v16M15 4v16"/></svg></button>
+    <button class="tool" id="keysbtn" aria-expanded="false" title="Keyboard shortcuts (?)"><svg viewBox="0 0 24 24"><path d="M3 7h18v10H3z"/><path d="M7 11h.01M11 11h.01M15 11h.01M7 14h10"/></svg><span class="k">?</span></button>
     <button class="tool" id="panbtn" aria-pressed="false" title="Pan (H)"><svg viewBox="0 0 24 24"><path d="M9 11V5.5a1.5 1.5 0 0 1 3 0V11"/><path d="M12 11V4.5a1.5 1.5 0 0 1 3 0V11"/><path d="M15 11V6.5a1.5 1.5 0 0 1 3 0V13a8 8 0 0 1-8 8h-1a7 7 0 0 1-5-3l-2.2-3.1a1.5 1.5 0 0 1 2.4-1.8L6 15V8.5a1.5 1.5 0 0 1 3 0"/></svg><span class="k">H</span></button>
   </nav>
 
@@ -5519,33 +5538,84 @@ $('dlTrim').onclick=()=>{
   },'image/png');
 };
 
+/* One table, two readers: the keydown handler runs it and the help panel
+   prints it. Before this it was a ladder of `if`s and nothing described them,
+   so every binding was a secret. Keeping one source means the panel cannot
+   document a key the editor does not answer to.
+
+   `match` is for the ones a plain key list cannot express - a modifier, a
+   tool that has to be active, a panel that has to be open. First match wins
+   and the handler returns, which is what the old `return`s did. */
+const SHORTCUTS=[
+  {show:'B', desc:'Pencil', keys:['b'], run:()=>selectTool('pencil')},
+  {show:'E', desc:'Eraser', keys:['e'], run:()=>selectTool('eraser')},
+  {show:'G', desc:'Fill', keys:['g'], run:()=>selectTool('fill')},
+  {show:'I', desc:'Eyedropper', keys:['i'], run:()=>selectTool('pick')},
+  {show:'M', desc:'Move the art', keys:['m'], run:()=>selectTool('move')},
+  {show:'H', desc:'Pan', keys:['h'], run:()=>selectTool(panMode?'pencil':'pan')},
+  {show:'Space', desc:'Hold to drag the canvas around',
+    match:e=>e.code==='Space', prevent:true,
+    run:()=>{ if(!spaceHeld){ spaceHeld=true; stage.style.cursor='grab'; } }},
+  {show:'3', desc:'Grid on or off', keys:['3'], run:()=>$('gridbtn').click()},
+  {show:'[  ]', desc:'Brush smaller / bigger', keys:['[',']'],
+    run:k=>stepBrush(k==='['?-1:1)},
+  {show:'+  \u2212', desc:'Zoom in / out', keys:['+','=','-','_'], prevent:true,
+    run:k=>setZoom(zoom+((k==='+'||k==='=')?1:-1))},
+  {show:'0', desc:'Fit the art to the window', keys:['0'], prevent:true, run:()=>fitZoom()},
+  {show:'Arrows', desc:'Nudge the art one pixel, while Move is the tool',
+    match:e=>tool==='move'&&e.key.indexOf('Arrow')===0, prevent:true,
+    run:(k,e)=>nudge(e.key==='ArrowLeft'?-1:e.key==='ArrowRight'?1:0,
+                     e.key==='ArrowUp'?-1:e.key==='ArrowDown'?1:0)},
+  {show:'Ctrl+Z', desc:'Undo', prevent:true,
+    match:e=>(e.ctrlKey||e.metaKey)&&!e.shiftKey&&e.key.toLowerCase()==='z',
+    run:()=>$('undo').click()},
+  {show:'Ctrl+Shift+Z', desc:'Redo', prevent:true,
+    match:e=>(e.ctrlKey||e.metaKey)&&e.shiftKey&&e.key.toLowerCase()==='z',
+    run:()=>$('redo').click()},
+  {show:'Backspace', desc:'Close the editor',
+    match:e=>e.key==='Backspace', prevent:true, run:()=>closeEditor()},
+  {show:'?', desc:'Show this list', match:e=>e.key==='?', prevent:true,
+    run:()=>keysPanel(true)},
+  {show:'Esc', desc:'Close this list',
+    match:e=>e.key==='Escape'&&!$('ksscrim').hidden, prevent:true,
+    run:()=>keysPanel(false)},
+];
+
+function renderKeys(){
+  const box=$('kslist'); box.textContent='';
+  for(const s of SHORTCUTS){
+    const k=document.createElement('span'); k.className='kskey mono'; k.textContent=s.show;
+    const d=document.createElement('span'); d.className='ksdesc'; d.textContent=s.desc;
+    box.append(k,d);
+  }
+}
+function keysPanel(on){
+  if(on) renderKeys();
+  $('ksscrim').hidden=!on;
+  $('keysbtn').setAttribute('aria-expanded',String(!!on));
+  if(on) $('ksclose').focus();
+}
+$('keysbtn').onclick=()=>keysPanel($('ksscrim').hidden);
+$('ksclose').onclick=()=>keysPanel(false);
+/* Clicking the dark surround closes it; clicking the card must not. */
+$('ksscrim').onclick=e=>{ if(e.target===$('ksscrim')) keysPanel(false); };
+
 addEventListener('keydown',e=>{
   if($('app').hidden) return;
   if(/^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
   if(e.target.isContentEditable) return;
-  /* Before anything else, because the browser acts on this one itself. */
-  if(e.key==="Backspace"){ e.preventDefault(); closeEditor(); return; }
-  if(e.code==='Space'){ e.preventDefault(); if(!spaceHeld){spaceHeld=true; stage.style.cursor='grab';} return; }
   const k=e.key.toLowerCase();
-  if((e.ctrlKey||e.metaKey)&&k==='z'){ e.preventDefault(); $(e.shiftKey?'redo':'undo').click(); return; }
-  if(k==='b') selectTool('pencil');
-  if(k==='e') selectTool('eraser');
-  if(k==='g') selectTool('fill');
-  if(k==='i') selectTool('pick');
-  if(k==='m') selectTool('move');
-  if(tool==='move'&&e.key.indexOf('Arrow')===0){
-    e.preventDefault();
-    nudge(e.key==='ArrowLeft'?-1:e.key==='ArrowRight'?1:0,
-          e.key==='ArrowUp'?-1:e.key==='ArrowDown'?1:0);
+  for(const s of SHORTCUTS){
+    /* A bare-letter binding must not fire on Ctrl+B - that is the browser's
+       bookmark, not our pencil. Only the entries that ask for a modifier in
+       their own `match` are allowed to see one. */
+    const hit=s.match ? s.match(e)
+                      : (!e.ctrlKey&&!e.metaKey&&!e.altKey&&s.keys.indexOf(k)>=0);
+    if(!hit) continue;
+    if(s.prevent) e.preventDefault();
+    s.run(k,e);
     return;
   }
-  if(k==='h') selectTool(panMode?'pencil':'pan');
-  if(k==='3') $('gridbtn').click();
-  if(e.key==='[') stepBrush(-1);
-  if(e.key===']') stepBrush(1);
-  if(k==='+'||k==='='){ e.preventDefault(); setZoom(zoom+1); }
-  if(k==='-'||k==='_'){ e.preventDefault(); setZoom(zoom-1); }
-  if(k==='0'){ e.preventDefault(); fitZoom(); }
 });
 addEventListener('keyup',e=>{ if(e.code==='Space'){ spaceHeld=false; if(!pan) stage.style.cursor=panMode?'grab':''; } });
 addEventListener('resize',()=>{ if(!$('app').hidden&&zoom<=1) fitZoom(); });

@@ -3402,7 +3402,7 @@ async function bulkImport(files){
   const pngs=all.filter(f=>/\.png$/i.test(f.name));
   note.hidden=false;
   if(!pngs.length){
-    note.textContent="No PNGs in that folder"+(all.length?" ("+all.length+" other files ignored)":"")+".";
+    note.textContent="No PNGs in that folder"+(all.length?" ("+all.length+" other file"+(all.length===1?"":"s")+" ignored)":"")+".";
     return;
   }
   const MAX=1200;
@@ -3638,7 +3638,10 @@ function buildLayerPanel(items){
   if(!items.length){ sec.hidden=true; return; }
   sec.hidden=false;
   const traits=items.filter(i=>i.kind==="trait");
-  $("layercount").textContent=LAYERS.length+" layers, front to back";
+  /* Everything else here gets its plural right - traits moved, files
+     imported, items uploaded - and this one did not. Deleting layers down to
+     one is reachable, and it read "1 layers, front to back". */
+  $("layercount").textContent=LAYERS.length+(LAYERS.length===1?" layer":" layers")+", front to back";
   const body=$("layerbody");
   body.innerHTML="";
   /* Shown reversed: the array paints first-to-last, and people read a stack

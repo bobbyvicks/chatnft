@@ -2948,7 +2948,11 @@ function contentBox(){
 function fitZoom(){
   const st=$('stage'), pad=32;
   const box=contentBox();
-  const useBox = box && (box.w*box.h) < (art.width*art.height)*0.5;
+  /* Fitting the CONTENT rather than the canvas is right for a lone trait on a
+     mostly empty canvas. It is wrong the moment there is a base: every trait
+     is under half its canvas, so shrinking one made this zoom in on the trait
+     and push the character - the thing being compared against - off screen. */
+  const useBox = box && !baseBitmap && (box.w*box.h) < (art.width*art.height)*0.5;
   const w=useBox?box.w:art.width, h=useBox?box.h:art.height;
   /* The exact ratio, floored to two decimals rather than to a whole number.
      Flooring to a WHOLE number is what produced the 1x clamp: for anything
@@ -2986,6 +2990,9 @@ function restoreImage(im){
        time. Redrawn here, which is the one place every route that changes the
        canvas size passes through, so no route can forget. */
     drawBase();
+    /* olpv is resized just above, which CLEARS it. The preview was left blank
+       after any size change until the next thing happened to redraw it. */
+    outlinePreview();
   }
   ctx.putImageData(im,0,0);
   applyZoom();
@@ -3037,8 +3044,13 @@ function scaleArt(src,W,H,nw,nh){
 }
 
 /* Change the canvas without touching the art: pad with empty space or crop.
-   Anchored at the top left, NOT centred - a trait is a full-canvas overlay and
-   centring it would move it relative to the character it has to line up with. */
+
+   This note used to read "Anchored at the top left, NOT centred - a trait is
+   a full-canvas overlay and centring it would move it relative to the
+   character it has to line up with." It is CENTRED now, and the reasoning
+   was backwards: padding from the corner is what moves the art relative to
+   the character, because the character stays in the middle of the footprint
+   and the art does not. The full argument is inside the function. */
 function recanvas(src,W,H,nw,nh){
   const out=new Uint8ClampedArray(nw*nh*4);
   /* CENTRED, where this used to anchor at the top left.
@@ -3191,20 +3203,29 @@ function applyResize(){
   if(!ctx) return;
   const W=art.width, H=art.height;
   const snap=snapOn();
+  /* Read before the snapping, not after: which rule applies depends on it. */
+  const mode=$("rsmode").value;
   /* Snapped before clamping, so a snap can never push a size out of range. */
   let nw=Math.max(1,Math.min(4096,parseInt($("rsw").value,10)||0));
-  if(snap) nw=Math.min(4096,snapToGrid(nw));
+  if(snap) nw=Math.min(4096,snapFor(mode,nw));
   let nh=Math.max(1,Math.min(4096,parseInt($("rsh").value,10)||0));
   /* With keep-shape on the height follows the width and is left alone, or
      snapping both would fight the aspect and win. */
-  if(snap && !pressed("rslock")) nh=Math.min(4096,snapToGrid(nh));
+  if(snap && !pressed("rslock")) nh=Math.min(4096,snapFor(mode,nh));
   /* From the SNAPPED width, not from what was typed. The box was filled while
      typing, so it holds the height for the pre-snap width - 4:3 art at grid 160,
      type 1254, and the width snaps to 1280 while the height stays at 941: on the
      grid in one direction, off it in the other, and not even the right shape. */
   else if(snap && pressed("rslock")) nh=Math.max(1,Math.round(nw*H/W));
-  if(nw===W && nh===H){ toast("Already "+W+" by "+H); return; }
-  const mode=$("rsmode").value;
+  if(nw===W && nh===H){
+    /* In "inside" mode the canvas is not what was asked about, so answering
+       with the canvas size reads as a refusal of something the user did not
+       request. Scaling the art to the canvas size really is a no-op - the art
+       already fills exactly that - so say what to type instead. */
+    toast(mode==="inside" ? "That is the canvas size - type smaller to shrink the trait"
+                          : "Already "+W+" by "+H);
+    return;
+  }
   const src=ctx.getImageData(0,0,W,H).data;
   snapshot();
   const r=resizeOp(mode,src,W,H,nw,nh);
@@ -4201,6 +4222,26 @@ function buildResizePresets(){
 }
 
 /* Rounded to the nearest whole multiple, never to zero. */
+/* Snapping the ART inside a fixed canvas is a different question from
+   snapping the CANVAS, and answering it with the canvas rule broke the
+   "inside" mode in the configuration it ships in.
+
+   The canvas rule is snapToGrid: whole multiples of the collection cell
+   count, because a trait canvas is 1x, 2x or 3x that and nothing between.
+   Applied to the art it quantises to 160px steps and floors at 160, so on a
+   160 canvas every shrink snapped back to 160 - "Already 160 by 160" - and
+   on a 120 canvas asking for 96 snapped UP to 160 and the trait was blown up
+   and cropped. Measured, both of them.
+
+   The art rule is whole CELLS. gridBlock is the measured pixels-per-cell, so
+   where a cell is one pixel this allows every whole size, correctly: there
+   is no finer grid to land on. */
+function snapArt(v){
+  const g=Math.max(1,Math.round(gridBlock));
+  return Math.max(g, Math.round(v/g)*g);
+}
+function snapFor(mode,v){ return mode==="inside" ? snapArt(v) : snapToGrid(v); }
+
 function snapToGrid(v){
   const g=Math.max(1,projectGrid);
   return Math.max(g, Math.round(v/g)*g);
@@ -6197,8 +6238,9 @@ $('filltol').addEventListener('input',()=>{
     /* Snapped in CANVAS pixels, not screen pixels, or the step would change
        with the zoom. */
     if(snapOn()){
-      w=Math.max(1,snapToGrid(w/zoom))*zoom;
-      h=Math.max(1,snapToGrid(h/zoom))*zoom;
+      const sm=$("rsmode").value;
+      w=Math.max(1,snapFor(sm,w/zoom))*zoom;
+      h=Math.max(1,snapFor(sm,h/zoom))*zoom;
     }
     drag.w=Math.max(4,w); drag.h=Math.max(4,h);
     live(drag.w,drag.h);
@@ -6309,7 +6351,15 @@ $('basefile').onchange=async e=>{
 };
 $('basedrop').onclick=()=>{
   if(!baseBitmap){ toast('No base to remove'); return; }
-  baseBitmap=null; basePin=null; $('base').style.display='none'; $('basepick').value=''; toast('Base removed');
+  baseBitmap=null; basePin=null; $('base').style.display='none'; $('basepick').value='';
+  /* The outline is a way of SHOWING a base. With the base gone it has nothing
+     to describe, and leaving it on left the button reading "Show the whole
+     base" with no base to show. */
+  baseOutline=false;
+  const ob=$('baseoutline');
+  ob.setAttribute('aria-pressed','false'); ob.classList.remove('on');
+  ob.textContent='Show base outline';
+  toast('Base removed');
 };
 
 ["olthick","olsnap"].forEach(function(id){

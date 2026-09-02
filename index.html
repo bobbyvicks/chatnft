@@ -2900,7 +2900,13 @@ function applyZoom(){
   art.style.width=(art.width*zoom)+'px'; art.style.height=(art.height*zoom)+'px';
   const opv=$('olpv');
   if(opv.style.display!=='none'){ opv.style.width=(art.width*zoom)+'px'; opv.style.height=(art.height*zoom)+'px'; }
-  if(baseBitmap){ const bc=$('base'); bc.style.width=(art.width*zoom)+'px'; bc.style.height=(art.height*zoom)+'px'; }
+  /* The size AND the offset, both from baseBox. Rewriting the width here
+     against a left set by drawBase is what throws the base off centre - and
+     off centre is exactly what breaks frameTurn, which cancels a rotation
+     only while the two boxes are concentric. */
+  if(baseBitmap){ const bb=baseBox(), bc=$('base');
+    bc.style.width=(bb.bw*zoom)+'px'; bc.style.height=(bb.bh*zoom)+'px';
+    bc.style.left=bb.cssL+'px'; bc.style.top=bb.cssT+'px'; }
   /* The grid marks the CELLS the art is drawn on, not the canvas pixels. It
      used to repeat every zoom px - one line per canvas pixel - so at 1x it was
      a line every pixel, which is a grey film, not a grid. gridBlock is the
@@ -3064,7 +3070,12 @@ function recanvas(src,W,H,nw,nh){
 
      The offsets go negative when the canvas SHRINKS, which is the crop
      case, and the two guards below handle it without a second branch. */
-  const ox=Math.round((nw-W)/2), oy=Math.round((nh-H)/2);
+  /* floor(new/2)-floor(old/2), NOT round((new-old)/2). Math.round(0.5) is 1
+     and Math.round(-0.5) is -0, so an odd difference shifted one way and not
+     back: a marker at (7,7) of an 8x8 taken 8 -> 9 -> 8 moved to (8,8) and
+     then off the edge entirely. This form telescopes to zero over a round
+     trip. */
+  const ox=Math.floor(nw/2)-Math.floor(W/2), oy=Math.floor(nh/2)-Math.floor(H/2);
   for(let y=0;y<nh;y++){
     const sy=y-oy; if(sy<0||sy>=H) continue;
     for(let x=0;x<nw;x++){
@@ -3609,11 +3620,35 @@ function frameTurn(deg){
   $("base").style.transform  = deg ? "rotate("+(-deg)+"deg)" : "";
 }
 
+/* The base box in canvas pixels, and where it sits.
+
+   Sized to whichever is larger, the trait canvas or the pinned character, so
+   a character bigger than the canvas is still visible AROUND it instead of
+   being cropped by it. cssL and cssT push it back out.
+
+   The offsets use floor(box/2)-floor(inner/2) rather than round((box-inner)/2)
+   because that form telescopes: over any chain of size changes the offsets
+   sum to floor(last/2)-floor(first/2), so where the base lands does not
+   depend on the path taken to get there. recanvas uses it for the same
+   reason, and there it is the difference between a round trip that keeps
+   every pixel and one that quietly drops a row. */
+function baseBox(){
+  const pw = basePin ? basePin.w : art.width;
+  const ph = basePin ? basePin.h : art.height;
+  const bw = Math.max(art.width, pw), bh = Math.max(art.height, ph);
+  return { pw:pw, ph:ph, bw:bw, bh:bh,
+           ox: Math.floor(bw/2)-Math.floor(pw/2),
+           oy: Math.floor(bh/2)-Math.floor(ph/2),
+           cssL: -(bw-art.width)/2*zoom,
+           cssT: -(bh-art.height)/2*zoom };
+}
+
 function drawBase(){
   /* set by the Show base outline button */
   const bc=$("base");
   if(!baseBitmap||!ctx){ bc.style.display="none"; return; }
-  bc.width=art.width; bc.height=art.height;
+  const bb=baseBox();
+  bc.width=bb.bw; bc.height=bb.bh;
   const g=bc.getContext("2d");
   g.imageSmoothingEnabled=false;
   g.clearRect(0,0,bc.width,bc.height);
@@ -3627,10 +3662,9 @@ function drawBase(){
      measured at a ratio of 1.0000 before and after doubling. The footprint is
      still matched, once, when the base is attached; after that the character
      holds still and the trait is what moves. */
-  const pw = basePin ? basePin.w : bc.width;
-  const ph = basePin ? basePin.h : bc.height;
-  g.drawImage(baseBitmap, Math.round((bc.width-pw)/2), Math.round((bc.height-ph)/2), pw, ph);
-  bc.style.width=(art.width*zoom)+"px"; bc.style.height=(art.height*zoom)+"px";
+  g.drawImage(baseBitmap, bb.ox, bb.oy, bb.pw, bb.ph);
+  bc.style.width=(bb.bw*zoom)+"px"; bc.style.height=(bb.bh*zoom)+"px";
+  bc.style.left=bb.cssL+"px"; bc.style.top=bb.cssT+"px";
   if(baseOutline){
     /* The base is a whole character, and behind a small trait most of it is
        flat skin covering the very thing being worked on. The linework alone

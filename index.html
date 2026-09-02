@@ -918,6 +918,7 @@ footer .mono{color:var(--ink);}
 </div>
 <div class="toast" id="toast"></div>
 
+<script src="./browser-environment.js"></script>
 <script src="./pixel-agent-core.js"></script>
 <script>
 "use strict";
@@ -4009,8 +4010,8 @@ async function generateVivid(){
     const draft=await decodePngDataUrl(payload.pngDataUrl);
     if(draft.width!==1024||draft.height!==1024) throw new Error('ComfyUI must return a 1024×1024 draft.');
     const normalized=vividCore.recoverToGrid(draft.data,draft.width,draft.height,grid);
-    const repaired=vividCore.repair(normalized.data,grid,grid,{grid});
-    const violations=vividCore.verify(repaired.data,grid,grid,{grid});
+    const repaired=vividCore.finalizeCreative(normalized.data,recovered.data,grid,grid,{grid});
+    const violations=vividCore.verify(repaired.data,grid,grid,{grid,alphaMask:repaired.alphaMask});
     if(violations.length) throw new Error(violations.join('; '));
     if(!vividRequestCurrent(request)) return;
     const next={data:repaired.data,size:grid,colors:repaired.colors,
@@ -4244,11 +4245,12 @@ async function sbUser(){
 }
 
 async function cloudRender(){
-  const u=await sbUser();
+  const localOnly=ChatNftEnvironment.isLoopbackHost(location.hostname);
+  const u=localOnly ? null : await sbUser();
   const inn=!!(u&&u.id);
-  $("cloudwho").textContent = inn ? (displayName(u)||"signed in") : "not signed in";
+  $("cloudwho").textContent = localOnly ? "local only" : (inn ? (displayName(u)||"signed in") : "not signed in");
   $("cloudpush").hidden=!inn; $("cloudpull").hidden=!inn; $("cloudout").hidden=!inn;
-  gateShow(!inn);
+  gateShow(ChatNftEnvironment.requiresCloudSignIn(location.hostname,u));
   if(inn) joinIfPending();
   /* Inviting is a GROUP action. On your own page there is nothing to invite
      anyone to - and until now pressing it there minted a link into the place

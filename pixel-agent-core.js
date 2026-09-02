@@ -47,6 +47,16 @@
       return { data, width, height, colors: usedColors(data, palette) };
     }
 
+    function finalizeCreative(input, source, width, height, options = {}) {
+      const alphaMask = repair(source, width, height, options).data;
+      const masked = new Uint8ClampedArray(input);
+      for (let offset = 0; offset < masked.length; offset += 4) {
+        if (alphaMask[offset + 3] === 0) masked.set([0, 0, 0, 0], offset);
+        else masked[offset + 3] = 255;
+      }
+      return { ...repair(masked, width, height, options), alphaMask };
+    }
+
     return Object.freeze({
       resizeNearest,
       recoverToGrid,
@@ -56,6 +66,7 @@
       enforceExteriorOutline,
       removeExteriorSpecks,
       repair,
+      finalizeCreative,
       verify: (data, width, height, options) => verify(data, width, height, options, config, palette),
       usedColors: (data) => usedColors(data, palette),
       renderSwatch: (colors, width, height) => renderSwatch(colors, width, height, palette),
@@ -228,14 +239,24 @@
     const grid = options && options.grid === undefined ? config.grid.default : options.grid;
     if (!config.grid.allowed.includes(grid) || grid !== width || grid !== height) errors.push("Unsupported grid: use an approved square working grid");
     const paletteSet = new Set(palette);
+    const alphaMask = options && options.alphaMask;
+    if (alphaMask && alphaMask.length !== data.length) errors.push("Invalid source alpha mask");
     const colors = new Set();
     let alphaReported = false;
+    let silhouetteReported = false;
     let paletteReported = false;
     for (let offset = 0; offset < data.length; offset += 4) {
       const alpha = data[offset + 3];
       if (!alphaReported && alpha !== 0 && alpha !== 255) {
         errors.push(`Non-binary alpha at pixel ${offset / 4}`);
         alphaReported = true;
+      }
+      if (!silhouetteReported && alphaMask && alphaMask.length === data.length) {
+        const expectedAlpha = alphaMask[offset + 3] < config.alpha.threshold ? 0 : 255;
+        if (alpha !== expectedAlpha) {
+          errors.push(`Source silhouette mismatch at pixel ${offset / 4}`);
+          silhouetteReported = true;
+        }
       }
       if (alpha === 0) continue;
       const hex = `#${data[offset].toString(16).padStart(2, "0")}${data[offset + 1].toString(16).padStart(2, "0")}${data[offset + 2].toString(16).padStart(2, "0")}`.toUpperCase();

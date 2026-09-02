@@ -23,7 +23,7 @@ chatnfts, chatnft-app, chatnftapp, getchatnft, chatnft-io.)
 - **Keeps a project.** Traits are saved per layer in IndexedDB and can be
   exported together as a zip with the layer folders intact.
 
-Everything runs in the browser. No image is uploaded anywhere.
+Core image editing runs in the browser. The optional Vivid creative revision sends the image only to ComfyUI on your own machine, not to a cloud image model.
 
 ## Local Vivid Pixel Agent
 

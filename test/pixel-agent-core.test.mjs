@@ -62,6 +62,42 @@ test("keeps the bucket hat aligned and removes exterior non-black artifacts", as
   );
 });
 
+test("rejects a generated result whose alpha differs from the repaired source silhouette", async () => {
+  const sourcePng = PNG.sync.read(await readFile(new URL("./fixtures/neet-bucket-hat.png", import.meta.url)));
+  const sourceGrid = normalizedGrid(sourcePng, 128);
+  const faithful = core.repair(sourceGrid.data, 128, 128, { grid: 128 });
+  const opaqueDraft = forceOpaque(sourceGrid.data);
+  const naive = core.repair(opaqueDraft, 128, 128, { grid: 128 });
+
+  assert.deepEqual(
+    [...core.verify(naive.data, 128, 128, { grid: 128, alphaMask: faithful.data })],
+    ["Source silhouette mismatch at pixel 0"],
+  );
+});
+
+test("finalizes an opaque creative draft with the repaired bucket-hat silhouette", async () => {
+  const sourcePng = PNG.sync.read(await readFile(new URL("./fixtures/neet-bucket-hat.png", import.meta.url)));
+  const sourceGrid = normalizedGrid(sourcePng, 128);
+  const faithful = core.repair(sourceGrid.data, 128, 128, { grid: 128 });
+  const opaqueDraft = forceOpaque(sourceGrid.data);
+
+  assert.equal(typeof core.finalizeCreative, "function", "creative finalization API is missing");
+  const finalized = core.finalizeCreative(opaqueDraft, sourceGrid.data, 128, 128, { grid: 128 });
+
+  assert.equal(alphaAt(finalized.data, 87, 19, 128), 0, "outside white cell remains");
+  assert.equal(
+    whiteMask(finalized.data, 128, 64, 20, 84, 41),
+    whiteMask(faithful.data, 128, 64, 20, 84, 41),
+    "interior NEET white detail changed",
+  );
+  assert.deepEqual(alphaMask(finalized.data), alphaMask(faithful.data), "source silhouette changed");
+  assert.deepEqual(opaqueBounds(finalized.data, 128, 128), opaqueBounds(faithful.data, 128, 128));
+  assert.deepEqual(
+    [...core.verify(finalized.data, 128, 128, { grid: 128, alphaMask: faithful.data })],
+    [],
+  );
+});
+
 function setPixel(data, width, x, y, [r, g, b, a = 255]) {
   data.set([r, g, b, a], (y * width + x) * 4);
 }
@@ -97,6 +133,23 @@ function oneOpaquePixel(width, height, x, y) {
   const data = new Uint8ClampedArray(width * height * 4);
   setPixel(data, width, x, y, [255, 255, 255, 255]);
   return data;
+}
+
+function normalizedGrid(png, grid) {
+  const canvas = core.resizeNearest(png.data, png.width, png.height, 1024, 1024);
+  return core.recoverToGrid(canvas.data, canvas.width, canvas.height, grid);
+}
+
+function forceOpaque(data) {
+  const copy = new Uint8ClampedArray(data);
+  for (let offset = 3; offset < copy.length; offset += 4) copy[offset] = 255;
+  return copy;
+}
+
+function alphaMask(data) {
+  const mask = [];
+  for (let offset = 3; offset < data.length; offset += 4) mask.push(data[offset]);
+  return mask;
 }
 
 function pixelHex(data, x, y, width) {

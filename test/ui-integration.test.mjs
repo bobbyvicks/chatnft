@@ -33,3 +33,9 @@ test("invalidates stale Vivid generations before they can commit UI state", asyn
   assert.match(html, /mode:'vivid',owner:request/);
   assert.match(html, /\{vivid:pxData\.mode==='vivid',owner:pxData\.owner\}/);
 });
+
+test("finalizes local generations against the normalized source silhouette", async () => {
+  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  assert.match(html, /vividCore\.finalizeCreative\(normalized\.data,recovered\.data,grid,grid,\{grid\}\)/);
+  assert.match(html, /vividCore\.verify\(repaired\.data,grid,grid,\{grid,alphaMask:repaired\.alphaMask\}\)/);
+});

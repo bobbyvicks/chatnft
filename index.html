@@ -1047,6 +1047,12 @@ let gridBlock=1;      /* measured block size of the open image, in canvas cells 
    editor does not show. */
 let openRec=null;
 let baseBitmap=null;  /* the image drawn behind the art, never part of it */
+/* The footprint the base occupies, in canvas pixels, pinned when the base is
+   attached. The base is the character the trait has to fit: it is the fixed
+   thing and the trait is what moves, so this does NOT change when the trait
+   is resized. Null means "fill the canvas", which is what happens before a
+   base is attached and is also the old behaviour. */
+let basePin=null;
 let moveBuf=null, moveFrom=null, moveDelta={x:0,y:0};
 /* The colours Recolour will replace, as upper-case hex strings. A set rather
    than one value: merging several shades into one is the common job - a trait
@@ -2836,6 +2842,9 @@ function startEditor(data,w,h,srcW,srcH,pal,recovered){
   gridBlock=1;   /* callers that measured a block size set it after this */
   openRec=null;  /* set by callers that opened a saved record, same as above */
   const opv=$('olpv'); opv.width=w; opv.height=h; opv.style.display='none';
+  /* A different image is a different footprint, so a base carried over from
+     the last one is re-matched to this canvas rather than kept at the old size. */
+  if(baseBitmap) basePin={w:w, h:h};
   drawBase(); fillBasePicker();
   ctx=art.getContext('2d',{willReadFrequently:true});
   const id=new ImageData(new Uint8ClampedArray(data),w,h);
@@ -2969,6 +2978,11 @@ function restoreImage(im){
     N=im.width;
     const opv=$("olpv"); opv.width=im.width; opv.height=im.height;
     ctx=art.getContext("2d",{willReadFrequently:true});
+    /* The base bitmap was never redrawn after a resize - only CSS-stretched -
+       so it was left at the previous canvas resolution and got blurrier every
+       time. Redrawn here, which is the one place every route that changes the
+       canvas size passes through, so no route can forget. */
+    drawBase();
   }
   ctx.putImageData(im,0,0);
   applyZoom();
@@ -3024,10 +3038,25 @@ function scaleArt(src,W,H,nw,nh){
    centring it would move it relative to the character it has to line up with. */
 function recanvas(src,W,H,nw,nh){
   const out=new Uint8ClampedArray(nw*nh*4);
-  const cw=Math.min(W,nw), ch=Math.min(H,nh);
-  for(let y=0;y<ch;y++) for(let x=0;x<cw;x++){
-    const s=(y*W+x)*4, d=(y*nw+x)*4;
-    out[d]=src[s]; out[d+1]=src[s+1]; out[d+2]=src[s+2]; out[d+3]=src[s+3];
+  /* CENTRED, where this used to anchor at the top left.
+
+     Padding a trait canvas from the corner leaves the art in a quarter of
+     the new canvas, and a trait that does not sit where the character
+     expects it is ruined whatever size it is. Centring is also what keeps
+     this agreeing with the pinned base and with the other two operations -
+     a scale keeps every pixel at the same fraction of the canvas, and a
+     turn pads around the middle. One rule for all three.
+
+     The offsets go negative when the canvas SHRINKS, which is the crop
+     case, and the two guards below handle it without a second branch. */
+  const ox=Math.round((nw-W)/2), oy=Math.round((nh-H)/2);
+  for(let y=0;y<nh;y++){
+    const sy=y-oy; if(sy<0||sy>=H) continue;
+    for(let x=0;x<nw;x++){
+      const sx=x-ox; if(sx<0||sx>=W) continue;
+      const s=(sy*W+sx)*4, d=(y*nw+x)*4;
+      out[d]=src[s]; out[d+1]=src[s+1]; out[d+2]=src[s+2]; out[d+3]=src[s+3];
+    }
   }
   return out;
 }
@@ -3518,6 +3547,18 @@ function applyOutline(){
 
 /* ================= base layer ==================================== */
 let baseOutline=false;
+/* Turning the trait must not turn the character.
+
+   #base is a child of #frame, so a rotation set on the frame reaches it. The
+   inverse on the base cancels it exactly, because the two share a centre -
+   the base canvas is always the full size of the art canvas, which is what
+   applyZoom keeps true. Measured: with the frame at 30 degrees the base
+   bounding box is 1871 without this and 1370 with it, against 1370 at rest. */
+function frameTurn(deg){
+  $("frame").style.transform = deg ? "rotate("+deg+"deg)" : "";
+  $("base").style.transform  = deg ? "rotate("+(-deg)+"deg)" : "";
+}
+
 function drawBase(){
   /* set by the Show base outline button */
   const bc=$("base");
@@ -3526,9 +3567,19 @@ function drawBase(){
   const g=bc.getContext("2d");
   g.imageSmoothingEnabled=false;
   g.clearRect(0,0,bc.width,bc.height);
-  /* Scaled to the canvas, not to its own size: a 1254px character behind a
-     160px trait has to land on the same footprint or it proves nothing. */
-  g.drawImage(baseBitmap,0,0,bc.width,bc.height);
+  /* Scaled to the PINNED FOOTPRINT, centred.
+
+     It used to read: "Scaled to the canvas, not to its own size: a 1254px
+     character behind a 160px trait has to land on the same footprint or it
+     proves nothing." That is right about the FIRST view and wrong about every
+     one after it. Scaled to the canvas, the base grows and shrinks with the
+     trait, so resizing the trait cannot change how it sits on the character -
+     measured at a ratio of 1.0000 before and after doubling. The footprint is
+     still matched, once, when the base is attached; after that the character
+     holds still and the trait is what moves. */
+  const pw = basePin ? basePin.w : bc.width;
+  const ph = basePin ? basePin.h : bc.height;
+  g.drawImage(baseBitmap, Math.round((bc.width-pw)/2), Math.round((bc.height-ph)/2), pw, ph);
   bc.style.width=(art.width*zoom)+"px"; bc.style.height=(art.height*zoom)+"px";
   if(baseOutline){
     /* The base is a whole character, and behind a small trait most of it is
@@ -3551,7 +3602,11 @@ function drawBase(){
   bc.style.display="block";
 }
 async function setBaseFromBlob(b){
-  try{ baseBitmap=await createImageBitmap(b); drawBase(); toast("Base added"); }
+  try{ baseBitmap=await createImageBitmap(b);
+    /* Matched to the canvas as it is NOW. Whatever the trait is resized to
+       afterwards, the character stays this size. */
+    basePin={w:art.width, h:art.height};
+    drawBase(); toast("Base added"); }
   catch(_){ toast("Could not read that image"); }
 }
 async function fillBasePicker(){
@@ -6070,7 +6125,10 @@ $('filltol').addEventListener('input',()=>{
   let drag=null;
   const live=(w,h)=>{ art.style.width=w+"px"; art.style.height=h+"px";
     const opv=$("olpv"); if(opv.style.display!=="none"){ opv.style.width=w+"px"; opv.style.height=h+"px"; }
-    if(baseBitmap){ const bc=$("base"); bc.style.width=w+"px"; bc.style.height=h+"px"; } };
+    /* The base deliberately does NOT follow. It used to be resized here with
+       the art, which is why dragging a corner showed nothing: both grew
+       together and the trait never changed size against the character. */
+  };
   box.addEventListener("pointerdown",ev=>{
     const h=ev.target.closest(".th"); if(!h||!ctx) return;
     ev.preventDefault(); ev.stopPropagation();
@@ -6090,7 +6148,7 @@ $('filltol').addEventListener('input',()=>{
       const raw=((a%360)+360)%360;
       drag.deg = snapOn() ? (Math.round(raw/15)*15)%360 : raw;
 
-      $("frame").style.transform="rotate("+drag.deg+"deg)";
+      frameTurn(drag.deg);
       $("tang").textContent=drag.deg.toFixed(1)+String.fromCharCode(176);
       return;
     }
@@ -6121,7 +6179,7 @@ $('filltol').addEventListener('input',()=>{
     const d=drag; drag=null;
     $("tang").style.display="none";
     if(d.type==="rot"){
-      $("frame").style.transform="";
+      frameTurn(0);
       rotateFree(d.deg);
       return;
     }
@@ -6132,7 +6190,7 @@ $('filltol').addEventListener('input',()=>{
   };
   box.addEventListener("pointerup",finish);
   box.addEventListener("pointercancel",()=>{ if(drag){ drag=null; $("tang").style.display="none";
-    $("frame").style.transform=""; applyZoom(); } });
+    frameTurn(0); applyZoom(); } });
 })();
 $('rssnap').onclick=()=>toggle('rssnap');
 $('rsgo').onclick=applyResize;
@@ -6217,7 +6275,7 @@ $('basefile').onchange=async e=>{
 };
 $('basedrop').onclick=()=>{
   if(!baseBitmap){ toast('No base to remove'); return; }
-  baseBitmap=null; $('base').style.display='none'; $('basepick').value=''; toast('Base removed');
+  baseBitmap=null; basePin=null; $('base').style.display='none'; $('basepick').value=''; toast('Base removed');
 };
 
 ["olthick","olsnap"].forEach(function(id){

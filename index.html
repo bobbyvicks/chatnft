@@ -162,7 +162,13 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
 .pvtab{flex:1; padding:5px 8px; border-radius:7px; font-size:11.5px;
   background:var(--panel-2); border:1px solid var(--line); color:var(--muted);}
 .pvtab[aria-pressed="true"]{background:var(--accent-soft); border-color:var(--accent); color:var(--accent);}
-.preview canvas{width:220px; height:220px; flex:none; border-radius:9px; border:1px solid var(--line);
+/* A fixed 220 box so the panel does not jump about, with object-fit letterboxing
+   the bitmap inside it. It was width:220px;height:220px with no object-fit, which
+   stretched a wide trait into a square - and this preview is the first look anyone
+   gets at an extraction, so it is the worst place to lie about shape. A small trait
+   still scales up to fill the box, which plain max-width would have lost. */
+.preview canvas{width:220px; height:220px; object-fit:contain;
+  flex:none; border-radius:9px; border:1px solid var(--line);
   image-rendering:pixelated; background:
     linear-gradient(45deg,#232029 25%,transparent 25%,transparent 75%,#232029 75%),
     linear-gradient(45deg,#232029 25%,#1a1720 25%,#1a1720 75%,#232029 75%);
@@ -207,7 +213,11 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
 .item{position:relative; border-radius:9px; border:1px solid var(--line); background:var(--ground);
   padding:7px 6px 5px; cursor:pointer; text-align:center;}
 .item:hover{border-color:var(--accent);}
-.item canvas{width:100%; aspect-ratio:1; display:block; image-rendering:pixelated; border-radius:5px;
+/* object-fit keeps the tile a square cell - a ragged grid is unreadable -
+   while letterboxing the bitmap inside it instead of stretching it. Measured
+   before this: a 160x48 chain was drawn into an 81.4x81.4 box, a 3.33x
+   squash, and the shelf is where you decide whether a trait is right. */
+.item canvas{width:100%; aspect-ratio:1; object-fit:contain; display:block; image-rendering:pixelated; border-radius:5px;
   background:
     linear-gradient(45deg,#232029 25%,transparent 25%,transparent 75%,#232029 75%),
     linear-gradient(45deg,#232029 25%,#1a1720 25%,#1a1720 75%,#232029 75%);

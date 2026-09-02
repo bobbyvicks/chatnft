@@ -936,6 +936,11 @@ const MAXZ=48;
 let N=0, art=$('art'), ctx=null, zoom=4, tool='pencil', color='#000000';
 let hoverCell=null;   /* cell under the pointer, or null when the cursor is away */
 let gridBlock=1;      /* measured block size of the open image, in canvas cells */
+/* The saved record the editor is currently holding, or null when the canvas
+   did not come from one. Saving used to build a brand new record from the
+   visible fields every time, which lost everything the shelf owns and the
+   editor does not show. */
+let openRec=null;
 let baseBitmap=null;  /* the image drawn behind the art, never part of it */
 let moveBuf=null, moveFrom=null, moveDelta={x:0,y:0};
 /* The colours Recolour will replace, as upper-case hex strings. A set rather
@@ -1316,6 +1321,7 @@ async function renderShelf(){
         fileName=t.name+'.png';
         startEditor(d.data,t.w,t.h,t.w,t.h,palette(d.data,t.w*t.h,24,64),false);
         $('tname').value=t.name; $('tlayer').value=t.layer; $('tstatus').value=t.status||'wip';
+        openRec=t;
       };
       grid.appendChild(el);
     }
@@ -1381,15 +1387,39 @@ async function saveTrait(){
   const blob=await blobOf(c);
   try{
     const status=$('tstatus').value||'wip';
-    const rec={id:'t_'+name+'_'+layer+'_'+status, kind:'trait', name, layer, status, blob,
+    const id='t_'+name+'_'+layer+'_'+status;
+    const rec={id:id, kind:'trait', name, layer, status, blob,
       w:art.width, h:art.height, at:Date.now()};
+    /* Rarity lives on the shelf, not in the editor, so rebuilding the record
+       from the visible fields silently reset it. Measured: a trait saved at
+       rarity 5, reopened and saved with nothing changed, came back with no
+       rarity at all - and rarity is what decides how often a trait appears.
+       rowId travels for the same reason: it is how a delete finds the row. */
+    if(openRec){
+      if(typeof openRec.rarity==="number") rec.rarity=openRec.rarity;
+      if(openRec.rowId) rec.rowId=openRec.rowId;
+    }
+    /* Captured before anything reassigns it. */
+    const openWas = openRec;
+    const moved = openWas && openWas.id!==id;
     await dbPut(rec);
+    /* Changing the name, layer or status changes the id, and the id IS the
+       record - so without this the old one stays and you have two. Measured:
+       switching a trait from wip to approved in the editor left both
+       t_bugtest_eyes_wip and t_bugtest_eyes_approved in the shelf. The shelf's
+       own status and layer buttons already do this properly; the editor did not. */
+    if(moved){ try{ await dbDel(openWas.id); }catch(_){} cBitmaps.delete(openWas.id); }
+    /* The character preview decodes each trait once and keeps it forever, so
+       without this it goes on compositing the version from before the edit. */
+    cBitmaps.delete(id);
+    openRec=rec;
     await renderShelf();
     if(activeWs){
       /* Told plainly either way. A save that reached this browser but not the
          group is not a failure worth hiding - it is the difference between
          your friends seeing it and not. */
-      const shared=activeWs ? await cloudSyncOne(rec) : null;
+      /* A move on the server too, or the group ends up holding both. */
+      const shared = moved ? await cloudMoveOne(openWas,rec) : await cloudSyncOne(rec);
       /* Marked only once it is actually up there. A save that could not reach
          the group stays unmarked, and the reconcile below will not remove it -
          losing work because the network blinked would be worse than the stale
@@ -2675,6 +2705,7 @@ function startEditor(data,w,h,srcW,srcH,pal,recovered){
   N=w;
   art.width=w; art.height=h;
   gridBlock=1;   /* callers that measured a block size set it after this */
+  openRec=null;  /* set by callers that opened a saved record, same as above */
   const opv=$('olpv'); opv.width=w; opv.height=h; opv.style.display='none';
   drawBase(); fillBasePicker();
   ctx=art.getContext('2d',{willReadFrequently:true});
@@ -4454,6 +4485,8 @@ async function cloudDropOne(rec){
    end up with a delete that happened on one machine only. Your own page is
    unaffected - activeWs is null there and nothing leaves the browser. */
 async function dbDelShared(rec){
+  /* Or the character preview keeps compositing a trait that is gone. */
+  try{ cBitmaps.delete(rec.id); }catch(_){}
   /* Returns what actually happened, so the message can be honest: "removed"
      and "removed here but the group still has it" are different events and
      were being reported identically. */

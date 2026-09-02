@@ -3942,7 +3942,8 @@ function deterministicVividResult(grid){
   return {data:repaired.data,size:grid,colors:repaired.colors,
           originalWidth:pxSrc.width,originalHeight:pxSrc.height,mode:'vivid',
           owner:{epoch:vividGenerationEpoch,source:pxSrc,grid,mode:true,
-                 alphaMask:repaired.alphaMask,anchoredWhiteMask:repaired.anchoredWhiteMask}};
+                 alphaMask:repaired.alphaMask,anchoredWhiteMask:repaired.anchoredWhiteMask,
+                 anchorAuthorization:repaired.anchorAuthorization}};
 }
 function pxRender(){
   $("pxsizelab").textContent=$("pxsize").value+String.fromCharCode(215)+$("pxsize").value;
@@ -4015,6 +4016,7 @@ async function generateVivid(){
     return;
   }
   const request={epoch:invalidateVividGeneration(),source:pxSrc,grid:pxVividOpts().size,mode:$('pxvivid').checked};
+  request.instruction=$('pxinstruction').value.trim();
   const button=$('pxgenerate'); button.disabled=true;
   $('pxagentstatus').textContent='Generating locally with ComfyUI…';
   try{
@@ -4025,7 +4027,7 @@ async function generateVivid(){
     const response=await fetch('/api/pixel-agent/generate',{
       method:'POST', headers:{'content-type':'application/json'},
       body:JSON.stringify({imageDataUrl:canvasFromRgba(input.data,1024,1024).toDataURL('image/png'),
-                           instruction:$('pxinstruction').value.trim(),grid}),
+                           instruction:request.instruction,grid}),
       signal:AbortSignal.timeout(vividContract.comfy.timeoutMilliseconds+5000)
     });
     if(!response.ok){
@@ -4036,7 +4038,9 @@ async function generateVivid(){
     const draft=await decodePngDataUrl(payload.pngDataUrl);
     if(draft.width!==1024||draft.height!==1024) throw new Error('ComfyUI must return a 1024×1024 draft.');
     const normalized=vividCore.recoverToGrid(draft.data,draft.width,draft.height,grid);
-    const repaired=vividCore.finalizeCreative(normalized.data,recovered.data,grid,grid,{grid});
+    const repaired=vividCore.finalizeCreative(normalized.data,recovered.data,grid,grid,{
+      grid,instruction:request.instruction
+    });
     const violations=vividCore.verify(repaired.data,grid,grid,{
       grid,alphaMask:repaired.alphaMask,anchoredWhiteMask:repaired.anchoredWhiteMask
     });
@@ -4045,7 +4049,8 @@ async function generateVivid(){
     const next={data:repaired.data,size:grid,colors:repaired.colors,
                 originalWidth:request.source.width,originalHeight:request.source.height,
                 mode:'vivid',owner:{...request,alphaMask:repaired.alphaMask,
-                                     anchoredWhiteMask:repaired.anchoredWhiteMask}};
+                                     anchoredWhiteMask:repaired.anchoredWhiteMask,
+                                     anchorAuthorization:repaired.anchorAuthorization}};
     vividResult=next;
     renderVividSwatches(next.colors);
     showPixelResult(next,next.colors.length+' saved colors used · local generation repaired and verified.');

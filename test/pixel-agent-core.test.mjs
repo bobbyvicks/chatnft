@@ -149,6 +149,86 @@ test("restores the real fixture's anchored white NEET cells while keeping creati
   );
 });
 
+test("authorizes anchored-white recolor only for conservative explicit artwork instructions", () => {
+  assert.equal(typeof core.allowsAnchoredWhiteRecolor, "function");
+  for (const instruction of [
+    "Make the T the same colour as the NEE.",
+    "Recolour the NEET text gray.",
+    "Change the color of the white emblem artwork to gray.",
+    "Darken the lettering inside the logo.",
+  ]) assert.equal(core.allowsAnchoredWhiteRecolor(instruction), true, instruction);
+
+  for (const instruction of [
+    "Faithful cleanup only.",
+    "Remove the small white dot outside the hat.",
+    "Make the hat lighter and preserve the NEET text.",
+    "Lighten the hat and keep the lettering intact.",
+    "Lighten the hat without changing the NEET text.",
+    "Do not recolor the NEET emblem.",
+    "Change the outline color to black.",
+    "Make the hat the same colour as the reference.",
+    "Recolor the hat artwork blue.",
+  ]) assert.equal(core.allowsAnchoredWhiteRecolor(instruction), false, instruction);
+});
+
+test("retains explicitly authorized fixture recolors and validates only the remaining white anchors", async () => {
+  const sourcePng = PNG.sync.read(await readFile(new URL("./fixtures/neet-bucket-hat.png", import.meta.url)));
+  const sourceGrid = normalizedGrid(sourcePng, 128);
+  const faithful = core.repair(sourceGrid.data, 128, 128, { grid: 128 });
+  const draft = forceOpaque(faithful.data);
+  const anchorCells = whiteCells(faithful.data, 128, 64, 20, 84, 41);
+  const retainedWhitePoint = anchorCells.at(-1);
+  for (const point of anchorCells.slice(0, -1)) draft.set([131, 131, 131, 255], point * 4);
+
+  const finalized = core.finalizeCreative(draft, sourceGrid.data, 128, 128, {
+    grid: 128,
+    instruction: "Recolour the NEET emblem's white artwork to gray.",
+  });
+
+  assert.equal(finalized.anchorAuthorization.allowed, true);
+  assert.equal(finalized.anchorAuthorization.authorizedCells, anchorCells.length - 1);
+  for (const point of anchorCells.slice(0, -1)) {
+    assert.equal(pixelHexAtPoint(finalized.data, point), "#838383", `authorized cell ${point} was restored to white`);
+    assert.equal(finalized.anchoredWhiteMask[point], 0, `authorized cell ${point} remains download-protected`);
+  }
+  assert.equal(pixelHexAtPoint(finalized.data, retainedWhitePoint), "#FFFFFF");
+  assert.equal(finalized.anchoredWhiteMask[retainedWhitePoint], 1);
+  assert.deepEqual(alphaMask(finalized.data), alphaMask(faithful.data), "explicit recolor changed source alpha");
+  assert.equal(alphaAt(finalized.data, 87, 19, 128), 0, "explicit recolor retained the outside artifact");
+  assert.equal(findExteriorNonBlack(finalized.data, 128, 128).length, 0);
+  assert.ok(finalized.colors.length <= 16);
+  assert.deepEqual(
+    [...core.verify(finalized.data, 128, 128, {
+      grid: 128,
+      alphaMask: finalized.alphaMask,
+      anchoredWhiteMask: finalized.anchoredWhiteMask,
+    })],
+    [],
+  );
+});
+
+test("an unrelated creative instruction cannot authorize white-anchor drift", () => {
+  const source = whiteAnchorFixture32();
+  const draft = new Uint8ClampedArray(source);
+  setPixel(draft, 32, 16, 16, [131, 131, 131, 255]);
+
+  const finalized = core.finalizeCreative(draft, source, 32, 32, {
+    grid: 32,
+    instruction: "Make the hat vivid blue and remove the small white dot outside it.",
+  });
+
+  assert.equal(finalized.anchorAuthorization.allowed, false);
+  assert.equal(pixelHex(finalized.data, 16, 16, 32), "#FFFFFF");
+  assert.deepEqual(
+    [...core.verify(finalized.data, 32, 32, {
+      grid: 32,
+      alphaMask: finalized.alphaMask,
+      anchoredWhiteMask: finalized.anchoredWhiteMask,
+    })],
+    [],
+  );
+});
+
 test("removes one-cell and two-cell detached exterior components but keeps connected details", () => {
   const data = fixtureWithDetachedExteriorComponents();
   const repaired = core.repair(data, 12, 12, { grid: 32 });
@@ -171,6 +251,17 @@ function fixtureWithBlackBoxWhiteCenterAndOutsideWhiteDot() {
   }
   setPixel(data, 9, 4, 4, [255, 255, 255, 255]);
   setPixel(data, 9, 8, 0, [255, 255, 255, 255]);
+  return data;
+}
+
+function whiteAnchorFixture32() {
+  const data = new Uint8ClampedArray(32 * 32 * 4);
+  for (let y = 8; y <= 23; y++) for (let x = 8; x <= 23; x++) {
+    const edge = x === 8 || x === 23 || y === 8 || y === 23;
+    setPixel(data, 32, x, y, edge ? [0, 0, 0, 255] : [88, 88, 88, 255]);
+  }
+  setPixel(data, 32, 16, 16, [255, 255, 255, 255]);
+  setPixel(data, 32, 31, 0, [255, 255, 255, 255]);
   return data;
 }
 
@@ -228,6 +319,11 @@ function alphaMask(data) {
 function pixelHex(data, x, y, width) {
   const i = (y * width + x) * 4;
   return `#${[data[i], data[i + 1], data[i + 2]].map((value) => value.toString(16).padStart(2, "0")).join("")}`.toUpperCase();
+}
+
+function pixelHexAtPoint(data, point) {
+  const offset = point * 4;
+  return `#${[data[offset], data[offset + 1], data[offset + 2]].map((value) => value.toString(16).padStart(2, "0")).join("")}`.toUpperCase();
 }
 
 function alphaAt(data, x, y, width) {

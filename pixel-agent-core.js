@@ -50,10 +50,14 @@
     function finalizeCreative(input, source, width, height, options = {}) {
       const alphaMask = repair(source, width, height, options).data;
       const anchoredWhiteMask = new Uint8Array(width * height);
+      const allowAnchoredWhiteRecolor = allowsAnchoredWhiteRecolor(options.instruction);
+      let authorizedCells = 0;
       for (let point = 0; point < anchoredWhiteMask.length; point++) {
         const offset = point * 4;
         if (alphaMask[offset] === 255 && alphaMask[offset + 1] === 255 && alphaMask[offset + 2] === 255 && alphaMask[offset + 3] === 255) {
-          anchoredWhiteMask[point] = 1;
+          const draftChangedWhite = input[offset] !== 255 || input[offset + 1] !== 255 || input[offset + 2] !== 255;
+          if (allowAnchoredWhiteRecolor && draftChangedWhite) authorizedCells++;
+          else anchoredWhiteMask[point] = 1;
         }
       }
       const masked = new Uint8ClampedArray(input);
@@ -68,7 +72,12 @@
       // Re-run palette reduction after restoring white so the anchors count
       // toward the same sixteen-color ceiling instead of becoming color 17.
       finalized = repair(finalized.data, width, height, options);
-      return { ...finalized, alphaMask, anchoredWhiteMask };
+      return {
+        ...finalized,
+        alphaMask,
+        anchoredWhiteMask,
+        anchorAuthorization: { allowed: allowAnchoredWhiteRecolor, authorizedCells },
+      };
     }
 
     return Object.freeze({
@@ -81,9 +90,29 @@
       removeExteriorSpecks,
       repair,
       finalizeCreative,
+      allowsAnchoredWhiteRecolor,
       verify: (data, width, height, options) => verify(data, width, height, options, config, palette),
       usedColors: (data) => usedColors(data, palette),
       renderSwatch: (colors, width, height) => renderSwatch(colors, width, height, palette),
+    });
+  }
+
+  function allowsAnchoredWhiteRecolor(instruction) {
+    const text = String(instruction || "").slice(0, 2000).replace(/[’]/g, "'");
+    if (!text.trim()) return false;
+    const target = "(?:the\\s+t|neet(?:\\s+(?:text|letters?|lettering|emblem|logo))?|(?:white\\s+)?(?:text|letters?|lettering|emblem|logo|globe)|white\\s+artwork)";
+    const clauses = text.split(/(?:[.;\n]+|\bbut\b|\bwhile\b)/i);
+    const directAction = new RegExp(`\\b(?:recolou?r|darken|lighten)\\b.{0,40}\\b${target}\\b`, "i");
+    const reverseAction = new RegExp(`\\b${target}\\b.{0,40}\\b(?:recolou?r|darken|lighten)\\b`, "i");
+    const changeColor = new RegExp(`\\bchange\\b.{0,24}\\b(?:colou?r|shade|tone)\\b.{0,24}\\b${target}\\b|\\bchange\\b.{0,24}\\b${target}\\b.{0,24}\\b(?:colou?r|shade|tone)\\b`, "i");
+    const makeColor = new RegExp(`\\bmake\\b.{0,40}\\b${target}\\b.{0,50}\\b(?:same|different|colou?r|shade|tone|gr[ae]y|white|black|darker|lighter)\\b`, "i");
+    const setColor = new RegExp(`\\b(?:set|turn)\\b.{0,32}\\b${target}\\b.{0,32}\\b(?:to|into)\\b.{0,20}\\b(?:a\\s+)?(?:colou?r|gr[ae]y|white|black|darker|lighter)\\b`, "i");
+    const protectedTarget = new RegExp(`\\b(?:keep|preserve|retain)\\b.{0,40}?\\b${target}\\b`, "ig");
+    const negatedAction = /\b(?:do\s+not|don't|dont|never|without)\b.{0,32}\b(?:recolou?r(?:ing)?|darken(?:ing)?|lighten(?:ing)?|chang(?:e|ing)|mak(?:e|ing)|set(?:ting)?|turn(?:ing)?)\b/i;
+    return clauses.some((clause) => {
+      if (negatedAction.test(clause)) return false;
+      const actionable = clause.replace(protectedTarget, "");
+      return directAction.test(actionable) || reverseAction.test(actionable) || changeColor.test(actionable) || makeColor.test(actionable) || setColor.test(actionable);
     });
   }
 

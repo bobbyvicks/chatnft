@@ -381,6 +381,10 @@ input[type=range]{width:100%; accent-color:#f5a524; cursor:pointer;}
 .swatches{display:grid; grid-template-columns:repeat(8,1fr); gap:5px;}
 .sw{aspect-ratio:1; min-height:26px; border-radius:5px; border:1px solid #ffffff1a; padding:0;}
 .sw[aria-pressed="true"]{outline:2px solid var(--accent); outline-offset:1px;}
+/* The recolour swatches can now have several chosen at once, and the outline
+   above is drawn in the accent colour - which disappears on a swatch that IS
+   roughly the accent colour. The inset pair reads against any fill. */
+.rsw[aria-pressed="true"]{box-shadow:inset 0 0 0 2px #000000aa, inset 0 0 0 4px #ffffffcc;}
 .sizes{display:grid; grid-template-columns:repeat(6,1fr); gap:5px;}
 .bs{aspect-ratio:1; min-height:32px; border-radius:7px; background:var(--panel-2);
   border:1px solid var(--line); display:grid; place-items:center; padding:0;}
@@ -797,14 +801,17 @@ footer .mono{color:var(--ink);}
       <h2>Recolour</h2>
       <div class="stack">
         <div class="swatches" id="rcpal"></div>
-        <p class="note" id="rcfrom">Pick a colour above to replace.</p>
-        <label class="olchk"><input type="checkbox" id="rcnear"> Include shades close to it</label>
+        <p class="note" id="rcfrom">Pick one or more colours above to replace.</p>
+        <label class="olchk"><input type="checkbox" id="rcnear"> Include shades close to them</label>
         <div class="olrow"><label for="rctol">How close</label>
           <input id="rctol" type="number" min="1" max="120" value="24" style="width:64px"></div>
-        <button class="btn ghost" id="rcgo" disabled>Replace</button>
+        <div class="savebar">
+          <button class="btn ghost" id="rcgo" disabled style="flex:2">Replace</button>
+          <button class="btn ghost" id="rcnone" disabled style="flex:1">Clear</button>
+        </div>
         <button class="btn" id="rcclean">Clean up colours</button>
       </div>
-      <p class="note">Swaps one colour for the current one everywhere. Transparent cells are never touched.</p>
+      <p class="note">Swaps every colour you pick for the current one, everywhere. Pick several to merge them into one. Transparent cells are never touched.</p>
     </section>
     <section>
       <h2>Base layer</h2>
@@ -898,7 +905,12 @@ let hoverCell=null;   /* cell under the pointer, or null when the cursor is away
 let gridBlock=1;      /* measured block size of the open image, in canvas cells */
 let baseBitmap=null;  /* the image drawn behind the art, never part of it */
 let moveBuf=null, moveFrom=null, moveDelta={x:0,y:0};
-let rcFrom=null;      /* the colour Recolour will replace, as a hex string */
+/* The colours Recolour will replace, as upper-case hex strings. A set rather
+   than one value: merging several shades into one is the common job - a trait
+   that came back with six near-identical greys, or three passes at the same
+   gold - and doing that one swatch at a time means one undo step per colour
+   and one chance to pick the wrong target colour halfway through. */
+const rcPick=new Set();
 let autoPending=null; /* debounce handle for the working-canvas autosave */
 let undoStack=[], redoStack=[], original=null, painting=false, panMode=false, fileName='pixel-art.png';
 let brush=1;
@@ -2565,7 +2577,7 @@ function setColor(h){
   outlinePreview();
   /* The line reads "replacing X with Y", and Y is the CURRENT colour - so it
      goes stale the moment the colour changes unless it is redrawn here. */
-  if(rcFrom) $('rcfrom').textContent='Replacing '+rcFrom+' with '+color;
+  rcSummary();
 }
 $('picker').oninput=e=>{ setColor(e.target.value); selectTool('pencil'); };
 
@@ -3079,30 +3091,71 @@ async function offerRestore(){
 
 /* ================= recolour ======================================= */
 function buildRecolour(list){
-  const wrap=$("rcpal"); wrap.innerHTML=""; rcFrom=null;
-  $("rcgo").disabled=true;
-  $("rcfrom").textContent="Pick a colour above to replace.";
+  const wrap=$("rcpal"); wrap.innerHTML=""; rcPick.clear();
+  rcSummary();
   list.forEach(c=>{
     const hx=hex(c.r,c.g,c.b);
     const b=document.createElement("button");
-    /* Deliberately NOT class "sw": setColor sweeps every .sw to mark the active
-       swatch, and these track a different selection. */
+    /* These ARE class "sw" as well as "rsw", so setColor's sweep does reach
+       them - an earlier comment here claimed the opposite and it was wrong.
+       rcSummary puts the marks back; see the note on it. The "rsw" half is
+       what tells the two selections apart. */
     b.className="sw rsw"; b.dataset.hex=hx; b.style.background=hx;
     b.title=hx+" \u00b7 "+c.n.toLocaleString()+" px";
     b.setAttribute("aria-pressed","false");
     b.setAttribute("aria-label","Replace colour "+hx);
     b.onclick=()=>{
-      rcFrom=hx;
-      document.querySelectorAll(".rsw").forEach(s=>s.setAttribute("aria-pressed",String(s.dataset.hex===hx)));
-      $("rcfrom").textContent="Replacing "+hx+" with "+color;
-      $("rcgo").disabled=false;
+      /* Toggle. Clicking a chosen swatch again takes it out, which is the only
+         way to correct a misclick without starting the selection over. */
+      if(rcPick.has(hx)) rcPick.delete(hx); else rcPick.add(hx);
+
+      rcSummary();
     };
     wrap.appendChild(b);
   });
 }
+/* Every route that changes either half of "replacing X with Y" ends up here,
+   so the line and the two buttons cannot drift apart: picking a swatch,
+   clearing, rebuilding the palette after a change, and setColor - because Y
+   is the CURRENT colour and goes stale the moment the user picks a new one. */
+function rcSummary(){
+  /* The marks are re-applied from rcPick every time rather than toggled in
+     place, because something else moves them. setColor sweeps EVERY .sw to
+     show the active drawing colour, and these swatches are class "sw rsw" -
+     so changing the colour you are replacing WITH wiped the marks off the
+     colours you had chosen, while the selection itself stayed live. Measured
+     in the browser: two colours chosen, setColor called, marks 2 -> 0 and the
+     panel still reading "Replacing #00ff00, #fa0505". Since setColor calls
+     this, restoring them here puts the display back within the same click. */
+  document.querySelectorAll(".rsw").forEach(s=>
+    s.setAttribute("aria-pressed",String(rcPick.has(s.dataset.hex))));
+  const n=rcPick.size;
+  $("rcgo").disabled=!n;
+  $("rcnone").disabled=!n;
+  if(!n){ $("rcfrom").textContent="Pick one or more colours above to replace."; return; }
+  const names=[...rcPick];
+  /* Named in full up to three, counted past that - a dozen hex codes in a row
+     is not something anyone reads, and the swatches already show which. */
+  const what = n<=3 ? names.join(", ") : (n+" colours");
+  $("rcfrom").textContent="Replacing "+what+" with "+color;
+}
+function rcClear(){
+  rcPick.clear();
+
+  rcSummary();
+}
+
 function recolour(){
-  if(!ctx||!rcFrom){ toast("Pick a colour to replace first"); return; }
-  const from=hx2(rcFrom), to=hx2(color);
+  if(!ctx||!rcPick.size){ toast("Pick a colour to replace first"); return; }
+  /* Captured now: buildRecolour below clears the selection, so reading it
+     afterwards for the message would always say zero. */
+  const from=rcPick.size;
+  const to=hx2(color);
+  const froms=[...rcPick].map(hx2);
+  /* Exact matches go through a set of packed integers rather than a loop over
+     the chosen colours: with a dozen picked and a million pixels that is the
+     difference between one lookup and twelve comparisons per pixel. */
+  const exact=new Set(froms.map(f=>(f[0]<<16)|(f[1]<<8)|f[2]));
   const near=$("rcnear").checked, tol=Math.max(1,Math.min(120,+$("rctol").value||24)), t2=tol*tol;
   const img=ctx.getImageData(0,0,art.width,art.height), d=img.data;
   let n=0;
@@ -3111,17 +3164,27 @@ function recolour(){
     /* Transparent cells are not "a colour" - filling them would silently grow
        the artwork, which is the opposite of a recolour. */
     if(d[i+3]<128) continue;
-    const hit = near
-      ? ((d[i]-from[0])**2+(d[i+1]-from[1])**2+(d[i+2]-from[2])**2)<=t2
-      : (d[i]===from[0]&&d[i+1]===from[1]&&d[i+2]===from[2]);
+    let hit;
+    if(near){
+      /* Within the tolerance of ANY chosen colour. Overlapping tolerances are
+         fine here: every match becomes the same target, so which one it landed
+         nearest to makes no difference to the result. */
+      hit=false;
+      for(const f of froms){
+        if((d[i]-f[0])**2+(d[i+1]-f[1])**2+(d[i+2]-f[2])**2<=t2){ hit=true; break; }
+      }
+    } else {
+      hit=exact.has((d[i]<<16)|(d[i+1]<<8)|d[i+2]);
+    }
     if(!hit) continue;
     d[i]=to[0]; d[i+1]=to[1]; d[i+2]=to[2]; n++;
   }
-  if(!n){ toast("No cells matched "+rcFrom); return; }
+  if(!n){ toast(rcPick.size===1 ? ("No cells matched "+[...rcPick][0])
+    : ("No cells matched any of those "+rcPick.size+" colours")); return; }
   snapshot(); ctx.putImageData(img,0,0); refreshStats();
   const fresh=palette(ctx.getImageData(0,0,art.width,art.height).data,art.width*art.height,24,64);
   buildPalette(fresh.list); buildRecolour(fresh.list);
-  toast("Recoloured "+n.toLocaleString()+" cells");
+  toast("Recoloured "+n.toLocaleString()+" cells"+(from>1?(" from "+from+" colours"):""));
 }
 
 /* ================= transform ===================================== */
@@ -5360,6 +5423,7 @@ $('cdl').onclick=()=>{
   },"image/png");
 };
 $('rcgo').onclick=recolour;
+$('rcnone').onclick=rcClear;
 $('rcclean').onclick=cleanColours;
 $('rcnear').addEventListener('change',()=>{ $('rctol').disabled=!$('rcnear').checked; });
 $('rctol').disabled=true;

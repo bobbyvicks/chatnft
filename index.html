@@ -306,8 +306,11 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
 .big span{font-size:12.5px; opacity:.8;}
 
 /* ---------- editor ---------- */
-.app{display:grid; grid-template-columns:auto 1fr auto; grid-template-rows:auto 1fr auto;
-  grid-template-areas:"head head head" "tools stage side" "foot foot foot"; height:100dvh;}
+.app{display:grid; grid-template-columns:auto auto 1fr; grid-template-rows:auto 1fr auto;
+  /* tools, then the panel, then the canvas. The panel used to be on the far
+     side with the canvas between them, which put the controls in two places
+     with the artwork in the middle. */
+  grid-template-areas:"head head head" "tools side stage" "foot foot foot"; height:100dvh;}
 header{grid-area:head; display:flex; align-items:center; gap:13px; flex-wrap:wrap;
   padding:10px 16px; border-bottom:1px solid var(--line); background:var(--panel);}
 header .brand h1{font-size:15px;}
@@ -397,13 +400,20 @@ canvas{display:block; image-rendering:pixelated; cursor:crosshair; touch-action:
 #olpv{position:absolute; left:0; top:0; display:none; pointer-events:none; z-index:2;
   image-rendering:pixelated;}
 input[type=range]{width:100%; accent-color:#f5a524; cursor:pointer;}
-.olrow{display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--muted);}
+/* Wrap rather than overflow. The panel is 252px and some rows carry a label,
+   two number boxes and a button; when they do not fit, a second line is right
+   and a sideways scrollbar hiding the button is not. */
+.olrow{display:flex; align-items:center; flex-wrap:wrap; gap:8px; font-size:12.5px; color:var(--muted);}
 .olrow select,.olrow input[type=number]{margin-left:auto;}
+/* A flex item will not shrink below its min-content width, and for a select
+   that is its longest option - which is why flex:1 was not enough and the
+   Change row hung 111px past the edge. */
+.olrow select{min-width:0;}
 .olchk{display:flex; align-items:center; gap:6px; font-size:12.5px; cursor:pointer;}
 .olchk input{accent-color:var(--good); cursor:pointer;}
 #bcur.tiny::after{content:""; position:absolute; inset:-4px; border-radius:3px;
   border:1px solid #f5a524cc;}
-.side{grid-area:side; width:252px; padding:14px; border-left:1px solid var(--line);
+.side{grid-area:side; width:252px; padding:14px; border-right:1px solid var(--line); overflow-x:hidden;
   background:var(--panel); overflow-y:auto; display:flex; flex-direction:column; gap:15px;}
 /* The handle is a phone thing. On a wide screen the panel is a column beside
    the art and is not in the way of anything. */
@@ -494,7 +504,7 @@ footer .mono{color:var(--ink);}
      drags out of the way now. The transition is on max-height rather than
      transform so the stage above genuinely grows into the space instead of
      the sheet sliding over it. */
-  .side{width:auto; max-height:44dvh; border-left:none; border-top:1px solid var(--line);
+  .side{width:auto; max-height:44dvh; border-right:none; border-top:1px solid var(--line);
     padding-top:0; transition:max-height .22s ease;}
   .grip{display:flex; align-items:center; justify-content:center; gap:9px;
     position:sticky; top:0; z-index:3; height:34px; flex:none; width:100%;
@@ -887,7 +897,9 @@ footer .mono{color:var(--ink);}
         <input id="rsw" type="number" min="1" max="4096" style="width:70px">
         <span class="mono">x</span>
         <input id="rsh" type="number" min="1" max="4096" style="width:70px">
-        <label class="olchk" style="margin-left:4px"><input type="checkbox" id="rslock" checked> keep shape</label></div>
+        <button class="btn ghost" id="rslock" aria-pressed="true"
+          style="width:auto;padding:6px 10px;font-size:12px;margin-left:4px"
+          title="Keep the width and height in proportion">Shape</button></div>
       <div class="olrow"><label for="rsmode">Change</label>
         <select id="rsmode" style="flex:1">
           <option value="art">the art - scale it to the new size</option>
@@ -910,7 +922,9 @@ footer .mono{color:var(--ink);}
       <div class="stack">
         <div class="swatches" id="rcpal"></div>
         <p class="note" id="rcfrom">Pick one or more colours above to replace.</p>
-        <label class="olchk"><input type="checkbox" id="rcnear"> Include shades close to them</label>
+        <button class="btn ghost" id="rcnear" aria-pressed="false"
+          style="width:auto;padding:6px 10px;font-size:12px"
+          title="Also replace shades within the distance below">Include near shades</button>
         <div class="olrow"><label for="rctol">How close</label>
           <input id="rctol" type="number" min="1" max="120" value="24" style="width:64px"></div>
         <div class="savebar">
@@ -952,8 +966,13 @@ footer .mono{color:var(--ink);}
             <option value="2">2 cells</option><option value="3">3 cells</option>
             <option value="4">4 cells</option><option value="6">6 cells</option>
             <option value="8">8 cells</option></select></div>
-        <label class="olchk"><input type="checkbox" id="oltidy" checked> Tidy the edge first</label>
-        <label class="olchk"><input type="checkbox" id="olpatch"> Patch holes left by the crop</label>
+        <div class="olrow">
+          <button class="btn ghost" id="oltidy" aria-pressed="true"
+            style="width:auto;padding:6px 10px;font-size:12px"
+            title="Square off the silhouette before outlining">Tidy edge</button>
+          <button class="btn ghost" id="olpatch" aria-pressed="false"
+            style="width:auto;padding:6px 10px;font-size:12px"
+            title="Fill holes the crop left inside the art">Patch holes</button></div>
         <button class="btn" id="oladd">Add outline</button>
       </div>
       <p class="note" id="olnote">Outside the art, never over it. Snapping squares off the silhouette first, so a ragged crop cannot leave one-cell indents — at the cost of detail finer than a block.</p>
@@ -3095,10 +3114,18 @@ function resizeTo(nw,nh,keepArt){
 /* Everything that can snap asks this. One switch rather than one per feature,
    because "is snapping on" is a single idea and three checkboxes that can
    disagree is three things to get wrong. */
-function snapOn(){
-  const b=$("rssnap");
+/* A toggle button is on when aria-pressed says so. Buttons rather than
+   checkboxes for these: they are pressed to change something immediately,
+   and they sit in rows with other buttons. */
+function pressed(id){
+  const b=$(id);
   return !!b && b.getAttribute("aria-pressed")==="true";
 }
+function toggle(id){
+  const b=$(id); if(!b) return;
+  b.setAttribute("aria-pressed", b.getAttribute("aria-pressed")==="true" ? "false" : "true");
+}
+function snapOn(){ return pressed("rssnap"); }
 
 function tboxShow(){
   const b=$("tbox"); if(!b) return;
@@ -3115,12 +3142,12 @@ function applyResize(){
   let nh=Math.max(1,Math.min(4096,parseInt($("rsh").value,10)||0));
   /* With keep-shape on the height follows the width and is left alone, or
      snapping both would fight the aspect and win. */
-  if(snap && !$("rslock").checked) nh=Math.min(4096,snapToGrid(nh));
+  if(snap && !pressed("rslock")) nh=Math.min(4096,snapToGrid(nh));
   /* From the SNAPPED width, not from what was typed. The box was filled while
      typing, so it holds the height for the pre-snap width - 4:3 art at grid 160,
      type 1254, and the width snaps to 1280 while the height stays at 941: on the
      grid in one direction, off it in the other, and not even the right shape. */
-  else if(snap && $("rslock").checked) nh=Math.max(1,Math.round(nw*H/W));
+  else if(snap && pressed("rslock")) nh=Math.max(1,Math.round(nw*H/W));
   if(nw===W && nh===H){ toast("Already "+W+" by "+H); return; }
   const keepArt=$("rsmode").value==="canvas";
   const src=ctx.getImageData(0,0,W,H).data;
@@ -3382,7 +3409,7 @@ function outlinePlan(){
   if(!ctx) return null;
   const W=art.width,H=art.height,NP=W*H;
   const t=+$("olthick").value;
-  const B=snapValue(), tidy=$("oltidy").checked, patch=$("olpatch").checked;
+  const B=snapValue(), tidy=pressed("oltidy"), patch=pressed("olpatch");
   const d=ctx.getImageData(0,0,W,H).data;
   const cell=maskOfImg(d,NP,127);
   const bl=toBlocks(cell,W,H,B), bw=bl.bw, bh=bl.bh, b0=bl.m;
@@ -3699,7 +3726,7 @@ function recolour(){
      the chosen colours: with a dozen picked and a million pixels that is the
      difference between one lookup and twelve comparisons per pixel. */
   const exact=new Set(froms.map(f=>(f[0]<<16)|(f[1]<<8)|f[2]));
-  const near=$("rcnear").checked, tol=Math.max(1,Math.min(120,+$("rctol").value||24)), t2=tol*tol;
+  const near=pressed("rcnear"), tol=Math.max(1,Math.min(120,+$("rctol").value||24)), t2=tol*tol;
   const img=ctx.getImageData(0,0,art.width,art.height), d=img.data;
   let n=0;
   for(let p=0;p<art.width*art.height;p++){
@@ -6076,7 +6103,7 @@ $('filltol').addEventListener('input',()=>{
     /* A corner keeps the shape unless the keep-shape box is unticked, which is
        the same control the Resize fields use rather than a second rule. */
     const corner=t.length===2;
-    if(corner && $("rslock").checked){
+    if(corner && pressed("rslock")){
       const k=Math.max(w/drag.w, h/drag.h);
       w=drag.w*k; h=drag.h*k;
     }
@@ -6107,10 +6134,7 @@ $('filltol').addEventListener('input',()=>{
   box.addEventListener("pointercancel",()=>{ if(drag){ drag=null; $("tang").style.display="none";
     $("frame").style.transform=""; applyZoom(); } });
 })();
-$('rssnap').onclick=()=>{
-  const b=$('rssnap');
-  b.setAttribute('aria-pressed', b.getAttribute('aria-pressed')==='true' ? 'false' : 'true');
-};
+$('rssnap').onclick=()=>toggle('rssnap');
 $('rsgo').onclick=applyResize;
 $('rotl').onclick=()=>rotateQuarter(false);
 $('rotr').onclick=()=>rotateQuarter(true);
@@ -6118,7 +6142,7 @@ $('rspreset').addEventListener('change',()=>{
   const v=$('rspreset').value; if(!v) return;
   $('rsw').value=v;
   $('rsw').dispatchEvent(new Event('input',{bubbles:true}));
-  if(!$('rslock').checked) $('rsh').value=v;
+  if(!pressed('rslock')) $('rsh').value=v;
 });
 $('rsgrid').addEventListener('change',async()=>{
   const v=Math.max(4,Math.min(1024,parseInt($('rsgrid').value,10)||160));
@@ -6129,12 +6153,12 @@ $('rsgrid').addEventListener('change',async()=>{
 /* Keeping the shape is what stops a trait being stretched by a careless
    number, and it is on by default for that reason. */
 $('rsw').addEventListener('input',()=>{
-  if(!$('rslock').checked||!art.width||!art.height) return;
+  if(!pressed('rslock')||!art.width||!art.height) return;
   const v=parseInt($('rsw').value,10); if(!v) return;
   $('rsh').value=Math.max(1,Math.round(v*art.height/art.width));
 });
 $('rsh').addEventListener('input',()=>{
-  if(!$('rslock').checked||!art.width||!art.height) return;
+  if(!pressed('rslock')||!art.width||!art.height) return;
   const v=parseInt($('rsh').value,10); if(!v) return;
   $('rsw').value=Math.max(1,Math.round(v*art.width/art.height));
 });
@@ -6157,7 +6181,8 @@ $('cdl').onclick=()=>{
 $('rcgo').onclick=recolour;
 $('rcnone').onclick=rcClear;
 $('rcclean').onclick=cleanColours;
-$('rcnear').addEventListener('change',()=>{ $('rctol').disabled=!$('rcnear').checked; });
+$('rcnear').onclick=()=>{ toggle('rcnear'); $('rctol').disabled=!pressed('rcnear'); };
+$('rslock').onclick=()=>toggle('rslock');
 $('rctol').disabled=true;
 setupFolds();
 offerRestore();
@@ -6195,10 +6220,16 @@ $('basedrop').onclick=()=>{
   baseBitmap=null; $('base').style.display='none'; $('basepick').value=''; toast('Base removed');
 };
 
-["olthick","olsnap","oltidy","olpatch"].forEach(function(id){
+["olthick","olsnap"].forEach(function(id){
   const el=$(id);
   el.addEventListener("input",outlinePreview);
   el.addEventListener("change",outlinePreview);
+});
+/* A button fires neither "input" nor "change", so these two cannot ride the
+   loop above. Toggle, then redraw, or the preview would silently disagree
+   with what the buttons show. */
+["oltidy","olpatch"].forEach(function(id){
+  $(id).onclick=function(){ toggle(id); outlinePreview(); };
 });
 $('oladd').onclick=applyOutline;
 $('olcol').oninput=outlinePreview;

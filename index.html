@@ -2862,7 +2862,7 @@ function startEditor(data,w,h,srcW,srcH,pal,recovered){
   $('sGrid').textContent=w+'×'+h;
   $('sCols').textContent=pal.distinct.toLocaleString();
   buildPalette(pal.list); buildRecolour(pal.list);
-  buildBrushes(); setBrush(brush); selectTool(tool);
+  buildBrushes(); selectTool(tool);
   setColor(pal.list.length?hex(pal.list[0].r,pal.list[0].g,pal.list[0].b):'#000000');
   /* Every image starts with the outline off and the grid guessed. These
      carried over from the last picture otherwise, so opening something new
@@ -2871,6 +2871,10 @@ function startEditor(data,w,h,srcW,srcH,pal,recovered){
   $("olthick").value=0;
   $("olsnap").value="auto";
   $("olcol").value="#000000";
+  /* The brush belongs in this block for the same reason as the rest of it,
+     and it now matters more than it did: a size chosen on a 1280 canvas is
+     a quarter of a 160 one, and the first click would paint a block. */
+  setBrush(1);
   fitZoom(); refreshStats();
   outlinePreview();
   cleanLabel();
@@ -3830,9 +3834,17 @@ async function offerRestore(){
 }
 
 /* ================= recolour ======================================= */
-function buildRecolour(list){
-  const wrap=$("rcpal"); wrap.innerHTML=""; rcPick.clear();
-  rcSummary();
+function buildRecolour(list, keep){
+  const wrap=$("rcpal"); wrap.innerHTML="";
+  /* Rebuilding after the COLOURS changed starts a fresh selection, which is
+     what recolour() depends on. Rebuilding because the pixels went back to
+     how they were - undo and redo - must not: undoing a pencil stroke was
+     silently unpicking colours chosen by hand, with the swatches still on
+     screen and nothing said. Only hexes the new list no longer has go. */
+  if(keep){
+    const have=new Set(list.map(c=>hex(c.r,c.g,c.b)));
+    [...rcPick].forEach(h=>{ if(!have.has(h)) rcPick.delete(h); });
+  } else rcPick.clear();
   list.forEach(c=>{
     const hx=hex(c.r,c.g,c.b);
     const b=document.createElement("button");
@@ -3853,6 +3865,11 @@ function buildRecolour(list){
     };
     wrap.appendChild(b);
   });
+  /* AFTER the swatches exist. This used to run before the loop, so it swept
+     an empty set and marked nothing - harmless only while every rebuild
+     cleared the selection anyway. Now that undo keeps one, this ordering is
+     what puts the marks back on the freshly built buttons. */
+  rcSummary();
 }
 /* Every route that changes either half of "replacing X with Y" ends up here,
    so the line and the two buttons cannot drift apart: picking a swatch,
@@ -3891,7 +3908,7 @@ function rcSummary(){
 function repalette(){
   if(!ctx) return;
   const p=palette(ctx.getImageData(0,0,art.width,art.height).data,art.width*art.height,24,64);
-  buildPalette(p.list); buildRecolour(p.list);
+  buildPalette(p.list); buildRecolour(p.list, true);
 }
 
 function rcClear(){
@@ -6595,7 +6612,14 @@ addEventListener('keydown',e=>{
      focuses it and killed every keyboard shortcut in the app until you
      clicked somewhere else. */
   if(/^(INPUT|TEXTAREA)$/.test(e.target.tagName)){
-    const owns=["arrowleft","arrowright","arrowup","arrowdown","home","end","pageup","pagedown"];
+    /* Backspace and Delete are in here not because a range USES them but
+       because it must never forward them: bare Backspace is bound to
+       closeEditor(), and it fires with no confirmation. Before this handler
+       let anything through from an input, that was unreachable; the moment
+       it did, dragging the brush and then hitting Backspace threw the editor
+       away. Anything destructive that gets a bare-key binding belongs here. */
+    const owns=["arrowleft","arrowright","arrowup","arrowdown","home","end",
+                "pageup","pagedown","backspace","delete"];
     if(e.target.type!=="range" || owns.indexOf(e.key.toLowerCase())>=0) return;
   }
   if(e.target.isContentEditable) return;

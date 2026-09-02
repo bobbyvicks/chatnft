@@ -1172,7 +1172,7 @@ async function renderShelf(){
       const nm=document.createElement('b'); nm.textContent=t.name; el.appendChild(nm);
       const x=document.createElement('button'); x.className='x'; x.textContent='×';
       x.title='Remove reference';
-      x.onclick=async ev=>{ ev.stopPropagation(); await dbDelShared(t); renderShelf(); toast('Removed '+t.name); };
+      x.onclick=async ev=>{ ev.stopPropagation(); const gone=await dbDelShared(t); renderShelf(); toast(gone ? ('Removed '+t.name) : ('Removed '+t.name+' here, but the group still has it - it will come back')); };
       el.appendChild(x); rg.appendChild(el);
     }
     rw.appendChild(rg); body.appendChild(rw);
@@ -1250,7 +1250,7 @@ async function renderShelf(){
       el.appendChild(rar);
       const x=document.createElement('button'); x.className='x'; x.textContent='×';
       x.title='Remove'; x.setAttribute('aria-label','Remove '+t.name);
-      x.onclick=async ev=>{ ev.stopPropagation(); await dbDelShared(t); renderShelf(); toast('Removed '+t.name); };
+      x.onclick=async ev=>{ ev.stopPropagation(); const gone=await dbDelShared(t); renderShelf(); toast(gone ? ('Removed '+t.name) : ('Removed '+t.name+' here, but the group still has it - it will come back')); };
       el.appendChild(x);
       el.onclick=async()=>{
         const bm=await createImageBitmap(t.blob);
@@ -4149,13 +4149,17 @@ async function cloudSyncOne(rec){
     /* Identified the same way the local store identifies it - name, layer and
        status - so saving the same trait twice replaces it rather than leaving
        two of it on the server. */
-    const q="collection_id=eq."+c.id
-      +"&kind=eq."+encodeURIComponent(rec.kind||"trait")
-      +"&name=eq."+encodeURIComponent(rec.name)
-      +"&layer=eq."+encodeURIComponent(rec.layer||"unsorted")
-      +"&status=eq."+encodeURIComponent(rec.status||"wip");
+    /* Replacing the row this record came from, by its id. Falling back to
+       name and layer and status only for a record that predates rowId. */
+    const q=rec.rowId ? ("id=eq."+encodeURIComponent(rec.rowId))
+      : ("collection_id=eq."+c.id
+        +"&kind=eq."+encodeURIComponent(rec.kind||"trait")
+        +"&name=eq."+encodeURIComponent(rec.name)
+        +"&layer=eq."+encodeURIComponent(rec.layer||"unsorted")
+        +"&status=eq."+encodeURIComponent(rec.status||"wip"));
     await fetch(SB_URL+"/rest/v1/traits?"+q,{method:"DELETE",headers:h});
-    const r=await fetch(SB_URL+"/rest/v1/traits",{method:"POST",headers:h,
+    const r=await fetch(SB_URL+"/rest/v1/traits",{method:"POST",
+      headers:Object.assign({Prefer:"return=representation"},h),
       body:JSON.stringify([{collection_id:c.id, team_id:team, owner:u.id,
         kind:rec.kind, name:rec.name,
         layer:rec.layer||"unsorted", status:rec.status||"wip",
@@ -4163,7 +4167,10 @@ async function cloudSyncOne(rec){
         w:rec.w||1, h:rec.h||1, path:p}])});
     /* Marked here, where it is known to have arrived, so every route that
        uploads gets it: a save inside a group, and Save to cloud. */
-    if(r.ok && rec.id){ try{ await dbPut(Object.assign({},rec,{synced:true})); }catch(_){} }
+    let madeId=null;
+    if(r.ok){ try{ madeId=((await r.json())[0]||{}).id||null; }catch(_){ madeId=null; } }
+    if(r.ok && rec.id){ try{ await dbPut(Object.assign({},rec,
+      {synced:true, rowId:madeId, path:p})); }catch(_){} }
     return r.ok;
   }catch(_){ return null; }
 }
@@ -4183,15 +4190,32 @@ async function cloudDropOne(rec){
   try{
     const h=await sbHeaders({"Content-Type":"application/json"});
     if(!h) return null;
-    const q="collection_id=eq."+c.id
-      +"&kind=eq."+encodeURIComponent(rec.kind||"trait")
-      +"&name=eq."+encodeURIComponent(rec.name)
-      +"&layer=eq."+encodeURIComponent(rec.layer||"unsorted")
-      +"&status=eq."+encodeURIComponent(rec.status||"wip");
-    const r=await fetch(SB_URL+"/rest/v1/traits?"+q,{method:"DELETE",headers:h});
-    await fetch(SB_URL+"/storage/v1/object/traits",{method:"DELETE",headers:h,
-      body:JSON.stringify({prefixes:[cloudPath(team,c,rec)]})});
-    return r.ok;
+    /* By the row id when this copy knows it, which is every copy that was
+       pulled down or uploaded. Name, layer and status are a guess: the pull
+       renames an incoming trait when its name is already taken here, so a
+       local "hat-2" can be the server row called "hat", and a delete built
+       from the local name then matches nothing. Measured: it removed 0 rows,
+       reported that it had worked, took the local copy away, and the next
+       pull brought the trait straight back. That is the bug this fixes. */
+    const q=rec.rowId ? ("id=eq."+encodeURIComponent(rec.rowId))
+      : ("collection_id=eq."+c.id
+        +"&kind=eq."+encodeURIComponent(rec.kind||"trait")
+        +"&name=eq."+encodeURIComponent(rec.name)
+        +"&layer=eq."+encodeURIComponent(rec.layer||"unsorted")
+        +"&status=eq."+encodeURIComponent(rec.status||"wip"));
+    /* Ask for the removed rows back. A DELETE that matches NOTHING answers
+       204 and is indistinguishable from one that worked. */
+    const r=await fetch(SB_URL+"/rest/v1/traits?"+q,{method:"DELETE",
+      headers:Object.assign({Prefer:"return=representation"},h)});
+    let removed=[];
+    if(r.ok){ try{ removed=await r.json(); }catch(_){ removed=[]; } }
+    /* Only the images belonging to rows that actually went. Deleting a path
+       rebuilt from the local name would, on a drifted record, delete the
+       picture of a row that is still there. */
+    const paths=removed.map(x=>x.path).filter(Boolean);
+    if(paths.length) await fetch(SB_URL+"/storage/v1/object/traits",{method:"DELETE",
+      headers:h, body:JSON.stringify({prefixes:paths})});
+    return removed.length>0;
   }catch(_){ return null; }
 }
 
@@ -4199,8 +4223,12 @@ async function cloudDropOne(rec){
    end up with a delete that happened on one machine only. Your own page is
    unaffected - activeWs is null there and nothing leaves the browser. */
 async function dbDelShared(rec){
+  /* Returns what actually happened, so the message can be honest: "removed"
+     and "removed here but the group still has it" are different events and
+     were being reported identically. */
   await dbDel(rec.id);
-  if(activeWs) await cloudDropOne(rec);
+  if(!activeWs) return true;
+  return (await cloudDropOne(rec))===true;
 }
 
 /* Renaming, restatusing or moving a trait between layers all change the very
@@ -4210,7 +4238,10 @@ async function dbDelShared(rec){
 async function cloudMoveOne(oldRec,newRec){
   if(!activeWs) return null;
   await cloudDropOne(oldRec);
-  return await cloudSyncOne(newRec);
+  /* The old row is gone, so its id must not travel with the new record or the
+     replace above would aim at nothing. */
+  const fresh=Object.assign({},newRec); delete fresh.rowId;
+  return await cloudSyncOne(fresh);
 }
 
 async function cloudPush(){
@@ -4300,13 +4331,30 @@ async function cloudPull(opts){
      pull that is deliberately silent. Somebody opening a shared project sat
      looking at an empty page for minutes with no reason to think it was
      working, and concluded it was not. */
-  const wanted=[];
+  const byId=new Map(existing.map(i=>[i.id,i]));
+  const held=new Map(existing.filter(i=>i.rowId).map(i=>[i.rowId,i]));
+  const wanted=[], repair=[];
   for(const row of rows){
     const layer=row.layer||"unsorted", status=row.status||"wip";
     const baseId=row.kind==="ref"?("ref_"+row.name):("t_"+row.name+"_"+layer+"_"+status);
     /* MERGES, never replaces. Pulling is not a reason to lose work done on
        this device, so a clash is renamed exactly as an import does. */
-    if(opts.keepMine && taken.has(baseId)) continue;
+    /* Already have this exact row, whatever it happens to be called here.
+
+       Pressing Pull from cloud used to add a second copy of every trait in the
+       project: an incoming row whose id was taken got renamed to hat-2, and a
+       name is not identity, so the copy it clashed with WAS the same trait.
+       Measured on a 113-trait project: one press took it to 227. Renaming is
+       still right for a genuine clash - two people naming different traits
+       "hat" - and that is what is left below. */
+    if(held.has(row.id)) continue;
+    if(opts.keepMine && taken.has(baseId)){
+      /* Recognised, so not downloaded again - but this is the one moment the
+         local copy and its server row are both in hand. Stamped now, the copy
+         becomes deletable by row id instead of by name. */
+      repair.push({id:baseId, rowId:row.id, path:row.path});
+      continue;
+    }
     let name=row.name;
     let id=row.kind==="ref"?("ref_"+name):("t_"+name+"_"+layer+"_"+status), k=2;
     while(taken.has(id)){ name=row.name+"-"+k;
@@ -4326,6 +4374,18 @@ async function cloudPull(opts){
   };
   say();
 
+  /* Only the ones actually missing it, so an ordinary open writes nothing. */
+  let repaired=0;
+  for(const rp of repair){
+    try{
+      const cur=byId.get(rp.id);
+      if(cur && !cur.rowId){
+        await dbPut(Object.assign({},cur,{rowId:rp.rowId, path:rp.path}));
+        repaired++;
+      }
+    }catch(_){}
+  }
+
   const PULL_AT_ONCE=8;
   let next=0;
   async function puller(){
@@ -4335,7 +4395,12 @@ async function cloudPull(opts){
         const g=await fetch(SB_URL+"/storage/v1/object/traits/"+w.row.path,{headers:h});
         if(!g.ok) throw new Error("download "+g.status);
         const blob=await g.blob();
-        const rec={id:w.id, kind:w.row.kind, name:w.name, w:w.row.w, h:w.row.h,
+        /* rowId is the server row this copy came from. It is the only handle
+           that survives a rename: the local name can be changed here (a clash
+           with something already on this device gets a -2 suffix) while the
+           server row keeps its own name, and from then on the two disagree. */
+        const rec={id:w.id, rowId:w.row.id, path:w.row.path,
+          kind:w.row.kind, name:w.name, w:w.row.w, h:w.row.h,
           blob:blob, at:Date.now(), synced:true};
         if(w.row.kind==="trait"){ rec.layer=w.layer; rec.status=w.status;
           if(typeof w.row.rarity==="number") rec.rarity=w.row.rarity; }

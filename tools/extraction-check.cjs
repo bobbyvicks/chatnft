@@ -30,7 +30,7 @@ function carve(sig){
   }
   throw new Error('unbalanced '+sig);
 }
-let NEEDED=['const lum =','const TRAIT_BLACK','const BASE_TOL','const BLEED_BLOB','function palette(','function maskOfImg(','function bodyDistance(','function fitTo(',
+let NEEDED=['const lum =','const TRAIT_BLACK','const BASE_TOL','const BLEED_BLOB','const TRACE_EDGE','const TRACE_SHARE','function refEdges(','function palette(','function maskOfImg(','function bodyDistance(','function fitTo(',
   'function stripBackground(','function alignToRef(','function reclaimOutline(','function defringe(',
   'function hardenEdge(','function blackenEdge(','function openMask(','function despeckle(',
   'function extractTrait('];

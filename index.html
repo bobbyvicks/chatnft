@@ -1802,7 +1802,43 @@ function defringe(t,ref,W,H,thresh,passes,neutralMax){
   return removed;
 }
 
-function openMask(t,W,H,r,minRemove){
+/* Opening finds everything thinner than the brush and calls it a candidate.
+   The reason that was ever safe is written in the comment below: a diff
+   artifact TRACES AN EDGE. It is thin because it is the seam where two images
+   disagree, and it lies along the character's own outline.
+
+   A glasses arm is thin too, and lies over nothing in particular. Deleting it
+   is deleting the trait. The old rule could not tell them apart and only
+   appeared to work by accident: a difference usually severs an arm where it
+   crosses the outline, leaving two pieces each under the size limit, so
+   neither was removed and the bridge rejoined them. Give the difference a
+   character it can see the arm against - a key-coloured base, say - and the
+   arm arrives whole, one piece over the limit, and the whole thing is deleted.
+   Measured: 100% recall becomes 88.29%, and turning this stage off restores it.
+
+   So test the thing the rationale actually claims. A component is a tracing
+   artifact when it lies where the REFERENCE has an edge. Over flat reference,
+   thin means thin, not spurious. */
+const TRACE_EDGE=60;      /* a real colour step in the reference */
+const TRACE_SHARE=0.5;    /* how much of a piece must lie on one */
+function refEdges(R,W,H){
+  const e=new Uint8Array(W*H);
+  for(let y=0;y<H;y++) for(let x=0;x<W;x++){
+    const p=y*W+x, i=p*4;
+    let m=0;
+    for(const q of [x>0?p-1:-1, x<W-1?p+1:-1, y>0?p-W:-1, y<H-1?p+W:-1]){
+      if(q<0) continue;
+      const j=q*4;
+      /* alpha counts: the stripped background against the figure is an edge */
+      const d=(R[i+3]<128)!==(R[j+3]<128) ? 255
+        : Math.max(Math.abs(R[i]-R[j]),Math.abs(R[i+1]-R[j+1]),Math.abs(R[i+2]-R[j+2]));
+      if(d>m) m=d;
+    }
+    e[p]= m>=TRACE_EDGE ? 1 : 0;
+  }
+  return e;
+}
+function openMask(t,W,H,r,minRemove,R){
   let m=maskOfImg(t,W*H,127);
   const step=(src,erode)=>{
     const dst=new Uint8Array(src.length);
@@ -1821,6 +1857,7 @@ function openMask(t,W,H,r,minRemove){
   for(let i=0;i<r;i++) m=step(m,false);
   // What opening removes is a candidate, not a verdict: a tendril is long, a
   // corner nibble is only about r^2 pixels. Delete the first, keep the second.
+  const edges=R?refEdges(R,W,H):null;
   const orig=maskOfImg(t,W*H,127), gone=new Uint8Array(W*H);
   for(let p=0;p<W*H;p++) gone[p]= orig[p]&&!m[p] ?1:0;
   const lab=new Int8Array(W*H);
@@ -1834,7 +1871,13 @@ function openMask(t,W,H,r,minRemove){
       for(const n of [x>0?c-1:-1,x<W-1?c+1:-1,y>0?c-W:-1,y<H-1?c+W:-1])
         if(n>=0&&gone[n]&&!lab[n]){ lab[n]=1; q.push(n); }
     }
-    if(comp.length>=minRemove){ for(const c of comp) t[c*4+3]=0; removed+=comp.length; tendrils++; }
+    /* Big enough to be worth removing AND lying along an edge in the
+       reference. Without the second half this deletes any thin part of a
+       trait that happens to be in one piece. */
+    let onEdge=0;
+    if(edges) for(const c of comp) if(edges[c]) onEdge++;
+    const tracing = !edges || (onEdge/comp.length)>=TRACE_SHARE;
+    if(comp.length>=minRemove && tracing){ for(const c of comp) t[c*4+3]=0; removed+=comp.length; tendrils++; }
     else corners++;
   }
   return {removed,tendrils,corners};
@@ -2148,7 +2191,7 @@ function extractTrait(sub,ref,o){
      how a trait with a pale fringe still reached a character. */
   stats.edgeDropped=hardenEdge(t,W,H,o);
   stats.edgeBlacked=blackenEdge(t,W,H);
-  if(o.open){ const r=openMask(t,W,H,o.openR,o.minRemove); stats.opened=r.removed; stats.tendrils=r.tendrils; }
+  if(o.open){ const r=openMask(t,W,H,o.openR,o.minRemove,R); stats.opened=r.removed; stats.tendrils=r.tendrils; }
   /* AFTER the opening, deliberately. A glasses arm is long and thin, which is
      exactly what the tendril rule is looking for - joining its two halves
      turned two pieces that were each under the threshold into one that was

@@ -95,10 +95,13 @@
       mapped[pixel] = index;
       counts[index]++;
     }
+    const whiteIndex = palette.indexOf("#FFFFFF");
+    const selected = [0];
+    if (whiteIndex !== -1 && counts[whiteIndex] > 0) selected.push(whiteIndex);
     const ranked = Array.from({ length: palette.length }, (_, index) => index)
-      .filter((index) => counts[index] > 0 && index !== 0)
+      .filter((index) => counts[index] > 0 && !selected.includes(index))
       .sort((left, right) => counts[right] - counts[left] || left - right);
-    const selected = [0, ...ranked.slice(0, Math.max(0, maxColors - 1))];
+    selected.push(...ranked.slice(0, Math.max(0, maxColors - selected.length)));
     for (let pixel = 0; pixel < mapped.length; pixel++) {
       const offset = pixel * 4;
       if (data[offset + 3] === 0) continue;

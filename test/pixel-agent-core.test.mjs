@@ -35,6 +35,12 @@ test("normalizes the whole canvas with nearest-neighbor and without recentering"
   assert.deepEqual(opaqueBounds(normalized.data, 10, 10), { x0: 8, y0: 2, x1: 9, y1: 3 });
 });
 
+test("preserves sparse enclosed white while reducing a crowded palette", () => {
+  const data = crowdedPaletteWithEnclosedWhiteDetail();
+  const repaired = core.repair(data, 32, 32, { grid: 32 });
+  assert.equal(pixelHex(repaired.data, 16, 16, 32), "#FFFFFF");
+});
+
 test("keeps the bucket hat aligned and removes exterior non-black artifacts", async () => {
   const sourcePng = PNG.sync.read(await readFile(new URL("./fixtures/neet-bucket-hat.png", import.meta.url)));
   assert.equal(sourcePng.width, 1254);
@@ -44,6 +50,11 @@ test("keeps the bucket hat aligned and removes exterior non-black artifacts", as
   const repaired = core.repair(grid.data, 128, 128, { grid: 128 });
   assert.deepEqual([...core.verify(repaired.data, 128, 128, { grid: 128 })], []);
   assert.ok(countColor(repaired.data, "#FFFFFF") > 20, "interior white NEET art remains");
+  assert.equal(
+    whiteMask(repaired.data, 128, 64, 20, 84, 41),
+    "72,21;73,21;74,21;78,22;72,23;73,23;74,23;74,24;76,24;77,24;74,25;75,25;76,25;72,26;73,26;74,26;75,26;67,36;74,36;75,36;76,36;80,36;68,37;72,37;73,37;74,37;75,37;79,37;69,38;72,38;73,38;74,38;75,38;77,38;71,39;72,39;73,39;74,39;76,39;77,39",
+    "NEET globe white-detail mask moved or changed",
+  );
   assert.equal(findExteriorNonBlack(repaired.data, 128, 128).length, 0);
   assertBoundsWithinOneCell(
     opaqueBounds(repaired.data, 128, 128),
@@ -63,6 +74,22 @@ function fixtureWithBlackBoxWhiteCenterAndOutsideWhiteDot() {
   }
   setPixel(data, 9, 4, 4, [255, 255, 255, 255]);
   setPixel(data, 9, 8, 0, [255, 255, 255, 255]);
+  return data;
+}
+
+function crowdedPaletteWithEnclosedWhiteDetail() {
+  const data = new Uint8ClampedArray(32 * 32 * 4);
+  for (let y = 1; y < 31; y++) for (let x = 1; x < 31; x++) setPixel(data, 32, x, y, [0, 0, 0, 255]);
+  const colors = palette.colors.slice(1, 17).map((color) => color.rgb);
+  for (let color = 0; color < colors.length; color++) {
+    const x0 = 3 + (color % 8) * 3;
+    const y0 = 3 + Math.floor(color / 8) * 3;
+    setPixel(data, 32, x0, y0, [...colors[color], 255]);
+    setPixel(data, 32, x0 + 1, y0, [...colors[color], 255]);
+    setPixel(data, 32, x0, y0 + 1, [...colors[color], 255]);
+    setPixel(data, 32, x0 + 1, y0 + 1, [...colors[color], 255]);
+  }
+  setPixel(data, 32, 16, 16, [255, 255, 255, 255]);
   return data;
 }
 
@@ -132,6 +159,14 @@ function countColor(data, hex) {
     if (data[i + 3] && data[i] === rgb[0] && data[i + 1] === rgb[1] && data[i + 2] === rgb[2]) count++;
   }
   return count;
+}
+
+function whiteMask(data, width, x0, y0, x1, y1) {
+  const cells = [];
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+    if (pixelHex(data, x, y, width) === "#FFFFFF" && alphaAt(data, x, y, width) === 255) cells.push(`${x},${y}`);
+  }
+  return cells.join(";");
 }
 
 function scaledBounds(bounds, sourceSize, targetSize) {

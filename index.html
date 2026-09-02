@@ -1129,7 +1129,7 @@ async function renderShelf(){
       const nm=document.createElement('b'); nm.textContent=t.name; el.appendChild(nm);
       const x=document.createElement('button'); x.className='x'; x.textContent='×';
       x.title='Remove reference';
-      x.onclick=async ev=>{ ev.stopPropagation(); await dbDel(t.id); renderShelf(); toast('Removed '+t.name); };
+      x.onclick=async ev=>{ ev.stopPropagation(); await dbDelShared(t); renderShelf(); toast('Removed '+t.name); };
       el.appendChild(x); rg.appendChild(el);
     }
     rw.appendChild(rg); body.appendChild(rw);
@@ -1174,8 +1174,10 @@ async function renderShelf(){
       cyc.onclick=async ev=>{ ev.stopPropagation();
         const order=['wip','approved','rejected'];
         const next=order[(order.indexOf(t.status||'wip')+1)%3];
+        const moved={...t, id:'t_'+t.name+'_'+t.layer+'_'+next, status:next};
         await dbDel(t.id);
-        await dbPut({...t, id:'t_'+t.name+'_'+t.layer+'_'+next, status:next});
+        await dbPut(moved);
+        await cloudMoveOne(t,moved);
         renderShelf(); toast(t.name+' -> '+next); };
       el.appendChild(cyc);
       const dup=document.createElement('button');
@@ -1205,7 +1207,7 @@ async function renderShelf(){
       el.appendChild(rar);
       const x=document.createElement('button'); x.className='x'; x.textContent='×';
       x.title='Remove'; x.setAttribute('aria-label','Remove '+t.name);
-      x.onclick=async ev=>{ ev.stopPropagation(); await dbDel(t.id); renderShelf(); toast('Removed '+t.name); };
+      x.onclick=async ev=>{ ev.stopPropagation(); await dbDelShared(t); renderShelf(); toast('Removed '+t.name); };
       el.appendChild(x);
       el.onclick=async()=>{
         const bm=await createImageBitmap(t.blob);
@@ -1290,6 +1292,11 @@ async function saveTrait(){
          group is not a failure worth hiding - it is the difference between
          your friends seeing it and not. */
       const shared=activeWs ? await cloudSyncOne(rec) : null;
+      /* Marked only once it is actually up there. A save that could not reach
+         the group stays unmarked, and the reconcile below will not remove it -
+         losing work because the network blinked would be worse than the stale
+         copy it is meant to clean up. */
+      if(shared) await dbPut({...rec, synced:true});
       toast(shared ? "Saved "+name+" and shared it with the group"
         : "Saved "+name+" here only - could not reach the group. Press Save to cloud when you are back.");
     } else {
@@ -3264,9 +3271,10 @@ async function retagLayer(items,from,to){
     while(taken.has(id)){ name=t.name+"-"+k; id="t_"+name+"_"+to+"_"+status; k++; }
     if(name!==t.name) renamed++;
     taken.delete(t.id); taken.add(id);
-    await dbDel(t.id);
     const rec=Object.assign({},t,{id:id,name:name,layer:to});
+    await dbDel(t.id);
     await dbPut(rec);
+    await cloudMoveOne(t,rec);
     moved++;
   }
   return {moved:moved,renamed:renamed};
@@ -3964,6 +3972,7 @@ async function cloudSyncOne(rec){
        status - so saving the same trait twice replaces it rather than leaving
        two of it on the server. */
     const q="collection_id=eq."+c.id
+      +"&kind=eq."+encodeURIComponent(rec.kind||"trait")
       +"&name=eq."+encodeURIComponent(rec.name)
       +"&layer=eq."+encodeURIComponent(rec.layer||"unsorted")
       +"&status=eq."+encodeURIComponent(rec.status||"wip");
@@ -3976,6 +3985,51 @@ async function cloudSyncOne(rec){
         w:rec.w||1, h:rec.h||1, path:p}])});
     return r.ok;
   }catch(_){ return null; }
+}
+
+/* A shared bin where deleting only affects your own copy is not shared. The
+   next person to open the project puts it straight back, because the row and
+   the image are both still on the server and their copy pulls them down
+   again. So a delete inside a group is a delete for everybody.
+
+   The image goes too. Leaving it orphans a file in the bucket that nothing
+   points at and nobody can find. */
+async function cloudDropOne(rec){
+  if(!activeWs) return null;
+  const u=await sbUser(); if(!u) return null;
+  const team=await cloudTeam(); if(!team) return null;
+  const c=await cloudCollection(u); if(!c) return null;
+  try{
+    const h=await sbHeaders({"Content-Type":"application/json"});
+    if(!h) return null;
+    const q="collection_id=eq."+c.id
+      +"&kind=eq."+encodeURIComponent(rec.kind||"trait")
+      +"&name=eq."+encodeURIComponent(rec.name)
+      +"&layer=eq."+encodeURIComponent(rec.layer||"unsorted")
+      +"&status=eq."+encodeURIComponent(rec.status||"wip");
+    const r=await fetch(SB_URL+"/rest/v1/traits?"+q,{method:"DELETE",headers:h});
+    await fetch(SB_URL+"/storage/v1/object/traits",{method:"DELETE",headers:h,
+      body:JSON.stringify({prefixes:[cloudPath(team,c,rec)]})});
+    return r.ok;
+  }catch(_){ return null; }
+}
+
+/* Every route that removes a saved item goes through here, so a group cannot
+   end up with a delete that happened on one machine only. Your own page is
+   unaffected - activeWs is null there and nothing leaves the browser. */
+async function dbDelShared(rec){
+  await dbDel(rec.id);
+  if(activeWs) await cloudDropOne(rec);
+}
+
+/* Renaming, restatusing or moving a trait between layers all change the very
+   thing that identifies it on the server, so they are a removal of the old
+   one and an arrival of the new - not an edit. Doing it in that order means a
+   failure halfway leaves the old copy rather than nothing at all. */
+async function cloudMoveOne(oldRec,newRec){
+  if(!activeWs) return null;
+  await cloudDropOne(oldRec);
+  return await cloudSyncOne(newRec);
 }
 
 async function cloudPush(){
@@ -4042,7 +4096,13 @@ async function cloudPull(opts){
   const r=await fetch(SB_URL+"/rest/v1/traits?select=*&collection_id=eq."+c.id,{headers:h});
   if(!r.ok){ toast("Could not read your collection"); return; }
   const rows=await r.json();
-  if(!rows.length){ toast("Nothing saved on the server yet"); return; }
+  /* The identities the server holds, so the caller can work out what has been
+     removed by somebody else since this device last looked. */
+  const onServer=new Set(rows.map(function(row){
+    return row.kind==="ref" ? ("ref_"+row.name)
+      : ("t_"+row.name+"_"+(row.layer||"unsorted")+"_"+(row.status||"wip"));
+  }));
+  if(!rows.length){ if(!opts.quiet) toast("Nothing saved on the server yet"); return onServer; }
   $("cloudpull").disabled=true;
   let existing=[];
   try{ existing=await dbAll(); }catch(_){}
@@ -4066,7 +4126,7 @@ async function cloudPull(opts){
       id=row.kind==="ref"?("ref_"+name):("t_"+name+"_"+layer+"_"+status); k++; }
     if(name!==row.name) renamed++;
     taken.add(id);
-    const rec={id:id, kind:row.kind, name:name, w:row.w, h:row.h, blob:blob, at:Date.now()};
+    const rec={id:id, kind:row.kind, name:name, w:row.w, h:row.h, blob:blob, at:Date.now(), synced:true};
     if(row.kind==="trait"){ rec.layer=layer; rec.status=status;
       if(typeof row.rarity==="number") rec.rarity=row.rarity; }
     try{ await dbPut(rec); added++; }catch(_){ failed++; }
@@ -4085,6 +4145,7 @@ async function cloudPull(opts){
   if(failed) bits.push(failed+" could not be read");
   $("cloudnote").textContent=bits.join(", ")+".";
   if(!opts.quiet) toast(bits.join(", "));
+  return onServer;
 }
 
 
@@ -4122,7 +4183,27 @@ async function wsSwitch(id){
     /* Whatever the group already has, before anything else happens - this is
        the other half of why nothing was shared. Saving went nowhere and
        opening asked for nothing. */
-    try{ await cloudPull({quiet:true, keepMine:true}); }catch(_){}
+    /* The group is the bin, and the server is what is in it. Anything this
+       device holds that the group no longer has was removed by somebody, so it
+       goes here too - otherwise a delete is undone by the next person to open
+       the project, whose copy simply puts it back.
+
+       Only items marked as having reached the server are ever removed. Work
+       that failed to upload is not on the server BECAUSE it never got there,
+       and deleting it would be the opposite of what is wanted. */
+    try{
+      const onServer=await cloudPull({quiet:true, keepMine:true});
+      if(onServer){
+        let gone=0;
+        for(const it of await dbAll()){
+          if(it.kind!=="trait"&&it.kind!=="ref") continue;
+          if(!it.synced) continue;
+          if(onServer.has(it.id)) continue;
+          await dbDel(it.id); gone++;
+        }
+        if(gone) toast(gone+" removed by someone else");
+      }
+    }catch(_){}
     await renderShelf();
   }
   toast(activeWs?"Opened the group project":"Back on your page");

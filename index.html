@@ -265,6 +265,12 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
     linear-gradient(45deg,#232029 25%,#1a1720 25%,#1a1720 75%,#232029 75%);
   background-size:14px 14px; background-position:0 0,7px 7px;}
 .pxctl{flex:1; min-width:200px; display:flex; flex-direction:column; gap:7px;}
+#pxinstruction{width:100%; resize:vertical; min-height:68px; padding:8px 9px;
+  border-radius:8px; background:var(--ground); border:1px solid var(--line);
+  color:var(--ink); font:inherit; font-size:12.5px;}
+#pxvividcontrols,#pxgenericcontrols{display:flex; flex-direction:column; gap:7px;}
+#pxswatches{grid-template-columns:repeat(8,1fr); margin-top:2px;}
+#pxswatches .sw{min-height:20px; cursor:default;}
 .facts{display:grid; grid-template-columns:1fr 1fr; gap:9px; margin-bottom:17px;}
 .fact{background:var(--panel-2); border:1px solid var(--line); border-radius:9px; padding:10px 12px;}
 .fact small{display:block; color:var(--dim); font-size:10px; text-transform:uppercase; letter-spacing:.1em;}
@@ -718,16 +724,30 @@ footer .mono{color:var(--ink);}
     <div class="pxwrap">
       <canvas id="pxout"></canvas>
       <div class="pxctl">
-        <div class="olrow"><label for="pxsize">Grid</label>
-          <span class="mono" id="pxsizelab" style="margin-left:auto">64</span></div>
-        <input id="pxsize" type="range" min="16" max="160" step="8" value="64">
-        <div class="olrow"><label for="pxcol">Colours</label>
-          <span class="mono" id="pxcollab" style="margin-left:auto">12</span></div>
-        <input id="pxcol" type="range" min="2" max="48" step="1" value="12">
-        <div class="olrow"><label for="pxbg">Cut background</label>
-          <input id="pxbg" type="number" min="0" max="160" value="40" style="width:64px"></div>
-        <label class="olchk"><input type="checkbox" id="pxmatch"> Use my collection's colours</label>
-        <label class="olchk"><input type="checkbox" id="pxline" checked> Draw a black outline</label>
+        <label class="olchk"><input type="checkbox" id="pxvivid" checked> Use the saved Vivid Pixel Agent rules</label>
+        <div id="pxvividcontrols">
+          <div class="olrow" id="pxvividgridrow"><label for="pxvividgrid">Working grid</label>
+            <select id="pxvividgrid"><option>32</option><option>64</option><option selected>128</option><option>256</option></select>
+          </div>
+          <p class="note">1024×1024 · 16 colors max · black exterior outline · hard transparency</p>
+          <label for="pxinstruction">Instruction</label>
+          <textarea id="pxinstruction" rows="3" maxlength="2000" placeholder="Example: remove the small white dot outside the hat"></textarea>
+          <button class="btn" id="pxgenerate" disabled>Generate locally with ComfyUI</button>
+          <p class="note" id="pxagentstatus">Checking local ComfyUI…</p>
+          <div class="swatches" id="pxswatches" aria-label="Used color swatches"></div>
+        </div>
+        <div id="pxgenericcontrols">
+          <div class="olrow"><label for="pxsize">Grid</label>
+            <span class="mono" id="pxsizelab" style="margin-left:auto">64</span></div>
+          <input id="pxsize" type="range" min="16" max="160" step="8" value="64">
+          <div class="olrow"><label for="pxcol">Colours</label>
+            <span class="mono" id="pxcollab" style="margin-left:auto">12</span></div>
+          <input id="pxcol" type="range" min="2" max="48" step="1" value="12">
+          <div class="olrow"><label for="pxbg">Cut background</label>
+            <input id="pxbg" type="number" min="0" max="160" value="40" style="width:64px"></div>
+          <label class="olchk"><input type="checkbox" id="pxmatch"> Use my collection's colours</label>
+          <label class="olchk"><input type="checkbox" id="pxline" checked> Draw a black outline</label>
+        </div>
       </div>
     </div>
     <p class="note" id="pxnote"></p>
@@ -872,6 +892,8 @@ footer .mono{color:var(--ink);}
         <button class="btn ghost" id="dlNative">Download at grid size</button>
         <button class="btn ghost" id="dlBig">Download at 8×</button>
         <button class="btn ghost" id="dlTrim">Download trimmed to the art</button>
+        <button class="btn ghost" id="dlVivid" hidden>Download 1024×1024</button>
+        <button class="btn ghost" id="dlVividSwatch" hidden>Download used colors</button>
         <button class="btn ghost" id="reset">Reset to original</button>
         <button class="btn" id="saveclose">Save and close</button>
         <button class="btn ghost" id="closeed">Close</button>
@@ -896,9 +918,33 @@ footer .mono{color:var(--ink);}
 </div>
 <div class="toast" id="toast"></div>
 
+<script src="./pixel-agent-core.js"></script>
 <script>
 "use strict";
 const $=id=>document.getElementById(id);
+let vividContract=null, vividCore=null, vividResult=null, editorVivid=false;
+
+async function initVividAgent(){
+  try{
+    const [config,palette]=await Promise.all([
+      fetch('./pixel-agent.config.json').then(r=>{ if(!r.ok) throw new Error('config'); return r.json(); }),
+      fetch('./palette/vivid-fixed-128.json').then(r=>{ if(!r.ok) throw new Error('palette'); return r.json(); }),
+    ]);
+    vividContract=config;
+    vividCore=ChatNftPixelAgent.create(config,palette.colors.map(c=>c.hex));
+    $('pxgenerate').disabled=!$('pxvivid').checked;
+    pxRender();
+    try{
+      const response=await fetch('/api/pixel-agent/health');
+      const health=await response.json();
+      $('pxagentstatus').textContent=response.ok&&health.ok?'ComfyUI ready locally':'ComfyUI is not ready';
+    }catch(_){ $('pxagentstatus').textContent='Open ComfyUI, then reload this local page.'; }
+  }catch(_){
+    $('pxagentstatus').textContent='Vivid Agent rules could not load.';
+    $('pxgenerate').disabled=true;
+  }
+}
+initVividAgent();
 const MAXZ=48;
 let N=0, art=$('art'), ctx=null, zoom=4, tool='pencil', color='#000000';
 let hoverCell=null;   /* cell under the pointer, or null when the cursor is away */
@@ -2529,8 +2575,11 @@ function analyse(im,file){
 }
 
 /* ================= editor ======================================= */
-function startEditor(data,w,h,srcW,srcH,pal,recovered){
+function startEditor(data,w,h,srcW,srcH,pal,recovered,meta={}){
   $('scrim').hidden=true; $('land').hidden=true; $('app').hidden=false;
+  editorVivid=meta.vivid===true;
+  $('dlVivid').hidden=!editorVivid;
+  $('dlVividSwatch').hidden=!editorVivid;
   N=w;
   art.width=w; art.height=h;
   gridBlock=1;   /* callers that measured a block size set it after this */
@@ -3831,6 +3880,32 @@ function pxOpts(){
           outline:$("pxline").checked,
           fixed:$("pxmatch").checked?pxFixed:null};
 }
+function pxVividOpts(){ return {size:+$('pxvividgrid').value}; }
+function renderVividSwatches(colors){
+  const wrap=$('pxswatches'); wrap.innerHTML='';
+  colors.forEach(color=>{
+    const sw=document.createElement('span');
+    sw.className='sw'; sw.style.background=color; sw.title=color;
+    wrap.appendChild(sw);
+  });
+}
+function showPixelResult(result,note){
+  const cv=$('pxout');
+  cv.width=result.size; cv.height=result.size;
+  cv.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(result.data),result.size,result.size),0,0);
+  pxData=result;
+  $('pxnote').textContent=note;
+  $('pxgo').disabled=false;
+}
+function deterministicVividResult(grid){
+  const canvas=vividCore.resizeNearest(pxSrc.data,pxSrc.width,pxSrc.height,1024,1024);
+  const normalized=vividCore.recoverToGrid(canvas.data,canvas.width,canvas.height,grid);
+  const repaired=vividCore.repair(normalized.data,grid,grid,{grid});
+  const violations=vividCore.verify(repaired.data,grid,grid,{grid});
+  if(violations.length) throw new Error(violations.join('; '));
+  return {data:repaired.data,size:grid,colors:repaired.colors,
+          originalWidth:pxSrc.width,originalHeight:pxSrc.height};
+}
 function pxRender(){
   $("pxsizelab").textContent=$("pxsize").value+String.fromCharCode(215)+$("pxsize").value;
   $("pxcollab").textContent=$("pxcol").value;
@@ -3838,6 +3913,23 @@ function pxRender(){
   clearTimeout(pxPending);
   pxPending=setTimeout(()=>{
     pxPending=null;
+    if($('pxvivid').checked){
+      if(!vividCore){
+        $('pxagentstatus').textContent='Waiting for the saved Vivid Agent rules…';
+        $('pxgo').disabled=true;
+        return;
+      }
+      try{
+        const r=deterministicVividResult(pxVividOpts().size);
+        vividResult=r;
+        renderVividSwatches(r.colors);
+        showPixelResult(r,r.colors.length+' saved colors used · deterministic cleanup preview.');
+      }catch(error){
+        $('pxagentstatus').textContent=error.message;
+        $('pxgo').disabled=true;
+      }
+      return;
+    }
     const o=pxOpts();
     const r=pixelate(pxSrc.data,pxSrc.width,pxSrc.height,o);
     pxData=r;
@@ -3853,6 +3945,70 @@ function pxRender(){
     $("pxnote").textContent=bits.join(", ")+".";
     $("pxgo").disabled=!r.kept;
   },60);
+}
+function syncVividControls(){
+  const enabled=$('pxvivid').checked;
+  $('pxgenericcontrols').hidden=enabled;
+  $('pxvividcontrols').hidden=!enabled;
+  $('pxgenerate').disabled=!enabled||!vividCore;
+  pxRender();
+}
+function canvasFromRgba(data,width,height){
+  const canvas=document.createElement('canvas'); canvas.width=width; canvas.height=height;
+  canvas.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(data),width,height),0,0);
+  return canvas;
+}
+function decodePngDataUrl(dataUrl){
+  return new Promise((resolve,reject)=>{
+    const image=new Image();
+    image.onload=()=>{
+      const canvas=document.createElement('canvas'); canvas.width=image.naturalWidth; canvas.height=image.naturalHeight;
+      const g=canvas.getContext('2d',{willReadFrequently:true}); g.imageSmoothingEnabled=false; g.drawImage(image,0,0);
+      resolve({data:g.getImageData(0,0,canvas.width,canvas.height).data,width:canvas.width,height:canvas.height});
+    };
+    image.onerror=()=>reject(new Error('ComfyUI returned an unreadable image.'));
+    image.src=dataUrl;
+  });
+}
+async function generateVivid(){
+  if(!vividCore||!pxSrc){
+    $('pxagentstatus').textContent='Waiting for the saved Vivid Agent rules…';
+    return;
+  }
+  const button=$('pxgenerate'); button.disabled=true;
+  $('pxagentstatus').textContent='Generating locally with ComfyUI…';
+  try{
+    const grid=pxVividOpts().size;
+    const canvas=vividCore.resizeNearest(pxSrc.data,pxSrc.width,pxSrc.height,1024,1024);
+    const recovered=vividCore.recoverToGrid(canvas.data,canvas.width,canvas.height,grid);
+    const input=vividCore.renderGridToCanvas(recovered.data,grid);
+    const response=await fetch('/api/pixel-agent/generate',{
+      method:'POST', headers:{'content-type':'application/json'},
+      body:JSON.stringify({imageDataUrl:canvasFromRgba(input.data,1024,1024).toDataURL('image/png'),
+                           instruction:$('pxinstruction').value.trim(),grid})
+    });
+    if(!response.ok){
+      const failure=new Error(response.status===503?'Open ComfyUI and try again.':'Local generation failed.');
+      failure.status=response.status; throw failure;
+    }
+    const payload=await response.json();
+    const draft=await decodePngDataUrl(payload.pngDataUrl);
+    if(draft.width!==1024||draft.height!==1024) throw new Error('ComfyUI must return a 1024×1024 draft.');
+    const normalized=vividCore.recoverToGrid(draft.data,draft.width,draft.height,grid);
+    const repaired=vividCore.repair(normalized.data,grid,grid,{grid});
+    const violations=vividCore.verify(repaired.data,grid,grid,{grid});
+    if(violations.length) throw new Error(violations.join('; '));
+    const next={data:repaired.data,size:grid,colors:repaired.colors,
+                originalWidth:pxSrc.width,originalHeight:pxSrc.height};
+    vividResult=next;
+    renderVividSwatches(next.colors);
+    showPixelResult(next,next.colors.length+' saved colors used · local generation repaired and verified.');
+    $('pxagentstatus').textContent='Generated, repaired, and verified locally.';
+  }catch(error){
+    $('pxagentstatus').textContent=error.message||'Local generation failed.';
+  }finally{
+    button.disabled=!$('pxvivid').checked||!vividCore;
+  }
 }
 async function openPixelate(d,w,hh,name){
   pxSrc={data:d,width:w,height:hh};
@@ -5236,8 +5392,35 @@ function download(scale){
     toast('Downloaded '+W+'×'+H);
   },'image/png');
 }
+function downloadCanvas(canvas,name,message){
+  canvas.toBlob(blob=>{
+    if(!blob) return;
+    const url=URL.createObjectURL(blob), anchor=document.createElement('a');
+    anchor.href=url; anchor.download=name;
+    document.body.appendChild(anchor); anchor.click(); anchor.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+    toast(message);
+  },'image/png');
+}
+function currentVerifiedVivid(){
+  if(!editorVivid||!vividCore||!ctx) return null;
+  const image=ctx.getImageData(0,0,art.width,art.height);
+  const violations=vividCore.verify(image.data,art.width,art.height,{grid:art.width});
+  if(violations.length){ toast(violations.join('; ')); return null; }
+  return image.data;
+}
 $('dlNative').onclick=()=>download(1);
 $('dlBig').onclick=()=>download(8);
+$('dlVivid').onclick=()=>{
+  const data=currentVerifiedVivid(); if(!data) return;
+  const rendered=vividCore.renderGridToCanvas(data,art.width);
+  downloadCanvas(canvasFromRgba(rendered.data,1024,1024),fileName.replace(/\.png$/i,'')+'-1024.png','Downloaded 1024×1024');
+};
+$('dlVividSwatch').onclick=()=>{
+  const data=currentVerifiedVivid(); if(!data) return;
+  const swatch=vividCore.renderSwatch(vividCore.usedColors(data),1024,128);
+  downloadCanvas(canvasFromRgba(swatch.data,1024,128),fileName.replace(/\.png$/i,'')+'-used-colors.png','Downloaded used colors');
+};
 /* Strip a flat background by flooding inwards from the border, so only colour
    REACHABLE from the edge goes. A white shirt in the middle of the character is
    never touched, which a plain "delete every white pixel" would wreck. */
@@ -5246,13 +5429,17 @@ $('dlBig').onclick=()=>download(8);
   e.addEventListener("input",pxRender);
   e.addEventListener("change",pxRender);
 });
+$('pxvivid').addEventListener('change',syncVividControls);
+$('pxvividgrid').addEventListener('change',pxRender);
+$('pxgenerate').onclick=generateVivid;
+syncVividControls();
 $('pxback').onclick=()=>{ $('pxscrim').hidden=true; $('scrim').hidden=false; };
 $('pxgo').onclick=()=>{
   if(!pxData) return;
   $('pxscrim').hidden=true;
   const n=pxData.size;
   startEditor(pxData.data,n,n,pxSrc.width,pxSrc.height,
-              palette(pxData.data,n*n,24,64),true);
+              palette(pxData.data,n*n,24,64),true,{vivid:$('pxvivid').checked});
   toast('Pixelated to '+n+String.fromCharCode(215)+n);
 };
 /* Typing re-renders the shelf, which decodes a thumbnail per tile, so it is

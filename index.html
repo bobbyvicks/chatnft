@@ -1296,7 +1296,6 @@ async function saveTrait(){
          the group stays unmarked, and the reconcile below will not remove it -
          losing work because the network blinked would be worse than the stale
          copy it is meant to clean up. */
-      if(shared) await dbPut({...rec, synced:true});
       toast(shared ? "Saved "+name+" and shared it with the group"
         : "Saved "+name+" here only - could not reach the group. Press Save to cloud when you are back.");
     } else {
@@ -3983,6 +3982,9 @@ async function cloudSyncOne(rec){
         layer:rec.layer||"unsorted", status:rec.status||"wip",
         rarity:(typeof rec.rarity==="number"?rec.rarity:1),
         w:rec.w||1, h:rec.h||1, path:p}])});
+    /* Marked here, where it is known to have arrived, so every route that
+       uploads gets it: a save inside a group, and Save to cloud. */
+    if(r.ok && rec.id){ try{ await dbPut(Object.assign({},rec,{synced:true})); }catch(_){} }
     return r.ok;
   }catch(_){ return null; }
 }

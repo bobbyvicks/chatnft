@@ -25,6 +25,18 @@ chatnfts, chatnft-app, chatnftapp, getchatnft, chatnft-io.)
 
 Everything runs in the browser. No image is uploaded anywhere.
 
+## Local Vivid Pixel Agent
+
+1. Open ComfyUI Desktop and wait until its local server is ready.
+2. In this repository, run `npm install` once and then `npm run start:local`.
+3. Open http://127.0.0.1:4173/.
+4. Drop a PNG, JPEG, or WebP and choose **Turn this into a trait**.
+5. Keep **Use the saved Vivid Pixel Agent rules** enabled.
+6. Use the immediate preview for faithful cleanup, or enter an instruction and choose **Generate locally with ComfyUI** for a creative revision.
+7. Open the verified result in the editor and download the 1024×1024 PNG and used-color swatch.
+
+The art contract is stored in `pixel-agent.config.json`, the palette is stored in `palette/vivid-fixed-128.json`, and creative rules are stored in `agent/vivid-pixel-instructions.md`. Tests enforce these files; the workflow does not rely on chat memory.
+
 ## Deploying
 
 One static file, no build step. Vercel serves `index.html` as-is.

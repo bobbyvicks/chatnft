@@ -15,6 +15,7 @@
   },
   "scripts": {
     "test": "node --test test/*.test.mjs",
-    "start:local": "node server/local-server.mjs"
+    "start:local": "node server/local-server.mjs",
+    "test:local-agent": "node tools/local-agent-check.mjs"
   }
 }

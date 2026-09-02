@@ -833,6 +833,30 @@ footer .mono{color:var(--ink);}
         <button class="btn ghost" id="flipv" style="flex:1">Flip down</button>
       </div>
       <p class="note">Mirrors the whole canvas, so the trait still lines up afterwards.</p>
+      <div class="olrow" style="margin-top:10px"><label for="rsw">Size</label>
+        <input id="rsw" type="number" min="1" max="4096" style="width:70px">
+        <span class="mono">x</span>
+        <input id="rsh" type="number" min="1" max="4096" style="width:70px">
+        <label class="olchk" style="margin-left:4px"><input type="checkbox" id="rslock" checked> keep shape</label></div>
+      <div class="olrow"><label for="rsmode">Change</label>
+        <select id="rsmode" style="flex:1">
+          <option value="art">the art - scale it to the new size</option>
+          <option value="canvas">the canvas only - pad or crop, art untouched</option>
+        </select></div>
+      <div class="olrow"><label for="rspreset">Jump to</label>
+        <select id="rspreset" style="flex:1"></select></div>
+      <div class="olrow"><label for="rsgrid">Cells</label>
+        <input id="rsgrid" type="number" min="4" max="1024" value="160" style="width:70px">
+        <label class="olchk" style="margin-left:4px"><input type="checkbox" id="rssnap" checked> snap</label></div>
+      <div class="savebar">
+        <button class="btn ghost" id="rsgo" style="flex:2">Resize</button>
+        <button class="btn ghost" id="rotl" style="flex:1" title="Turn a quarter to the left">&#8630;</button>
+        <button class="btn ghost" id="rotr" style="flex:1" title="Turn a quarter to the right">&#8631;</button>
+      </div>
+      <p class="note">Now <span class="mono" id="rsnow">-</span>. The two arrows turn the art a quarter at a time, which moves every
+        pixel to another whole pixel and changes no colours. Sizes that are a whole multiple of the cell count keep every
+        cell the same width; anything else makes them alternate. Growing by a whole number copies each cell exactly.
+        Any other size takes the commonest colour under each new cell, so no colour appears that was not already there.</p>
     </section>
     <section>
       <h2>Recolour</h2>
@@ -1114,6 +1138,14 @@ const DEFAULT_LAYERS=['backgrounds','skins','clothing','costumes','chains','acce
   'extras','ears','mouth','eyes','hair-headwear','masks','unsorted'];
 let LAYERS=DEFAULT_LAYERS.slice();
 const LAYERS_ID='settings.layers';
+const GRID_ID='settings.grid';
+/* How many cells across the collection's art is. A size is only safe when it
+   is a whole multiple of this: at any other size a cell is a fractional number
+   of pixels and comes out alternately n and n+1 wide. The collection this was
+   built for is 160 cells, and its files are 1254px - 7.8375 per cell - which is
+   where its uneven pixels come from. Stored with the project, like the layer
+   order, because it is a fact about the collection and not about the device. */
+let projectGrid=160;
 /* Deliberately still 'pixelbench' after the rename to ChatNFT: this string is
    the key to every trait already saved in a browser. Renaming it would leave
    that data in place but unreachable, which presents as the project emptying
@@ -1197,6 +1229,7 @@ async function renderShelf(){
   /* Before anything groups by layer: the saved order is the authority, and
      the default list is only what it starts from. */
   applyLayers(items);
+  applyGrid(items);
   const traits=items.filter(i=>i.kind==='trait');
   /* Which project you are in, and whether what you have saved is actually in
      it. Nothing about a save tells you this otherwise: it saves, it says so,
@@ -2743,6 +2776,7 @@ function startEditor(data,w,h,srcW,srcH,pal,recovered){
   ctx.putImageData(id,0,0);
   original=ctx.getImageData(0,0,w,h);
   undoStack=[]; redoStack=[];
+  resizeBoxes();
   $('fname').textContent=fileName;
   $('tname').value=fileName.replace(/[.]png$/,'');
   $('sGrid').textContent=w+'×'+h;
@@ -2854,6 +2888,147 @@ function fitZoom(){
   st.scrollTop =Math.max(0,cy-st.clientHeight/2);
 }
 function snapshot(){ undoStack.push(ctx.getImageData(0,0,art.width,art.height)); if(undoStack.length>60) undoStack.shift(); redoStack.length=0; }
+
+/* Put an ImageData on the canvas, resizing the canvas to match it first.
+
+   Undo used to be putImageData alone, which was fine while nothing could
+   change the canvas size. Now that resizing exists, undoing one would paste an
+   ImageData of the old size into a canvas of the new one - clipped if bigger,
+   leaving stale pixels round the edge if smaller, and the canvas left wrong
+   either way. Every route that restores a stored image goes through here. */
+function restoreImage(im){
+  if(art.width!==im.width||art.height!==im.height){
+    art.width=im.width; art.height=im.height;
+    N=im.width;
+    const opv=$("olpv"); opv.width=im.width; opv.height=im.height;
+    ctx=art.getContext("2d",{willReadFrequently:true});
+  }
+  ctx.putImageData(im,0,0);
+  applyZoom();
+}
+
+/* Scale the artwork to a new size.
+
+   Growing by a whole number replicates each cell, which cannot introduce a
+   colour or soften an edge. Anything else takes the MODE of the source pixels
+   under each destination cell - the colour that appears most often - which can
+   only ever return a colour that was already there. A mean would invent
+   colours, and the app's own recover() takes each channel's median
+   independently, which can emit a triple that appears nowhere in the source.
+   For pixel art that is the difference between a resize and a blur. */
+function scaleArt(src,W,H,nw,nh){
+  const out=new Uint8ClampedArray(nw*nh*4);
+  if(nw>=W && nh>=H && nw%W===0 && nh%H===0){
+    const kx=nw/W, ky=nh/H;
+    for(let y=0;y<nh;y++) for(let x=0;x<nw;x++){
+      const s=(((y/ky)|0)*W+((x/kx)|0))*4, d=(y*nw+x)*4;
+      out[d]=src[s]; out[d+1]=src[s+1]; out[d+2]=src[s+2]; out[d+3]=src[s+3];
+    }
+    return out;
+  }
+  const cnt=new Map();
+  for(let dy=0;dy<nh;dy++){
+    const y0=Math.floor(dy*H/nh), y1=Math.max(y0+1,Math.ceil((dy+1)*H/nh));
+    for(let dx=0;dx<nw;dx++){
+      const x0=Math.floor(dx*W/nw), x1=Math.max(x0+1,Math.ceil((dx+1)*W/nw));
+      cnt.clear();
+      let on=0, tot=0;
+      for(let y=y0;y<y1&&y<H;y++) for(let x=x0;x<x1&&x<W;x++){
+        const i=(y*W+x)*4; tot++;
+        if(src[i+3]<128) continue;
+        on++;
+        const k=(src[i]<<16)|(src[i+1]<<8)|src[i+2];
+        cnt.set(k,(cnt.get(k)||0)+1);
+      }
+      const d=(dy*nw+dx)*4;
+      /* A cell less than half covered by art becomes empty, so shrinking does
+         not fatten the silhouette by rounding every stray pixel up. */
+      if(on*2<tot || !cnt.size){ out[d+3]=0; continue; }
+      let bk=0,bn=-1;
+      for(const e of cnt){ if(e[1]>bn){ bn=e[1]; bk=e[0]; } }
+      out[d]=(bk>>16)&255; out[d+1]=(bk>>8)&255; out[d+2]=bk&255; out[d+3]=255;
+    }
+  }
+  return out;
+}
+
+/* Change the canvas without touching the art: pad with empty space or crop.
+   Anchored at the top left, NOT centred - a trait is a full-canvas overlay and
+   centring it would move it relative to the character it has to line up with. */
+function recanvas(src,W,H,nw,nh){
+  const out=new Uint8ClampedArray(nw*nh*4);
+  const cw=Math.min(W,nw), ch=Math.min(H,nh);
+  for(let y=0;y<ch;y++) for(let x=0;x<cw;x++){
+    const s=(y*W+x)*4, d=(y*nw+x)*4;
+    out[d]=src[s]; out[d+1]=src[s+1]; out[d+2]=src[s+2]; out[d+3]=src[s+3];
+  }
+  return out;
+}
+
+/* A quarter turn. cw true is clockwise.
+
+   Lossless by construction: every destination pixel is copied whole from one
+   source pixel, so the set of colours out is exactly the set in, and four
+   turns return the original bytes. The canvas swaps width and height, which is
+   why this goes through restoreImage rather than putImageData. */
+function rotateQuarter(cw){
+  if(!ctx) return;
+  const W=art.width, H=art.height;
+  const src=ctx.getImageData(0,0,W,H).data;
+  const nw=H, nh=W;
+  const out=new Uint8ClampedArray(nw*nh*4);
+  for(let y=0;y<H;y++) for(let x=0;x<W;x++){
+    const s=(y*W+x)*4;
+    const nx = cw ? (H-1-y) : y;
+    const ny = cw ? x : (W-1-x);
+    const d=(ny*nw+nx)*4;
+    out[d]=src[s]; out[d+1]=src[s+1]; out[d+2]=src[s+2]; out[d+3]=src[s+3];
+  }
+  snapshot();
+  restoreImage(new ImageData(out,nw,nh));
+  refreshStats();
+  fitZoom();
+  resizeBoxes();
+  toast("Turned a quarter "+(cw?"right":"left")+" - now "+nw+" by "+nh);
+}
+
+function applyResize(){
+  if(!ctx) return;
+  const W=art.width, H=art.height;
+  const snap=$("rssnap")&&$("rssnap").checked;
+  /* Snapped before clamping, so a snap can never push a size out of range. */
+  let nw=Math.max(1,Math.min(4096,parseInt($("rsw").value,10)||0));
+  if(snap) nw=Math.min(4096,snapToGrid(nw));
+  let nh=Math.max(1,Math.min(4096,parseInt($("rsh").value,10)||0));
+  /* With keep-shape on the height follows the width and is left alone, or
+     snapping both would fight the aspect and win. */
+  if(snap && !$("rslock").checked) nh=Math.min(4096,snapToGrid(nh));
+  /* From the SNAPPED width, not from what was typed. The box was filled while
+     typing, so it holds the height for the pre-snap width - 4:3 art at grid 160,
+     type 1254, and the width snaps to 1280 while the height stays at 941: on the
+     grid in one direction, off it in the other, and not even the right shape. */
+  else if(snap && $("rslock").checked) nh=Math.max(1,Math.round(nw*H/W));
+  if(nw===W && nh===H){ toast("Already "+W+" by "+H); return; }
+  const keepArt=$("rsmode").value==="canvas";
+  const src=ctx.getImageData(0,0,W,H).data;
+  snapshot();
+  const out = keepArt ? recanvas(src,W,H,nw,nh) : scaleArt(src,W,H,nw,nh);
+  restoreImage(new ImageData(out,nw,nh));
+  refreshStats();
+  const p=palette(out,nw*nh,24,64);
+  buildPalette(p.list); buildRecolour(p.list);
+  fitZoom();
+  resizeBoxes();
+  toast((keepArt?"Canvas is now ":"Resized to ")+nw+" by "+nh);
+}
+
+/* The boxes always show what the canvas actually is, so the panel cannot
+   disagree with the artwork after an undo or a reset. */
+function resizeBoxes(){
+  if(!art||!$("rsw")) return;
+  $("rsw").value=art.width; $("rsh").value=art.height;
+  const n=$("rsnow"); if(n) n.textContent=art.width+" x "+art.height;
+}
 function cellFrom(e){
   const r=art.getBoundingClientRect();
   const x=Math.floor((e.clientX-r.left)/zoom), y=Math.floor((e.clientY-r.top)/zoom);
@@ -2981,6 +3156,9 @@ function refreshStats(){
   }
   $('count').textContent=n.toLocaleString();
   $('sCols').textContent=seen.size.toLocaleString();
+  /* The canvas size can change now that resize exists, so this belongs with
+     the figures that are kept true rather than with the ones written once. */
+  $('sGrid').textContent=art.width+'\u00d7'+art.height;
   /* The outline is computed FROM the artwork, so any committed edit
      invalidates it. This is the one call every edit path already makes,
      which makes it the right place to hang the autosave too. */
@@ -3765,6 +3943,43 @@ async function drawSheet(count){
 const slugLayer=s=>String(s||"").toLowerCase().trim()
   .replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"").slice(0,32);
 
+function applyGrid(items){
+  const rec=items.find(i=>i.id===GRID_ID);
+  const v=rec&&parseInt(rec.cells,10);
+  if(v&&v>=4&&v<=1024) projectGrid=v;
+  const box=$("rsgrid"); if(box) box.value=projectGrid;
+  buildResizePresets();
+}
+async function saveGrid(){
+  await dbPut({id:GRID_ID, kind:"settings", cells:projectGrid, at:Date.now()});
+}
+
+/* The sizes that land whole on the grid. Offered rather than described,
+   because "a whole multiple of 160" is arithmetic nobody should have to do
+   while resizing a trait. */
+function buildResizePresets(){
+  const sel=$("rspreset"); if(!sel) return;
+  const keep=sel.value;
+  sel.innerHTML="";
+  const first=document.createElement("option");
+  first.value=""; first.textContent="a size that fits the grid...";
+  sel.appendChild(first);
+  for(const k of [1,2,3,4,6,8,10,12,16]){
+    const px=projectGrid*k;
+    if(px>4096) continue;
+    const o=document.createElement("option");
+    o.value=String(px);
+    o.textContent=px+" px  ("+k+"x, "+projectGrid+" cells)";
+    sel.appendChild(o);
+  }
+  if([...sel.options].some(o=>o.value===keep)) sel.value=keep;
+}
+
+/* Rounded to the nearest whole multiple, never to zero. */
+function snapToGrid(v){
+  const g=Math.max(1,projectGrid);
+  return Math.max(g, Math.round(v/g)*g);
+}
 function applyLayers(items){
   const rec=items.find(i=>i.id===LAYERS_ID);
   if(rec&&Array.isArray(rec.layers)&&rec.layers.length) LAYERS=rec.layers.slice();
@@ -5480,8 +5695,8 @@ stage.addEventListener('wheel',e=>{ e.preventDefault(); setZoom(zoom+(e.deltaY<0
 document.querySelectorAll('.tool[data-tool]').forEach(b=>b.onclick=()=>selectTool(b.dataset.tool));
 $('panbtn').onclick=()=>selectTool(panMode?'pencil':'pan');
 $('gridbtn').onclick=e=>{ const on=$('grid').classList.toggle('on'); e.currentTarget.setAttribute('aria-pressed',String(on)); };
-$('undo').onclick=()=>{ if(!undoStack.length) return; redoStack.push(ctx.getImageData(0,0,art.width,art.height)); ctx.putImageData(undoStack.pop(),0,0); refreshStats(); };
-$('redo').onclick=()=>{ if(!redoStack.length) return; undoStack.push(ctx.getImageData(0,0,art.width,art.height)); ctx.putImageData(redoStack.pop(),0,0); refreshStats(); };
+$('undo').onclick=()=>{ if(!undoStack.length) return; redoStack.push(ctx.getImageData(0,0,art.width,art.height)); restoreImage(undoStack.pop()); refreshStats(); resizeBoxes(); };
+$('redo').onclick=()=>{ if(!redoStack.length) return; undoStack.push(ctx.getImageData(0,0,art.width,art.height)); restoreImage(redoStack.pop()); refreshStats(); resizeBoxes(); };
 $('zin').onclick=()=>setZoom(zoom+1);
 $('zout').onclick=()=>setZoom(zoom-1);
 $('zfit').onclick=fitZoom;
@@ -5496,7 +5711,7 @@ function syncPan(){
 }
 $('panbtn').addEventListener('click',()=>setTimeout(syncPan,0));
 syncPan();
-$('reset').onclick=()=>{ if(!original) return; snapshot(); ctx.putImageData(original,0,0); refreshStats(); toast('Reset to original'); };
+$('reset').onclick=()=>{ if(!original) return; snapshot(); restoreImage(original); refreshStats(); resizeBoxes(); toast('Reset to original'); };
 
 
 function download(scale){
@@ -5690,6 +5905,33 @@ $('cempty').addEventListener('input',()=>{
 });
 $('filltol').addEventListener('input',()=>{
   fillTol=Math.max(0,Math.min(120,+$('filltol').value||0));
+});
+$('rsgo').onclick=applyResize;
+$('rotl').onclick=()=>rotateQuarter(false);
+$('rotr').onclick=()=>rotateQuarter(true);
+$('rspreset').addEventListener('change',()=>{
+  const v=$('rspreset').value; if(!v) return;
+  $('rsw').value=v;
+  $('rsw').dispatchEvent(new Event('input',{bubbles:true}));
+  if(!$('rslock').checked) $('rsh').value=v;
+});
+$('rsgrid').addEventListener('change',async()=>{
+  const v=Math.max(4,Math.min(1024,parseInt($('rsgrid').value,10)||160));
+  projectGrid=v; $('rsgrid').value=v;
+  buildResizePresets();
+  try{ await saveGrid(); }catch(_){}
+});
+/* Keeping the shape is what stops a trait being stretched by a careless
+   number, and it is on by default for that reason. */
+$('rsw').addEventListener('input',()=>{
+  if(!$('rslock').checked||!art.width||!art.height) return;
+  const v=parseInt($('rsw').value,10); if(!v) return;
+  $('rsh').value=Math.max(1,Math.round(v*art.height/art.width));
+});
+$('rsh').addEventListener('input',()=>{
+  if(!$('rslock').checked||!art.width||!art.height) return;
+  const v=parseInt($('rsh').value,10); if(!v) return;
+  $('rsw').value=Math.max(1,Math.round(v*art.width/art.height));
 });
 $('crand').onclick=composeRandom;
 $('csheet').onclick=()=>drawSheet(12);

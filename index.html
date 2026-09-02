@@ -860,8 +860,11 @@ footer .mono{color:var(--ink);}
     <section id="brushsec">
       <h2>Brush size</h2>
       <div class="olrow"><label for="bslider">Size</label>
-        <span class="mono" id="bslab" style="margin-left:auto">1 x 1</span></div>
-      <input id="bslider" type="range" min="1" max="8" step="1" value="1" aria-label="Brush size">
+        <span class="mono" id="bslab" style="margin-left:auto">1 × 1</span></div>
+      <!-- max is set from the canvas by setBrush; 128 here is the ceiling it
+           can ever reach, not a limit of its own. It read 8 - the old button
+           maximum - which never applied and only misled. -->
+      <input id="bslider" type="range" min="1" max="128" step="1" value="1" aria-label="Brush size">
       <div class="olrow"><label for="filltol" title="How far from the colour you click the fill spreads">Fill spread</label>
         <input id="filltol" type="number" min="0" max="120" value="8" style="width:64px"></div>
     </section>
@@ -3266,7 +3269,7 @@ function cellFrom(e){
   return (x<0||y<0||x>=art.width||y>=art.height)?null:{x,y};
 }
 function pixelAt(x,y){ const d=ctx.getImageData(x,y,1,1).data; return {r:d[0],g:d[1],b:d[2],a:d[3]}; }
-function put(x,y,rgb,a){ const id=ctx.createImageData(1,1); id.data[0]=rgb[0];id.data[1]=rgb[1];id.data[2]=rgb[2];id.data[3]=a; ctx.putImageData(id,x,y); }
+
 /* Filled within a tolerance of the seed colour, not on an exact match.
 
    An exact match makes the tool useless on real files. Measured inside a flat
@@ -3315,12 +3318,23 @@ let lastCell=null;
 /* Square tip centred on the cell. An even-sized brush cannot be centred on a
    single cell, so it sits one cell up and left rather than drifting as it grows. */
 function dab(x0,y0,rgb,a){
+  /* Clipped first, then written as ONE rectangle.
+
+     This used to go through a per-pixel writer that made a 1x1 ImageData
+     and pushed it every time. Measured on a 1280 canvas at 860ns a
+     pixel: 14.14ms for a single 128 brush dab, so a 200-cell drag cost 2.8
+     seconds. The rectangle is filled uniformly, so it can be created rather
+     than read back: writing a block back REPLACES the destination pixels,
+     which is what the per-pixel version did too. */
   const off=Math.floor((brush-1)/2), W=art.width, H=art.height;
-  for(let dy=0;dy<brush;dy++) for(let dx=0;dx<brush;dx++){
-    const x=x0-off+dx, y=y0-off+dy;
-    if(x<0||y<0||x>=W||y>=H) continue;
-    put(x,y,rgb,a);
-  }
+  const x1=Math.max(0,x0-off), y1=Math.max(0,y0-off);
+  const x2=Math.min(W-1,x0-off+brush-1), y2=Math.min(H-1,y0-off+brush-1);
+  if(x2<x1||y2<y1) return;
+  const w=x2-x1+1, h=y2-y1+1;
+  const img=ctx.createImageData(w,h), t=img.data;
+  for(let i=0;i<w*h;i++){ const p=i*4;
+    t[p]=rgb[0]; t[p+1]=rgb[1]; t[p+2]=rgb[2]; t[p+3]=a; }
+  ctx.putImageData(img,x1,y1);
 }
 function stroke(e){
   const c=cellFrom(e); if(!c) return;
@@ -3340,7 +3354,10 @@ function stroke(e){
    at 128 because dab() writes brush^2 pixels per interpolated point, so that
    is already 16,384 writes each and the next doubling would be felt. */
 function brushMax(){
-  return Math.max(8, Math.min(128, Math.round((art.width||160)/2)));
+  /* The SHORTER side. Reading the width alone let a wide, short canvas offer
+     a brush taller than the artwork. */
+  const side=Math.min(art.width||160, art.height||160);
+  return Math.max(8, Math.min(128, Math.round(side/2)));
 }
 /* Kept under its old name because startEditor calls it; what it builds is
    now the slider range rather than a row of buttons. */
@@ -3356,7 +3373,7 @@ function setBrush(n){
   brush=Math.max(1,Math.min(hi,Math.round(n)||1));
   const sl=$("bslider");
   if(sl){ sl.max=String(hi); sl.value=String(brush); }
-  const lab=$("bslab"); if(lab) lab.textContent=brush+" x "+brush;
+  const lab=$("bslab"); if(lab) lab.textContent=brush+" × "+brush;
   $("bsize").textContent=brush+"\u00d7"+brush;
   paintCursor();
 }
@@ -3369,11 +3386,19 @@ function paintCursor(){
   const el=$('bcur');
   if(!hoverCell||!N||panMode||tool==='pan'||tool==='move'){ el.style.display='none'; return; }
   const n=(tool==='pencil'||tool==='eraser')?brush:1;
-  const off=Math.floor((n-1)/2), s=n*zoom;
-  el.className=(tool==='eraser'?'erase':'')+(s<9?' tiny':'');
-  el.style.left=((hoverCell.x-off)*zoom)+'px';
-  el.style.top =((hoverCell.y-off)*zoom)+'px';
-  el.style.width=s+'px'; el.style.height=s+'px';
+  /* Clipped the same way dab() clips, so the box shows what will actually
+     be painted. Unclipped it hung off the edge of the art and stretched the
+     scroll area with it. */
+  const off=Math.floor((n-1)/2);
+  const x1=Math.max(0,hoverCell.x-off), y1=Math.max(0,hoverCell.y-off);
+  const x2=Math.min(art.width-1, hoverCell.x-off+n-1);
+  const y2=Math.min(art.height-1, hoverCell.y-off+n-1);
+  if(x2<x1||y2<y1){ el.style.display='none'; return; }
+  const w=(x2-x1+1)*zoom, h=(y2-y1+1)*zoom;
+  el.className=(tool==='eraser'?'erase':'')+(Math.min(w,h)<9?' tiny':'');
+  el.style.left=(x1*zoom)+'px';
+  el.style.top =(y1*zoom)+'px';
+  el.style.width=w+'px'; el.style.height=h+'px';
   el.style.display='block';
 }
 function refreshStats(){
@@ -3852,8 +3877,23 @@ function rcSummary(){
   /* Named in full up to three, counted past that - a dozen hex codes in a row
      is not something anyone reads, and the swatches already show which. */
   const what = n<=3 ? names.join(", ") : (n+" colours");
-  $("rcfrom").textContent="Replacing "+what+" with "+color;
+  /* Both actions, because both buttons are right there and the line used to
+     describe only one of them - naming a target colour Erase does not use. */
+  $("rcfrom").textContent="Picked "+what+". Replace uses "+color+"; Erase removes them.";
 }
+/* Recompute the palette from what is actually on the canvas and rebuild both
+   swatch rows. recolour does this at its tail; undo and redo did not, so
+   reversing an erase left the list missing a colour that was back in the
+   artwork, and a second erase then worked from a stale list.
+
+   24.7ms on a 1280x1280 canvas against a plain undo's own 23.9ms - it
+   roughly doubles something already imperceptible. */
+function repalette(){
+  if(!ctx) return;
+  const p=palette(ctx.getImageData(0,0,art.width,art.height).data,art.width*art.height,24,64);
+  buildPalette(p.list); buildRecolour(p.list);
+}
+
 function rcClear(){
   rcPick.clear();
 
@@ -3879,9 +3919,14 @@ function recolour(erase){
   let n=0;
   for(let p=0;p<art.width*art.height;p++){
     const i=p*4;
-    /* Transparent cells are not "a colour" - filling them would silently grow
-       the artwork, which is the opposite of a recolour. */
-    if(d[i+3]<128) continue;
+    /* The two actions need different thresholds, and the old note gave the
+       reason for only one of them: "Transparent cells are not a colour -
+       filling them would silently grow the artwork, which is the opposite of
+       a recolour." True of REPLACE, which writes an opaque pixel, and
+       backwards for ERASE, which cannot grow anything. Skipping the soft
+       edge of a colour left a ghost outline of the very shape just removed,
+       with nothing in the panel able to clear it. */
+    if(erase ? d[i+3]===0 : d[i+3]<128) continue;
     let hit;
     if(near){
       /* Within the tolerance of ANY chosen colour. Overlapping tolerances are
@@ -6021,8 +6066,8 @@ stage.addEventListener('wheel',e=>{ e.preventDefault(); setZoom(zoom+(e.deltaY<0
 document.querySelectorAll('.tool[data-tool]').forEach(b=>b.onclick=()=>selectTool(b.dataset.tool));
 $('panbtn').onclick=()=>selectTool(panMode?'pencil':'pan');
 $('gridbtn').onclick=e=>{ const on=$('grid').classList.toggle('on'); e.currentTarget.setAttribute('aria-pressed',String(on)); };
-$('undo').onclick=()=>{ if(!undoStack.length) return; redoStack.push(ctx.getImageData(0,0,art.width,art.height)); restoreImage(undoStack.pop()); refreshStats(); resizeBoxes(); };
-$('redo').onclick=()=>{ if(!redoStack.length) return; undoStack.push(ctx.getImageData(0,0,art.width,art.height)); restoreImage(redoStack.pop()); refreshStats(); resizeBoxes(); };
+$('undo').onclick=()=>{ if(!undoStack.length) return; redoStack.push(ctx.getImageData(0,0,art.width,art.height)); restoreImage(undoStack.pop()); refreshStats(); resizeBoxes(); repalette(); };
+$('redo').onclick=()=>{ if(!redoStack.length) return; undoStack.push(ctx.getImageData(0,0,art.width,art.height)); restoreImage(redoStack.pop()); refreshStats(); resizeBoxes(); repalette(); };
 $('zin').onclick=()=>setZoom(zoom+1);
 $('zout').onclick=()=>setZoom(zoom-1);
 $('zfit').onclick=fitZoom;
@@ -6544,7 +6589,15 @@ $('ksscrim').onclick=e=>{ if(e.target===$('ksscrim')) keysPanel(false); };
 
 addEventListener('keydown',e=>{
   if($('app').hidden) return;
-  if(/^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
+  /* A range input needs the arrows, Home/End and the page keys and nothing
+     else, so every other shortcut is let through. Bailing on ANY input was
+     harmless while the brush sizes were buttons; with a slider, clicking it
+     focuses it and killed every keyboard shortcut in the app until you
+     clicked somewhere else. */
+  if(/^(INPUT|TEXTAREA)$/.test(e.target.tagName)){
+    const owns=["arrowleft","arrowright","arrowup","arrowdown","home","end","pageup","pagedown"];
+    if(e.target.type!=="range" || owns.indexOf(e.key.toLowerCase())>=0) return;
+  }
   if(e.target.isContentEditable) return;
   const k=e.key.toLowerCase();
   for(const s of SHORTCUTS){

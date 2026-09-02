@@ -814,6 +814,8 @@ footer .mono{color:var(--ink);}
     <section id="brushsec">
       <h2>Brush size</h2>
       <div class="sizes" id="sizes"></div>
+      <div class="olrow"><label for="filltol" title="How far from the colour you click the fill spreads">Fill spread</label>
+        <input id="filltol" type="number" min="0" max="120" value="8" style="width:64px"></div>
     </section>
     <section><h2>From your image</h2><div class="swatches" id="pal"></div></section>
     <section>
@@ -935,6 +937,11 @@ footer .mono{color:var(--ink);}
 "use strict";
 const $=id=>document.getElementById(id);
 const MAXZ=48;
+/* How far from the colour you clicked the fill will spread. 8 is above the
+   noise these files carry (never more than 2 between neighbours in a flat
+   area) and well below the gap between shades the artist chose, which the
+   app elsewhere clusters at 24. */
+let fillTol=8;
 /* Below 1 the view is showing less than one screen pixel per canvas pixel,
    which is not good for editing but is the only way to see a whole 1254px
    trait at once. Fit used to clamp at 1: measured, a 1254px trait in a 900px
@@ -2854,20 +2861,49 @@ function cellFrom(e){
 }
 function pixelAt(x,y){ const d=ctx.getImageData(x,y,1,1).data; return {r:d[0],g:d[1],b:d[2],a:d[3]}; }
 function put(x,y,rgb,a){ const id=ctx.createImageData(1,1); id.data[0]=rgb[0];id.data[1]=rgb[1];id.data[2]=rgb[2];id.data[3]=a; ctx.putImageData(id,x,y); }
+/* Filled within a tolerance of the seed colour, not on an exact match.
+
+   An exact match makes the tool useless on real files. Measured inside a flat
+   50x50 patch of the collection's own light.png: neighbouring pixels differ by
+   0 in 39% of steps, by 1 in 55%, by 2 in 6%, and never by more. So an exact
+   fill stopped at the first neighbour in three cases out of five, on an area a
+   person is looking at as one flat colour.
+
+   Compared to the SEED rather than to each neighbour, which matters: comparing
+   neighbours lets a fill walk a gradient forever, one small step at a time,
+   and end up nothing like where it started.
+
+   Transparency is a side, not a distance. A pixel only joins if it is on the
+   same side of half-opaque as the seed, so a fill cannot leak out of the art
+   into the empty canvas or the other way. */
 function floodFill(sx,sy,rgb){
   const W=art.width,H=art.height, img=ctx.getImageData(0,0,W,H), d=img.data;
   const i0=(sy*W+sx)*4, t=[d[i0],d[i0+1],d[i0+2],d[i0+3]], nw=[rgb[0],rgb[1],rgb[2],255];
   if(t[0]===nw[0]&&t[1]===nw[1]&&t[2]===nw[2]&&t[3]===nw[3]) return;
-  const st=[[sx,sy]];
+  const tol2=fillTol*fillTol, seedOn=t[3]>=128;
+  const seen=new Uint8Array(W*H);
+  const joins=function(i){
+    const on=d[i+3]>=128;
+    if(on!==seedOn) return false;
+    if(!on) return true;                 /* both empty: the same region */
+    const dr=d[i]-t[0], dg=d[i+1]-t[1], db=d[i+2]-t[2];
+    return dr*dr+dg*dg+db*db<=tol2;
+  };
+  const st=[sy*W+sx];
+  let n=0;
   while(st.length){
-    const [x,y]=st.pop();
-    if(x<0||y<0||x>=W||y>=H) continue;
-    const i=(y*W+x)*4;
-    if(d[i]!==t[0]||d[i+1]!==t[1]||d[i+2]!==t[2]||d[i+3]!==t[3]) continue;
+    const p=st.pop();
+    if(p<0||p>=W*H||seen[p]) continue;
+    const x=p%W, i=p*4;
+    if(!joins(i)) continue;
+    seen[p]=1; n++;
     d[i]=nw[0];d[i+1]=nw[1];d[i+2]=nw[2];d[i+3]=nw[3];
-    st.push([x+1,y],[x-1,y],[x,y+1],[x,y-1]);
+    if(x>0) st.push(p-1);
+    if(x<W-1) st.push(p+1);
+    st.push(p-W,p+W);
   }
   ctx.putImageData(img,0,0);
+  return n;
 }
 let lastCell=null;
 /* Square tip centred on the cell. An even-sized brush cannot be centred on a
@@ -5321,7 +5357,14 @@ function beginStroke(e){
     $("olpv").style.display="none";
     return;
   }
-  if(tool==="fill"){ floodFill(c.x,c.y,hx2(color)); refreshStats(); return; }
+  if(tool==="fill"){
+    const n=floodFill(c.x,c.y,hx2(color));
+    /* Said out loud, because a fill that filled one cell used to look exactly
+       like a fill that did nothing. */
+    if(!n) toast("Nothing to fill there");
+    else if(n===1) toast("Filled 1 cell - raise Fill spread to cover more");
+    refreshStats(); return;
+  }
   painting=true; lastCell=null;
   stroke(e);
 }
@@ -5644,6 +5687,9 @@ $('cempty').addEventListener('input',()=>{
      accepts anything typed, and a chance above 1 would empty every layer. */
   const v=Math.max(0,Math.min(90,+$('cempty').value||0));
   emptyChance=v/100;
+});
+$('filltol').addEventListener('input',()=>{
+  fillTol=Math.max(0,Math.min(120,+$('filltol').value||0));
 });
 $('crand').onclick=composeRandom;
 $('csheet').onclick=()=>drawSheet(12);

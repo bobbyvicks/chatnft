@@ -904,6 +904,7 @@ footer .mono{color:var(--ink);}
         <select id="rsmode" style="flex:1">
           <option value="art">the art - scale it to the new size</option>
           <option value="canvas">the canvas only - pad or crop, art untouched</option>
+          <option value="inside">the trait inside it - canvas size stays</option>
         </select></div>
       <div class="olrow"><label for="rspreset">Jump to</label>
         <select id="rspreset" style="flex:1"></select></div>
@@ -915,7 +916,9 @@ footer .mono{color:var(--ink);}
       <button class="btn ghost" id="rsgo">Resize</button>
       <p class="note">Now <span class="mono" id="rsnow">-</span>. Sizes that are a whole multiple of the cell count keep every
         cell the same width; anything else makes them alternate. Growing by a whole number copies each cell exactly.
-        Any other size takes the commonest colour under each new cell, so no colour appears that was not already there.</p>
+        Any other size takes the commonest colour under each new cell, so no colour appears that was not already there.
+        Pick <em>the trait inside it</em> to change how big the trait is without changing the canvas - which is what you
+        want when fitting one to a character, because every trait has to come out the same size.</p>
     </section>
     <section>
       <h2>Recolour</h2>
@@ -3123,7 +3126,7 @@ function rotateFree(deg){
 }
 
 /* Resize to an exact size, shared by the Resize button and the drag handles. */
-function resizeTo(nw,nh,keepArt){
+function resizeTo(nw,nh,mode){
   if(!ctx) return false;
   const W=art.width, H=art.height;
   nw=Math.max(1,Math.min(4096,Math.round(nw)));
@@ -3131,9 +3134,10 @@ function resizeTo(nw,nh,keepArt){
   if(nw===W && nh===H) return false;
   const src=ctx.getImageData(0,0,W,H).data;
   snapshot();
-  restoreImage(new ImageData(keepArt?recanvas(src,W,H,nw,nh):scaleArt(src,W,H,nw,nh),nw,nh));
+  const r=resizeOp(mode,src,W,H,nw,nh);
+  restoreImage(new ImageData(r.data,r.w,r.h));
   refreshStats();
-  const p=palette(ctx.getImageData(0,0,nw,nh).data,nw*nh,24,64);
+  const p=palette(ctx.getImageData(0,0,r.w,r.h).data,r.w*r.h,24,64);
   buildPalette(p.list); buildRecolour(p.list);
   resizeBoxes();
   return true;
@@ -3161,6 +3165,28 @@ function tboxShow(){
   b.classList.toggle("on", tool==="transform" && !!ctx);
 }
 
+/* Scale the art but keep the canvas.
+
+   The one that matters for fitting a trait to a character: every trait in a
+   collection has to export at the same canvas size, so changing how big the
+   art is must not change the canvas - and the other two modes both do.
+
+   recanvas centres and crops, so asking for a size LARGER than the canvas
+   needs no second branch: the art is scaled up and then cropped to the
+   canvas, which is what growing a trait past its own frame means. */
+function scaleInside(src,W,H,nw,nh){
+  return recanvas(scaleArt(src,W,H,nw,nh),nw,nh,W,H);
+}
+
+/* One place that picks the operation, so the fields and the drag cannot
+   disagree about what a mode means. Returns the pixels AND the canvas size
+   they belong on, because "inside" is exactly the mode where those differ. */
+function resizeOp(mode,src,W,H,nw,nh){
+  if(mode==="canvas") return {data:recanvas(src,W,H,nw,nh), w:nw, h:nh};
+  if(mode==="inside") return {data:scaleInside(src,W,H,nw,nh), w:W, h:H};
+  return {data:scaleArt(src,W,H,nw,nh), w:nw, h:nh};
+}
+
 function applyResize(){
   if(!ctx) return;
   const W=art.width, H=art.height;
@@ -3178,17 +3204,20 @@ function applyResize(){
      grid in one direction, off it in the other, and not even the right shape. */
   else if(snap && pressed("rslock")) nh=Math.max(1,Math.round(nw*H/W));
   if(nw===W && nh===H){ toast("Already "+W+" by "+H); return; }
-  const keepArt=$("rsmode").value==="canvas";
+  const mode=$("rsmode").value;
   const src=ctx.getImageData(0,0,W,H).data;
   snapshot();
-  const out = keepArt ? recanvas(src,W,H,nw,nh) : scaleArt(src,W,H,nw,nh);
-  restoreImage(new ImageData(out,nw,nh));
+  const r=resizeOp(mode,src,W,H,nw,nh);
+  const out=r.data;
+  restoreImage(new ImageData(out,r.w,r.h));
   refreshStats();
-  const p=palette(out,nw*nh,24,64);
+  const p=palette(out,r.w*r.h,24,64);
   buildPalette(p.list); buildRecolour(p.list);
   fitZoom();
   resizeBoxes();
-  toast((keepArt?"Canvas is now ":"Resized to ")+nw+" by "+nh);
+  toast(mode==="canvas" ? "Canvas is now "+nw+" by "+nh
+      : mode==="inside" ? "Trait scaled to "+nw+" by "+nh+" on a "+W+" by "+H+" canvas"
+      : "Resized to "+nw+" by "+nh);
 }
 
 /* The boxes always show what the canvas actually is, so the panel cannot
@@ -6186,7 +6215,12 @@ $('filltol').addEventListener('input',()=>{
     /* Back to whatever the zoom says, then commit in canvas pixels. */
     const nw=d.w/zoom, nh=d.h/zoom;
     applyZoom();
-    if(resizeTo(nw,nh,$("rsmode").value==="canvas")){ fitZoom(); toast("Resized to "+art.width+" by "+art.height); }
+    /* The drag preview scales the art on screen; committing in "inside" mode
+       puts the canvas back and scales the pixels instead, which lands on the
+       same picture. */
+    if(resizeTo(nw,nh,$("rsmode").value)){ fitZoom();
+      toast($("rsmode").value==="inside" ? "Trait scaled on a "+art.width+" by "+art.height+" canvas"
+                                         : "Resized to "+art.width+" by "+art.height); }
   };
   box.addEventListener("pointerup",finish);
   box.addEventListener("pointercancel",()=>{ if(drag){ drag=null; $("tang").style.display="none";

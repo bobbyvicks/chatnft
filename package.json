@@ -9,6 +9,12 @@
     "zod": "^4.5.4"
   },
   "devDependencies": {
+    "@types/node": "^26.4.1",
+    "pngjs": "^7.0.0",
     "typescript": "^7.0.2"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "start:local": "node server/local-server.mjs"
   }
 }

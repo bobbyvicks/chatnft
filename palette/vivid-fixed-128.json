@@ -1,0 +1,2190 @@
+{
+  "name": "Vivid Fixed 128",
+  "colorCount": 128,
+  "image": {
+    "width": 1024,
+    "height": 1024,
+    "columns": 16,
+    "rows": 8,
+    "cellWidth": 64,
+    "cellHeight": 128
+  },
+  "colors": [
+    {
+      "index": 0,
+      "row": 0,
+      "column": 0,
+      "name": "Gray 1",
+      "hex": "#000000",
+      "rgb": [
+        0,
+        0,
+        0
+      ],
+      "oklch": {
+        "lightness": 0,
+        "chroma": 0,
+        "hue": null
+      }
+    },
+    {
+      "index": 1,
+      "row": 0,
+      "column": 1,
+      "name": "Hue 000 / Value 1",
+      "hex": "#1A0008",
+      "rgb": [
+        26,
+        0,
+        8
+      ],
+      "oklch": {
+        "lightness": 0.14,
+        "chroma": 0.056755,
+        "hue": 0
+      }
+    },
+    {
+      "index": 2,
+      "row": 0,
+      "column": 2,
+      "name": "Hue 024 / Value 1",
+      "hex": "#1B0001",
+      "rgb": [
+        27,
+        0,
+        1
+      ],
+      "oklch": {
+        "lightness": 0.14,
+        "chroma": 0.056625,
+        "hue": 24
+      }
+    },
+    {
+      "index": 3,
+      "row": 0,
+      "column": 3,
+      "name": "Hue 048 / Value 1",
+      "hex": "#150400",
+      "rgb": [
+        21,
+        4,
+        0
+      ],
+      "oklch": {
+        "lightness": 0.14,
+        "chroma": 0.038126,
+        "hue": 48
+      }
+    },
+    {
+      "index": 4,
+      "row": 0,
+      "column": 4,
+      "name": "Hue 072 / Value 1",
+      "hex": "#110700",
+      "rgb": [
+        17,
+        7,
+        0
+      ],
+      "oklch": {
+        "lightness": 0.14,
+        "chroma": 0.029978,
+        "hue": 72
+      }
+    },
+    {
+      "index": 5,
+      "row": 0,
+      "column": 5,
+      "name": "Hue 096 / Value 1",
+      "hex": "#0D0900",
+      "rgb": [
+        13,
+        9,
+        0
+      ],
+      "oklch": {
+        "lightness": 0.14,
+        "chroma": 0.0288,
+        "hue": 96
+      }
+    },
+    {
+      "index": 6,
+      "row": 0,
+      "column": 6,
+      "name": "Hue 120 / Value 1",
+      "hex": "#080B00",
+      "rgb": [
+        8,
+        11,
+        0
+      ],
+      "oklch": {
+        "lightness": 0.14,
+        "chroma": 0.033238,
+        "hue": 120
+      }
+    },
+    {
+      "index": 7,
+      "row": 0,
+      "column": 7,
+      "name": "Hue 144 / Value 1",
+      "hex": "#000D01",
+      "rgb": [
+        0,
+        13,
+        1
+      ],
+      "oklch": {
+        "lightness": 0.14,
+        "chroma": 0.045387,
+        "hue": 144
+      }
+    },
+    {
+      "index": 8,
+      "row": 0,
+      "column": 8,
+      "name": "Hue 168 / Value 1",
+      "hex": "#000D07",
+      "rgb": [
+        0,
+        13,
+        7
+      ],
+      "oklch": {
+        "lightness": 0.14,
+        "chroma": 0.028349,
+        "hue": 168
+      }
+    },
+    {
+      "index": 9,
+      "row": 0,
+      "column": 9,
+      "name": "Hue 192 / Value 1",
+      "hex": "#000C0C",
+      "rgb": [
+        0,
+        12,
+        12
+      ],
+      "oklch": {
+        "lightness": 0.14,
+        "chroma": 0.024036,
+        "hue": 192
+      }
+    },
+    {
+      "index": 10,
+      "row": 0,
+      "column": 10,
+      "name": "Hue 216 / Value 1",
+      "hex": "#000C10",
+      "rgb": [
+        0,
+        12,
+        16
+      ],
+      "oklch": {
+        "lightness": 0.14,
+        "chroma": 0.024863,
+        "hue": 216
+      }
+    },
+    {
+      "index": 11,
+      "row": 0,
+      "column": 11,
+      "name": "Hue 240 / Value 1",
+      "hex": "#000A15",
+      "rgb": [
+        0,
+        10,
+        21
+      ],
+      "oklch": {
+        "lightness": 0.14,
+        "chroma": 0.032068,
+        "hue": 240
+      }
+    },
+    {
+      "index": 12,
+      "row": 0,
+      "column": 12,
+      "name": "Hue 264 / Value 1",
+      "hex": "#00032A",
+      "rgb": [
+        0,
+        3,
+        42
+      ],
+      "oklch": {
+        "lightness": 0.14,
+        "chroma": 0.081187,
+        "hue": 264
+      }
+    },
+    {
+      "index": 13,
+      "row": 0,
+      "column": 13,
+      "name": "Hue 288 / Value 1",
+      "hex": "#0B0027",
+      "rgb": [
+        11,
+        0,
+        39
+      ],
+      "oklch": {
+        "lightness": 0.14,
+        "chroma": 0.080219,
+        "hue": 288
+      }
+    },
+    {
+      "index": 14,
+      "row": 0,
+      "column": 14,
+      "name": "Hue 312 / Value 1",
+      "hex": "#12001D",
+      "rgb": [
+        18,
+        0,
+        29
+      ],
+      "oklch": {
+        "lightness": 0.14,
+        "chroma": 0.07006,
+        "hue": 312
+      }
+    },
+    {
+      "index": 15,
+      "row": 0,
+      "column": 15,
+      "name": "Hue 336 / Value 1",
+      "hex": "#170012",
+      "rgb": [
+        23,
+        0,
+        18
+      ],
+      "oklch": {
+        "lightness": 0.14,
+        "chroma": 0.061962,
+        "hue": 336
+      }
+    },
+    {
+      "index": 16,
+      "row": 1,
+      "column": 0,
+      "name": "Gray 2",
+      "hex": "#0D0D0D",
+      "rgb": [
+        13,
+        13,
+        13
+      ],
+      "oklch": {
+        "lightness": 0.16,
+        "chroma": 0,
+        "hue": null
+      }
+    },
+    {
+      "index": 17,
+      "row": 1,
+      "column": 1,
+      "name": "Hue 000 / Value 2",
+      "hex": "#440020",
+      "rgb": [
+        68,
+        0,
+        32
+      ],
+      "oklch": {
+        "lightness": 0.25,
+        "chroma": 0.101348,
+        "hue": 0
+      }
+    },
+    {
+      "index": 18,
+      "row": 1,
+      "column": 2,
+      "name": "Hue 024 / Value 2",
+      "hex": "#470006",
+      "rgb": [
+        71,
+        0,
+        6
+      ],
+      "oklch": {
+        "lightness": 0.25,
+        "chroma": 0.101116,
+        "hue": 24
+      }
+    },
+    {
+      "index": 19,
+      "row": 1,
+      "column": 3,
+      "name": "Hue 048 / Value 2",
+      "hex": "#3A1500",
+      "rgb": [
+        58,
+        21,
+        0
+      ],
+      "oklch": {
+        "lightness": 0.25,
+        "chroma": 0.068083,
+        "hue": 48
+      }
+    },
+    {
+      "index": 20,
+      "row": 1,
+      "column": 4,
+      "name": "Hue 072 / Value 2",
+      "hex": "#311D00",
+      "rgb": [
+        49,
+        29,
+        0
+      ],
+      "oklch": {
+        "lightness": 0.25,
+        "chroma": 0.053532,
+        "hue": 72
+      }
+    },
+    {
+      "index": 21,
+      "row": 1,
+      "column": 5,
+      "name": "Hue 096 / Value 2",
+      "hex": "#292100",
+      "rgb": [
+        41,
+        33,
+        0
+      ],
+      "oklch": {
+        "lightness": 0.25,
+        "chroma": 0.051428,
+        "hue": 96
+      }
+    },
+    {
+      "index": 22,
+      "row": 1,
+      "column": 6,
+      "name": "Hue 120 / Value 2",
+      "hex": "#1E2500",
+      "rgb": [
+        30,
+        37,
+        0
+      ],
+      "oklch": {
+        "lightness": 0.25,
+        "chroma": 0.059354,
+        "hue": 120
+      }
+    },
+    {
+      "index": 23,
+      "row": 1,
+      "column": 7,
+      "name": "Hue 144 / Value 2",
+      "hex": "#002B03",
+      "rgb": [
+        0,
+        43,
+        3
+      ],
+      "oklch": {
+        "lightness": 0.25,
+        "chroma": 0.081049,
+        "hue": 144
+      }
+    },
+    {
+      "index": 24,
+      "row": 1,
+      "column": 8,
+      "name": "Hue 168 / Value 2",
+      "hex": "#00291D",
+      "rgb": [
+        0,
+        41,
+        29
+      ],
+      "oklch": {
+        "lightness": 0.25,
+        "chroma": 0.050623,
+        "hue": 168
+      }
+    },
+    {
+      "index": 25,
+      "row": 1,
+      "column": 9,
+      "name": "Hue 192 / Value 2",
+      "hex": "#002827",
+      "rgb": [
+        0,
+        40,
+        39
+      ],
+      "oklch": {
+        "lightness": 0.25,
+        "chroma": 0.042922,
+        "hue": 192
+      }
+    },
+    {
+      "index": 26,
+      "row": 1,
+      "column": 10,
+      "name": "Hue 216 / Value 2",
+      "hex": "#00272F",
+      "rgb": [
+        0,
+        39,
+        47
+      ],
+      "oklch": {
+        "lightness": 0.25,
+        "chroma": 0.044399,
+        "hue": 216
+      }
+    },
+    {
+      "index": 27,
+      "row": 1,
+      "column": 11,
+      "name": "Hue 240 / Value 2",
+      "hex": "#00243A",
+      "rgb": [
+        0,
+        36,
+        58
+      ],
+      "oklch": {
+        "lightness": 0.25,
+        "chroma": 0.057265,
+        "hue": 240
+      }
+    },
+    {
+      "index": 28,
+      "row": 1,
+      "column": 12,
+      "name": "Hue 264 / Value 2",
+      "hex": "#001165",
+      "rgb": [
+        0,
+        17,
+        101
+      ],
+      "oklch": {
+        "lightness": 0.25,
+        "chroma": 0.144976,
+        "hue": 264
+      }
+    },
+    {
+      "index": 29,
+      "row": 1,
+      "column": 13,
+      "name": "Hue 288 / Value 2",
+      "hex": "#250060",
+      "rgb": [
+        37,
+        0,
+        96
+      ],
+      "oklch": {
+        "lightness": 0.25,
+        "chroma": 0.143249,
+        "hue": 288
+      }
+    },
+    {
+      "index": 30,
+      "row": 1,
+      "column": 14,
+      "name": "Hue 312 / Value 2",
+      "hex": "#35004B",
+      "rgb": [
+        53,
+        0,
+        75
+      ],
+      "oklch": {
+        "lightness": 0.25,
+        "chroma": 0.125108,
+        "hue": 312
+      }
+    },
+    {
+      "index": 31,
+      "row": 1,
+      "column": 15,
+      "name": "Hue 336 / Value 2",
+      "hex": "#3F0035",
+      "rgb": [
+        63,
+        0,
+        53
+      ],
+      "oklch": {
+        "lightness": 0.25,
+        "chroma": 0.110647,
+        "hue": 336
+      }
+    },
+    {
+      "index": 32,
+      "row": 2,
+      "column": 0,
+      "name": "Gray 3",
+      "hex": "#303030",
+      "rgb": [
+        48,
+        48,
+        48
+      ],
+      "oklch": {
+        "lightness": 0.31,
+        "chroma": 0,
+        "hue": null
+      }
+    },
+    {
+      "index": 33,
+      "row": 2,
+      "column": 1,
+      "name": "Hue 000 / Value 3",
+      "hex": "#78003C",
+      "rgb": [
+        120,
+        0,
+        60
+      ],
+      "oklch": {
+        "lightness": 0.37,
+        "chroma": 0.149995,
+        "hue": 0
+      }
+    },
+    {
+      "index": 34,
+      "row": 2,
+      "column": 2,
+      "name": "Hue 024 / Value 3",
+      "hex": "#7C0012",
+      "rgb": [
+        124,
+        0,
+        18
+      ],
+      "oklch": {
+        "lightness": 0.37,
+        "chroma": 0.149652,
+        "hue": 24
+      }
+    },
+    {
+      "index": 35,
+      "row": 2,
+      "column": 3,
+      "name": "Hue 048 / Value 3",
+      "hex": "#682B00",
+      "rgb": [
+        104,
+        43,
+        0
+      ],
+      "oklch": {
+        "lightness": 0.37,
+        "chroma": 0.100763,
+        "hue": 48
+      }
+    },
+    {
+      "index": 36,
+      "row": 2,
+      "column": 4,
+      "name": "Hue 072 / Value 3",
+      "hex": "#593800",
+      "rgb": [
+        89,
+        56,
+        0
+      ],
+      "oklch": {
+        "lightness": 0.37,
+        "chroma": 0.079227,
+        "hue": 72
+      }
+    },
+    {
+      "index": 37,
+      "row": 2,
+      "column": 5,
+      "name": "Hue 096 / Value 3",
+      "hex": "#4C3F00",
+      "rgb": [
+        76,
+        63,
+        0
+      ],
+      "oklch": {
+        "lightness": 0.37,
+        "chroma": 0.076114,
+        "hue": 96
+      }
+    },
+    {
+      "index": 38,
+      "row": 2,
+      "column": 6,
+      "name": "Hue 120 / Value 3",
+      "hex": "#3A4600",
+      "rgb": [
+        58,
+        70,
+        0
+      ],
+      "oklch": {
+        "lightness": 0.37,
+        "chroma": 0.087844,
+        "hue": 120
+      }
+    },
+    {
+      "index": 39,
+      "row": 2,
+      "column": 7,
+      "name": "Hue 144 / Value 3",
+      "hex": "#004F0A",
+      "rgb": [
+        0,
+        79,
+        10
+      ],
+      "oklch": {
+        "lightness": 0.37,
+        "chroma": 0.119952,
+        "hue": 144
+      }
+    },
+    {
+      "index": 40,
+      "row": 2,
+      "column": 8,
+      "name": "Hue 168 / Value 3",
+      "hex": "#004C38",
+      "rgb": [
+        0,
+        76,
+        56
+      ],
+      "oklch": {
+        "lightness": 0.37,
+        "chroma": 0.074923,
+        "hue": 168
+      }
+    },
+    {
+      "index": 41,
+      "row": 2,
+      "column": 9,
+      "name": "Hue 192 / Value 3",
+      "hex": "#004A48",
+      "rgb": [
+        0,
+        74,
+        72
+      ],
+      "oklch": {
+        "lightness": 0.37,
+        "chroma": 0.063524,
+        "hue": 192
+      }
+    },
+    {
+      "index": 42,
+      "row": 2,
+      "column": 10,
+      "name": "Hue 216 / Value 3",
+      "hex": "#004856",
+      "rgb": [
+        0,
+        72,
+        86
+      ],
+      "oklch": {
+        "lightness": 0.37,
+        "chroma": 0.06571,
+        "hue": 216
+      }
+    },
+    {
+      "index": 43,
+      "row": 2,
+      "column": 11,
+      "name": "Hue 240 / Value 3",
+      "hex": "#004468",
+      "rgb": [
+        0,
+        68,
+        104
+      ],
+      "oklch": {
+        "lightness": 0.37,
+        "chroma": 0.084752,
+        "hue": 240
+      }
+    },
+    {
+      "index": 44,
+      "row": 2,
+      "column": 12,
+      "name": "Hue 264 / Value 3",
+      "hex": "#0024AE",
+      "rgb": [
+        0,
+        36,
+        174
+      ],
+      "oklch": {
+        "lightness": 0.37,
+        "chroma": 0.214564,
+        "hue": 264
+      }
+    },
+    {
+      "index": 45,
+      "row": 2,
+      "column": 13,
+      "name": "Hue 288 / Value 3",
+      "hex": "#4500A5",
+      "rgb": [
+        69,
+        0,
+        165
+      ],
+      "oklch": {
+        "lightness": 0.37,
+        "chroma": 0.212009,
+        "hue": 288
+      }
+    },
+    {
+      "index": 46,
+      "row": 2,
+      "column": 14,
+      "name": "Hue 312 / Value 3",
+      "hex": "#5F0084",
+      "rgb": [
+        95,
+        0,
+        132
+      ],
+      "oklch": {
+        "lightness": 0.37,
+        "chroma": 0.185159,
+        "hue": 312
+      }
+    },
+    {
+      "index": 47,
+      "row": 2,
+      "column": 15,
+      "name": "Hue 336 / Value 3",
+      "hex": "#6F005F",
+      "rgb": [
+        111,
+        0,
+        95
+      ],
+      "oklch": {
+        "lightness": 0.37,
+        "chroma": 0.163757,
+        "hue": 336
+      }
+    },
+    {
+      "index": 48,
+      "row": 3,
+      "column": 0,
+      "name": "Gray 4",
+      "hex": "#585858",
+      "rgb": [
+        88,
+        88,
+        88
+      ],
+      "oklch": {
+        "lightness": 0.46,
+        "chroma": 0,
+        "hue": null
+      }
+    },
+    {
+      "index": 49,
+      "row": 3,
+      "column": 1,
+      "name": "Hue 000 / Value 4",
+      "hex": "#B0005C",
+      "rgb": [
+        176,
+        0,
+        92
+      ],
+      "oklch": {
+        "lightness": 0.49,
+        "chroma": 0.198642,
+        "hue": 0
+      }
+    },
+    {
+      "index": 50,
+      "row": 3,
+      "column": 2,
+      "name": "Hue 024 / Value 4",
+      "hex": "#B60020",
+      "rgb": [
+        182,
+        0,
+        32
+      ],
+      "oklch": {
+        "lightness": 0.49,
+        "chroma": 0.198188,
+        "hue": 24
+      }
+    },
+    {
+      "index": 51,
+      "row": 3,
+      "column": 3,
+      "name": "Hue 048 / Value 4",
+      "hex": "#9A4300",
+      "rgb": [
+        154,
+        67,
+        0
+      ],
+      "oklch": {
+        "lightness": 0.49,
+        "chroma": 0.133443,
+        "hue": 48
+      }
+    },
+    {
+      "index": 52,
+      "row": 3,
+      "column": 4,
+      "name": "Hue 072 / Value 4",
+      "hex": "#845500",
+      "rgb": [
+        132,
+        85,
+        0
+      ],
+      "oklch": {
+        "lightness": 0.49,
+        "chroma": 0.104923,
+        "hue": 72
+      }
+    },
+    {
+      "index": 53,
+      "row": 3,
+      "column": 5,
+      "name": "Hue 096 / Value 4",
+      "hex": "#725F00",
+      "rgb": [
+        114,
+        95,
+        0
+      ],
+      "oklch": {
+        "lightness": 0.49,
+        "chroma": 0.100799,
+        "hue": 96
+      }
+    },
+    {
+      "index": 54,
+      "row": 3,
+      "column": 6,
+      "name": "Hue 120 / Value 4",
+      "hex": "#586900",
+      "rgb": [
+        88,
+        105,
+        0
+      ],
+      "oklch": {
+        "lightness": 0.49,
+        "chroma": 0.116334,
+        "hue": 120
+      }
+    },
+    {
+      "index": 55,
+      "row": 3,
+      "column": 7,
+      "name": "Hue 144 / Value 4",
+      "hex": "#007615",
+      "rgb": [
+        0,
+        118,
+        21
+      ],
+      "oklch": {
+        "lightness": 0.49,
+        "chroma": 0.158855,
+        "hue": 144
+      }
+    },
+    {
+      "index": 56,
+      "row": 3,
+      "column": 8,
+      "name": "Hue 168 / Value 4",
+      "hex": "#007255",
+      "rgb": [
+        0,
+        114,
+        85
+      ],
+      "oklch": {
+        "lightness": 0.49,
+        "chroma": 0.099222,
+        "hue": 168
+      }
+    },
+    {
+      "index": 57,
+      "row": 3,
+      "column": 9,
+      "name": "Hue 192 / Value 4",
+      "hex": "#006F6D",
+      "rgb": [
+        0,
+        111,
+        109
+      ],
+      "oklch": {
+        "lightness": 0.49,
+        "chroma": 0.084127,
+        "hue": 192
+      }
+    },
+    {
+      "index": 58,
+      "row": 3,
+      "column": 10,
+      "name": "Hue 216 / Value 4",
+      "hex": "#006C80",
+      "rgb": [
+        0,
+        108,
+        128
+      ],
+      "oklch": {
+        "lightness": 0.49,
+        "chroma": 0.087022,
+        "hue": 216
+      }
+    },
+    {
+      "index": 59,
+      "row": 3,
+      "column": 11,
+      "name": "Hue 240 / Value 4",
+      "hex": "#006799",
+      "rgb": [
+        0,
+        103,
+        153
+      ],
+      "oklch": {
+        "lightness": 0.49,
+        "chroma": 0.11224,
+        "hue": 240
+      }
+    },
+    {
+      "index": 60,
+      "row": 3,
+      "column": 12,
+      "name": "Hue 264 / Value 4",
+      "hex": "#0039FD",
+      "rgb": [
+        0,
+        57,
+        253
+      ],
+      "oklch": {
+        "lightness": 0.49,
+        "chroma": 0.284153,
+        "hue": 264
+      }
+    },
+    {
+      "index": 61,
+      "row": 3,
+      "column": 13,
+      "name": "Hue 288 / Value 4",
+      "hex": "#6700F1",
+      "rgb": [
+        103,
+        0,
+        241
+      ],
+      "oklch": {
+        "lightness": 0.49,
+        "chroma": 0.280768,
+        "hue": 288
+      }
+    },
+    {
+      "index": 62,
+      "row": 3,
+      "column": 14,
+      "name": "Hue 312 / Value 4",
+      "hex": "#8D00C1",
+      "rgb": [
+        141,
+        0,
+        193
+      ],
+      "oklch": {
+        "lightness": 0.49,
+        "chroma": 0.245211,
+        "hue": 312
+      }
+    },
+    {
+      "index": 63,
+      "row": 3,
+      "column": 15,
+      "name": "Hue 336 / Value 4",
+      "hex": "#A4008D",
+      "rgb": [
+        164,
+        0,
+        141
+      ],
+      "oklch": {
+        "lightness": 0.49,
+        "chroma": 0.216867,
+        "hue": 336
+      }
+    },
+    {
+      "index": 64,
+      "row": 4,
+      "column": 0,
+      "name": "Gray 5",
+      "hex": "#838383",
+      "rgb": [
+        131,
+        131,
+        131
+      ],
+      "oklch": {
+        "lightness": 0.61,
+        "chroma": 0,
+        "hue": null
+      }
+    },
+    {
+      "index": 65,
+      "row": 4,
+      "column": 1,
+      "name": "Hue 000 / Value 5",
+      "hex": "#EC007D",
+      "rgb": [
+        236,
+        0,
+        125
+      ],
+      "oklch": {
+        "lightness": 0.61,
+        "chroma": 0.247289,
+        "hue": 0
+      }
+    },
+    {
+      "index": 66,
+      "row": 4,
+      "column": 2,
+      "name": "Hue 024 / Value 5",
+      "hex": "#F4002E",
+      "rgb": [
+        244,
+        0,
+        46
+      ],
+      "oklch": {
+        "lightness": 0.61,
+        "chroma": 0.246724,
+        "hue": 24
+      }
+    },
+    {
+      "index": 67,
+      "row": 4,
+      "column": 3,
+      "name": "Hue 048 / Value 5",
+      "hex": "#CF5C00",
+      "rgb": [
+        207,
+        92,
+        0
+      ],
+      "oklch": {
+        "lightness": 0.61,
+        "chroma": 0.166123,
+        "hue": 48
+      }
+    },
+    {
+      "index": 68,
+      "row": 4,
+      "column": 4,
+      "name": "Hue 072 / Value 5",
+      "hex": "#B27400",
+      "rgb": [
+        178,
+        116,
+        0
+      ],
+      "oklch": {
+        "lightness": 0.61,
+        "chroma": 0.130618,
+        "hue": 72
+      }
+    },
+    {
+      "index": 69,
+      "row": 4,
+      "column": 5,
+      "name": "Hue 096 / Value 5",
+      "hex": "#9A8200",
+      "rgb": [
+        154,
+        130,
+        0
+      ],
+      "oklch": {
+        "lightness": 0.61,
+        "chroma": 0.125485,
+        "hue": 96
+      }
+    },
+    {
+      "index": 70,
+      "row": 4,
+      "column": 6,
+      "name": "Hue 120 / Value 5",
+      "hex": "#798F00",
+      "rgb": [
+        121,
+        143,
+        0
+      ],
+      "oklch": {
+        "lightness": 0.61,
+        "chroma": 0.144824,
+        "hue": 120
+      }
+    },
+    {
+      "index": 71,
+      "row": 4,
+      "column": 7,
+      "name": "Hue 144 / Value 5",
+      "hex": "#009F20",
+      "rgb": [
+        0,
+        159,
+        32
+      ],
+      "oklch": {
+        "lightness": 0.61,
+        "chroma": 0.197759,
+        "hue": 144
+      }
+    },
+    {
+      "index": 72,
+      "row": 4,
+      "column": 8,
+      "name": "Hue 168 / Value 5",
+      "hex": "#009A75",
+      "rgb": [
+        0,
+        154,
+        117
+      ],
+      "oklch": {
+        "lightness": 0.61,
+        "chroma": 0.123521,
+        "hue": 168
+      }
+    },
+    {
+      "index": 73,
+      "row": 4,
+      "column": 9,
+      "name": "Hue 192 / Value 5",
+      "hex": "#009793",
+      "rgb": [
+        0,
+        151,
+        147
+      ],
+      "oklch": {
+        "lightness": 0.61,
+        "chroma": 0.104729,
+        "hue": 192
+      }
+    },
+    {
+      "index": 74,
+      "row": 4,
+      "column": 10,
+      "name": "Hue 216 / Value 5",
+      "hex": "#0093AC",
+      "rgb": [
+        0,
+        147,
+        172
+      ],
+      "oklch": {
+        "lightness": 0.61,
+        "chroma": 0.108333,
+        "hue": 216
+      }
+    },
+    {
+      "index": 75,
+      "row": 4,
+      "column": 11,
+      "name": "Hue 240 / Value 5",
+      "hex": "#008CCE",
+      "rgb": [
+        0,
+        140,
+        206
+      ],
+      "oklch": {
+        "lightness": 0.61,
+        "chroma": 0.139727,
+        "hue": 240
+      }
+    },
+    {
+      "index": 76,
+      "row": 4,
+      "column": 12,
+      "name": "Hue 264 / Value 5",
+      "hex": "#3F78FF",
+      "rgb": [
+        63,
+        120,
+        255
+      ],
+      "oklch": {
+        "lightness": 0.61,
+        "chroma": 0.210507,
+        "hue": 264
+      }
+    },
+    {
+      "index": 77,
+      "row": 4,
+      "column": 13,
+      "name": "Hue 288 / Value 5",
+      "hex": "#8360FF",
+      "rgb": [
+        131,
+        96,
+        255
+      ],
+      "oklch": {
+        "lightness": 0.61,
+        "chroma": 0.225274,
+        "hue": 288
+      }
+    },
+    {
+      "index": 78,
+      "row": 4,
+      "column": 14,
+      "name": "Hue 312 / Value 5",
+      "hex": "#BC14FF",
+      "rgb": [
+        188,
+        20,
+        255
+      ],
+      "oklch": {
+        "lightness": 0.61,
+        "chroma": 0.297713,
+        "hue": 312
+      }
+    },
+    {
+      "index": 79,
+      "row": 4,
+      "column": 15,
+      "name": "Hue 336 / Value 5",
+      "hex": "#DB00BE",
+      "rgb": [
+        219,
+        0,
+        190
+      ],
+      "oklch": {
+        "lightness": 0.61,
+        "chroma": 0.269978,
+        "hue": 336
+      }
+    },
+    {
+      "index": 80,
+      "row": 5,
+      "column": 0,
+      "name": "Gray 6",
+      "hex": "#AEAEAE",
+      "rgb": [
+        174,
+        174,
+        174
+      ],
+      "oklch": {
+        "lightness": 0.75,
+        "chroma": 0,
+        "hue": null
+      }
+    },
+    {
+      "index": 81,
+      "row": 5,
+      "column": 1,
+      "name": "Hue 000 / Value 6",
+      "hex": "#FF6FA3",
+      "rgb": [
+        255,
+        111,
+        163
+      ],
+      "oklch": {
+        "lightness": 0.73,
+        "chroma": 0.181946,
+        "hue": 0
+      }
+    },
+    {
+      "index": 82,
+      "row": 5,
+      "column": 2,
+      "name": "Hue 024 / Value 6",
+      "hex": "#FF7873",
+      "rgb": [
+        255,
+        120,
+        115
+      ],
+      "oklch": {
+        "lightness": 0.73,
+        "chroma": 0.166157,
+        "hue": 24
+      }
+    },
+    {
+      "index": 83,
+      "row": 5,
+      "column": 3,
+      "name": "Hue 048 / Value 6",
+      "hex": "#FF7E2D",
+      "rgb": [
+        255,
+        126,
+        45
+      ],
+      "oklch": {
+        "lightness": 0.73,
+        "chroma": 0.180132,
+        "hue": 48
+      }
+    },
+    {
+      "index": 84,
+      "row": 5,
+      "column": 4,
+      "name": "Hue 072 / Value 6",
+      "hex": "#E39500",
+      "rgb": [
+        227,
+        149,
+        0
+      ],
+      "oklch": {
+        "lightness": 0.73,
+        "chroma": 0.156314,
+        "hue": 72
+      }
+    },
+    {
+      "index": 85,
+      "row": 5,
+      "column": 5,
+      "name": "Hue 096 / Value 6",
+      "hex": "#C4A600",
+      "rgb": [
+        196,
+        166,
+        0
+      ],
+      "oklch": {
+        "lightness": 0.73,
+        "chroma": 0.15017,
+        "hue": 96
+      }
+    },
+    {
+      "index": 86,
+      "row": 5,
+      "column": 6,
+      "name": "Hue 120 / Value 6",
+      "hex": "#9BB600",
+      "rgb": [
+        155,
+        182,
+        0
+      ],
+      "oklch": {
+        "lightness": 0.73,
+        "chroma": 0.173314,
+        "hue": 120
+      }
+    },
+    {
+      "index": 87,
+      "row": 5,
+      "column": 7,
+      "name": "Hue 144 / Value 6",
+      "hex": "#00CB2B",
+      "rgb": [
+        0,
+        203,
+        43
+      ],
+      "oklch": {
+        "lightness": 0.73,
+        "chroma": 0.236662,
+        "hue": 144
+      }
+    },
+    {
+      "index": 88,
+      "row": 5,
+      "column": 8,
+      "name": "Hue 168 / Value 6",
+      "hex": "#00C596",
+      "rgb": [
+        0,
+        197,
+        150
+      ],
+      "oklch": {
+        "lightness": 0.73,
+        "chroma": 0.14782,
+        "hue": 168
+      }
+    },
+    {
+      "index": 89,
+      "row": 5,
+      "column": 9,
+      "name": "Hue 192 / Value 6",
+      "hex": "#00C0BC",
+      "rgb": [
+        0,
+        192,
+        188
+      ],
+      "oklch": {
+        "lightness": 0.73,
+        "chroma": 0.125332,
+        "hue": 192
+      }
+    },
+    {
+      "index": 90,
+      "row": 5,
+      "column": 10,
+      "name": "Hue 216 / Value 6",
+      "hex": "#00BBDB",
+      "rgb": [
+        0,
+        187,
+        219
+      ],
+      "oklch": {
+        "lightness": 0.73,
+        "chroma": 0.129645,
+        "hue": 216
+      }
+    },
+    {
+      "index": 91,
+      "row": 5,
+      "column": 11,
+      "name": "Hue 240 / Value 6",
+      "hex": "#29B2FF",
+      "rgb": [
+        41,
+        178,
+        255
+      ],
+      "oklch": {
+        "lightness": 0.73,
+        "chroma": 0.156268,
+        "hue": 240
+      }
+    },
+    {
+      "index": 92,
+      "row": 5,
+      "column": 12,
+      "name": "Hue 264 / Value 6",
+      "hex": "#7BA5FF",
+      "rgb": [
+        123,
+        165,
+        255
+      ],
+      "oklch": {
+        "lightness": 0.73,
+        "chroma": 0.139141,
+        "hue": 264
+      }
+    },
+    {
+      "index": 93,
+      "row": 5,
+      "column": 13,
+      "name": "Hue 288 / Value 6",
+      "hex": "#A497FF",
+      "rgb": [
+        164,
+        151,
+        255
+      ],
+      "oklch": {
+        "lightness": 0.73,
+        "chroma": 0.148566,
+        "hue": 288
+      }
+    },
+    {
+      "index": 94,
+      "row": 5,
+      "column": 14,
+      "name": "Hue 312 / Value 6",
+      "hex": "#D07DFF",
+      "rgb": [
+        208,
+        125,
+        255
+      ],
+      "oklch": {
+        "lightness": 0.73,
+        "chroma": 0.195695,
+        "hue": 312
+      }
+    },
+    {
+      "index": 95,
+      "row": 5,
+      "column": 15,
+      "name": "Hue 336 / Value 6",
+      "hex": "#FF5AE0",
+      "rgb": [
+        255,
+        90,
+        224
+      ],
+      "oklch": {
+        "lightness": 0.73,
+        "chroma": 0.243478,
+        "hue": 336
+      }
+    },
+    {
+      "index": 96,
+      "row": 6,
+      "column": 0,
+      "name": "Gray 7",
+      "hex": "#DBDBDB",
+      "rgb": [
+        219,
+        219,
+        219
+      ],
+      "oklch": {
+        "lightness": 0.89,
+        "chroma": 0,
+        "hue": null
+      }
+    },
+    {
+      "index": 97,
+      "row": 6,
+      "column": 1,
+      "name": "Hue 000 / Value 7",
+      "hex": "#FFB1C8",
+      "rgb": [
+        255,
+        177,
+        200
+      ],
+      "oklch": {
+        "lightness": 0.84,
+        "chroma": 0.095526,
+        "hue": 0
+      }
+    },
+    {
+      "index": 98,
+      "row": 6,
+      "column": 2,
+      "name": "Hue 024 / Value 7",
+      "hex": "#FFB4AF",
+      "rgb": [
+        255,
+        180,
+        175
+      ],
+      "oklch": {
+        "lightness": 0.84,
+        "chroma": 0.087867,
+        "hue": 24
+      }
+    },
+    {
+      "index": 99,
+      "row": 6,
+      "column": 3,
+      "name": "Hue 048 / Value 7",
+      "hex": "#FFB893",
+      "rgb": [
+        255,
+        184,
+        147
+      ],
+      "oklch": {
+        "lightness": 0.84,
+        "chroma": 0.096335,
+        "hue": 48
+      }
+    },
+    {
+      "index": 100,
+      "row": 6,
+      "column": 4,
+      "name": "Hue 072 / Value 7",
+      "hex": "#FFBC63",
+      "rgb": [
+        255,
+        188,
+        99
+      ],
+      "oklch": {
+        "lightness": 0.84,
+        "chroma": 0.13067,
+        "hue": 72
+      }
+    },
+    {
+      "index": 101,
+      "row": 6,
+      "column": 5,
+      "name": "Hue 096 / Value 7",
+      "hex": "#ECC900",
+      "rgb": [
+        236,
+        201,
+        0
+      ],
+      "oklch": {
+        "lightness": 0.84,
+        "chroma": 0.172799,
+        "hue": 96
+      }
+    },
+    {
+      "index": 102,
+      "row": 6,
+      "column": 6,
+      "name": "Hue 120 / Value 7",
+      "hex": "#BBDC00",
+      "rgb": [
+        187,
+        220,
+        0
+      ],
+      "oklch": {
+        "lightness": 0.84,
+        "chroma": 0.19943,
+        "hue": 120
+      }
+    },
+    {
+      "index": 103,
+      "row": 6,
+      "column": 7,
+      "name": "Hue 144 / Value 7",
+      "hex": "#00F436",
+      "rgb": [
+        0,
+        244,
+        54
+      ],
+      "oklch": {
+        "lightness": 0.84,
+        "chroma": 0.272323,
+        "hue": 144
+      }
+    },
+    {
+      "index": 104,
+      "row": 6,
+      "column": 8,
+      "name": "Hue 168 / Value 7",
+      "hex": "#00EDB5",
+      "rgb": [
+        0,
+        237,
+        181
+      ],
+      "oklch": {
+        "lightness": 0.84,
+        "chroma": 0.170095,
+        "hue": 168
+      }
+    },
+    {
+      "index": 105,
+      "row": 6,
+      "column": 9,
+      "name": "Hue 192 / Value 7",
+      "hex": "#00E8E3",
+      "rgb": [
+        0,
+        232,
+        227
+      ],
+      "oklch": {
+        "lightness": 0.84,
+        "chroma": 0.144218,
+        "hue": 192
+      }
+    },
+    {
+      "index": 106,
+      "row": 6,
+      "column": 10,
+      "name": "Hue 216 / Value 7",
+      "hex": "#51DFFF",
+      "rgb": [
+        81,
+        223,
+        255
+      ],
+      "oklch": {
+        "lightness": 0.84,
+        "chroma": 0.126666,
+        "hue": 216
+      }
+    },
+    {
+      "index": 107,
+      "row": 6,
+      "column": 11,
+      "name": "Hue 240 / Value 7",
+      "hex": "#94D3FF",
+      "rgb": [
+        148,
+        211,
+        255
+      ],
+      "oklch": {
+        "lightness": 0.84,
+        "chroma": 0.088858,
+        "hue": 240
+      }
+    },
+    {
+      "index": 108,
+      "row": 6,
+      "column": 12,
+      "name": "Hue 264 / Value 7",
+      "hex": "#B1CBFF",
+      "rgb": [
+        177,
+        203,
+        255
+      ],
+      "oklch": {
+        "lightness": 0.84,
+        "chroma": 0.078953,
+        "hue": 264
+      }
+    },
+    {
+      "index": 109,
+      "row": 6,
+      "column": 13,
+      "name": "Hue 288 / Value 7",
+      "hex": "#C7C2FF",
+      "rgb": [
+        199,
+        194,
+        255
+      ],
+      "oklch": {
+        "lightness": 0.84,
+        "chroma": 0.084128,
+        "hue": 288
+      }
+    },
+    {
+      "index": 110,
+      "row": 6,
+      "column": 14,
+      "name": "Hue 312 / Value 7",
+      "hex": "#E3B6FF",
+      "rgb": [
+        227,
+        182,
+        255
+      ],
+      "oklch": {
+        "lightness": 0.84,
+        "chroma": 0.110484,
+        "hue": 312
+      }
+    },
+    {
+      "index": 111,
+      "row": 6,
+      "column": 15,
+      "name": "Hue 336 / Value 7",
+      "hex": "#FFAAEA",
+      "rgb": [
+        255,
+        170,
+        234
+      ],
+      "oklch": {
+        "lightness": 0.84,
+        "chroma": 0.127793,
+        "hue": 336
+      }
+    },
+    {
+      "index": 112,
+      "row": 7,
+      "column": 0,
+      "name": "Gray 8",
+      "hex": "#FFFFFF",
+      "rgb": [
+        255,
+        255,
+        255
+      ],
+      "oklch": {
+        "lightness": 1,
+        "chroma": 0,
+        "hue": null
+      }
+    },
+    {
+      "index": 113,
+      "row": 7,
+      "column": 1,
+      "name": "Hue 000 / Value 8",
+      "hex": "#FFDEE7",
+      "rgb": [
+        255,
+        222,
+        231
+      ],
+      "oklch": {
+        "lightness": 0.93,
+        "chroma": 0.038288,
+        "hue": 0
+      }
+    },
+    {
+      "index": 114,
+      "row": 7,
+      "column": 2,
+      "name": "Hue 024 / Value 8",
+      "hex": "#FFDFDC",
+      "rgb": [
+        255,
+        223,
+        220
+      ],
+      "oklch": {
+        "lightness": 0.93,
+        "chroma": 0.035375,
+        "hue": 24
+      }
+    },
+    {
+      "index": 115,
+      "row": 7,
+      "column": 3,
+      "name": "Hue 048 / Value 8",
+      "hex": "#FFE1D2",
+      "rgb": [
+        255,
+        225,
+        210
+      ],
+      "oklch": {
+        "lightness": 0.93,
+        "chroma": 0.039082,
+        "hue": 48
+      }
+    },
+    {
+      "index": 116,
+      "row": 7,
+      "column": 4,
+      "name": "Hue 072 / Value 8",
+      "hex": "#FFE3C1",
+      "rgb": [
+        255,
+        227,
+        193
+      ],
+      "oklch": {
+        "lightness": 0.93,
+        "chroma": 0.05389,
+        "hue": 72
+      }
+    },
+    {
+      "index": 117,
+      "row": 7,
+      "column": 5,
+      "name": "Hue 096 / Value 8",
+      "hex": "#FFE88A",
+      "rgb": [
+        255,
+        232,
+        138
+      ],
+      "oklch": {
+        "lightness": 0.93,
+        "chroma": 0.117044,
+        "hue": 96
+      }
+    },
+    {
+      "index": 118,
+      "row": 7,
+      "column": 6,
+      "name": "Hue 120 / Value 8",
+      "hex": "#D6FC00",
+      "rgb": [
+        214,
+        252,
+        0
+      ],
+      "oklch": {
+        "lightness": 0.93,
+        "chroma": 0.220797,
+        "hue": 120
+      }
+    },
+    {
+      "index": 119,
+      "row": 7,
+      "column": 7,
+      "name": "Hue 144 / Value 8",
+      "hex": "#B1FFB0",
+      "rgb": [
+        177,
+        255,
+        176
+      ],
+      "oklch": {
+        "lightness": 0.93,
+        "chroma": 0.130569,
+        "hue": 144
+      }
+    },
+    {
+      "index": 120,
+      "row": 7,
+      "column": 8,
+      "name": "Hue 168 / Value 8",
+      "hex": "#9EFFDA",
+      "rgb": [
+        158,
+        255,
+        218
+      ],
+      "oklch": {
+        "lightness": 0.93,
+        "chroma": 0.105322,
+        "hue": 168
+      }
+    },
+    {
+      "index": 121,
+      "row": 7,
+      "column": 9,
+      "name": "Hue 192 / Value 8",
+      "hex": "#8AFFFA",
+      "rgb": [
+        138,
+        255,
+        250
+      ],
+      "oklch": {
+        "lightness": 0.93,
+        "chroma": 0.107196,
+        "hue": 192
+      }
+    },
+    {
+      "index": 122,
+      "row": 7,
+      "column": 10,
+      "name": "Hue 216 / Value 8",
+      "hex": "#C0F2FF",
+      "rgb": [
+        192,
+        242,
+        255
+      ],
+      "oklch": {
+        "lightness": 0.93,
+        "chroma": 0.053708,
+        "hue": 216
+      }
+    },
+    {
+      "index": 123,
+      "row": 7,
+      "column": 11,
+      "name": "Hue 240 / Value 8",
+      "hex": "#D2ECFF",
+      "rgb": [
+        210,
+        236,
+        255
+      ],
+      "oklch": {
+        "lightness": 0.93,
+        "chroma": 0.037581,
+        "hue": 240
+      }
+    },
+    {
+      "index": 124,
+      "row": 7,
+      "column": 12,
+      "name": "Hue 264 / Value 8",
+      "hex": "#DDE8FF",
+      "rgb": [
+        221,
+        232,
+        255
+      ],
+      "oklch": {
+        "lightness": 0.93,
+        "chroma": 0.033337,
+        "hue": 264
+      }
+    },
+    {
+      "index": 125,
+      "row": 7,
+      "column": 13,
+      "name": "Hue 288 / Value 8",
+      "hex": "#E6E5FF",
+      "rgb": [
+        230,
+        229,
+        255
+      ],
+      "oklch": {
+        "lightness": 0.93,
+        "chroma": 0.035465,
+        "hue": 288
+      }
+    },
+    {
+      "index": 126,
+      "row": 7,
+      "column": 14,
+      "name": "Hue 312 / Value 8",
+      "hex": "#F2E0FF",
+      "rgb": [
+        242,
+        224,
+        255
+      ],
+      "oklch": {
+        "lightness": 0.93,
+        "chroma": 0.046468,
+        "hue": 312
+      }
+    },
+    {
+      "index": 127,
+      "row": 7,
+      "column": 15,
+      "name": "Hue 336 / Value 8",
+      "hex": "#FFDCF5",
+      "rgb": [
+        255,
+        220,
+        245
+      ],
+      "oklch": {
+        "lightness": 0.93,
+        "chroma": 0.051211,
+        "hue": 336
+      }
+    }
+  ]
+}

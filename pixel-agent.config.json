@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "canvas": { "width": 1024, "height": 1024, "fit": "full-canvas", "sampling": "nearest-neighbor" },
+  "input": { "mimeTypes": ["image/png", "image/jpeg", "image/webp"], "maxBytes": 25165824 },
+  "grid": { "allowed": [32, 64, 128, 256], "default": 128 },
+  "palette": { "file": "palette/vivid-fixed-128.json", "maxOpaqueColors": 16 },
+  "alpha": { "allowed": [0, 255], "threshold": 128 },
+  "outline": { "color": "#000000", "placement": "exterior", "thicknessCells": 1 },
+  "cleanup": { "removeExteriorSpecks": true, "minimumComponentCells": 2, "preserveInteriorDetails": true },
+  "source": { "overwrite": false },
+  "comfy": {
+    "baseUrl": "http://127.0.0.1:8188",
+    "inputDirectory": "C:/Users/vicke/AppData/Local/Comfy-Desktop/ComfyUI-Shared/input",
+    "workflow": "workflows/vivid-pixel-img2img.json",
+    "model": "z_image_turbo_int8_convrot.safetensors",
+    "textEncoder": "qwen_3_4b_fp8_mixed.safetensors",
+    "vae": "ae.safetensors",
+    "steps": 8,
+    "cfg": 1,
+    "denoise": 0.25,
+    "sampler": "res_multistep",
+    "scheduler": "simple",
+    "pollMilliseconds": 500,
+    "timeoutMilliseconds": 300000
+  }
+}

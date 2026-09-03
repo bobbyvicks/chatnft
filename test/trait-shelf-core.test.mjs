@@ -122,3 +122,110 @@ test("rejects an unknown source or destination without changing records", () => 
     { ok: false, reason: "layer" },
   );
 });
+
+test("builds a shared reorder payload without leaking artwork or storage metadata", () => {
+  assert.equal(typeof shelf?.rpcItems, "function");
+  const record = trait("t_hat_hats_wip", "clothing", 1, {
+    rowId: "row-1",
+    shelfOrder: 2048,
+    path: "private/path.png",
+    blob: { secretBytes: true },
+    rarity: 9,
+  });
+
+  assert.deepEqual(shelf.rpcItems([{ oldId: "old", oldKey: "row-1", record }]), [
+    { id: "row-1", layer: "clothing", shelf_order: 2048 },
+  ]);
+  assert.throws(
+    () => shelf.rpcItems([{ oldId: "old", oldKey: "old", record: { ...record, rowId: null } }]),
+    /shared row id/i,
+  );
+});
+
+test("applies a refreshed shared layer and order without replacing local artwork", () => {
+  assert.equal(typeof shelf?.mergeRemoteShelfRecord, "function");
+  const localBlob = { bytes: "local-art" };
+  const local = trait("t_hat_hats_wip", "hats", 10, {
+    name: "hat",
+    rowId: "row-1",
+    path: "team/collection/original.png",
+    blob: localBlob,
+    rarity: 7,
+    shelfOrder: 1024,
+  });
+  const remote = {
+    id: "row-1",
+    kind: "trait",
+    name: "hat",
+    layer: "clothing",
+    status: "wip",
+    rarity: 7,
+    shelf_order: 3072,
+    path: "team/collection/original.png",
+  };
+
+  const refreshed = shelf.mergeRemoteShelfRecord(local, remote, new Set([local.id]));
+  assert.equal(refreshed.id, "t_hat_clothing_wip");
+  assert.equal(refreshed.layer, "clothing");
+  assert.equal(refreshed.shelfOrder, 3072);
+  assert.equal(refreshed.blob, localBlob);
+  assert.equal(refreshed.path, local.path);
+  assert.equal(refreshed.rarity, 7);
+});
+
+test("renames only the local card when a refreshed layer id would collide", () => {
+  const local = trait("t_hat_hats_wip", "hats", 1, {
+    name: "hat",
+    rowId: "row-1",
+  });
+  const remote = {
+    id: "row-1",
+    kind: "trait",
+    name: "hat",
+    layer: "clothing",
+    status: "wip",
+    shelf_order: 1024,
+    path: "same.png",
+  };
+
+  const refreshed = shelf.mergeRemoteShelfRecord(
+    local,
+    remote,
+    new Set([local.id, "t_hat_clothing_wip"]),
+  );
+  assert.equal(refreshed.id, "t_hat-2_clothing_wip");
+  assert.equal(refreshed.name, "hat-2");
+  assert.equal(refreshed.rowId, "row-1");
+});
+
+test("hides and restores individual shelf cards without persistent record changes", () => {
+  assert.equal(typeof shelf?.createVisibilityState, "function");
+  const visibility = shelf.createVisibilityState();
+  visibility.hide("a");
+  assert.equal(visibility.isHidden("a"), true);
+  assert.equal(visibility.count, 1);
+  assert.equal(visibility.reveal, false);
+  visibility.setReveal(true);
+  assert.equal(visibility.reveal, true);
+  visibility.show("a");
+  assert.equal(visibility.isHidden("a"), false);
+  assert.equal(visibility.count, 0);
+});
+
+test("isolates one card and show-all clears the temporary session", () => {
+  const visibility = shelf.createVisibilityState();
+  visibility.isolate(["a", "b", "c"], "b");
+  assert.deepEqual(visibility.hiddenKeys(), ["a", "c"]);
+  visibility.showAll();
+  assert.deepEqual(visibility.hiddenKeys(), []);
+  assert.equal(visibility.reveal, false);
+  assert.equal(shelf.createVisibilityState().count, 0);
+});
+
+test("transfers a hidden local key when a cross-layer move changes its id", () => {
+  const visibility = shelf.createVisibilityState();
+  visibility.hide("t_hat_hats_wip");
+  visibility.transfer("t_hat_hats_wip", "t_hat_clothing_wip");
+  assert.equal(visibility.isHidden("t_hat_hats_wip"), false);
+  assert.equal(visibility.isHidden("t_hat_clothing_wip"), true);
+});

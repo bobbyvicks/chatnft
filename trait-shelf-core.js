@@ -96,6 +96,95 @@
     };
   }
 
+  function rpcItems(updates) {
+    return updates.map(update => {
+      const record = update && update.record;
+      if (!record || !record.rowId) throw new Error("A shared row id is required");
+      if (!hasOrder(record.shelfOrder)) throw new Error("A numeric shelf order is required");
+      return {
+        id: record.rowId,
+        layer: record.layer,
+        shelf_order: record.shelfOrder,
+      };
+    });
+  }
+
+  function mergeRemoteShelfRecord(local, remote, takenIds) {
+    const taken = takenIds instanceof Set ? takenIds : new Set(takenIds || []);
+    const layer = remote.kind === "trait" ? (remote.layer || "unsorted") : local.layer;
+    const status = remote.kind === "trait" ? (remote.status || "wip") : local.status;
+    const baseName = local.name;
+    let name = baseName;
+    let id = remote.kind === "ref" ? "ref_" + name : localTraitId({ ...local, name, status }, layer);
+    let suffix = 2;
+    while (id !== local.id && taken.has(id)) {
+      name = baseName + "-" + suffix++;
+      id = remote.kind === "ref" ? "ref_" + name : localTraitId({ ...local, name, status }, layer);
+    }
+    const refreshed = {
+      ...local,
+      id,
+      rowId: remote.id,
+      path: remote.path || local.path,
+      kind: remote.kind || local.kind,
+      name,
+      synced: true,
+    };
+    if (refreshed.kind === "trait") {
+      refreshed.layer = layer;
+      refreshed.status = status;
+      if (typeof remote.rarity === "number") refreshed.rarity = remote.rarity;
+      if (hasOrder(remote.shelf_order)) refreshed.shelfOrder = remote.shelf_order;
+      else delete refreshed.shelfOrder;
+    }
+    return refreshed;
+  }
+
+  function createVisibilityState() {
+    const hidden = new Set();
+    let reveal = false;
+    return Object.freeze({
+      hide(key) {
+        hidden.add(String(key));
+        reveal = false;
+      },
+      show(key) {
+        hidden.delete(String(key));
+        if (!hidden.size) reveal = false;
+      },
+      isolate(keys, keepKey) {
+        hidden.clear();
+        const keep = String(keepKey);
+        for (const key of keys) if (String(key) !== keep) hidden.add(String(key));
+        reveal = false;
+      },
+      showAll() {
+        hidden.clear();
+        reveal = false;
+      },
+      setReveal(value) {
+        reveal = hidden.size ? Boolean(value) : false;
+      },
+      isHidden(key) {
+        return hidden.has(String(key));
+      },
+      hiddenKeys() {
+        return [...hidden].sort();
+      },
+      transfer(oldKey, newKey) {
+        const oldValue = String(oldKey);
+        if (!hidden.delete(oldValue)) return;
+        hidden.add(String(newKey));
+      },
+      get count() {
+        return hidden.size;
+      },
+      get reveal() {
+        return reveal;
+      },
+    });
+  }
+
   root.ChatNftTraitShelf = Object.freeze({
     ORDER_STEP,
     recordKey,
@@ -103,5 +192,8 @@
     orderedLayer,
     nextShelfOrder,
     planShelfMove,
+    rpcItems,
+    mergeRemoteShelfRecord,
+    createVisibilityState,
   });
 })(typeof window === "object" ? window : globalThis);

@@ -284,10 +284,58 @@ test.describe('the gate is a lock, not a picture', () => {
     expect(r.localBooted, 'and the local view is built - once, here, not at load').toBe(true);
   });
 
+  /* A 1x1 PNG standing in for the reference character someone was working
+     against. The real thing is a full-resolution image of their artwork. */
+  const REF_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ'
+    + 'AAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+
+  test('the last person\'s reference image is not painted before sign-in', async ({ page }) => {
+    /* The third top-level reader, and the one the first pass missed:
+       renderShelf and offerRestore were moved behind the session check while
+       a bare try/catch around localStorage 'pb.ref' was left decoding
+       somebody's artwork into #refthumb at load. */
+    await page.addInitScript(png => localStorage.setItem('pb.ref', png), REF_PNG);
+    await page.route('**/dpracoavrcqyenfieksi.supabase.co/**', r => r.abort());
+    await page.goto('/index.html');
+    await page.waitForFunction(() => typeof startEditor === 'function');
+    await page.waitForTimeout(1500);
+
+    const r = await page.evaluate(() => ({
+      stillStored: !!localStorage.getItem('pb.ref'),
+      thumbHidden: document.getElementById('refthumb').hidden,
+      slotFilled: document.getElementById('refslot').classList.contains('filled'),
+      refData: refData === null || refData === undefined ? null : 'loaded',
+    }));
+    expect(r.stillStored, 'the image is still on the device - nothing was deleted').toBe(true);
+    expect(r.refData, 'but it is not decoded into memory').toBe(null);
+    expect(r.thumbHidden, 'nor painted into the thumbnail').toBe(true);
+    expect(r.slotFilled, 'and the slot does not claim to hold one').toBe(false);
+  });
+
+  test('and it IS restored once you sign in - the control', async ({ page }) => {
+    /* Without this the test above passes just as well if the reference
+       feature were simply broken, which would be a worse bug than the leak. */
+    await page.addInitScript(png => localStorage.setItem('pb.ref', png), REF_PNG);
+    await mockSupabase(page);
+    await openPage(page);
+    await signIn(page, 'test', 'not-a-real-password');
+    await expect.poll(async () => (await gated(page)).scrim, { timeout: 8000 }).toBe(false);
+    await expect.poll(async () => page.evaluate(() =>
+      document.getElementById('refslot').classList.contains('filled')), { timeout: 8000 }).toBe(true);
+    expect(await page.evaluate(() => document.getElementById('refthumb').hidden),
+      'and the thumbnail is painted').toBe(false);
+  });
+
   test('signing out takes the collection off the page, not just out of sight', async ({ page }) => {
     /* visibility:hidden left every trait name and thumbnail in the document.
        On a shared device that is the previous person's collection, readable
-       without touching the gate. */
+       without touching the gate.
+
+       The reference image is asserted here too, and it was not at first:
+       reverting the reference clearing from forgetLocalView was caught by
+       NOTHING in this file. The clearing had been written and never tested,
+       which is the same as not having written it. */
+    await page.addInitScript(png => localStorage.setItem('pb.ref', png), REF_PNG);
     await mockSupabase(page);
     await openPage(page);
     await signIn(page, 'test', 'not-a-real-password');
@@ -298,11 +346,27 @@ test.describe('the gate is a lock, not a picture', () => {
     });
     expect(await page.textContent('#projbody')).toContain('someone-elses-trait');
 
+    /* The reference has to be on screen first, or "it is gone afterwards"
+       is true of a test that never put it there. */
+    await expect.poll(async () => page.evaluate(() =>
+      document.getElementById('refslot').classList.contains('filled')), { timeout: 8000 }).toBe(true);
+
     await page.evaluate(() => cloudSignOut());
     await expect.poll(async () => (await gated(page)).scrim, { timeout: 8000 }).toBe(true);
     expect(await page.evaluate(() => document.getElementById('projbody').innerHTML),
       'the shelf is emptied, not hidden').toBe('');
     expect(await page.evaluate(() => mayUse()), 'and use is revoked').toBe(false);
+
+    const ref = await page.evaluate(() => ({
+      refData: refData === null || refData === undefined ? null : 'still loaded',
+      slotFilled: document.getElementById('refslot').classList.contains('filled'),
+      thumbHidden: document.getElementById('refthumb').hidden,
+      stillStored: !!localStorage.getItem('pb.ref'),
+    }));
+    expect(ref.refData, 'the decoded reference is dropped from memory').toBe(null);
+    expect(ref.slotFilled, 'the slot no longer claims to hold one').toBe(false);
+    expect(ref.thumbHidden, 'and the thumbnail is taken down').toBe(true);
+    expect(ref.stillStored, 'but nothing was deleted from the device').toBe(true);
   });
 });
 

@@ -1807,6 +1807,11 @@ function wireSlot(slotId,inputId,which){
 wireSlot('refslot','reffile','ref');
 wireSlot('subslot','subfile','sub');
 $('sens').oninput=e=>{ $('sensv').textContent=e.target.value; };
+/* Was a bare try/catch running at load, so the reference someone else was
+   working against - a full-resolution PNG in localStorage - was decoded and
+   painted into #refthumb before anything had asked who was looking. Called
+   from bootLocal now, with the shelf and the restore offer. */
+function restoreRef(){
 try{
   const saved=localStorage.getItem('pb.ref');
   if(saved){ const im=new Image();
@@ -1818,6 +1823,7 @@ try{
       if(p){ refData=p.data; toast('Matched reference: '+p.name); } } renderPreview(); })(); } };
     im.src=saved; }
 }catch(_){}
+}
 
 /* Vision fallback for when there is no reference. Differencing against the bare
    character is exact; this is a guess, so it opens the whole image cropped to
@@ -5350,6 +5356,7 @@ function bootLocal(){
   localBooted=true;
   renderShelf();
   offerRestore();
+  restoreRef();
 }
 
 async function cloudRender(){
@@ -6095,6 +6102,12 @@ async function joinIfPending(){
 function forgetLocalView(){
   const b=$("projbody"); if(b) b.innerHTML="";
   for(const id of ["proj","compose","layers"]){ const e=$(id); if(e) e.hidden=true; }
+  /* The reference thumbnail as well, and the decoded pixels behind it. Same
+     clearing $("clearproj") does, without removing anything from storage. */
+  refData=null;
+  const rs=$("refslot"); if(rs) rs.classList.remove("filled");
+  const rt=$("refthumb"); if(rt) rt.hidden=true;
+  for(const id of ["doextract","mkkey"]){ const e=$(id); if(e) e.disabled=true; }
   /* Nothing is deleted from IndexedDB here. Signing out has never removed a
      collection from the device and this does not change that - it takes the
      rendering down, and renderShelf puts it back when a session resolves. */

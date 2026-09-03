@@ -206,6 +206,106 @@ test.describe('the sign-in gate', () => {
   });
 });
 
+test.describe('the gate is a lock, not a picture', () => {
+  /* Before this, gateShow set .hidden on the scrim and visibility on the
+     landing page and nothing else - so one devtools line got the whole
+     editor. These tests are the difference between the two. */
+
+  test('the wall is up in the markup, before a single request', async ({ page }) => {
+    /* Read the FILE, not the running page. The scrim used to carry `hidden`
+       and the landing page carried nothing, so at first paint the app was up
+       and the gate came down 56-72ms later when an async round trip resolved.
+       That window is not something you can test by looking at the page after
+       it settles - it is a property of the bytes on disk. */
+    const html = await (await page.request.get('/index.html')).text();
+    expect(html, 'the scrim must not start hidden').not.toContain('id="signin" hidden');
+    expect(html).toContain('<div class="scrim" id="signin">');
+    expect(html, 'and the landing page must start hidden')
+      .toContain('<main class="land" id="land" style="visibility:hidden">');
+  });
+
+  test('and it stays up when the server never answers', async ({ page }) => {
+    /* The failure mode that matters. If the auth check hangs - offline, DNS,
+       Supabase down - the old page sat there fully open forever. */
+    await page.route('**/dpracoavrcqyenfieksi.supabase.co/**', r => r.abort());
+    await page.goto('/index.html');
+    await page.waitForFunction(() => typeof gateSignIn === 'function');
+    await page.waitForTimeout(2500);
+    expect(await gated(page), 'a dead server leaves the wall up, not down')
+      .toEqual({ scrim: true, landHidden: true });
+  });
+
+  test('hiding the scrim by hand does not get you a working app', async ({ page }) => {
+    /* THE test. gateShow(false) is exactly what devtools gives you, and it
+       must now buy nothing: the editor refuses, and a dropped file is not
+       read. `authed` is deliberately not set by gateShow. */
+    await page.route('**/dpracoavrcqyenfieksi.supabase.co/**', r => r.abort());
+    await page.goto('/index.html');
+    await page.waitForFunction(() => typeof startEditor === 'function');
+    await page.waitForTimeout(1200);
+
+    const r = await page.evaluate(() => {
+      gateShow(false);                       // the whole of the old bypass
+      const scrimDown = document.getElementById('signin').hidden;
+      const n = 64, d = new Uint8ClampedArray(n * n * 4);
+      for (let i = 0; i < n * n; i++) { d[i * 4] = 200; d[i * 4 + 1] = 120; d[i * 4 + 3] = 255; }
+      fileName = 'x.png';
+      startEditor(d, n, n, n, n, palette(d, n * n, 24, 64), false);
+      return {
+        scrimDown,
+        mayUse: mayUse(),
+        appOpen: !document.getElementById('app').hidden,
+        localBooted,
+      };
+    });
+    expect(r.scrimDown, 'the scrim did come down - so this is the real bypass').toBe(true);
+    expect(r.mayUse, 'but it grants nothing').toBe(false);
+    expect(r.appOpen, 'and the editor stays shut').toBe(false);
+    expect(r.localBooted, 'and nothing of this device was read').toBe(false);
+  });
+
+  test('a real session does open it - the control', async ({ page }) => {
+    /* Without this, the test above passes just as well if startEditor were
+       broken outright, which would be far worse than the hole it closes. */
+    await mockSupabase(page);
+    await openPage(page);
+    await signIn(page, 'test', 'not-a-real-password');
+    await expect.poll(async () => (await gated(page)).scrim, { timeout: 8000 }).toBe(false);
+
+    const r = await page.evaluate(() => {
+      const n = 64, d = new Uint8ClampedArray(n * n * 4);
+      for (let i = 0; i < n * n; i++) { d[i * 4] = 200; d[i * 4 + 1] = 120; d[i * 4 + 3] = 255; }
+      fileName = 'x.png';
+      startEditor(d, n, n, n, n, palette(d, n * n, 24, 64), false);
+      return { mayUse: mayUse(), appOpen: !document.getElementById('app').hidden, localBooted };
+    });
+    expect(r.mayUse, 'a verified session grants use').toBe(true);
+    expect(r.appOpen, 'and the editor opens').toBe(true);
+    expect(r.localBooted, 'and the local view is built - once, here, not at load').toBe(true);
+  });
+
+  test('signing out takes the collection off the page, not just out of sight', async ({ page }) => {
+    /* visibility:hidden left every trait name and thumbnail in the document.
+       On a shared device that is the previous person's collection, readable
+       without touching the gate. */
+    await mockSupabase(page);
+    await openPage(page);
+    await signIn(page, 'test', 'not-a-real-password');
+    await expect.poll(async () => (await gated(page)).scrim, { timeout: 8000 }).toBe(false);
+
+    await page.evaluate(() => {
+      document.getElementById('projbody').innerHTML = '<div class="tile">someone-elses-trait</div>';
+    });
+    expect(await page.textContent('#projbody')).toContain('someone-elses-trait');
+
+    await page.evaluate(() => cloudSignOut());
+    await expect.poll(async () => (await gated(page)).scrim, { timeout: 8000 }).toBe(true);
+    expect(await page.evaluate(() => document.getElementById('projbody').innerHTML),
+      'the shelf is emptied, not hidden').toBe('');
+    expect(await page.evaluate(() => mayUse()), 'and use is revoked').toBe(false);
+  });
+});
+
 /* ---------------------------------------------------------------------------
    The live check. Skipped unless credentials are in the environment:
 

@@ -30,13 +30,23 @@ export async function openTrait(page, { w = 80, h = 80, draw, name = 'test.png',
   await page.goto('/index.html');
   await page.waitForFunction(() => typeof startEditor === 'function');
 
-  /* Step past the sign-in wall. A first-time visitor with no session meets a
-     full-screen scrim over the whole app - measured on both live sites - and
-     these tests are about the editor, not about authentication. Without this
-     every click is intercepted and every failure reads as a broken control.
-     If the wall is ever made optional this line becomes a no-op, which is the
-     right way round. */
-  await page.evaluate(() => { try { gateShow(false); } catch (_) {} });
+  /* Step past the sign-in wall. These tests are about the editor, not about
+     authentication, and without this every click is intercepted and every
+     failure reads as a broken control.
+
+     TWO things now, and they are deliberately separate. gateShow(false) takes
+     the scrim down - that is the picture. `authed` is the lock: startEditor
+     and load refuse to run without it, and gateShow does NOT set it, so
+     hiding the scrim alone gets an empty app. A test that only did the first
+     would fail on every editor test, and one that only did the second would
+     pass while the scrim swallowed the clicks.
+
+     This IS a bypass, stated plainly. The gate's own behaviour is tested in
+     auth.spec.js, which drives the real sign-in path instead of setting this. */
+  await page.evaluate(() => {
+    try { authed = true; } catch (_) { /* older build without the lock */ }
+    try { gateShow(false); } catch (_) {}
+  });
   if (!folds) await page.evaluate(() => { try { localStorage.removeItem('pb.folds'); } catch (_) {} });
 
   await page.evaluate(({ w, h, src, name }) => {
@@ -53,9 +63,13 @@ export async function openTrait(page, { w = 80, h = 80, draw, name = 'test.png',
   }, { w, h, src: draw.toString().replace(/^[^{]*\{/, '').replace(/\}\s*$/, ''), name });
 
   await page.waitForFunction(() => !document.getElementById('app').hidden);
-  /* Again: the boot-time session check is async and re-shows the wall when it
-     resolves to "not signed in", which lands after the editor has opened. */
-  await page.evaluate(() => { try { gateShow(false); } catch (_) {} });
+  /* Again: the boot-time session check is async and re-raises the wall when it
+     resolves to "not signed in", which lands after the editor has opened - and
+     raising it now also empties the shelf, so the flag goes back too. */
+  await page.evaluate(() => {
+    try { authed = true; } catch (_) { /* older build without the lock */ }
+    try { gateShow(false); } catch (_) {}
+  });
   await page.waitForTimeout(250);
   return errors;
 }

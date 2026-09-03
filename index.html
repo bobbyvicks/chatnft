@@ -581,7 +581,7 @@ footer .mono{color:var(--ink);}
 <body>
 
 <!-- ============ landing ============ -->
-<div class="scrim" id="signin" hidden>
+<div class="scrim" id="signin">
   <div class="card">
     <div class="brand" style="justify-content:center;margin-bottom:6px">
       <span class="logo" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
@@ -628,12 +628,12 @@ footer .mono{color:var(--ink);}
     </div>
   </div>
 </div>
-<main class="land" id="land">
+<main class="land" id="land" style="visibility:hidden">
   <div class="brand">
     <span class="logo" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
     <h1>ChatNFT</h1>
   </div>
-  <button class="acct" id="acctbtn" aria-label="Your account" aria-expanded="false" title="Your account">
+  <button class="acct" id="acctbtn" aria-label="Your account" aria-expanded="false" title="Your account" hidden>
     <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.6"/>
       <path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></svg>
   </button>
@@ -1227,6 +1227,7 @@ addEventListener('dragover',e=>e.preventDefault());
 addEventListener('drop',e=>e.preventDefault());
 
 function load(file){
+  if(!mayUse()) return;
   $('err').textContent='';
   if(!/^image\//.test(file.type)){ $('err').textContent='That is not an image file.'; return; }
   if(file.size>25*1024*1024){ $('err').textContent='That file is over 25 MB.'; return; }
@@ -1278,6 +1279,18 @@ let projectGrid=160;
    that data in place but unreachable, which presents as the project emptying
    itself. The name on screen is not worth someone's work. */
 const DBN='pixelbench', STORE='items';   /* the personal store, named before teams existed */
+
+/* Whether there is a REAL session, as distinct from whether the scrim is
+   showing. Set from the verified /auth/v1/user response in cloudRender and
+   from nowhere else - deliberately NOT from gateShow, so that hiding the
+   scrim by hand gets an empty app rather than a working one. Declared here,
+   far above its uses, because a top-level `let` is in the temporal dead zone
+   until the line runs and the guards below sit earlier in the file. */
+let authed=false;
+
+/* The one question every entry point asks. Named rather than inlined so it
+   can be grepped: every call site is a place the answer matters. */
+function mayUse(){ return authed; }
 /* Each group project gets its OWN IndexedDB database rather than a filtered
    view of one. Filtering would need every id to be unique across projects,
    and the ids here deliberately encode name+layer+status so a trait can be
@@ -1530,8 +1543,12 @@ async function renderShelf(){
    rather than sitting there broken. */
 let aiReady=null;
 async function ask(mode,dataUrl){
+  /* The endpoint refuses an unsigned call now - it spends real credit, so it
+     checks who is asking rather than trusting that the page put a wall up. */
+  const t=await sbToken();
+  if(!t){ aiReady=true; throw new Error('Sign in to use this.'); }
   const r=await fetch('/api/identify',{
-    method:'POST', headers:{'Content-Type':'application/json'},
+    method:'POST', headers:{'Content-Type':'application/json',Authorization:'Bearer '+t},
     body:JSON.stringify({mode,image:dataUrl}),
   });
   const j=await r.json().catch(()=>({error:'bad_json'}));
@@ -1711,7 +1728,10 @@ $('dlzip').onclick=async()=>{
   toast('Downloaded '+files.length+' traits');
 };
 buildLayerSelect();
-renderShelf();
+/* NOT called here any more. This ran at top level, so the shelf - names,
+   counts, decoded thumbnails - was in the document before anything had
+   asked who was looking. It runs from bootLocal(), below, once a session
+   is verified. */
 
 /* ============ pulling a trait off a character =====================
    A single image cannot say which pixels are "the trait". It becomes
@@ -2892,7 +2912,10 @@ function analyse(im,file){
 }
 
 /* ================= editor ======================================= */
+/* The gate is a picture; this is the lock. Without a session the editor
+   does not open, whatever the scrim is doing. */
 function startEditor(data,w,h,srcW,srcH,pal,recovered){
+  if(!mayUse()) return;
   $('scrim').hidden=true; $('land').hidden=true; $('app').hidden=false;
   N=w;
   art.width=w; art.height=h;
@@ -5316,12 +5339,29 @@ async function sbUser(){
   }catch(_){ return null; }
 }
 
+/* Everything that reads this device's own storage and puts it on screen.
+   Runs once, after a session is verified. Guarded because cloudRender is
+   called on every sign-in, every workspace switch and every account-panel
+   toggle, and rebuilding the shelf on each of those would be wasted work
+   and a flicker. */
+let localBooted=false;
+function bootLocal(){
+  if(localBooted) return;
+  localBooted=true;
+  renderShelf();
+  offerRestore();
+}
+
 async function cloudRender(){
   const u=await sbUser();
   const inn=!!(u&&u.id);
   $("cloudwho").textContent = inn ? (displayName(u)||"signed in") : "not signed in";
   $("cloudpush").hidden=!inn; $("cloudpull").hidden=!inn; $("cloudout").hidden=!inn;
+  /* Set BEFORE gateShow, because gateShow(false) reveals a page whose
+     controls ask mayUse() the moment they are touched. */
+  authed=inn;
   gateShow(!inn);
+  if(inn) bootLocal();
   if(inn) joinIfPending();
   /* Inviting is a GROUP action. On your own page there is nothing to invite
      anyone to - and until now pressing it there minted a link into the place
@@ -6048,11 +6088,22 @@ async function joinIfPending(){
    Hidden by DEFAULT in the markup and shown only once the session is known to
    be absent. The other order flashes the sign-in card at someone who is
    already signed in, on every single load. */
+/* Raising the gate has to REMOVE what is on the page, not just stop showing
+   it. visibility:hidden leaves every trait name and every decoded thumbnail
+   sitting in the document for anyone who opens devtools - which on a shared
+   device is the previous person's collection. */
+function forgetLocalView(){
+  const b=$("projbody"); if(b) b.innerHTML="";
+  for(const id of ["proj","compose","layers"]){ const e=$(id); if(e) e.hidden=true; }
+  /* Nothing is deleted from IndexedDB here. Signing out has never removed a
+     collection from the device and this does not change that - it takes the
+     rendering down, and renderShelf puts it back when a session resolves. */
+}
 function gateShow(on){
   $("signin").hidden=!on;
   $("land").style.visibility = on ? "hidden" : "";
   $("acctbtn").hidden = on;
-  if(on) $("acctpanel").hidden=true;
+  if(on){ $("acctpanel").hidden=true; forgetLocalView(); }
 }
 
 /* Supabase's own words reach the screen otherwise, and some of them are no
@@ -6840,7 +6891,8 @@ $('rcnear').onclick=()=>{ toggle('rcnear'); $('rctol').disabled=!pressed('rcnear
 $('rslock').onclick=()=>toggle('rslock');
 $('rctol').disabled=true;
 setupFolds();
-offerRestore();
+/* Also moved into bootLocal(): this offers the autosaved working canvas,
+   which on a shared device is whatever the last person was drawing. */
 
 $('baseop').addEventListener('input',()=>{
   $('baseoplab').textContent=$('baseop').value+'%';

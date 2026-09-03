@@ -29,7 +29,14 @@ test.describe('nothing leaves your device', () => {
     page.on('request', r => { if (!local(r.url())) off.push(r.url()); });
     await page.goto('/index.html', { waitUntil: 'networkidle' });
     await page.waitForFunction(() => typeof startEditor === 'function');
-    await page.evaluate(() => { try { gateShow(false); } catch (_) {} });
+    /* `authed` as well as the scrim: startEditor refuses without a session
+       now, so without this the editor never opens and the test would pass by
+       having done nothing at all - which is the worst possible way for a
+       "nothing leaves your device" test to pass. */
+    await page.evaluate(() => {
+      try { authed = true; } catch (_) { /* older build without the lock */ }
+      try { gateShow(false); } catch (_) {}
+    });
     await page.evaluate(() => {
       const w = 120, d = new Uint8ClampedArray(w * w * 4);
       for (let i = 0; i < w * w; i++) { d[i * 4] = 200; d[i * 4 + 1] = 120; d[i * 4 + 3] = 255; }

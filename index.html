@@ -910,7 +910,7 @@ footer .mono{color:var(--ink);}
       <div class="swatches" id="pal"></div>
     </section>
     <section>
-      <h2>Background</h2>
+      <h2>Edges and holes</h2>
       <button class="btn ghost" id="debg"
         title="Floods in from the border, so a white shirt in the middle stays">Clear background</button>
       <div class="olrow"><label for="bgtol">Keep within</label>
@@ -923,6 +923,31 @@ footer .mono{color:var(--ink);}
         <input id="holemax" type="number" min="0" max="99999" value="0" style="width:72px"
           aria-label="Biggest gap to close, in cells; 0 for any size"></div>
       <p class="note">Closes gaps the art surrounds. 0 means any size; raise it to keep a hole that belongs.</p>
+      <div class="rule"></div>
+      <div class="stack">
+        <div class="olrow"><label for="olthick">Thickness</label>
+          <span class="mono" id="olthicklab" style="margin-left:auto">1 cell</span></div>
+        <input id="olthick" type="range" min="0" max="6" step="1" value="1" aria-label="Outline thickness">
+        <div class="olrow"><label for="olcol">Colour</label>
+          <input type="color" id="olcol" value="#000000" aria-label="Outline colour"
+            style="margin-left:auto; width:54px">
+          <button class="mini" id="olcurrent" title="Use the colour you are painting with">match brush</button></div>
+        <div class="olrow"><label for="olsnap">Snap to</label>
+          <select id="olsnap" aria-label="Snap grid">
+            <option value="auto">auto</option><option value="1" selected>1 cell</option>
+            <option value="2">2 cells</option><option value="3">3 cells</option>
+            <option value="4">4 cells</option><option value="6">6 cells</option>
+            <option value="8">8 cells</option></select></div>
+        <div class="olrow">
+          <button class="btn ghost" id="oltidy" aria-pressed="true"
+            style="width:auto;padding:6px 10px;font-size:12px"
+            title="Square off the silhouette before outlining">Tidy edge</button>
+          <button class="btn ghost" id="olpatch" aria-pressed="false"
+            style="width:auto;padding:6px 10px;font-size:12px"
+            title="Close gaps inside the art before drawing the outline round it">Close gaps first</button></div>
+        <button class="btn" id="oladd">Add outline</button>
+      </div>
+      <p class="note" id="olnote">Outside the art, never over it. Snap squares off the silhouette first.</p>
     </section>
     <section>
       <h2>Transform</h2>
@@ -992,33 +1017,6 @@ footer .mono{color:var(--ink);}
         <button class="btn ghost" id="baseoutline" aria-pressed="false">Show base outline</button>
       </div>
       <p class="note">Never part of the artwork. <kbd>M</kbd> drags the trait over it.</p>
-    </section>
-    <section>
-      <h2>Outline</h2>
-      <div class="stack">
-        <div class="olrow"><label for="olthick">Thickness</label>
-          <span class="mono" id="olthicklab" style="margin-left:auto">1 cell</span></div>
-        <input id="olthick" type="range" min="0" max="6" step="1" value="1" aria-label="Outline thickness">
-        <div class="olrow"><label for="olcol">Colour</label>
-          <input type="color" id="olcol" value="#000000" aria-label="Outline colour"
-            style="margin-left:auto; width:54px">
-          <button class="mini" id="olcurrent" title="Use the colour you are painting with">match brush</button></div>
-        <div class="olrow"><label for="olsnap">Snap to</label>
-          <select id="olsnap" aria-label="Snap grid">
-            <option value="auto">auto</option><option value="1" selected>1 cell</option>
-            <option value="2">2 cells</option><option value="3">3 cells</option>
-            <option value="4">4 cells</option><option value="6">6 cells</option>
-            <option value="8">8 cells</option></select></div>
-        <div class="olrow">
-          <button class="btn ghost" id="oltidy" aria-pressed="true"
-            style="width:auto;padding:6px 10px;font-size:12px"
-            title="Square off the silhouette before outlining">Tidy edge</button>
-          <button class="btn ghost" id="olpatch" aria-pressed="false"
-            style="width:auto;padding:6px 10px;font-size:12px"
-            title="Close gaps inside the art before drawing the outline round it">Close gaps first</button></div>
-        <button class="btn" id="oladd">Add outline</button>
-      </div>
-      <p class="note" id="olnote">Outside the art, never over it. Snap squares off the silhouette first.</p>
     </section>
     <section>
       <h2>Save and export</h2>
@@ -4072,6 +4070,19 @@ function setupFolds(){
     const flip=()=>{
       const now=s.classList.toggle("folded");
       t.setAttribute("aria-expanded",String(!now));
+      /* Show what was just opened. A section near the bottom unfolds off the
+         end of the panel: measured on a 1280x900 window, one click on Recolour
+         put the Erase button 2px past the edge. Scroll by the overflow and no
+         further - never past the section's own top, because pushing the
+         heading you just clicked off screen is its own kind of wrong. */
+      if(!now){
+        const panel=s.closest(".side");
+        if(panel){
+          const sr=s.getBoundingClientRect(), pr=panel.getBoundingClientRect();
+          const over=sr.bottom-pr.bottom, room=sr.top-pr.top;
+          if(over>0) panel.scrollTop += Math.min(over, Math.max(0, room));
+        }
+      }
       let all={}; try{ all=JSON.parse(localStorage.getItem("pb.folds")||"{}"); }catch(_){}
       all[key]=now;
       try{ localStorage.setItem("pb.folds",JSON.stringify(all)); }catch(_){}

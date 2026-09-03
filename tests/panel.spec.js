@@ -124,7 +124,7 @@ test.describe('fill interior holes', () => {
 
   test('closes every gap when the limit is 0', async ({ page }) => {
     await openTrait(page, { w: 60, h: 60, draw: holed });
-    await openSection(page, 'Background');
+    await openSection(page, 'Edges and holes');
     const before = await art.empty(page);
     await setField(page, 'holemax', 0);
     await page.click('#fillholes');
@@ -135,7 +135,7 @@ test.describe('fill interior holes', () => {
 
   test('a limit leaves the big gap and takes the specks', async ({ page }) => {
     await openTrait(page, { w: 60, h: 60, draw: holed });
-    await openSection(page, 'Background');
+    await openSection(page, 'Edges and holes');
     const before = await art.empty(page);
     await setField(page, 'holemax', 4);
     await page.click('#fillholes');
@@ -146,7 +146,7 @@ test.describe('fill interior holes', () => {
   test('never closes a gap that reaches the border', async ({ page }) => {
     /* That is the outside of the trait, not a hole in it. */
     await openTrait(page, { w: 60, h: 60, draw: holed });
-    await openSection(page, 'Background');
+    await openSection(page, 'Edges and holes');
     await setField(page, 'holemax', 0);
     await page.click('#fillholes');
     await page.waitForTimeout(300);

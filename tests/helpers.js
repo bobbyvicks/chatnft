@@ -70,10 +70,14 @@ export async function openAllSections(page) {
 
 /** Open one section by its heading. */
 export async function openSection(page, name) {
+  /* CLICK the heading rather than stripping the class. The click handler is
+     what scrolls the opened section into view, and a test that bypasses it
+     tests a code path no person can reach. */
   await page.evaluate(n => {
     const h = [...document.querySelectorAll('.side section h2')]
       .find(x => x.textContent.toLowerCase().includes(n.toLowerCase()));
-    if (h) h.closest('section').classList.remove('folded');
+    if (!h) throw new Error('no section called ' + n);
+    if (h.closest('section').classList.contains('folded')) h.click();
   }, name);
   await page.waitForTimeout(120);
 }

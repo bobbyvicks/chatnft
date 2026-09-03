@@ -146,11 +146,19 @@ test.describe('the history is bounded in bytes', () => {
        pointerdown leaves its id in the pointer map, and endPointer's move
        branch is guarded on that map being empty, so a stray id silently skips
        the whole branch. `bufCleared` is the assertion that the branch ran. */
-    const r = await page.evaluate(async () => {
+    /* The undo click's work is asynchronous - restoreImage, refreshStats,
+       repalette, and an autosave behind them. This used to sleep 300ms and
+       hope, which held alone and lost about one full-suite run in three: the
+       assertions below then read a redo stack that had not been built yet.
+       Waited for, not timed. */
+    await page.evaluate(() => {
       selectTool('pencil'); setColor('#00ff88');
       snapshot(); dab(50, 50, [0, 255, 136], 255);
       document.getElementById('undo').click();
-      await new Promise(x => setTimeout(x, 300));
+    });
+    await expect.poll(() => page.evaluate(() => redoStack.length), { timeout: 8000 }).toBe(1);
+
+    const r = await page.evaluate(async () => {
       const redoBefore = redoStack.length, ptsSize = pts.size;
 
       selectTool('move');
@@ -175,17 +183,32 @@ test.describe('the history is bounded in bytes', () => {
     /* snapshot() shifts index 0 at 60 and dropSnapshot popped the top: net 59,
        and the oldest entry gone for good. Measured at 160 before the fix. */
     await openTrait(page, { w: 160, h: 160, draw: flat });
-    const r = await page.evaluate(async () => {
+    /* The fill runs through floodFill and a toast before it gives the entry
+       back, so the state this asserts on does not exist yet when the
+       pointerdown returns. Sleeping 300ms for it held alone and lost about one
+       full-suite run in three. */
+    const before = await page.evaluate(() => {
       for (let i = 0; i < 62; i++) snapshot();
-      const lenBefore = undoStack.length, oldest = undoStack[0];
+      window.__oldest = undoStack[0];
       selectTool('fill'); setColor('#c87800');        // already that colour: a no-op
       const a = document.getElementById('art'), rr = a.getBoundingClientRect();
       a.dispatchEvent(new PointerEvent('pointerdown', {
         clientX: rr.left + rr.width / 2, clientY: rr.top + rr.height / 2,
         bubbles: true, cancelable: true, pointerId: 61, isPrimary: true, button: 0, buttons: 1 }));
-      await new Promise(x => setTimeout(x, 300));
-      return { lenBefore, lenAfter: undoStack.length, oldestStillThere: undoStack[0] === oldest };
+      return undoStack.length;
     });
+    /* The no-op fill takes an entry and gives it straight back, so the length
+       returns to 60 rather than staying there - waiting for "still 60" would
+       pass before anything happened. The toast is the observable end of it. */
+    await expect.poll(() => page.evaluate(() =>
+      document.getElementById('toast').textContent), { timeout: 8000 })
+      .toContain('Nothing to fill');
+    const r = await page.evaluate(() => ({
+      lenBefore: 60,
+      lenAfter: undoStack.length,
+      oldestStillThere: undoStack[0] === window.__oldest,
+    }));
+    expect(before, 'the stack was full before the fill').toBe(60);
     expect(r.lenBefore).toBe(60);
     expect(r.lenAfter, 'the stack is the length it was').toBe(60);
     expect(r.oldestStillThere, 'and the oldest step is still reachable').toBe(true);

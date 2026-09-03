@@ -1134,10 +1134,228 @@ footer .mono{color:var(--ink);}
 </div>
 <div class="toast" id="toast"></div>
 
-<script src="./trait-shelf-core.js"></script>
 <script>
 "use strict";
 const $=id=>document.getElementById(id);
+/* ==== trait shelf core ==== extracted verbatim by test/trait-shelf-core.test.mjs.
+   Inlined rather than loaded with src, because index.html is one static file -
+   it has no external src or href at all, the fonts included - and a separate
+   file that fails to load takes the whole project shelf down with it, silently.
+   The test extracts what is between these markers, so there is one copy. */
+(function (root) {
+  "use strict";
+
+  const ORDER_STEP = 1024;
+
+  function hasOrder(value) {
+    return typeof value === "number" && Number.isFinite(value);
+  }
+
+  function recordKey(record) {
+    return String((record && (record.rowId || record.id)) || "");
+  }
+
+  function compareShelfRecords(a, b) {
+    const aExplicit = hasOrder(a && a.shelfOrder);
+    const bExplicit = hasOrder(b && b.shelfOrder);
+    if (aExplicit !== bExplicit) return aExplicit ? -1 : 1;
+    if (aExplicit && a.shelfOrder !== b.shelfOrder) return a.shelfOrder - b.shelfOrder;
+    if (!aExplicit && Number(a && a.at || 0) !== Number(b && b.at || 0)) {
+      return Number(b && b.at || 0) - Number(a && a.at || 0);
+    }
+    return recordKey(a).localeCompare(recordKey(b));
+  }
+
+  function orderedLayer(records, layer) {
+    return records
+      .filter(record => record && record.kind === "trait" && record.layer === layer)
+      .slice()
+      .sort(compareShelfRecords);
+  }
+
+  function nextShelfOrder(records, layer) {
+    const values = orderedLayer(records, layer)
+      .map(record => record.shelfOrder)
+      .filter(hasOrder);
+    return values.length ? Math.min(...values) - ORDER_STEP : 0;
+  }
+
+  function localTraitId(record, layer) {
+    return "t_" + record.name + "_" + layer + "_" + (record.status || "wip");
+  }
+
+  function planShelfMove(records, move) {
+    const wantedKey = String(move && move.recordKey || "");
+    const toLayer = String(move && move.toLayer || "").trim();
+    const source = records.find(record => recordKey(record) === wantedKey);
+    if (!source || source.kind !== "trait") return { ok: false, reason: "missing" };
+    if (!toLayer) return { ok: false, reason: "layer" };
+
+    const duplicate = records.some(record => record !== source && record.kind === "trait" &&
+      record.layer === toLayer && record.name === source.name &&
+      (record.status || "wip") === (source.status || "wip"));
+    if (duplicate) return { ok: false, reason: "duplicate" };
+
+    const sourceLayer = source.layer;
+    const sourceWithout = orderedLayer(records, sourceLayer)
+      .filter(record => recordKey(record) !== wantedKey);
+    const destination = sourceLayer === toLayer
+      ? sourceWithout
+      : orderedLayer(records, toLayer);
+    const moved = {
+      ...source,
+      layer: toLayer,
+      id: sourceLayer === toLayer ? source.id : localTraitId(source, toLayer),
+    };
+    const beforeKey = move && move.beforeKey != null ? String(move.beforeKey) : null;
+    /* Three different situations, which used to be one branch and all landed
+       the card at the bottom:
+         no anchor at all        -> append, which is what the caller meant
+         the anchor is this card -> put it back where it was, not at the end
+         the anchor is unknown   -> the list moved under us; refuse rather
+                                    than guess, and let the caller roll back. */
+    let insertAt = destination.length;
+    if (beforeKey === wantedKey) {
+      const wasAt = orderedLayer(records, sourceLayer)
+        .findIndex(record => recordKey(record) === wantedKey);
+      insertAt = wasAt < 0 ? destination.length : Math.min(wasAt, destination.length);
+    } else if (beforeKey != null) {
+      const found = destination.findIndex(record => recordKey(record) === beforeKey);
+      if (found < 0) return { ok: false, reason: "anchor" };
+      insertAt = found;
+    }
+    destination.splice(insertAt, 0, moved);
+
+    function normalizedUpdates(list, layer) {
+      return list.map((record, index) => {
+        const oldKey = record === moved ? wantedKey : recordKey(record);
+        const original = records.find(candidate => recordKey(candidate) === oldKey) || record;
+        const next = {
+          ...record,
+          layer,
+          shelfOrder: ORDER_STEP * (index + 1),
+        };
+        if (oldKey === wantedKey && sourceLayer !== layer) next.id = localTraitId(source, layer);
+        return { oldId: original.id, oldKey, record: next };
+      });
+    }
+
+    const updates = sourceLayer === toLayer
+      ? normalizedUpdates(destination, toLayer)
+      : normalizedUpdates(sourceWithout, sourceLayer)
+        .concat(normalizedUpdates(destination, toLayer));
+
+    return {
+      ok: true,
+      sourceLayer,
+      destinationLayer: toLayer,
+      updates,
+    };
+  }
+
+  function rpcItems(updates) {
+    return updates.map(update => {
+      const record = update && update.record;
+      if (!record || !record.rowId) throw new Error("A shared row id is required");
+      if (!hasOrder(record.shelfOrder)) throw new Error("A numeric shelf order is required");
+      return {
+        id: record.rowId,
+        layer: record.layer,
+        shelf_order: record.shelfOrder,
+      };
+    });
+  }
+
+  function mergeRemoteShelfRecord(local, remote, takenIds) {
+    const taken = takenIds instanceof Set ? takenIds : new Set(takenIds || []);
+    const layer = remote.kind === "trait" ? (remote.layer || "unsorted") : local.layer;
+    const status = remote.kind === "trait" ? (remote.status || "wip") : local.status;
+    const baseName = local.name;
+    let name = baseName;
+    let id = remote.kind === "ref" ? "ref_" + name : localTraitId({ ...local, name, status }, layer);
+    let suffix = 2;
+    while (id !== local.id && taken.has(id)) {
+      name = baseName + "-" + suffix++;
+      id = remote.kind === "ref" ? "ref_" + name : localTraitId({ ...local, name, status }, layer);
+    }
+    const refreshed = {
+      ...local,
+      id,
+      rowId: remote.id,
+      path: remote.path || local.path,
+      kind: remote.kind || local.kind,
+      name,
+      synced: true,
+    };
+    if (refreshed.kind === "trait") {
+      refreshed.layer = layer;
+      refreshed.status = status;
+      if (typeof remote.rarity === "number") refreshed.rarity = remote.rarity;
+      if (hasOrder(remote.shelf_order)) refreshed.shelfOrder = remote.shelf_order;
+      else delete refreshed.shelfOrder;
+    }
+    return refreshed;
+  }
+
+  function createVisibilityState() {
+    const hidden = new Set();
+    let reveal = false;
+    return Object.freeze({
+      hide(key) {
+        hidden.add(String(key));
+        reveal = false;
+      },
+      show(key) {
+        hidden.delete(String(key));
+        if (!hidden.size) reveal = false;
+      },
+      isolate(keys, keepKey) {
+        hidden.clear();
+        const keep = String(keepKey);
+        for (const key of keys) if (String(key) !== keep) hidden.add(String(key));
+        reveal = false;
+      },
+      showAll() {
+        hidden.clear();
+        reveal = false;
+      },
+      setReveal(value) {
+        reveal = hidden.size ? Boolean(value) : false;
+      },
+      isHidden(key) {
+        return hidden.has(String(key));
+      },
+      hiddenKeys() {
+        return [...hidden].sort();
+      },
+      transfer(oldKey, newKey) {
+        const oldValue = String(oldKey);
+        if (!hidden.delete(oldValue)) return;
+        hidden.add(String(newKey));
+      },
+      get count() {
+        return hidden.size;
+      },
+      get reveal() {
+        return reveal;
+      },
+    });
+  }
+
+  root.ChatNftTraitShelf = Object.freeze({
+    ORDER_STEP,
+    recordKey,
+    compareShelfRecords,
+    orderedLayer,
+    nextShelfOrder,
+    planShelfMove,
+    rpcItems,
+    mergeRemoteShelfRecord,
+    createVisibilityState,
+  });
+})(typeof window === "object" ? window : globalThis);
+/* ==== end trait shelf core ==== */
+
 const shelfCore=window.ChatNftTraitShelf;
 const MAXZ=48;
 /* How far from the colour you clicked the fill will spread. 8 is above the
@@ -1432,19 +1650,24 @@ let shelfMoveBusy=false;
 async function commitShelfMove(spec){
   if(shelfMoveBusy) return false;
   shelfMoveBusy=true;
+  /* Every path out of this function releases it. It was cleared at six
+     separate returns, and cloudCollection has no try/catch around its
+     fetches - so one dropped connection threw past all six and reordering
+     stayed disabled until a reload. */
+  try{
   let items=[];
   try{ items=await dbAll(); }
-  catch(_){ shelfMoveBusy=false; toast('Could not read the project'); return false; }
+  catch(_){ toast('Could not read the project'); return false; }
   const plan=shelfCore.planShelfMove(items,spec);
   if(!plan.ok){
-    shelfMoveBusy=false;
+
     toast(plan.reason==='duplicate'
       ? 'That layer already has this trait and status'
       : 'Could not move that trait');
     return false;
   }
   if(activeWs&&plan.updates.some(update=>!update.record.rowId)){
-    shelfMoveBusy=false;
+
     toast('Send the unsynced traits to the group before rearranging them');
     return false;
   }
@@ -1453,7 +1676,7 @@ async function commitShelfMove(spec){
   const state=currentShelfVisibility();
   try{
     await dbApplyShelfRecords(plan.updates.map(update=>update.oldId),plan.updates.map(update=>update.record));
-  }catch(_){ shelfMoveBusy=false; toast('Could not save the new order'); return false; }
+  }catch(_){ toast('Could not save the new order'); return false; }
   for(const update of plan.updates) state.transfer(update.oldKey,shelfCore.recordKey(update.record));
   await renderShelf();
   const shared=await cloudSaveShelfPlan(plan.updates);
@@ -1463,16 +1686,17 @@ async function commitShelfMove(spec){
       for(const update of plan.updates) state.transfer(shelfCore.recordKey(update.record),update.oldKey);
       await renderShelf();
     }catch(_){}
-    shelfMoveBusy=false;
+
     toast(shared.reason==='duplicate'
       ? 'Move cancelled because the shared shelf changed'
       : 'Move did not sync, so the old order was restored');
     return false;
   }
-  shelfMoveBusy=false;
+
   announceShelf('Moved trait to '+plan.destinationLayer+'.');
   toast(activeWs?'Order saved for the group':'Order saved');
   return true;
+  }finally{ shelfMoveBusy=false; }
 }
 
 async function keyboardShelfMove(recordKey,direction,betweenLayers){
@@ -1540,7 +1764,10 @@ function endShelfDrag(cancelled){
   document.body.classList.remove('shelf-dragging');
   drag.card.classList.remove('shelf-drag-source');
   drag.ghost.remove(); $('shelfdestinations').hidden=true;
-  if(!cancelled&&drag.target) commitShelfMove(drag.target);
+  /* Caught here as well as released in a finally: an unhandled rejection out
+     of this call is what left shelfMoveBusy stuck true and every later drag
+     refused by startShelfDrag. */
+  if(!cancelled&&drag.target) commitShelfMove(drag.target).catch(()=>{ shelfMoveBusy=false; });
 }
 function startShelfDrag(event,record,card,handle){
   if(shelfMoveBusy||event.button>0) return;
@@ -5850,6 +6077,9 @@ async function cloudTeam(){
 }
 
 async function cloudCollection(u){
+  /* Its two fetches were the only unguarded ones on this path - cloudTeam and
+     sbUser both catch - and a throw here escaped commitShelfMove entirely. */
+  try{
   const team=await cloudTeam();
   if(!team) return null;
   const h=await sbHeaders({"Content-Type":"application/json"});
@@ -5862,6 +6092,7 @@ async function cloudCollection(u){
   if(!r.ok) return null;
   const made=await r.json();
   return made[0]||null;
+  }catch(_){ return null; }
 }
 
 /* Deleting a trait removed its row and left the PNG in the bucket forever.

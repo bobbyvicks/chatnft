@@ -1,8 +1,38 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-await import("../trait-shelf-core.js").catch(() => {});
+/* Extracted from index.html rather than imported from a second file.
+
+   The module started life as trait-shelf-core.js loaded with a <script src>.
+   That made index.html need an external file for the first time - it has no
+   other src or href at all, the fonts included, and README.md calls it "one
+   static file, no build step". Measured before inlining it: block that file
+   and renderShelf() throws "Cannot read properties of undefined", taking the
+   whole project shelf down with only a 404 in the console.
+
+   So the module lives in the page, and this reads it back out. Keeping a copy
+   on disk to test against would be two copies of one module, and the copy
+   under test would be the one that never ships. */
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const page = readFileSync(join(here, "..", "index.html"), "utf8");
+const START = "/* ==== trait shelf core ====";
+const END = "/* ==== end trait shelf core ==== */";
+const from = page.indexOf(START);
+const to = page.indexOf(END);
+if (from < 0 || to < 0 || to < from) {
+  throw new Error("the trait shelf block is not in index.html between its markers");
+}
+const source = page.slice(page.indexOf("(function (root)", from), to);
+if (!source.includes("planShelfMove")) {
+  throw new Error("the extracted block does not contain the module");
+}
+new Function(source)();
 const shelf = globalThis.ChatNftTraitShelf;
+if (!shelf) throw new Error("the extracted block did not define ChatNftTraitShelf");
 
 function trait(id, layer, at, extra = {}) {
   return {

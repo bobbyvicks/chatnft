@@ -1007,6 +1007,12 @@ footer .mono{color:var(--ink);}
            can ever reach, not a limit of its own. It read 8 - the old button
            maximum - which never applied and only misled. -->
       <input id="bslider" type="range" min="1" max="128" step="1" value="1" aria-label="Brush size">
+      </div>
+      <!-- Its own container, with the mirror condition. It lived inside
+           #brushrows, which selectTool hides unless the tool is pencil or
+           eraser - so the only control the fill tool reads vanished the
+           moment you selected Fill. -->
+      <div id="fillrows" hidden>
       <div class="olrow"><label for="filltol" title="How far from the colour you click the fill spreads">Fill spread</label>
         <input id="filltol" type="number" min="0" max="120" value="8" style="width:72px"></div>
       </div>
@@ -4333,6 +4339,9 @@ function selectTool(t){
   /* The ROWS, not the section: the palette lives here too now and is wanted
      whatever tool is selected. */
   $('brushrows').hidden=!(t==='pencil'||t==='eraser');
+  /* The mirror: fill spread is only meaningful to the fill tool, and is the
+     control that was hidden by selecting it. */
+  $('fillrows').hidden=(t!=='fill');
   art.classList.toggle('mv',t==='move');
   tboxShow();
   paintCursor();

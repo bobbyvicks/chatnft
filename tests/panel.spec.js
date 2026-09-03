@@ -98,8 +98,16 @@ test.describe('the merged sections', () => {
     await openTrait(page, { w: 80, h: 80, draw: (set) => { set(1, 1, [1, 2, 3]); } });
     await openSection(page, 'Paint with');
     await openSection(page, 'Save and export');
+    const seen = id => page.evaluate(i => {
+      const e = document.getElementById(i);
+      if (!e) return false;
+      const r = e.getBoundingClientRect();
+      return r.width > 0 && r.height > 0;
+    }, id);
+
     const missing = await page.evaluate(() => {
-      const want = ['bslider','filltol','pal','tname','tlayer','tstatus','saveproj',
+      /* filltol is deliberately NOT in this list any more - see below. */
+      const want = ['bslider','pal','tname','tlayer','tstatus','saveproj',
                     'dlNative','dlBig','dlTrim','reset','saveclose','closeed'];
       return want.filter(id => {
         const e = document.getElementById(id);
@@ -109,6 +117,16 @@ test.describe('the merged sections', () => {
       });
     });
     expect(missing).toEqual([]);
+
+    /* Fill spread is reachable from the tool that uses it, which is a change:
+       this test used to assert it was visible with the PENCIL selected, and it
+       was - because it sat inside #brushrows, the container selectTool hides
+       unless the tool is pencil or eraser. So the one control only the fill
+       tool reads was on screen for every tool except that one. The old
+       expectation was pinning the bug. */
+    expect(await seen('filltol'), 'not shown for the pencil, which never uses it').toBe(false);
+    await page.evaluate(() => selectTool('fill'));
+    expect(await seen('filltol'), 'and shown for the tool that does').toBe(true);
   });
 });
 

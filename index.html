@@ -26,6 +26,12 @@
 /* Single dark ground on purpose: this is an image editor, and light chrome
    changes how the artwork's own colours read. Every colour is explicit. */
 :root{
+  /* The one thing that makes native controls dark. Without it a browser
+     draws every select, its popup LIST, the scrollbars and the number
+     spinners in the light system scheme no matter what the CSS says - and
+     the popup is drawn by the OS, so no amount of styling can reach it.
+     This is what the white boxes actually were. */
+  color-scheme:dark;
   --ground:#121016; --panel:#1a1720; --panel-2:#221e2a; --line:#332d3d;
   --ink:#efeaf2; --muted:#a09aab; --dim:#6d6678;
   --accent:#f5a524; --accent-soft:#f5a52422; --good:#3ddc97; --bad:#ff6b6b;
@@ -493,7 +499,24 @@ input[type=range]{width:100%; accent-color:#f5a524; cursor:pointer;}
 /* Wrap rather than overflow. The panel is 252px and some rows carry a label,
    two number boxes and a button; when they do not fit, a second line is right
    and a sideways scrollbar hiding the button is not. */
-.olrow{display:flex; align-items:center; flex-wrap:wrap; gap:8px; font-size:12.5px; color:var(--muted);}
+.olrow{display:flex; align-items:center; flex-wrap:wrap; gap:6px; font-size:11.5px; color:var(--muted);}
+/* Every control in the panel, shaped the same. The chevron is an inline SVG
+   data URI rather than a background image file, because this page loads no
+   external file - not one, the fonts included - and a select is not the
+   place to start. */
+.side input[type=color]{appearance:none; -webkit-appearance:none; width:38px; height:24px;
+  padding:0; border:1px solid var(--line); border-radius:6px; background:var(--panel-2); cursor:pointer;}
+.side input[type=color]::-webkit-color-swatch-wrapper{padding:2px;}
+.side input[type=color]::-webkit-color-swatch{border:none; border-radius:4px;}
+.side select,.side input[type=number],.side input[type=text]{
+  appearance:none; -webkit-appearance:none;
+  background:var(--panel-2); border:1px solid var(--line); color:var(--ink);
+  border-radius:6px; padding:4px 7px; font:inherit; font-size:11.5px; min-height:26px;}
+.side select{padding-right:22px;
+  background-image:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><path d="M2.5 4.5L6 8l3.5-3.5" fill="none" stroke="%23a09aab" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>');
+  background-repeat:no-repeat; background-position:right 6px center; background-size:11px;}
+.side select:hover,.side input:hover{border-color:var(--muted);}
+.side select:focus-visible,.side input:focus-visible{outline:2px solid var(--accent); outline-offset:1px;}
 .olrow select,.olrow input[type=number]{margin-left:auto;}
 /* A flex item will not shrink below its min-content width, and for a select
    that is its longest option - which is why flex:1 was not enough and the
@@ -503,12 +526,12 @@ input[type=range]{width:100%; accent-color:#f5a524; cursor:pointer;}
 .olchk input{accent-color:var(--good); cursor:pointer;}
 #bcur.tiny::after{content:""; position:absolute; inset:-4px; border-radius:3px;
   border:1px solid #f5a524cc;}
-.side{grid-area:side; width:252px; padding:14px; border-right:1px solid var(--line); overflow-x:hidden;
-  background:var(--panel); overflow-y:auto; display:flex; flex-direction:column; gap:15px;}
+.side{grid-area:side; width:244px; padding:10px; border-right:1px solid var(--line); overflow-x:hidden;
+  background:var(--panel); overflow-y:auto; display:flex; flex-direction:column; gap:11px;}
 /* The handle is a phone thing. On a wide screen the panel is a column beside
    the art and is not in the way of anything. */
 .grip{display:none;}
-.side h2{font-size:10.5px; text-transform:uppercase; letter-spacing:.12em; color:var(--muted);
+.side h2{font-size:9.5px; text-transform:uppercase; letter-spacing:.12em; color:var(--muted);
   display:flex; align-items:center; gap:8px;}
 .side h2::after{content:""; flex:1; height:1px; background:var(--line); order:1;}
 /* The panel is 1445px of content. On a phone it gets a 356px window onto it,
@@ -525,13 +548,17 @@ input[type=range]{width:100%; accent-color:#f5a524; cursor:pointer;}
    1,185px window - on a screen with room to spare. The sheet that folds away
    is a phone answer to a phone problem; on a wide screen the answer is to use
    the width that is already there. */
-@media (min-width:1100px){ .side{width:310px;} }
+@media (min-width:1100px){ .side{width:286px;} }
 @media (min-width:1280px){
   /* Two columns roughly halves how far there is to scroll. align-content:start
      keeps the sections at their natural height instead of stretching them to
      fill the column. */
-  .side{width:520px; display:grid; grid-template-columns:repeat(2,minmax(0,1fr));
-    gap:15px 16px; align-content:start;}
+  /* ONE column, deliberately. Two columns did halve the scrolling, but at
+     366px each column was ~170px and every label-plus-control row wrapped -
+     measured, the panel got TALLER, 1367px to 1761px, while also being harder
+     to read. Stacked and narrow beats columned and cramped when the thing
+     competing for the space is the artwork. */
+  .side{width:274px;}
 }
 .swatches{display:grid; grid-template-columns:repeat(8,1fr); gap:5px;}
 .sw{aspect-ratio:1; min-height:26px; border-radius:5px; border:1px solid #ffffff1a; padding:0;}
@@ -548,9 +575,9 @@ input[type=range]{width:100%; accent-color:#f5a524; cursor:pointer;}
 /* The transparent border is what makes .btn and .btn.ghost the same height.
    Ghost adds a 1px border; without this the two stood 42px and 44px tall in
    the same column, which reads as sloppiness rather than as two kinds. */
-.btn{width:100%; padding:11px 12px; border-radius:9px; background:var(--accent); color:#241a05;
+.btn{width:100%; padding:7px 11px; border-radius:7px; background:var(--accent); color:#241a05;
   border:1px solid transparent;
-  font-weight:600; font-size:13.5px; text-align:center; display:block;}
+  font-weight:600; font-size:12px; text-align:center; display:block;}
 .btn:hover{filter:brightness(1.08);}
 .btn.ghost{background:var(--panel-2); border:1px solid var(--line); color:var(--ink); font-weight:500;}
 .btn.ghost:hover{background:var(--line);}

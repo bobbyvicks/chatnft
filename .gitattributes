@@ -1,0 +1,2 @@
+# The palette contract is byte-locked by its SHA-256 test.
+palette/vivid-fixed-128.json text eol=lf

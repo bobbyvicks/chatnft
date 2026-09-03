@@ -6215,13 +6215,31 @@ async function joinIfPending(){
    now: a collection is saved per person, so there is no sensible anonymous
    state to be in.
 
-   Hidden by DEFAULT in the markup and shown only once the session is known to
-   be absent. The other order flashes the sign-in card at someone who is
+   SUPERSEDED. This used to read: "Hidden by DEFAULT in the markup and shown
+   only once the session is known to be absent. The other order flashes the
+   sign-in card at someone who is already signed in, on every single load."
+
+   That was true of the problem it solved, and it is no longer what the
+   markup does. #signin now carries no hidden attribute and #land starts at
+   visibility:hidden, because the old order had the worse failure: the gate
+   only came up once an async /auth/v1/user round trip resolved - measured at
+   56ms signed out, 72ms with Supabase unreachable - so the whole app was on
+   screen first, and a request that never resolved left it there. Failing
+   shut beats never flashing the card.
    already signed in, on every single load. */
 /* Raising the gate has to REMOVE what is on the page, not just stop showing
    it. visibility:hidden leaves every trait name and every decoded thumbnail
    sitting in the document for anyone who opens devtools - which on a shared
    device is the previous person's collection. */
+/* Whether anything is layered over the editor. Both keys that close it ask
+   THIS rather than carrying their own copy of the list - Escape was guarded
+   on all four overlays and Backspace on none, which left the shortcuts panel
+   floating over the landing page with no key able to reach it. Two copies of
+   one condition is how they came to disagree. */
+function nothingLayered(){
+  return $('scrim').hidden && $('pxscrim').hidden
+      && $('ksscrim').hidden && $('signin').hidden;
+}
 function forgetLocalView(){
   const b=$("projbody"); if(b) b.innerHTML="";
   for(const id of ["proj","compose","layers"]){ const e=$(id); if(e) e.hidden=true; }
@@ -7182,7 +7200,7 @@ const SHORTCUTS=[
     match:e=>(e.ctrlKey||e.metaKey)&&e.shiftKey&&e.key.toLowerCase()==='z',
     run:()=>$('redo').click()},
   {show:'Backspace', desc:'Close the editor',
-    match:e=>e.key==='Backspace', prevent:true, run:()=>closeEditor()},
+    match:e=>e.key==='Backspace' && nothingLayered(), prevent:true, run:()=>closeEditor()},
   /* Escape as well as Backspace, because Backspace is swallowed by every
      input in the panel - the brush slider and the number fields - and that
      is most of it. Escape is not used for text editing, so it survives
@@ -7194,8 +7212,7 @@ const SHORTCUTS=[
      one and the dispatcher stops at the first match, so that case is
      already handled - this covers the other two. */
   {show:'Esc', desc:'Close the editor',
-    match:e=>e.key==='Escape' && $('scrim').hidden && $('pxscrim').hidden
-           && $('ksscrim').hidden && $('signin').hidden,
+    match:e=>e.key==='Escape' && nothingLayered(),
     prevent:true, run:()=>closeEditor()},
   {show:'?', desc:'Show this list', match:e=>e.key==='?', prevent:true,
     run:()=>keysPanel(true)},

@@ -130,6 +130,33 @@ test.describe('there is always a way out of the editor', () => {
     await expect.poll(() => editorOpen(page), { timeout: 5000 }).toBe(false);
   });
 
+  test('Backspace does not close the editor out from under an open panel', async ({ page }) => {
+    /* Found by an audit of the previous change, not by its tests. Escape was
+       guarded on the overlays and Backspace was left unconditional - and it
+       sits ABOVE both Escape entries, so it matched first. With the shortcuts
+       panel open and focus on its Close button (a BUTTON, so no early return),
+       Backspace closed the editor and nothing hid the panel: it was left
+       floating over the landing page, and Escape could not recover it because
+       the dispatcher bails on app.hidden before reaching any binding. */
+    await openTrait(page, { w: 80, h: 80, draw: flat });
+    await page.locator('#keysbtn').click();
+    await expect.poll(() => page.evaluate(() =>
+      !document.getElementById('ksscrim').hidden), { timeout: 5000 }).toBe(true);
+
+    await page.keyboard.press('Backspace');
+    await page.waitForTimeout(400);
+    expect(await editorOpen(page), 'the editor stays put').toBe(true);
+    expect(await page.evaluate(() => !document.getElementById('ksscrim').hidden),
+      'and the panel is still the thing on screen').toBe(true);
+
+    /* And nothing is stranded: Escape still dismisses the panel, then leaves. */
+    await page.keyboard.press('Escape');
+    await expect.poll(() => page.evaluate(() =>
+      document.getElementById('ksscrim').hidden), { timeout: 5000 }).toBe(true);
+    await page.keyboard.press('Escape');
+    await expect.poll(() => editorOpen(page), { timeout: 5000 }).toBe(false);
+  });
+
   test('and Escape does nothing while the sign-in gate is up', async ({ page }) => {
     /* Reachable: a session that lapses raises the gate over an open editor.
        Escape must not quietly close the editor behind it, or dismissing the

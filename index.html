@@ -554,15 +554,23 @@ input[type=range]{width:100%; accent-color:var(--accent); cursor:pointer;}
    the width that is already there. */
 @media (min-width:1100px){ .side{width:286px;} }
 @media (min-width:1280px){
-  /* Two columns roughly halves how far there is to scroll. align-content:start
-     keeps the sections at their natural height instead of stretching them to
-     fill the column. */
-  /* ONE column, deliberately. Two columns did halve the scrolling, but at
-     366px each column was ~170px and every label-plus-control row wrapped -
-     measured, the panel got TALLER, 1367px to 1761px, while also being harder
-     to read. Stacked and narrow beats columned and cramped when the thing
-     competing for the space is the artwork. */
+  /* ONE column here. Two at this width made every label-plus-control row wrap
+     and the panel got TALLER - measured, 1367px to 1761px. */
   .side{width:274px;}
+}
+@media (min-width:1520px){
+  /* Two columns, paid for out of dead space rather than out of the artwork.
+
+     The artwork is limited by HEIGHT, not width: 804px of usable height puts a
+     160-cell trait at 5x, so 800 tall and 800 wide, sitting in a stage 1255
+     across. That leaves ~440px either side that nothing can ever use, because
+     a square trait on a 16:9 screen runs out of height first.
+
+     Spending it on the panel costs the artwork nothing - the zoom and the
+     rendered size are identical before and after - and 500px is 250 a column,
+     which is where the rows stop wrapping. */
+  .side{width:500px; display:grid; grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:11px 12px; align-content:start;}
 }
 /* Segmented: one rounded group, hairlines between, the chosen one filled. */
 .chips{display:flex; flex:1; min-width:0; border:1px solid var(--line); border-radius:6px; overflow:hidden;}
@@ -7408,7 +7416,37 @@ stage.addEventListener('pointerleave',()=>{ hoverCell=null; paintCursor(); });
 stage.addEventListener('pointerup',endPointer);
 stage.addEventListener('pointercancel',endPointer);
 stage.addEventListener('auxclick',e=>{ if(e.button===1) e.preventDefault(); });
-stage.addEventListener('wheel',e=>{ e.preventDefault(); setZoom(zoom+(e.deltaY<0?1:-1),e); },{passive:false});
+/* One step per NOTCH of scrolling, not per event.
+
+   A mouse notch is a single event carrying deltaY 100. A trackpad swipe is
+   twenty or more events carrying 3 or 4 each, and this used to move a whole
+   zoom level on every one of them - so a gentle two-finger swipe ran 1x to
+   20x. The jumpiness was the step COUNT, not the step size.
+
+   deltaMode is normalised because Firefox reports lines and Chrome reports
+   pixels; a line counted as one pixel would never reach a notch. */
+let wheelAcc=0;
+const WHEEL_NOTCH=100;
+function zoomNotch(dir,anchor){
+  /* Proportional below 1x, where setZoom keeps two decimals and fine control
+     is actually possible - a flat -1 there clamped straight to the 0.05
+     floor. At or above 1x a whole level is the only step that keeps the
+     cells square: at 1.5x a pixel is one screen pixel on one row and two on
+     the next. 1x to 2x being a doubling is inherent, not a setting. */
+  if(zoom<1 || (zoom===1 && dir<0)) setZoom(dir>0 ? zoom*1.25 : zoom/1.25, anchor);
+  else setZoom(zoom+dir, anchor);
+}
+stage.addEventListener('wheel',e=>{
+  e.preventDefault();
+  const px = e.deltaMode===1 ? e.deltaY*16 : e.deltaMode===2 ? e.deltaY*100 : e.deltaY;
+  wheelAcc += px;
+  /* Guard against a flung trackpad delivering a huge accumulated delta in one
+     event - spend at most a few notches per event so it stays steerable. */
+  let spent=0;
+  while(wheelAcc<=-WHEEL_NOTCH && spent<4){ wheelAcc+=WHEEL_NOTCH; zoomNotch(1,e); spent++; }
+  while(wheelAcc>= WHEEL_NOTCH && spent<4){ wheelAcc-=WHEEL_NOTCH; zoomNotch(-1,e); spent++; }
+  if(spent>=4) wheelAcc=0;
+},{passive:false});
 
 /* controls */
 document.querySelectorAll('.tool[data-tool]').forEach(b=>b.onclick=()=>selectTool(b.dataset.tool));

@@ -5386,6 +5386,11 @@ function cloudSignOut(){
   sbSaveSession(null);
   gateShow(true);
   activeWs=null; wsSave(null); cloudTeamId=null;
+  /* The invite leaves with the person who signed out. Without this, the
+     ordinary shared-device case still hands their pending invite to
+     whoever sits down next - only now with a question rather than in
+     silence, which is better but still not theirs to answer. */
+  joinClear();
   try{ if(dbp){ dbp.then(d=>d.close()).catch(()=>{}); } }catch(_){}
   dbp=null; dbpName=null;
   $("cloudnote").textContent="Signed out on this device. Your collection is still here, and still on the server.";
@@ -5999,6 +6004,13 @@ async function teamCopy(){
    a browser for a month is a loose end nobody remembers leaving. */
 const JOIN_KEY="chatnft.join";
 const JOIN_MAX_AGE=24*60*60*1000;
+/* Whether the token in storage arrived on THIS page load, from the address
+   bar, rather than having been left there by an earlier visit. The
+   difference decides whether joining is silent or asked about, and it is
+   the thing the code had no way to know. Deliberately not persisted: a
+   reload is a new visit, and an invite nobody just clicked should be
+   confirmed. */
+let joinFresh=false;
 function joinLoad(){
   try{
     const j=JSON.parse(localStorage.getItem(JOIN_KEY)||"null");
@@ -6016,7 +6028,7 @@ function joinFromHash(){
   const h=location.hash||"";
   const m=h.match(/[#&]join=([^&]+)/);
   if(!m) return false;
-  joinKeep(decodeURIComponent(m[1]));
+  joinKeep(decodeURIComponent(m[1])); joinFresh=true;
   /* Stripped immediately: the token should not sit in the address bar, ride
      along in anything copied from it, or be re-read on every refresh. */
   history.replaceState(null,"",location.pathname+location.search);
@@ -6026,25 +6038,35 @@ function joinFromHash(){
 /* Tell someone what they are being invited to BEFORE asking for an email.
    invite_info returns only the name, and works signed out, which is the whole
    point - there is no account yet. */
-async function joinShowPending(){
-  const tok=joinLoad();
-  if(!tok) return;
+/* The invited project's name. Three different answers, and they must stay
+   three: undefined means the server could not be asked and the invite is
+   still worth keeping; null means the server says the token is dead; a
+   string is the name. Collapsing the first two would throw away a good
+   invite on a dropped connection. */
+async function inviteName(tok){
   try{
     const r=await fetch(SB_URL+"/rest/v1/rpc/invite_info",{method:"POST",
       headers:{apikey:SB_KEY,"Content-Type":"application/json"},
       body:JSON.stringify({p_token:tok})});
-    if(!r.ok) return;
-    const name=await r.json();
-    if(!name){
-      /* A dead link should say so here rather than after someone has gone to
-         the trouble of making an account. */
-      joinClear();
-      $("gatenote").textContent="That invite link has expired. Ask for a new one - you can still use your own page.";
-      return;
-    }
-    $("gateinvite").hidden=false;
-    $("gateinvite").textContent="You have been invited to join "+name+". Sign in or create an account and you will go straight there.";
-  }catch(_){}
+    if(!r.ok) return undefined;
+    return (await r.json())||null;
+  }catch(_){ return undefined; }
+}
+
+async function joinShowPending(){
+  const tok=joinLoad();
+  if(!tok) return;
+  const name=await inviteName(tok);
+  if(name===undefined) return;
+  if(name===null){
+    /* A dead link should say so here rather than after someone has gone to
+       the trouble of making an account. */
+    joinClear();
+    $("gatenote").textContent="That invite link has expired. Ask for a new one - you can still use your own page.";
+    return;
+  }
+  $("gateinvite").hidden=false;
+  $("gateinvite").textContent="You have been invited to join "+name+". Sign in or create an account and you will go straight there.";
 }
 
 async function joinIfPending(){
@@ -6055,6 +6077,19 @@ async function joinIfPending(){
      from an invite and are about to sign in, and losing the token there would
      make the link look broken. */
   if(!h) return;   /* still signed out - the stored token waits */
+  /* The token did not arrive on this visit, so the person signing in is not
+     demonstrably the person who clicked the link. Name the project and ask.
+     Declining clears it, or the question returns on every load. */
+  if(!joinFresh){
+    const name=await inviteName(tok);
+    if(name===undefined) return;              /* could not ask - keep it, try later */
+    if(name===null){ joinClear(); return; }   /* dead token, nothing to join */
+    if(!confirm("Join \""+name+"\"?" + String.fromCharCode(10,10) +
+        "An invite to this project was opened on this device earlier. If that was not you, choose Cancel.")){
+      joinClear();
+      return;
+    }
+  }
   try{
     const r=await fetch(SB_URL+"/rest/v1/rpc/join_team",{method:"POST",headers:h,
       body:JSON.stringify({p_token:tok})});

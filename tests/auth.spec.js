@@ -370,6 +370,130 @@ test.describe('the gate is a lock, not a picture', () => {
   });
 });
 
+test.describe('a pending invite belongs to whoever clicked the link', () => {
+  /* The token from an invite link sits in localStorage for 24 hours and used
+     to be applied to the next person who signed in on that device, silently.
+     For the person who clicked the link that is right; for the next person on
+     a shared computer it is not, and the code could not tell them apart. */
+
+  const seedInvite = page => page.addInitScript(() =>
+    localStorage.setItem('chatnft.join', JSON.stringify({ token: 'TOK-1', at: Date.now() })));
+
+  /* Registered AFTER mockSupabase, so these win over its catch-all - most
+     recently added route is tried first. */
+  async function mockInvite(page, calls) {
+    await page.route('**/rest/v1/rpc/invite_info', route => {
+      calls.info++;
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify('Bob\'s Project') });
+    });
+    await page.route('**/rest/v1/rpc/join_team', route => {
+      calls.join++;
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify('team-xyz') });
+    });
+  }
+
+  const watchDialogs = page => {
+    const seen = [];
+    page.on('dialog', d => { seen.push(d.message()); d.dismiss(); });
+    return seen;
+  };
+
+  test('an invite clicked just now joins without asking', async ({ page }) => {
+    /* The journey the feature exists for, and the one that must not gain
+       friction: arrive from the link, sign in, land in the project. */
+    const calls = { info: 0, join: 0 };
+    await mockSupabase(page);
+    await mockInvite(page, calls);
+    const dialogs = watchDialogs(page);
+
+    await page.goto('/index.html#join=TOK-1');
+    await page.waitForFunction(() => typeof gateSignIn === 'function');
+    await page.waitForFunction(() => !document.getElementById('signin').hidden, null, { timeout: 8000 });
+    expect(await page.evaluate(() => joinFresh), 'the token arrived from the address bar').toBe(true);
+
+    await signIn(page, 'test', 'not-a-real-password');
+    await expect.poll(() => calls.join, { timeout: 8000 }).toBe(1);
+    expect(dialogs, 'and nobody was asked anything').toEqual([]);
+  });
+
+  test('but one left over from an earlier visit asks first', async ({ page }) => {
+    const calls = { info: 0, join: 0 };
+    await seedInvite(page);
+    await mockSupabase(page);
+    await mockInvite(page, calls);
+    const dialogs = watchDialogs(page);        // dismisses, i.e. "Cancel"
+
+    await openPage(page);                       // no #join in the address
+    expect(await page.evaluate(() => joinFresh), 'nothing arrived this visit').toBe(false);
+
+    await signIn(page, 'test', 'not-a-real-password');
+    await expect.poll(async () => (await gated(page)).scrim, { timeout: 8000 }).toBe(false);
+    await expect.poll(() => dialogs.length, { timeout: 8000 }).toBe(1);
+    expect(dialogs[0], 'and the question names the project').toContain("Bob's Project");
+    expect(calls.join, 'declining does not join').toBe(0);
+    expect(await page.evaluate(() => localStorage.getItem('chatnft.join')),
+      'and it stops asking on every load').toBe(null);
+  });
+
+  test('and joins if that person says yes - the control', async ({ page }) => {
+    /* Without this, the test above passes just as well if joining were broken
+       outright, which would break every invite link there is. */
+    const calls = { info: 0, join: 0 };
+    await seedInvite(page);
+    await mockSupabase(page);
+    await mockInvite(page, calls);
+    const dialogs = [];
+    page.on('dialog', d => { dialogs.push(d.message()); d.accept(); });
+
+    await openPage(page);
+    await signIn(page, 'test', 'not-a-real-password');
+    await expect.poll(() => dialogs.length, { timeout: 8000 }).toBe(1);
+    await expect.poll(() => calls.join, { timeout: 8000 }).toBe(1);
+  });
+
+  test('signing out takes a pending invite with it', async ({ page }) => {
+    /* So the ordinary shared-device case never reaches the question at all.
+
+       Getting this to test anything took a second attempt. The first version
+       signed in with a FRESH invite, which joins successfully - and the
+       success path clears the token itself. So the token was already gone
+       before sign-out, and the final assertion passed no matter what
+       cloudSignOut did: reverting its joinClear() broke nothing.
+
+       An invite has to be genuinely still pending when sign-out happens. The
+       honest way to arrange that is the case the code already handles: a
+       stale invite whose name could not be fetched is KEPT, deliberately, so
+       a dropped connection does not throw away a good invite. */
+    const calls = { info: 0, join: 0 };
+    await seedInvite(page);
+    await mockSupabase(page);
+    await page.route('**/rest/v1/rpc/invite_info', route => {
+      calls.info++;
+      return route.fulfill({ status: 500, contentType: 'application/json', body: '{}' });
+    });
+    await page.route('**/rest/v1/rpc/join_team', route => {
+      calls.join++;
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify('team-xyz') });
+    });
+    const dialogs = watchDialogs(page);
+
+    await openPage(page);                       // no #join: the invite is stale
+    await signIn(page, 'test', 'not-a-real-password');
+    await expect.poll(async () => (await gated(page)).scrim, { timeout: 8000 }).toBe(false);
+    await expect.poll(() => calls.info, { timeout: 8000 }).toBeGreaterThan(0);
+
+    expect(dialogs, 'the server could not be asked, so nobody was').toEqual([]);
+    expect(calls.join, 'and nothing was joined').toBe(0);
+    expect(await page.evaluate(() => localStorage.getItem('chatnft.join')),
+      'the invite is still pending, which is the point of this test').not.toBe(null);
+
+    await page.evaluate(() => cloudSignOut());
+    await expect.poll(async () => (await gated(page)).scrim, { timeout: 8000 }).toBe(true);
+    expect(await page.evaluate(() => localStorage.getItem('chatnft.join')),
+      'and sign-out takes it, so it does not reach the next person').toBe(null);
+  });
+});
+
 /* ---------------------------------------------------------------------------
    The live check. Skipped unless credentials are in the environment:
 

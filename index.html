@@ -94,8 +94,8 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
 #ccanvas{width:min(300px,72vw); height:auto; image-rendering:pixelated; border-radius:10px;
   border:1px solid var(--line); flex:none;
   background:
-    linear-gradient(45deg,#232029 25%,transparent 25%,transparent 75%,#232029 75%),
-    linear-gradient(45deg,#232029 25%,#1a1720 25%,#1a1720 75%,#232029 75%);
+    linear-gradient(45deg,var(--panel-2) 25%,transparent 25%,transparent 75%,var(--panel-2) 75%),
+    linear-gradient(45deg,var(--panel-2) 25%,var(--panel) 25%,var(--panel) 75%,var(--panel-2) 75%);
   background-size:16px 16px; background-position:0 0,8px 8px;}
 .crows{flex:1; min-width:230px; display:flex; flex-direction:column; gap:6px;}
 .crow{display:flex; align-items:center; gap:9px; font-size:12px;}
@@ -220,8 +220,8 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
      phone chooses an area instead of scrolling the page */
   flex:none; border-radius:9px; border:1px solid var(--line);
   image-rendering:pixelated; background:
-    linear-gradient(45deg,#232029 25%,transparent 25%,transparent 75%,#232029 75%),
-    linear-gradient(45deg,#232029 25%,#1a1720 25%,#1a1720 75%,#232029 75%);
+    linear-gradient(45deg,var(--panel-2) 25%,transparent 25%,transparent 75%,var(--panel-2) 75%),
+    linear-gradient(45deg,var(--panel-2) 25%,var(--panel) 25%,var(--panel) 75%,var(--panel-2) 75%);
   background-size:14px 14px; background-position:0 0,7px 7px;}
 .cleanup{gap:16px; margin-top:10px;}
 .cleanup label{font-size:12.5px; gap:6px; cursor:pointer;}
@@ -269,8 +269,8 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
    squash, and the shelf is where you decide whether a trait is right. */
 .item canvas{width:100%; aspect-ratio:1; object-fit:contain; display:block; image-rendering:pixelated; border-radius:5px;
   background:
-    linear-gradient(45deg,#232029 25%,transparent 25%,transparent 75%,#232029 75%),
-    linear-gradient(45deg,#232029 25%,#1a1720 25%,#1a1720 75%,#232029 75%);
+    linear-gradient(45deg,var(--panel-2) 25%,transparent 25%,transparent 75%,var(--panel-2) 75%),
+    linear-gradient(45deg,var(--panel-2) 25%,var(--panel) 25%,var(--panel) 75%,var(--panel-2) 75%);
   background-size:12px 12px; background-position:0 0,6px 6px;}
 .item .rar{position:absolute; left:3px; top:3px; width:36px; padding:2px 3px;
   font-size:10px; border-radius:5px; background:var(--panel-2);
@@ -315,7 +315,7 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
 .shelftools .dup{position:static; width:auto; height:auto; padding:4px 2px; border-radius:5px;
   font-size:9px; line-height:1.1;}
 .shelfdestinations{position:fixed; left:50%; bottom:20px; z-index:40; transform:translateX(-50%);
-  width:min(720px,calc(100vw - 24px)); padding:10px; border-radius:11px; background:#1a1720f2;
+  width:min(720px,calc(100vw - 24px)); padding:10px; border-radius:11px; background:color-mix(in srgb, var(--panel) 95%, transparent);
   border:1px solid var(--accent); box-shadow:0 12px 40px #000b; display:flex; gap:6px;
   align-items:center; overflow-x:auto;}
 .shelfdestinations>span{font-size:10px; color:var(--muted); text-transform:uppercase;
@@ -325,7 +325,7 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
 .shelfdestinations button.shelf-drag-over{border-color:var(--accent); color:var(--accent); background:var(--accent-soft);}
 .shelfdragghost{position:fixed; z-index:50; pointer-events:none; transform:translate(12px,12px);
   max-width:180px; padding:6px 9px; border-radius:7px; border:1px solid var(--accent);
-  background:#121016ee; color:var(--ink); font-size:11px; box-shadow:0 8px 24px #000a;}
+  background:color-mix(in srgb, var(--ground) 93%, transparent); color:var(--ink); font-size:11px; box-shadow:0 8px 24px #000a;}
 body.shelf-dragging,body.shelf-dragging *{cursor:grabbing!important;}
 
 /* ---------- save bar in the editor ---------- */
@@ -364,8 +364,8 @@ body.shelf-dragging,body.shelf-dragging *{cursor:grabbing!important;}
 #pxout{width:min(220px,52vw); height:auto; image-rendering:pixelated; border-radius:10px;
   border:1px solid var(--line); flex:none;
   background:
-    linear-gradient(45deg,#232029 25%,transparent 25%,transparent 75%,#232029 75%),
-    linear-gradient(45deg,#232029 25%,#1a1720 25%,#1a1720 75%,#232029 75%);
+    linear-gradient(45deg,var(--panel-2) 25%,transparent 25%,transparent 75%,var(--panel-2) 75%),
+    linear-gradient(45deg,var(--panel-2) 25%,var(--panel) 25%,var(--panel) 75%,var(--panel-2) 75%);
   background-size:14px 14px; background-position:0 0,7px 7px;}
 .pxctl{flex:1; min-width:200px; display:flex; flex-direction:column; gap:7px;}
 .facts{display:grid; grid-template-columns:1fr 1fr; gap:9px; margin-bottom:17px;}
@@ -373,8 +373,8 @@ body.shelf-dragging,body.shelf-dragging *{cursor:grabbing!important;}
 .fact small{display:block; color:var(--dim); font-size:10px; text-transform:uppercase; letter-spacing:.1em;}
 .fact b{font-size:15px; font-weight:600;}
 .verdict{padding:12px 14px; border-radius:10px; margin-bottom:16px; font-size:13.5px; line-height:1.5;}
-.verdict.warn{background:#f5a5241a; border:1px solid #f5a52455;}
-.verdict.ok{background:#3ddc971a; border:1px solid #3ddc9755;}
+.verdict.warn{background:color-mix(in srgb, var(--accent) 10%, transparent); border:1px solid color-mix(in srgb, var(--accent) 33%, transparent);}
+.verdict.ok{background:color-mix(in srgb, var(--good) 10%, transparent); border:1px solid color-mix(in srgb, var(--good) 33%, transparent);}
 .choices{display:flex; flex-direction:column; gap:9px;}
 .sizerow{display:flex; align-items:center; gap:10px; padding:11px 15px; border-radius:10px;
   background:var(--panel-2); border:1px solid var(--line);}
@@ -441,8 +441,8 @@ header .logo{width:24px; height:24px; border-radius:6px;}
 .stage{grid-area:stage; overflow:auto; display:grid; place-content:safe center; justify-items:center;
   padding:20px; touch-action:none; overscroll-behavior:contain;
   background:
-    linear-gradient(45deg,#1a1720 25%,transparent 25%,transparent 75%,#1a1720 75%),
-    linear-gradient(45deg,#1a1720 25%,#151219 25%,#151219 75%,#1a1720 75%);
+    linear-gradient(45deg,var(--panel) 25%,transparent 25%,transparent 75%,var(--panel) 75%),
+    linear-gradient(45deg,var(--panel) 25%,color-mix(in srgb, var(--ground) 55%, var(--panel)) 25%,color-mix(in srgb, var(--ground) 55%, var(--panel)) 75%,var(--panel) 75%);
   background-size:16px 16px; background-position:0 0,8px 8px;}
 .frame{position:relative; box-shadow:0 0 0 1px var(--line),0 18px 50px #0009;}
 canvas{display:block; image-rendering:pixelated; cursor:crosshair; touch-action:none;}
@@ -480,8 +480,8 @@ canvas{display:block; image-rendering:pixelated; cursor:crosshair; touch-action:
   background-image:
     repeating-linear-gradient(to right,var(--fine,#ffffff30) 0 1px,transparent 1px var(--z)),
     repeating-linear-gradient(to bottom,var(--fine,#ffffff30) 0 1px,transparent 1px var(--z)),
-    repeating-linear-gradient(to right,var(--coarse,#f5a524bb) 0 1px,transparent 1px calc(var(--z) * 8)),
-    repeating-linear-gradient(to bottom,var(--coarse,#f5a524bb) 0 1px,transparent 1px calc(var(--z) * 8));}
+    repeating-linear-gradient(to right,var(--coarse,color-mix(in srgb, var(--accent) 73%, transparent)) 0 1px,transparent 1px calc(var(--z) * 8)),
+    repeating-linear-gradient(to bottom,var(--coarse,color-mix(in srgb, var(--accent) 73%, transparent)) 0 1px,transparent 1px calc(var(--z) * 8));}
 #grid.on{opacity:1;}
 /* The exact cells the next dab will cover. Two rings - dark outside, light
    inside - so it stays readable over black outlines and white highlights
@@ -495,7 +495,7 @@ canvas{display:block; image-rendering:pixelated; cursor:crosshair; touch-action:
    own resolution, so it never touches a pixel until Add outline is pressed. */
 #olpv{position:absolute; left:0; top:0; display:none; pointer-events:none; z-index:2;
   image-rendering:pixelated;}
-input[type=range]{width:100%; accent-color:#f5a524; cursor:pointer;}
+input[type=range]{width:100%; accent-color:var(--accent); cursor:pointer;}
 /* Wrap rather than overflow. The panel is 252px and some rows carry a label,
    two number boxes and a button; when they do not fit, a second line is right
    and a sideways scrollbar hiding the button is not. */
@@ -525,7 +525,7 @@ input[type=range]{width:100%; accent-color:#f5a524; cursor:pointer;}
 .olchk{display:flex; align-items:center; gap:6px; font-size:12.5px; cursor:pointer;}
 .olchk input{accent-color:var(--good); cursor:pointer;}
 #bcur.tiny::after{content:""; position:absolute; inset:-4px; border-radius:3px;
-  border:1px solid #f5a524cc;}
+  border:1px solid color-mix(in srgb, var(--accent) 80%, transparent);}
 .side{grid-area:side; width:244px; padding:10px; border-right:1px solid var(--line); overflow-x:hidden;
   background:var(--panel); overflow-y:auto; display:flex; flex-direction:column; gap:11px;}
 /* The handle is a phone thing. On a wide screen the panel is a column beside
@@ -3620,7 +3620,7 @@ function applyZoom(){
   const f=$('frame');
   f.style.setProperty('--z',cellPx+'px');
   f.style.setProperty('--fine', cellPx<4 ? 'transparent' : '#ffffff30');
-  f.style.setProperty('--coarse', cellPx*8<4 ? 'transparent' : '#f5a524bb');
+  f.style.setProperty('--coarse', cellPx*8<4 ? 'transparent' : 'color-mix(in srgb, var(--accent) 73%, transparent)');
   $('zlab').textContent = zoom>=1 ? zoom+'\u00d7' : Math.round(zoom*100)+'%';
   paintCursor();
 }

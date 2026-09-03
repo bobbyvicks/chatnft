@@ -4621,6 +4621,21 @@ function composeRandom(){
    folder called "approved-drafts" contains the word "approved" and means the
    opposite, and a trait named "masks-off" is not on the masks layer. */
 const STATUSES=["approved","wip","rejected"];
+/* A palette strip, not a trait. Every one of the 602 traits in the live
+   collection is square except three 1024x128 swatch strips, so the shape is
+   the tell. The threshold is 4:1 rather than "not square" because a wide
+   background is something someone might actually draw - exactly 4:1 is left
+   alone, and only wider than that is a palette. The real ones are 8:1. */
+function isStrip(w,h){
+  if(!w||!h) return false;
+  return (w/h)>4 || (h/w)>4;
+}
+/* A filename that is only a UUID - with or without a -trait suffix - tells
+   nobody what the trait is, and the name is what every later screen shows.
+   13 of these are already in the collection. */
+const UUID_NAME=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:[-_].*)?$/i;
+function looksUnnamed(n){ return UUID_NAME.test(String(n||"").trim()); }
+
 function readPath(rel){
   const parts=rel.split(/[\\/]/).filter(Boolean);
   const file=parts.pop()||"";
@@ -4656,7 +4671,10 @@ async function bulkImport(files){
   }
   const MAX=1200;
   const list=pngs.slice(0,MAX);
-  let ok=0,failed=0,refs=0,oversized=0;
+  let ok=0,failed=0,refs=0,oversized=0,strips=0,renamed=0;
+  /* Numbered per layer, so a folder of nine unnamed backgrounds becomes
+     background-1 .. background-9 rather than nine UUIDs. */
+  const nextNum={};
   const perLayer={}, noLayer=[];
   for(let i=0;i<list.length;i++){
     const f=list[i];
@@ -4674,6 +4692,10 @@ async function bulkImport(files){
        trait that detonates when someone opens it later, with nothing left to
        connect the crash to the import. */
     if(overMax(w,h2)){ oversized++; continue; }
+    /* Judged on the decoded bitmap rather than the filename: a swatch does
+       not have to be called one, and three of the ones already imported
+       were only caught by their shape. */
+    if(isStrip(w,h2)){ strips++; continue; }
     try{
       if(info.isRef&&!info.layer){
         const rrec={id:"ref_"+info.name, kind:"ref", name:info.name, w:w, h:h2, blob:f, at:Date.now()};
@@ -4686,6 +4708,15 @@ async function bulkImport(files){
         if(activeWs) await cloudSyncOne(rrec);
         refs++;
       }else{
+        /* Before the id is built from it - the id is
+           "t_"+name+"_"+layer+"_"+status, so renaming afterwards would make
+           a second record rather than a better-named one. */
+        if(looksUnnamed(info.name)){
+          const lay=info.layer||"unsorted";
+          nextNum[lay]=(nextNum[lay]||0)+1;
+          info.name=lay+"-"+nextNum[lay];
+          renamed++;
+        }
         const layer=info.layer||"unsorted";
         const status=info.status||"wip";
         if(!info.layer) noLayer.push(info.name);
@@ -4707,6 +4738,10 @@ async function bulkImport(files){
   /* Named, not folded into "failed": a file skipped for its size has a
      different fix from one that would not decode. */
   if(oversized) bits.push(oversized+" skipped as over "+MAX_SIDE+"px");
+  if(strips) bits.push(strips+" palette strip"+(strips===1?"":"s")+" skipped");
+  /* Reported, not silent. "Imported 40" while quietly inventing nine names
+     is the kind of help nobody asked for. */
+  if(renamed) bits.push(renamed+" named for you");
   if(refs) bits.push(refs+" kept as a base");
   if(noLayer.length) bits.push(noLayer.length+" had no layer in the path and went to unsorted"+
     (noLayer.length<=4?" ("+noLayer.join(", ")+")":""));

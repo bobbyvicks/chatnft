@@ -64,8 +64,14 @@ because a cropped blow-up is also smaller. It asserts the ratio now.
 `auth.spec.js` intercepts `/auth/v1/token` and answers it here, so what runs is
 the page's own `gateCreds` → `gateSignIn` → `gateKeep` → `cloudRender` against a
 server that replies the way the real one would. No account is used and no real
-password appears anywhere in this repository — which is public, so a password in
-a spec file would be a published password.
+password appears anywhere in this repository.
+
+An earlier version of this paragraph gave the reason as "the repository is
+public". It is not — it is private, and that was asserted without being checked.
+The reason holds regardless of today's visibility: a credential in a committed
+file outlives the account it belongs to, reaches every clone and every CI log
+that checks the repository out, and survives the day someone flips the
+repository public. An environment variable is outside all of that.
 
 One test in that file is skipped by default. It signs in for real, and it is the
 only thing that can catch the mock and the live Supabase project having drifted

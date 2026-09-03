@@ -211,8 +211,15 @@ test.describe('the sign-in gate', () => {
 
      CHATNFT_USER=<username> CHATNFT_PASS=<password> npx playwright test tests/auth.spec.js
 
-   Nothing is written to a file and nothing is committed. This repository is
-   public, so a password in a spec file would be a published password.
+   Nothing is written to a file and nothing is committed.
+
+   An earlier version of this comment said the reason was that the repository
+   is public. It is not - it is private, and I asserted that without checking.
+   The reason stands anyway, and does not depend on today's visibility: a
+   credential in a committed file outlives the account, reaches every clone and
+   every CI log that ever checks the repository out, and survives the day
+   somebody makes the repository public. An environment variable keeps it out
+   of all of those.
 
    This is the only test that can catch the mock and the live project having
    drifted apart - a changed endpoint, a changed error shape, an account that

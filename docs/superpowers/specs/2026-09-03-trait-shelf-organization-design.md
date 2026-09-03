@@ -54,7 +54,7 @@ Order is scoped to a layer. Lower values render earlier within that layer. The c
 
 Existing traits without an order retain today's newest-first order through an `at` fallback. The first successful rearrangement normalizes all traits in the affected source and destination layers. This migration does not alter artwork, names, statuses, rarities, timestamps, or storage objects.
 
-A newly saved, imported, or duplicated trait is placed at the start of its layer, matching today's newest-first shelf behavior. When a layer already has explicit order values, the new record receives a value before the current minimum. When a layer contains only legacy records, the new explicit record renders before the legacy group; the first later rearrangement normalizes the whole layer.
+A newly saved, bulk-image-imported, or duplicated trait is placed at the start of its layer, matching today's newest-first shelf behavior. When a layer already has explicit order values, the new record receives a value before the current minimum. When a layer contains only legacy records, the new explicit record renders before the legacy group; the first later rearrangement normalizes the whole layer. Importing a version 2 project backup preserves the explicit order stored in that backup; version 1 backups use the legacy fallback.
 
 The shelf render order is:
 

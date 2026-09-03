@@ -892,7 +892,11 @@ footer .mono{color:var(--ink);}
       <span><small>Current</small><span class="mono" id="curhex">#000000</span></span>
     </div>
     <section id="brushsec">
-      <h2>Brush size</h2>
+      <h2>Paint with</h2>
+      <!-- The brush rows only, so selectTool can hide THEM. Hiding the whole
+           section would take the palette with it the moment you picked the
+           fill or the move tool. -->
+      <div id="brushrows">
       <div class="olrow"><label for="bslider">Size</label>
         <span class="mono" id="bslab" style="margin-left:auto">1 × 1</span></div>
       <!-- max is set from the canvas by setBrush; 128 here is the ceiling it
@@ -901,8 +905,10 @@ footer .mono{color:var(--ink);}
       <input id="bslider" type="range" min="1" max="128" step="1" value="1" aria-label="Brush size">
       <div class="olrow"><label for="filltol" title="How far from the colour you click the fill spreads">Fill spread</label>
         <input id="filltol" type="number" min="0" max="120" value="8" style="width:72px"></div>
+      </div>
+      <div class="rule"></div>
+      <div class="swatches" id="pal"></div>
     </section>
-    <section><h2>From your image</h2><div class="swatches" id="pal"></div></section>
     <section>
       <h2>Background</h2>
       <button class="btn ghost" id="debg"
@@ -1009,13 +1015,13 @@ footer .mono{color:var(--ink);}
             title="Square off the silhouette before outlining">Tidy edge</button>
           <button class="btn ghost" id="olpatch" aria-pressed="false"
             style="width:auto;padding:6px 10px;font-size:12px"
-            title="Fill holes the crop left inside the art">Patch holes</button></div>
+            title="Close gaps inside the art before drawing the outline round it">Close gaps first</button></div>
         <button class="btn" id="oladd">Add outline</button>
       </div>
       <p class="note" id="olnote">Outside the art, never over it. Snap squares off the silhouette first.</p>
     </section>
     <section>
-      <h2>Save to project</h2>
+      <h2>Save and export</h2>
       <div class="stack">
         <div class="savebar">
           <input id="tname" type="text" placeholder="trait name" aria-label="Trait name">
@@ -1028,10 +1034,7 @@ footer .mono{color:var(--ink);}
         </div>
         <button class="btn" id="saveproj">Save to project</button>
       </div>
-      <p class="note">Kept in this browser.</p>
-    </section>
-    <section>
-      <h2>Export</h2>
+      <div class="rule"></div>
       <div class="stack">
         <button class="btn ghost" id="dlNative">Download at grid size</button>
         <button class="btn ghost" id="dlBig">Download at 8×</button>
@@ -1040,7 +1043,7 @@ footer .mono{color:var(--ink);}
         <button class="btn" id="saveclose">Save and close</button>
         <button class="btn ghost" id="closeed">Close</button>
       </div>
-      <p class="note">PNG, no smoothing. Keep the full canvas so it lines up.</p>
+      <p class="note">Saved in this browser. Downloads are PNG, no smoothing - keep the full canvas so it lines up.</p>
     </section>
   </aside>
 
@@ -3606,7 +3609,9 @@ function selectTool(t){
   document.querySelectorAll('.tool[data-tool]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.tool===t)));
   $('panbtn').setAttribute('aria-pressed',String(panMode));
   $('stage').style.cursor=panMode?'grab':'';
-  $('brushsec').hidden=!(t==='pencil'||t==='eraser');
+  /* The ROWS, not the section: the palette lives here too now and is wanted
+     whatever tool is selected. */
+  $('brushrows').hidden=!(t==='pencil'||t==='eraser');
   art.classList.toggle('mv',t==='move');
   tboxShow();
   paintCursor();

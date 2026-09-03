@@ -62,6 +62,56 @@ test.describe('the panel', () => {
   });
 });
 
+test.describe('the merged sections', () => {
+  test('the palette survives a tool that is not the brush', async ({ page }) => {
+    /* The palette was moved into #brushsec, which selectTool hides whenever the
+       tool is not the pencil or the eraser. If the hiding is ever put back onto
+       the section instead of the rows, your colours vanish the moment you pick
+       the fill, the move or the picker - and nothing else would notice. */
+    await openTrait(page, { w: 80, h: 80, draw: (set) => { set(1, 1, [1, 2, 3]); set(2, 2, [9, 9, 9]); } });
+    await openSection(page, 'Paint with');
+    const shown = async () => page.evaluate(() => {
+      const p = document.getElementById('pal');
+      const r = p.getBoundingClientRect();
+      return { palette: r.width > 0 && r.height > 0,
+               brushRows: (() => { const b = document.getElementById('brushrows');
+                 const br = b.getBoundingClientRect(); return br.width > 0 && br.height > 0; })() };
+    });
+
+    for (const t of ['pencil', 'eraser']) {
+      await page.evaluate(x => selectTool(x), t);
+      await page.waitForTimeout(80);
+      const s = await shown();
+      expect(s.palette, 'the palette with the ' + t).toBe(true);
+      expect(s.brushRows, 'the brush size with the ' + t).toBe(true);
+    }
+    for (const t of ['fill', 'move', 'pick']) {
+      await page.evaluate(x => selectTool(x), t);
+      await page.waitForTimeout(80);
+      const s = await shown();
+      expect(s.palette, 'the palette must stay with the ' + t + ' tool').toBe(true);
+      expect(s.brushRows, 'the brush size is not wanted with the ' + t + ' tool').toBe(false);
+    }
+  });
+
+  test('every control from the merged pairs is still reachable', async ({ page }) => {
+    await openTrait(page, { w: 80, h: 80, draw: (set) => { set(1, 1, [1, 2, 3]); } });
+    await openSection(page, 'Paint with');
+    await openSection(page, 'Save and export');
+    const missing = await page.evaluate(() => {
+      const want = ['bslider','filltol','pal','tname','tlayer','tstatus','saveproj',
+                    'dlNative','dlBig','dlTrim','reset','saveclose','closeed'];
+      return want.filter(id => {
+        const e = document.getElementById(id);
+        if (!e) return true;
+        const r = e.getBoundingClientRect();
+        return !(r.width > 0 && r.height > 0);
+      });
+    });
+    expect(missing).toEqual([]);
+  });
+});
+
 test.describe('fill interior holes', () => {
   /* A square with a 4x4 gap the art surrounds, three single-cell specks, and a
      notch running out to the border. Only the first two are holes. */

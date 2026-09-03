@@ -1231,10 +1231,18 @@ function load(file){
   $('err').textContent='';
   if(!/^image\//.test(file.type)){ $('err').textContent='That is not an image file.'; return; }
   if(file.size>25*1024*1024){ $('err').textContent='That file is over 25 MB.'; return; }
+  /* The size on disk says nothing about the pixel count - see MAX_SIDE. The
+     dimensions are not known until it decodes, so that check is in onload. */
   fileName=file.name.replace(/\.[^.]+$/,'')+'.png';
   const url=URL.createObjectURL(file);
   const im=new Image();
-  im.onload=()=>{ URL.revokeObjectURL(url); analyse(im,file); };
+  im.onload=()=>{
+    URL.revokeObjectURL(url);
+    /* Before analyse, which is what allocates the pixels. */
+    const big=overMax(im.naturalWidth,im.naturalHeight);
+    if(big){ $('err').textContent=big; return; }
+    analyse(im,file);
+  };
   im.onerror=()=>{ URL.revokeObjectURL(url); $('err').textContent='That image could not be decoded.'; };
   im.src=url;
 }
@@ -1743,6 +1751,25 @@ buildLayerSelect();
    outline, which no difference can see. Those get patched in the editor. */
 let refData=null, subData=null;
 
+/* The largest image the editor will open, per side.
+
+   A 16384x16384 PNG is well under the 25 MB file limit, because flat pixel
+   art compresses enormously, and decoding one allocates width*height*4 =
+   1.07 GB in a single ImageData. Measured by opening one: the tab nearly
+   died.
+
+   4096 is not a new number. resizeTo already clamps to it and the width and
+   height fields already carry max="4096", so the largest image you can open
+   is the largest one you could already have resized to. */
+const MAX_SIDE=4096;
+/* Returns the sentence to show, or "" when the size is fine - so a caller
+   cannot accidentally treat "no problem" as truthy. */
+function overMax(w,h){
+  if(w<=MAX_SIDE&&h<=MAX_SIDE) return "";
+  return "That image is "+w+"\u00d7"+h+". The largest this editor opens is "
+    +MAX_SIDE+"\u00d7"+MAX_SIDE+" a side - resize it before opening it.";
+}
+
 function toData(im,w,h){
   const c=document.createElement('canvas'); c.width=w; c.height=h;
   const g=c.getContext('2d',{willReadFrequently:true});
@@ -1763,6 +1790,8 @@ function slotLoad(file,which){
   const im=new Image();
   im.onload=()=>{
     URL.revokeObjectURL(url);
+    const big=overMax(im.naturalWidth,im.naturalHeight);
+    if(big){ $('exerr').textContent=big; return; }
     const d=toData(im,im.naturalWidth,im.naturalHeight);
     if(which==='ref'){
       refData=d; thumb('refthumb',d); $('refslot').classList.add('filled');
@@ -1815,7 +1844,11 @@ function restoreRef(){
 try{
   const saved=localStorage.getItem('pb.ref');
   if(saved){ const im=new Image();
-    im.onload=()=>{ refData=toData(im,im.naturalWidth,im.naturalHeight);
+    im.onload=()=>{
+      /* A reference stored before this limit existed would decode to the
+         same gigabyte on every single load. */
+      if(overMax(im.naturalWidth,im.naturalHeight)) return;
+      refData=toData(im,im.naturalWidth,im.naturalHeight);
       thumb('refthumb',refData); $('refslot').classList.add('filled');
       $('doextract').disabled=!subData;
       $('mkkey').disabled=!refData;
@@ -4579,7 +4612,7 @@ async function bulkImport(files){
   }
   const MAX=1200;
   const list=pngs.slice(0,MAX);
-  let ok=0,failed=0,refs=0;
+  let ok=0,failed=0,refs=0,oversized=0;
   const perLayer={}, noLayer=[];
   for(let i=0;i<list.length;i++){
     const f=list[i];
@@ -4592,6 +4625,11 @@ async function bulkImport(files){
     try{ bm=await createImageBitmap(f); }catch(_){ failed++; continue; }
     const w=bm.width,h2=bm.height;
     bm.close&&bm.close();
+    /* Import never decodes - it reads the size off the bitmap and stores the
+       blob - so this would not have blown up here. It would have written a
+       trait that detonates when someone opens it later, with nothing left to
+       connect the crash to the import. */
+    if(overMax(w,h2)){ oversized++; continue; }
     try{
       if(info.isRef&&!info.layer){
         const rrec={id:"ref_"+info.name, kind:"ref", name:info.name, w:w, h:h2, blob:f, at:Date.now()};
@@ -4622,6 +4660,9 @@ async function bulkImport(files){
      filing them reads as if they were understood. */
   const bits=[];
   bits.push("Imported "+ok+" file"+(ok===1?"":"s"));
+  /* Named, not folded into "failed": a file skipped for its size has a
+     different fix from one that would not decode. */
+  if(oversized) bits.push(oversized+" skipped as over "+MAX_SIDE+"px");
   if(refs) bits.push(refs+" kept as a base");
   if(noLayer.length) bits.push(noLayer.length+" had no layer in the path and went to unsorted"+
     (noLayer.length<=4?" ("+noLayer.join(", ")+")":""));
@@ -7122,6 +7163,18 @@ $('ksclose').onclick=()=>keysPanel(false);
 $('ksscrim').onclick=e=>{ if(e.target===$('ksscrim')) keysPanel(false); };
 
 addEventListener('keydown',e=>{
+  /* Backspace stops being able to leave the page, and that is unconditional -
+     it happens before every early return below. It was already bound to
+     closeEditor with prevent:true, and it never ran: this guard returns first
+     whenever the editor is not open, which is exactly the state a too-large
+     image leaves you in, so the browser's own Backspace ran instead and took
+     the page. The range branch below returns early too, without preventing.
+
+     Prevention and action are separated on purpose. "Never navigate away" is
+     always true; "close the editor" is only true when there is one open. */
+  const typing=(/^(INPUT|TEXTAREA)$/.test(e.target.tagName)&&e.target.type!=="range")
+               ||e.target.isContentEditable;
+  if(e.key==="Backspace"&&!typing) e.preventDefault();
   if($('app').hidden) return;
   /* A range input needs the arrows, Home/End and the page keys and nothing
      else, so every other shortcut is let through. Bailing on ANY input was

@@ -737,6 +737,13 @@ footer .mono{color:var(--ink);}
       <button class="btn ghost" id="mkkey" disabled>Make a key-coloured character</button>
       <button class="mini" id="locateai" hidden>No reference? Let Claude find it</button>
     </div>
+    <!-- Appears once the key-coloured file exists, because the prompt is only
+         any use to someone who has that file to attach to it. -->
+    <div class="exrow" id="keyrow" hidden>
+      <input id="keyitem" type="text" style="flex:1;min-width:180px"
+        placeholder="what to add - a gold cuban chain" aria-label="What to add">
+      <button class="btn ghost" id="keycopy" style="width:auto;padding:8px 14px">Copy prompt</button>
+    </div>
     <p class="err" id="exerr" role="status"></p>
   </section>
 
@@ -1885,6 +1892,19 @@ try{
 /* Vision fallback for when there is no reference. Differencing against the bare
    character is exact; this is a guess, so it opens the whole image cropped to
    what Claude reported rather than deleting anything, and says so. */
+/* Clipboard writes need a user gesture and a secure context. Both hold on a
+   button click over https, and when they do not the text is put on screen to
+   be selected by hand rather than the button silently doing nothing. */
+$("keycopy").onclick=async()=>{
+  const text=keyPrompt($("keyitem").value);
+  try{
+    await navigator.clipboard.writeText(text);
+    toast("Prompt copied - attach character-key.png to it");
+  }catch(_){
+    $("exerr").textContent=text;
+    toast("Could not reach the clipboard - the prompt is below, copy it by hand");
+  }
+};
 $('locateai').onclick=async()=>{
   if(!subData) return;
   const b=$('locateai'), was=b.textContent;
@@ -2819,6 +2839,27 @@ function keyCharacter(src,W,H){
   }
   return out;
 }
+/* Built from KEY_FILL and KEY_INK rather than repeating them. Those two were
+   chosen by a search for colours far from anything in real artwork; if that
+   search is ever re-run, a hand-typed prompt would go on confidently naming
+   the old ones. */
+const hex2=c=>"#"+c.map(v=>v.toString(16).padStart(2,"0")).join("").toUpperCase();
+function keyPrompt(item){
+  const thing=String(item||"").trim()||"the item";
+  const body=hex2(KEY_FILL), ink=hex2(KEY_INK);
+  return [
+    "Attached is a character drawn in flat key colours. Add exactly one thing to it: "+thing+".",
+    "",
+    "Hard rules:",
+    "1. Do not change a single pixel that is already there. The body must come back exactly "+body+" and the outline exactly "+ink+" - no shading, gradients, texture, lighting or anti-aliasing on them.",
+    "2. Keep the background pure white #FFFFFF, flat, with nothing added to it.",
+    "3. Do not move, resize, rotate, crop or redraw the character. Same pose, same position, same image dimensions.",
+    "4. Draw "+thing+" in its own colours, on top of the character where it overlaps. It is the only new thing in the picture.",
+    "5. No anti-aliasing anywhere. Hard edges only.",
+    "",
+    "Return a PNG the same size as the one attached. If "+thing+" cannot be added without altering the character, say so instead of guessing - a render that looks right but has moved the character is worse than none."
+  ].join(String.fromCharCode(10));
+}
 $('mkkey').onclick=()=>{
   if(!refData){ toast("Load a bare character first"); return; }
   const W=refData.width, H=refData.height;
@@ -2831,7 +2872,8 @@ $('mkkey').onclick=()=>{
     a.href=u; a.download='character-key.png';
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(()=>URL.revokeObjectURL(u),1000);
-    toast("Send this to whoever draws the traits, and load what comes back as the reference");
+    $("keyrow").hidden=false;
+    toast("Now copy the prompt below and send both");
   },'image/png');
 };
 $('doextract').onclick=async()=>{

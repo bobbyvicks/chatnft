@@ -282,6 +282,10 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
 .savebar input,.savebar select{padding:8px 9px; border-radius:8px; background:var(--ground);
   border:1px solid var(--line); color:var(--ink); font:inherit; font-size:12.5px;}
 .savebar input{flex:1; min-width:0;}
+/* Except a number field, which holds two or three digits and has no use for
+   the slack. Taking it stretched bgtol and holemax to 97px and squeezed the
+   buttons beside them until their labels broke over two lines. */
+.savebar input[type=number]{flex:none;}
 .savebar select{max-width:118px;}
 
 /* ---------- analysis ---------- */
@@ -485,7 +489,11 @@ input[type=range]{width:100%; accent-color:#f5a524; cursor:pointer;}
 .cur input[type=color]{width:34px; height:34px; padding:0; border:1px solid #ffffff24;
   border-radius:7px; background:none; cursor:pointer; flex:none;}
 .cur small{display:block; color:var(--dim); font-size:10px; text-transform:uppercase; letter-spacing:.09em;}
+/* The transparent border is what makes .btn and .btn.ghost the same height.
+   Ghost adds a 1px border; without this the two stood 42px and 44px tall in
+   the same column, which reads as sloppiness rather than as two kinds. */
 .btn{width:100%; padding:11px 12px; border-radius:9px; background:var(--accent); color:#241a05;
+  border:1px solid transparent;
   font-weight:600; font-size:13.5px; text-align:center; display:block;}
 .btn:hover{filter:brightness(1.08);}
 .btn.ghost{background:var(--panel-2); border:1px solid var(--line); color:var(--ink); font-weight:500;}
@@ -892,21 +900,21 @@ footer .mono{color:var(--ink);}
            maximum - which never applied and only misled. -->
       <input id="bslider" type="range" min="1" max="128" step="1" value="1" aria-label="Brush size">
       <div class="olrow"><label for="filltol" title="How far from the colour you click the fill spreads">Fill spread</label>
-        <input id="filltol" type="number" min="0" max="120" value="8" style="width:64px"></div>
+        <input id="filltol" type="number" min="0" max="120" value="8" style="width:72px"></div>
     </section>
     <section><h2>From your image</h2><div class="swatches" id="pal"></div></section>
     <section>
       <h2>Background</h2>
-      <div class="savebar">
-        <button class="btn ghost" id="debg" style="flex:1"
-          title="Floods in from the border, so a white shirt in the middle stays">Clear flat background</button>
-        <input id="bgtol" type="number" min="0" max="120" value="24" style="width:64px" aria-label="Background tolerance">
-      </div>
+      <button class="btn ghost" id="debg"
+        title="Floods in from the border, so a white shirt in the middle stays">Clear background</button>
+      <div class="olrow"><label for="bgtol">Keep within</label>
+        <input id="bgtol" type="number" min="0" max="120" value="24" style="width:72px"
+          aria-label="Background tolerance"></div>
       <p class="note">Only colour touching the border goes.</p>
-      <div class="savebar">
-        <button class="btn ghost" id="fillholes" style="flex:1"
-          title="Close gaps the artwork surrounds on every side">Fill interior holes</button>
-        <input id="holemax" type="number" min="0" max="99999" value="0" style="width:64px"
+      <button class="btn ghost" id="fillholes"
+        title="Close gaps the artwork surrounds on every side">Fill holes</button>
+      <div class="olrow"><label for="holemax">Biggest gap</label>
+        <input id="holemax" type="number" min="0" max="99999" value="0" style="width:72px"
           aria-label="Biggest gap to close, in cells; 0 for any size"></div>
       <p class="note">Closes gaps the art surrounds. 0 means any size; raise it to keep a hole that belongs.</p>
     </section>
@@ -920,9 +928,9 @@ footer .mono{color:var(--ink);}
       </div>
       <p class="note">Drag the box: corners resize, the handle rotates. Snap locks to 15° and to the grid.</p>
       <div class="olrow" style="margin-top:10px"><label for="rsw">Size</label>
-        <input id="rsw" type="number" min="1" max="4096" style="width:70px">
+        <input id="rsw" type="number" min="1" max="4096" style="width:72px">
         <span class="mono">x</span>
-        <input id="rsh" type="number" min="1" max="4096" style="width:70px">
+        <input id="rsh" type="number" min="1" max="4096" style="width:72px">
         <button class="btn ghost" id="rslock" aria-pressed="true"
           style="width:auto;padding:6px 10px;font-size:12px;margin-left:4px"
           title="Keep the width and height in proportion">Shape</button></div>
@@ -935,7 +943,7 @@ footer .mono{color:var(--ink);}
       <div class="olrow"><label for="rspreset">Jump to</label>
         <select id="rspreset" style="flex:1"></select></div>
       <div class="olrow"><label for="rsgrid">Cells</label>
-        <input id="rsgrid" type="number" min="4" max="1024" value="160" style="width:70px">
+        <input id="rsgrid" type="number" min="4" max="1024" value="160" style="width:72px">
         <button class="btn ghost" id="rssnap" aria-pressed="true"
           style="width:auto;padding:6px 12px;font-size:12px;margin-left:4px"
           title="Snap the angle to 15 degrees, moves to whole cells, and sizes to whole multiples of the cell count">Snap</button></div>
@@ -952,7 +960,7 @@ footer .mono{color:var(--ink);}
           style="width:auto;padding:6px 10px;font-size:12px"
           title="Also replace shades within the distance below">Include near shades</button>
         <div class="olrow"><label for="rctol">How close</label>
-          <input id="rctol" type="number" min="1" max="120" value="24" style="width:64px"></div>
+          <input id="rctol" type="number" min="1" max="120" value="24" style="width:72px"></div>
         <div class="savebar">
           <button class="btn ghost" id="rcgo" disabled style="flex:2">Replace</button>
           <button class="btn ghost" id="rcerase" disabled style="flex:2"
@@ -1040,7 +1048,8 @@ footer .mono{color:var(--ink);}
     <span>Cell <span class="mono" id="pos">—</span></span>
     <span>Under <span class="mono" id="under">—</span></span>
     <span>Brush <span class="mono" id="bsize">1×1</span></span>
-    <span class="hint">Wheel or pinch to zoom · middle-drag, space-drag or two fingers to pan and zoom</span>
+    <span class="hint" title="Wheel or pinch to zoom. Middle-drag, space-drag or two fingers to pan.">
+      Wheel to zoom · space-drag to pan</span>
     <div class="zoom">
       <button class="zb" id="zout" aria-label="Zoom out">−</button>
       <span class="mono" id="zlab">4×</span>

@@ -253,7 +253,7 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
 .layer h3{font-size:10.5px; text-transform:uppercase; letter-spacing:.11em; color:var(--muted);
   margin-bottom:7px; display:flex; align-items:center; gap:8px;}
 .layer h3::after{content:""; flex:1; height:1px; background:var(--line);}
-.items{display:grid; grid-template-columns:repeat(auto-fill,minmax(84px,1fr)); gap:9px;}
+.items{display:grid; grid-template-columns:repeat(auto-fill,minmax(108px,1fr)); gap:9px;}
 .item{position:relative; border-radius:9px; border:1px solid var(--line); background:var(--ground);
   padding:7px 6px 5px; cursor:pointer; text-align:center;}
 .item:hover{border-color:var(--accent);}
@@ -282,12 +282,45 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
 .item .x:hover{background:var(--bad); color:#fff;}
 .empty{color:var(--dim); font-size:13px; padding:10px 0;}
 .mini.filt[aria-pressed="true"]{background:var(--accent-soft); border-color:var(--accent); color:var(--accent);}
+.shelfvisibility{display:flex; align-items:center; gap:7px; flex-wrap:wrap; width:100%;}
+.shelfvisibility .note{margin:0 auto 0 0;}
+.shelfvisibility .mini[aria-pressed="true"]{background:var(--accent-soft); border-color:var(--accent); color:var(--accent);}
+.sr-only{position:absolute!important; width:1px!important; height:1px!important; padding:0!important;
+  margin:-1px!important; overflow:hidden!important; clip:rect(0,0,0,0)!important;
+  white-space:nowrap!important; border:0!important;}
 .item .st{position:absolute; top:3px; left:3px; width:9px; height:9px; border-radius:50%;
   border:1px solid #0008;}
 .st.wip{background:var(--accent);} .st.approved{background:var(--good);} .st.rejected{background:var(--bad);}
-.item .cyc{position:absolute; bottom:22px; left:0; right:0; margin:auto; width:74%; padding:2px 0;
-  border-radius:5px; background:#0b0910dd; color:var(--ink); font-size:9.5px; display:none;}
-.item:hover .cyc{display:block;}
+.item .cyc{display:block; width:100%; margin-top:4px; padding:2px 0; border-radius:5px;
+  background:var(--panel-2); border:1px solid var(--line); color:var(--muted); font-size:9.5px;}
+.item .cyc:hover{border-color:var(--accent); color:var(--ink);}
+.item.temporarily-hidden{opacity:.42; border-style:dashed;}
+.item.temporarily-hidden:hover{opacity:.8;}
+.item.shelf-drag-source{opacity:.35;}
+.item.shelf-drop-before{box-shadow:-4px 0 0 var(--accent);}
+.item.shelf-drop-after{box-shadow:4px 0 0 var(--accent);}
+.items.shelf-drag-over{outline:1px dashed var(--accent); outline-offset:5px; border-radius:7px;}
+.shelftools{display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:4px; margin-top:5px;}
+.shelftools button{min-width:0; padding:4px 2px; border-radius:5px; border:1px solid var(--line);
+  background:var(--panel-2); color:var(--muted); font-size:9px; line-height:1.1;}
+.shelftools button:hover{border-color:var(--accent); color:var(--ink);}
+.shelftools .draghandle{cursor:grab; touch-action:none; user-select:none; color:var(--accent);}
+.shelftools .draghandle:active{cursor:grabbing;}
+.shelftools .dup{position:static; width:auto; height:auto; padding:4px 2px; border-radius:5px;
+  font-size:9px; line-height:1.1;}
+.shelfdestinations{position:fixed; left:50%; bottom:20px; z-index:40; transform:translateX(-50%);
+  width:min(720px,calc(100vw - 24px)); padding:10px; border-radius:11px; background:#1a1720f2;
+  border:1px solid var(--accent); box-shadow:0 12px 40px #000b; display:flex; gap:6px;
+  align-items:center; overflow-x:auto;}
+.shelfdestinations>span{font-size:10px; color:var(--muted); text-transform:uppercase;
+  letter-spacing:.08em; white-space:nowrap;}
+.shelfdestinations button{padding:6px 9px; border-radius:7px; border:1px dashed var(--line);
+  background:var(--ground); color:var(--muted); font-size:11px; white-space:nowrap;}
+.shelfdestinations button.shelf-drag-over{border-color:var(--accent); color:var(--accent); background:var(--accent-soft);}
+.shelfdragghost{position:fixed; z-index:50; pointer-events:none; transform:translate(12px,12px);
+  max-width:180px; padding:6px 9px; border-radius:7px; border:1px solid var(--accent);
+  background:#121016ee; color:var(--ink); font-size:11px; box-shadow:0 8px 24px #000a;}
+body.shelf-dragging,body.shelf-dragging *{cursor:grabbing!important;}
 
 /* ---------- save bar in the editor ---------- */
 .savebar{display:flex; gap:8px; align-items:center; flex-wrap:wrap;}
@@ -791,6 +824,12 @@ footer .mono{color:var(--ink);}
         <input id="impfile" type="file" accept="application/json,.chatnft,.json" hidden>
         <button class="mini" id="clearproj">Clear</button>
       </div>
+      <div class="shelfvisibility">
+        <p class="note">Drag a card by its handle to reorder it or move it to another layer.</p>
+        <button class="mini" id="shelfhidden" aria-pressed="false" hidden>Show hidden</button>
+        <button class="mini" id="shelfshowall" hidden>Show all</button>
+        <span class="sr-only" id="shelfstatus" role="status" aria-live="polite"></span>
+      </div>
     </div>
     <div id="projbody"></div>
   </section>
@@ -826,6 +865,7 @@ footer .mono{color:var(--ink);}
     <div id="layerbody"></div>
     <p class="note">Top of the list draws in front. Removing a layer sends its traits to unsorted.</p>
   </section>
+  <div class="shelfdestinations" id="shelfdestinations" hidden aria-label="Move trait to layer"></div>
 </main>
 
 <!-- ============ analysis ============ -->
@@ -1094,9 +1134,11 @@ footer .mono{color:var(--ink);}
 </div>
 <div class="toast" id="toast"></div>
 
+<script src="./trait-shelf-core.js"></script>
 <script>
 "use strict";
 const $=id=>document.getElementById(id);
+const shelfCore=window.ChatNftTraitShelf;
 const MAXZ=48;
 /* How far from the colour you clicked the fill will spread. 8 is above the
    noise these files carry (never more than 2 between neighbours in a flat
@@ -1355,6 +1397,169 @@ async function dbClear(){ const d=await db(); return new Promise((res,rej)=>{
   const t=d.transaction(STORE,'readwrite'); t.objectStore(STORE).clear();
   t.oncomplete=()=>res(); t.onerror=()=>rej(t.error); }); }
 
+/* Hiding is deliberately session-only. Keeping one state per open project
+   prevents a local id such as t_hat_hats_wip from hiding an unrelated card
+   when the account switches between group projects. */
+const shelfVisibilityStates=new Map();
+function currentShelfVisibility(){
+  const key=activeWs||"personal";
+  if(!shelfVisibilityStates.has(key)) shelfVisibilityStates.set(key,shelfCore.createVisibilityState());
+  return shelfVisibilityStates.get(key);
+}
+function announceShelf(message){ const el=$('shelfstatus'); if(el) el.textContent=message; }
+function syncShelfVisibilityControls(){
+  const state=currentShelfVisibility(), reveal=$('shelfhidden'), all=$('shelfshowall');
+  if(!reveal||!all) return;
+  reveal.hidden=!state.count; all.hidden=!state.count;
+  reveal.textContent=(state.reveal?'Hide hidden':'Show hidden')+' ('+state.count+')';
+  reveal.setAttribute('aria-pressed',String(state.reveal));
+}
+
+/* Reordering several cards is one IndexedDB transaction. A cross-layer move
+   changes the local id, so all old identities are removed before the updated
+   records are put back. Either the whole shelf changes or none of it does. */
+async function dbApplyShelfRecords(deleteIds,records){
+  const d=await db();
+  return new Promise((res,rej)=>{
+    const t=d.transaction(STORE,'readwrite'), s=t.objectStore(STORE);
+    for(const id of new Set(deleteIds.filter(Boolean))) s.delete(id);
+    for(const record of records) s.put(record);
+    t.oncomplete=()=>res(); t.onerror=()=>rej(t.error); t.onabort=()=>rej(t.error);
+  });
+}
+
+let shelfMoveBusy=false;
+async function commitShelfMove(spec){
+  if(shelfMoveBusy) return false;
+  shelfMoveBusy=true;
+  let items=[];
+  try{ items=await dbAll(); }
+  catch(_){ shelfMoveBusy=false; toast('Could not read the project'); return false; }
+  const plan=shelfCore.planShelfMove(items,spec);
+  if(!plan.ok){
+    shelfMoveBusy=false;
+    toast(plan.reason==='duplicate'
+      ? 'That layer already has this trait and status'
+      : 'Could not move that trait');
+    return false;
+  }
+  if(activeWs&&plan.updates.some(update=>!update.record.rowId)){
+    shelfMoveBusy=false;
+    toast('Send the unsynced traits to the group before rearranging them');
+    return false;
+  }
+  const originals=plan.updates.map(update=>items.find(item=>shelfCore.recordKey(item)===update.oldKey))
+    .filter(Boolean);
+  const state=currentShelfVisibility();
+  try{
+    await dbApplyShelfRecords(plan.updates.map(update=>update.oldId),plan.updates.map(update=>update.record));
+  }catch(_){ shelfMoveBusy=false; toast('Could not save the new order'); return false; }
+  for(const update of plan.updates) state.transfer(update.oldKey,shelfCore.recordKey(update.record));
+  await renderShelf();
+  const shared=await cloudSaveShelfPlan(plan.updates);
+  if(!shared.ok){
+    try{
+      await dbApplyShelfRecords(plan.updates.map(update=>update.record.id),originals);
+      for(const update of plan.updates) state.transfer(shelfCore.recordKey(update.record),update.oldKey);
+      await renderShelf();
+    }catch(_){}
+    shelfMoveBusy=false;
+    toast(shared.reason==='duplicate'
+      ? 'Move cancelled because the shared shelf changed'
+      : 'Move did not sync, so the old order was restored');
+    return false;
+  }
+  shelfMoveBusy=false;
+  announceShelf('Moved trait to '+plan.destinationLayer+'.');
+  toast(activeWs?'Order saved for the group':'Order saved');
+  return true;
+}
+
+async function keyboardShelfMove(recordKey,direction,betweenLayers){
+  let items=[]; try{ items=await dbAll(); }catch(_){ return; }
+  const source=items.find(item=>shelfCore.recordKey(item)===recordKey);
+  if(!source) return;
+  if(betweenLayers){
+    const at=LAYERS.indexOf(source.layer), to=at+(direction<0?-1:1);
+    if(to<0||to>=LAYERS.length){ toast('There is no layer in that direction'); return; }
+    await commitShelfMove({recordKey,toLayer:LAYERS[to],beforeKey:null});
+    return;
+  }
+  const ordered=shelfCore.orderedLayer(items,source.layer);
+  const at=ordered.findIndex(item=>shelfCore.recordKey(item)===recordKey);
+  if(at<0) return;
+  const beforeKey=direction<0
+    ? (at>0?shelfCore.recordKey(ordered[at-1]):recordKey)
+    : (at<ordered.length-1
+        ? (at+2<ordered.length?shelfCore.recordKey(ordered[at+2]):null)
+        : recordKey);
+  if(beforeKey===recordKey){ toast('That trait is already at the edge'); return; }
+  await commitShelfMove({recordKey,toLayer:source.layer,beforeKey});
+}
+
+let shelfDrag=null;
+function clearShelfDragTarget(){
+  document.querySelectorAll('.shelf-drag-over,.shelf-drop-before,.shelf-drop-after')
+    .forEach(el=>el.classList.remove('shelf-drag-over','shelf-drop-before','shelf-drop-after'));
+}
+function updateShelfDragTarget(clientX,clientY){
+  if(!shelfDrag) return;
+  clearShelfDragTarget();
+  shelfDrag.target=null;
+  shelfDrag.ghost.style.left=clientX+'px'; shelfDrag.ghost.style.top=clientY+'px';
+  const hit=document.elementFromPoint(clientX,clientY);
+  if(!hit) return;
+  const destination=hit.closest('[data-shelf-drop-layer]');
+  if(destination){
+    destination.classList.add('shelf-drag-over');
+    shelfDrag.target={recordKey:shelfDrag.key,toLayer:destination.dataset.shelfDropLayer,beforeKey:null};
+    return;
+  }
+  const card=hit.closest('[data-shelf-card-key]');
+  if(card&&card.dataset.shelfCardKey===shelfDrag.key) return;
+  const grid=(card&&card.closest('[data-shelf-layer]'))||hit.closest('[data-shelf-layer]');
+  if(!grid) return;
+  grid.classList.add('shelf-drag-over');
+  let beforeKey=null;
+  if(card){
+    const rect=card.getBoundingClientRect();
+    const before=clientY<rect.top+rect.height/2;
+    if(before){ beforeKey=card.dataset.shelfCardKey; card.classList.add('shelf-drop-before'); }
+    else{
+      const next=card.nextElementSibling;
+      beforeKey=next&&next.dataset.shelfCardKey||null;
+      card.classList.add('shelf-drop-after');
+    }
+  }
+  shelfDrag.target={recordKey:shelfDrag.key,toLayer:grid.dataset.shelfLayer,beforeKey};
+}
+function endShelfDrag(cancelled){
+  if(!shelfDrag) return;
+  const drag=shelfDrag; shelfDrag=null;
+  clearShelfDragTarget();
+  document.body.classList.remove('shelf-dragging');
+  drag.card.classList.remove('shelf-drag-source');
+  drag.ghost.remove(); $('shelfdestinations').hidden=true;
+  if(!cancelled&&drag.target) commitShelfMove(drag.target);
+}
+function startShelfDrag(event,record,card,handle){
+  if(shelfMoveBusy||event.button>0) return;
+  event.preventDefault(); event.stopPropagation();
+  const key=shelfCore.recordKey(record), destinations=$('shelfdestinations');
+  destinations.innerHTML='<span>Drop in layer</span>';
+  for(const layer of LAYERS){
+    const button=document.createElement('button'); button.type='button'; button.textContent=layer;
+    button.dataset.shelfDropLayer=layer; destinations.appendChild(button);
+  }
+  destinations.hidden=false;
+  const ghost=document.createElement('div'); ghost.className='shelfdragghost'; ghost.textContent=record.name;
+  document.body.appendChild(ghost);
+  shelfDrag={key,card,handle,ghost,target:null};
+  card.classList.add('shelf-drag-source'); document.body.classList.add('shelf-dragging');
+  handle.setPointerCapture(event.pointerId);
+  updateShelfDragTarget(event.clientX,event.clientY);
+}
+
 const blobOf=(cv)=>new Promise(r=>cv.toBlob(r,'image/png'));
 function canvasFrom(data,w,h){
   const c=document.createElement('canvas'); c.width=w; c.height=h;
@@ -1379,7 +1584,8 @@ async function duplicateTrait(t){
      here writes a NEW blob rather than mutating one, so the copy cannot change
      under the original. Cloning the bytes would only double the storage. */
   const rec={id:id, kind:"trait", name:name, layer:t.layer, status:"wip",
-    w:t.w, h:t.h, blob:t.blob, at:Date.now()};
+    w:t.w, h:t.h, blob:t.blob, at:Date.now(),
+    shelfOrder:shelfCore.nextShelfOrder(items,t.layer)};
   if(typeof t.rarity==="number") rec.rarity=t.rarity;
   try{ await dbPut(rec); }catch(_){ toast("Could not save the copy"); return null; }
   await renderShelf();
@@ -1399,6 +1605,10 @@ async function renderShelf(){
   applyLayers(items);
   applyGrid(items);
   const traits=items.filter(i=>i.kind==='trait');
+  const visibility=currentShelfVisibility();
+  const liveTraitKeys=new Set(traits.map(shelfCore.recordKey));
+  for(const key of visibility.hiddenKeys()) if(!liveTraitKeys.has(key)) visibility.show(key);
+  syncShelfVisibilityControls();
   /* Which project you are in, and whether what you have saved is actually in
      it. Nothing about a save tells you this otherwise: it saves, it says so,
      and the only people who find out are the ones who cannot see it. */
@@ -1437,6 +1647,7 @@ async function renderShelf(){
      threw on every search. Parsing cannot see that; only running it can. */
   const shows=t=>(shelfFilter==="all"||(t.status||"wip")===shelfFilter)
     && (!shelfQuery || String(t.name||"").toLowerCase().indexOf(shelfQuery)>=0);
+  const cardShows=t=>shows(t)&&(!visibility.isHidden(shelfCore.recordKey(t))||visibility.reveal);
   const savedRefs=items.filter(i=>i.kind==='ref');
   $('proj').hidden=!items.length;
   if(!items.length){ $('compose').hidden=true; $('layers').hidden=true; return; }
@@ -1470,13 +1681,17 @@ async function renderShelf(){
     }
     rw.appendChild(rg); body.appendChild(rw);
   }
-  const used=LAYERS.filter(l=>traits.some(t=>t.layer===l&&shows(t)));
+  const used=LAYERS.filter(l=>traits.some(t=>t.layer===l&&cardShows(t)));
   if(!used.length){
     /* This said "No traits saved yet" whenever nothing was on screen, which was
        already wrong before search existed: filtering to rejected with no rejected
        traits claimed the project was empty. An empty shelf has three different
        causes and the message has to name which one. */
-    const why = shelfQuery
+    const filteredTraits=traits.filter(shows);
+    const why = filteredTraits.length&&filteredTraits.every(t=>visibility.isHidden(shelfCore.recordKey(t)))
+      ? 'All '+filteredTraits.length+' matching trait'+(filteredTraits.length===1?' is':'s are')
+        +' temporarily hidden. Use Show hidden or Show all.'
+      : shelfQuery
       ? 'Nothing matching "'+shelfQuery+'"'+
         (shelfFilter==="all"?"":" that is "+shelfFilter)+", out of "+traits.length+" saved."
       : (shelfFilter!=="all"
@@ -1490,12 +1705,14 @@ async function renderShelf(){
   }
   for(const layer of used){
     const wrap=document.createElement('div'); wrap.className='layer';
-    const mine=traits.filter(t=>t.layer===layer&&shows(t)).sort((a,b)=>b.at-a.at);
+    const mine=traits.filter(t=>t.layer===layer&&cardShows(t)).sort(shelfCore.compareShelfRecords);
     if(!mine.length) continue;
     wrap.innerHTML='<h3>'+layer+' <span style="color:var(--dim)">'+mine.length+'</span></h3>';
-    const grid=document.createElement('div'); grid.className='items';
+    const grid=document.createElement('div'); grid.className='items'; grid.dataset.shelfLayer=layer;
     for(const t of mine){
-      const el=document.createElement('div'); el.className='item'; el.title=t.name;
+      const key=shelfCore.recordKey(t), hidden=visibility.isHidden(key);
+      const el=document.createElement('div'); el.className='item'+(hidden?' temporarily-hidden':''); el.title=t.name;
+      el.dataset.shelfCardKey=key;
       const cv=document.createElement('canvas'); cv.width=t.w; cv.height=t.h;
       createImageBitmap(t.blob).then(bm=>{
         const g=cv.getContext('2d'); g.imageSmoothingEnabled=false; g.drawImage(bm,0,0);
@@ -1513,11 +1730,12 @@ async function renderShelf(){
         const moved={...t, id:'t_'+t.name+'_'+t.layer+'_'+next, status:next};
         await dbDel(t.id);
         await dbPut(moved);
+        visibility.transfer(key,shelfCore.recordKey(moved));
         await cloudMoveOne(t,moved);
         renderShelf(); toast(t.name+' -> '+next); };
       el.appendChild(cyc);
       const dup=document.createElement('button');
-      dup.className='dup'; dup.textContent='\u29c9';
+      dup.className='dup'; dup.textContent='copy';
       dup.title='Duplicate as a wip copy, ready to recolour';
       dup.setAttribute('aria-label','Duplicate '+t.name);
       dup.onclick=async ev=>{ ev.stopPropagation(); await duplicateTrait(t); };
@@ -1541,9 +1759,39 @@ async function renderShelf(){
         renderShelf();
       };
       el.appendChild(rar);
+      const tools=document.createElement('div'); tools.className='shelftools';
+      const drag=document.createElement('button'); drag.type='button'; drag.className='draghandle';
+      drag.textContent='drag'; drag.title='Drag to reorder or move '+t.name;
+      drag.setAttribute('aria-label','Move '+t.name+'. Use drag, arrow keys to reorder, or Shift plus up and down to change layers.');
+      drag.onclick=ev=>{ ev.preventDefault(); ev.stopPropagation(); };
+      drag.onpointerdown=ev=>startShelfDrag(ev,t,el,drag);
+      drag.onpointermove=ev=>{ if(shelfDrag&&shelfDrag.handle===drag) updateShelfDragTarget(ev.clientX,ev.clientY); };
+      drag.onpointerup=ev=>{ if(shelfDrag&&shelfDrag.handle===drag){ ev.preventDefault(); endShelfDrag(false); } };
+      drag.onpointercancel=()=>{ if(shelfDrag&&shelfDrag.handle===drag) endShelfDrag(true); };
+      drag.onkeydown=ev=>{
+        const directions={ArrowLeft:-1,ArrowUp:-1,ArrowRight:1,ArrowDown:1};
+        if(!(ev.key in directions)) return;
+        ev.preventDefault(); ev.stopPropagation();
+        keyboardShelfMove(key,directions[ev.key],ev.shiftKey&&(ev.key==='ArrowUp'||ev.key==='ArrowDown'));
+      };
+      tools.appendChild(drag);
+      const hide=document.createElement('button'); hide.type='button'; hide.textContent=hidden?'show':'hide';
+      hide.title=(hidden?'Show ':'Temporarily hide ')+t.name;
+      hide.onclick=ev=>{ ev.stopPropagation();
+        if(hidden) visibility.show(key); else visibility.hide(key);
+        renderShelf(); announceShelf((hidden?'Showing ':'Hidden ')+t.name+'.');
+      };
+      tools.appendChild(hide);
+      const only=document.createElement('button'); only.type='button'; only.textContent='only';
+      only.title='Temporarily show only '+t.name;
+      only.onclick=ev=>{ ev.stopPropagation();
+        visibility.isolate(traits.map(shelfCore.recordKey),key);
+        renderShelf(); announceShelf('Showing only '+t.name+'.');
+      };
+      tools.appendChild(only); tools.appendChild(dup); el.appendChild(tools);
       const x=document.createElement('button'); x.className='x'; x.textContent='×';
       x.title='Remove'; x.setAttribute('aria-label','Remove '+t.name);
-      x.onclick=async ev=>{ ev.stopPropagation(); const gone=await dbDelShared(t); renderShelf(); toast(gone ? ('Removed '+t.name) : ('Removed '+t.name+' here, but the group still has it - it will come back')); };
+      x.onclick=async ev=>{ ev.stopPropagation(); const gone=await dbDelShared(t); visibility.show(key); renderShelf(); toast(gone ? ('Removed '+t.name) : ('Removed '+t.name+' here, but the group still has it - it will come back')); };
       el.appendChild(x);
       el.onclick=async()=>{
         const bm=await createImageBitmap(t.blob);
@@ -1625,8 +1873,12 @@ async function saveTrait(){
   try{
     const status=$('tstatus').value||'wip';
     const id='t_'+name+'_'+layer+'_'+status;
+    let shelfItems=[];
+    try{ shelfItems=await dbAll(); }catch(_){}
     const rec={id:id, kind:'trait', name, layer, status, blob,
-      w:art.width, h:art.height, at:Date.now()};
+      w:art.width, h:art.height, at:Date.now(),
+      shelfOrder:openRec&&openRec.layer===layer&&typeof openRec.shelfOrder==="number"
+        ? openRec.shelfOrder : shelfCore.nextShelfOrder(shelfItems,layer)};
     /* Rarity lives on the shelf, not in the editor, so rebuilding the record
        from the visible fields silently reset it. Measured: a trait saved at
        rarity 5, reopened and saved with nothing changed, came back with no
@@ -1708,9 +1960,17 @@ document.querySelectorAll('.mini.filt').forEach(btn=>{
     document.querySelectorAll('.mini.filt').forEach(o=>o.setAttribute('aria-pressed',String(o===btn)));
     renderShelf(); };
 });
+$('shelfhidden').onclick=()=>{
+  const state=currentShelfVisibility(); state.setReveal(!state.reveal);
+  renderShelf(); announceShelf(state.reveal?'Temporarily hidden traits are visible.':'Hidden traits are concealed.');
+};
+$('shelfshowall').onclick=()=>{
+  currentShelfVisibility().showAll(); renderShelf(); announceShelf('All traits are visible.');
+};
 $('clearproj').onclick=async()=>{
   if(!confirm('Remove every saved trait and the reference from this browser?')) return;
   await dbClear();
+  currentShelfVisibility().showAll();
   try{ localStorage.removeItem('pb.ref'); }catch(_){}
   refData=null; $('refslot').classList.remove('filled'); $('refthumb').hidden=true;
   $('doextract').disabled=true;
@@ -4718,6 +4978,8 @@ async function bulkImport(files){
      background-1 .. background-9 rather than nine UUIDs. */
   const nextNum={};
   const perLayer={}, noLayer=[];
+  let shelfItems=[];
+  try{ shelfItems=await dbAll(); }catch(_){}
   for(let i=0;i<list.length;i++){
     const f=list[i];
     if(i%12===0){
@@ -4763,8 +5025,10 @@ async function bulkImport(files){
         const status=info.status||"wip";
         if(!info.layer) noLayer.push(info.name);
         const trec={id:"t_"+info.name+"_"+layer+"_"+status, kind:"trait", name:info.name,
-                    layer:layer, status:status, w:w, h:h2, blob:f, at:Date.now()};
+                    layer:layer, status:status, w:w, h:h2, blob:f, at:Date.now(),
+                    shelfOrder:shelfCore.nextShelfOrder(shelfItems,layer)};
         await dbPut(trec);
+        shelfItems.push(trec);
         if(activeWs) await cloudSyncOne(trec);
         perLayer[layer]=(perLayer[layer]||0)+1;
       }
@@ -5331,7 +5595,7 @@ async function openPixelate(d,w,hh,name){
    the layer order or the rarities at all, which is exactly what the existing
    Download all loses. */
 const PROJECT_FORMAT="chatnft-project";
-const PROJECT_VERSION=1;
+const PROJECT_VERSION=2;
 
 function blobToDataURL(b){
   return new Promise((res,rej)=>{
@@ -5352,9 +5616,11 @@ async function exportProject(){
   let failed=0;
   for(const it of keep){
     try{
-      out.push({id:it.id, kind:it.kind, name:it.name, layer:it.layer||null,
+      const saved={id:it.id, kind:it.kind, name:it.name, layer:it.layer||null,
         status:it.status||null, rarity:typeof it.rarity==="number"?it.rarity:null,
-        w:it.w, h:it.h, at:it.at||null, png:await blobToDataURL(it.blob)});
+        w:it.w, h:it.h, at:it.at||null, png:await blobToDataURL(it.blob)};
+      if(typeof it.shelfOrder==="number") saved.shelfOrder=it.shelfOrder;
+      out.push(saved);
     }catch(_){ failed++; }
   }
   const doc={format:PROJECT_FORMAT, version:PROJECT_VERSION,
@@ -5407,7 +5673,8 @@ async function importProject(file){
     const rec={id:id, kind:it.kind==="ref"?"ref":"trait", name:name,
       w:it.w||0, h:it.h||0, blob:blob, at:Date.now()};
     if(rec.kind==="trait"){ rec.layer=layer; rec.status=status;
-      if(typeof it.rarity==="number") rec.rarity=it.rarity; }
+      if(typeof it.rarity==="number") rec.rarity=it.rarity;
+      if(typeof it.shelfOrder==="number") rec.shelfOrder=it.shelfOrder; }
     try{ await dbPut(rec); added++; }catch(_){ failed++; }
   }
   /* Layers the file knows about and this browser does not get appended, in the
@@ -5715,6 +5982,7 @@ async function cloudSyncOne(rec){
         kind:rec.kind, name:rec.name,
         layer:rec.layer||"unsorted", status:rec.status||"wip",
         rarity:(typeof rec.rarity==="number"?rec.rarity:1),
+        shelf_order:(typeof rec.shelfOrder==="number"?rec.shelfOrder:null),
         w:rec.w||1, h:rec.h||1, path:p}])});
     /* Marked here, where it is known to have arrived, so every route that
        uploads gets it: a save inside a group, and Save to cloud. */
@@ -5797,6 +6065,30 @@ async function cloudMoveOne(oldRec,newRec){
   return await cloudSyncOne(fresh);
 }
 
+/* Shelf reordering is metadata-only. The PNG path deliberately does not
+   appear in this payload, so moving a card can never rewrite the artwork. */
+async function cloudSaveShelfPlan(updates){
+  if(!activeWs) return {ok:true};
+  const u=await sbUser();
+  if(!u) return {ok:false,reason:"auth"};
+  const c=await cloudCollection(u);
+  if(!c) return {ok:false,reason:"collection"};
+  let items=[];
+  try{ items=shelfCore.rpcItems(updates); }
+  catch(_){ return {ok:false,reason:"rows"}; }
+  const h=await sbHeaders({"Content-Type":"application/json"});
+  if(!h) return {ok:false,reason:"auth"};
+  try{
+    const r=await fetch(SB_URL+"/rest/v1/rpc/reorder_traits",{
+      method:"POST", headers:h,
+      body:JSON.stringify({p_collection:c.id,p_items:items})
+    });
+    if(r.ok) return {ok:true};
+    let detail={}; try{ detail=await r.json(); }catch(_){}
+    return {ok:false,reason:(r.status===409||detail.code==="23505")?"duplicate":"server"};
+  }catch(_){ return {ok:false,reason:"network"}; }
+}
+
 async function cloudPush(){
   const u=await sbUser();
   if(!u){ toast("Sign in first"); return; }
@@ -5863,10 +6155,10 @@ async function cloudPull(opts){
   const rows=await r.json();
   /* The identities the server holds, so the caller can work out what has been
      removed by somebody else since this device last looked. */
-  const onServer=new Set(rows.map(function(row){
-    return row.kind==="ref" ? ("ref_"+row.name)
-      : ("t_"+row.name+"_"+(row.layer||"unsorted")+"_"+(row.status||"wip"));
-  }));
+  /* Server row ids survive local collision-renames and layer moves. A derived
+     name/layer id does not, and would make the cleanup below delete a perfectly
+     valid local copy immediately after refreshing its shared position. */
+  const onServer=new Set(rows.map(shelfCore.recordKey));
   if(!rows.length){ if(!opts.quiet) toast("Nothing saved on the server yet"); return onServer; }
   $("cloudpull").disabled=true;
   let existing=[];
@@ -5900,12 +6192,19 @@ async function cloudPull(opts){
        Measured on a 113-trait project: one press took it to 227. Renaming is
        still right for a genuine clash - two people naming different traits
        "hat" - and that is what is left below. */
-    if(held.has(row.id)) continue;
+    if(held.has(row.id)){
+      const cur=held.get(row.id);
+      const refreshed=shelfCore.mergeRemoteShelfRecord(cur,row,taken);
+      repair.push({oldId:cur.id,record:refreshed});
+      taken.delete(cur.id); taken.add(refreshed.id);
+      continue;
+    }
     if(opts.keepMine && taken.has(baseId)){
       /* Recognised, so not downloaded again - but this is the one moment the
          local copy and its server row are both in hand. Stamped now, the copy
          becomes deletable by row id instead of by name. */
-      repair.push({id:baseId, rowId:row.id, path:row.path});
+      const cur=byId.get(baseId);
+      if(cur) repair.push({oldId:cur.id,record:shelfCore.mergeRemoteShelfRecord(cur,row,taken)});
       continue;
     }
     let name=row.name;
@@ -5931,11 +6230,9 @@ async function cloudPull(opts){
   let repaired=0;
   for(const rp of repair){
     try{
-      const cur=byId.get(rp.id);
-      if(cur && !cur.rowId){
-        await dbPut(Object.assign({},cur,{rowId:rp.rowId, path:rp.path}));
-        repaired++;
-      }
+      if(rp.oldId!==rp.record.id) await dbDel(rp.oldId);
+      await dbPut(rp.record);
+      repaired++;
     }catch(_){}
   }
 
@@ -5956,7 +6253,8 @@ async function cloudPull(opts){
           kind:w.row.kind, name:w.name, w:w.row.w, h:w.row.h,
           blob:blob, at:Date.now(), synced:true};
         if(w.row.kind==="trait"){ rec.layer=w.layer; rec.status=w.status;
-          if(typeof w.row.rarity==="number") rec.rarity=w.row.rarity; }
+          if(typeof w.row.rarity==="number") rec.rarity=w.row.rarity;
+          if(typeof w.row.shelf_order==="number") rec.shelfOrder=w.row.shelf_order; }
         await dbPut(rec); added++;
       }catch(_){ failed++; }
       done++;
@@ -6034,7 +6332,7 @@ async function wsSwitch(id){
         for(const it of await dbAll()){
           if(it.kind!=="trait"&&it.kind!=="ref") continue;
           if(!it.synced) continue;
-          if(onServer.has(it.id)) continue;
+          if(onServer.has(shelfCore.recordKey(it))) continue;
           await dbDel(it.id); gone++;
         }
         if(gone) toast(gone+" removed by someone else");

@@ -203,10 +203,30 @@ export const setField = (page, id, value) => page.evaluate(({ id, value }) => {
 }, { id, value });
 
 /** Set a <select> and fire change. */
+/* Handles a <select> OR a chip group, and throws when it matches neither.
+
+   rsmode and tstatus stopped being selects - three short mutually exclusive
+   options read better as segmented chips - and the tests that drove them by
+   `.value` did not go red, they went QUIET: assigning `.value` to a div is
+   perfectly legal and does nothing at all. Two resize tests then failed on
+   their assertions instead of at the line that had stopped working.
+
+   Throwing on an unknown shape is the point. It is the only way the next
+   change of control type fails at the driver rather than passing silently. */
 export const setSelect = (page, id, value) => page.evaluate(({ id, value }) => {
   const e = document.getElementById(id);
-  e.value = value;
-  e.dispatchEvent(new Event('change', { bubbles: true }));
+  if (!e) throw new Error('no control called ' + id);
+  if (e.tagName === 'SELECT') {
+    e.value = value;
+    if (e.value !== value) throw new Error(id + ' has no option "' + value + '"');
+    e.dispatchEvent(new Event('change', { bubbles: true }));
+    return;
+  }
+  const chip = e.querySelector('[data-v="' + value + '"]');
+  if (!chip) throw new Error(id + ' is neither a select nor a chip group offering "' + value + '"');
+  chip.click();
+  if (chip.getAttribute('aria-pressed') !== 'true')
+    throw new Error(id + ' did not take the value "' + value + '"');
 }, { id, value });
 
 /** Whether a toggle button is pressed. */

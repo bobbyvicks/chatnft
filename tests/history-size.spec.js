@@ -112,7 +112,9 @@ test.describe('the history is bounded in bytes', () => {
     await page.evaluate(() => {
       document.querySelectorAll('.side section').forEach(s => s.classList.remove('folded'));
       document.getElementById('rssnap').setAttribute('aria-pressed', 'false');
-      document.getElementById('rsmode').value = 'art';
+      /* A chip group now, not a select - assigning .value to a div is legal
+         and does nothing, so this drove nothing and the test still passed. */
+      document.querySelector('#rsmode [data-v="art"]').click();
     });
     await setField(page, 'rsw', 60);
     await setField(page, 'rsh', 60);

@@ -560,6 +560,15 @@ input[type=range]{width:100%; accent-color:var(--accent); cursor:pointer;}
      competing for the space is the artwork. */
   .side{width:274px;}
 }
+/* Segmented: one rounded group, hairlines between, the chosen one filled. */
+.chips{display:flex; flex:1; min-width:0; border:1px solid var(--line); border-radius:6px; overflow:hidden;}
+.chips button{flex:1; min-width:0; padding:4px 6px; font:inherit; font-size:11px;
+  background:var(--panel-2); color:var(--muted); border:0; border-left:1px solid var(--line);
+  cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+.chips button:first-child{border-left:0;}
+.chips button:hover{color:var(--ink);}
+.chips button[aria-pressed="true"]{background:var(--accent); color:#241a05; font-weight:600;}
+.chips button:focus-visible{outline:2px solid var(--accent); outline-offset:-2px;}
 .swatches{display:grid; grid-template-columns:repeat(8,1fr); gap:5px;}
 .sw{aspect-ratio:1; min-height:26px; border-radius:5px; border:1px solid #ffffff1a; padding:0;}
 .sw[aria-pressed="true"]{outline:2px solid var(--accent); outline-offset:1px;}
@@ -1073,11 +1082,14 @@ footer .mono{color:var(--ink);}
           style="width:auto;padding:6px 10px;font-size:12px;margin-left:4px"
           title="Keep the width and height in proportion">Shape</button></div>
       <div class="olrow"><label for="rsmode">Change</label>
-        <select id="rsmode" style="flex:1">
-          <option value="art" title="Scale the artwork to the new size">Art</option>
-          <option value="canvas" title="Pad or crop the canvas - the art is untouched">Canvas</option>
-          <option value="inside" title="Resize the trait within the canvas - the canvas size stays">Trait inside</option>
-        </select></div>
+        <div class="chips" id="rsmode" role="group" aria-label="What to change">
+          <button type="button" data-v="art" aria-pressed="true"
+            title="Scale the artwork to the new size">Art</button>
+          <button type="button" data-v="canvas" aria-pressed="false"
+            title="Pad or crop the canvas - the art is untouched">Canvas</button>
+          <button type="button" data-v="inside" aria-pressed="false"
+            title="Resize the trait within the canvas - the canvas size stays">Inside</button>
+        </div></div>
       <div class="olrow"><label for="rspreset">Jump to</label>
         <select id="rspreset" style="flex:1"></select></div>
       <div class="olrow"><label for="rsgrid">Cells</label>
@@ -1129,11 +1141,11 @@ footer .mono{color:var(--ink);}
         <div class="savebar">
           <input id="tname" type="text" placeholder="trait name" aria-label="Trait name">
           <select id="tlayer" aria-label="Layer"></select>
-          <select id="tstatus" aria-label="Status">
-            <option value="wip">wip</option>
-            <option value="approved">approved</option>
-            <option value="rejected">rejected</option>
-          </select>
+          <div class="chips" id="tstatus" role="group" aria-label="Status">
+            <button type="button" data-v="wip" aria-pressed="true">wip</button>
+            <button type="button" data-v="approved" aria-pressed="false">approved</button>
+            <button type="button" data-v="rejected" aria-pressed="false">rejected</button>
+          </div>
         </div>
         <button class="btn" id="saveproj">Save to project</button>
       </div>
@@ -2061,7 +2073,7 @@ async function renderShelf(){
         const d=g.getImageData(0,0,t.w,t.h);
         fileName=t.name+'.png';
         startEditor(d.data,t.w,t.h,t.w,t.h,palette(d.data,t.w*t.h,24,64),false);
-        $('tname').value=t.name; $('tlayer').value=t.layer; $('tstatus').value=t.status||'wip';
+        $('tname').value=t.name; $('tlayer').value=t.layer; setChip('tstatus',t.status||'wip');
         openRec=t;
       };
       grid.appendChild(el);
@@ -2131,7 +2143,7 @@ async function saveTrait(){
   const c=traitCanvas();
   const blob=await blobOf(c);
   try{
-    const status=$('tstatus').value||'wip';
+    const status=chipVal('tstatus')||'wip';
     const id='t_'+name+'_'+layer+'_'+status;
     let shelfItems=[];
     try{ shelfItems=await dbAll(); }catch(_){}
@@ -4124,7 +4136,7 @@ function applyResize(){
   const W=art.width, H=art.height;
   const snap=snapOn();
   /* Read before the snapping, not after: which rule applies depends on it. */
-  const mode=$("rsmode").value;
+  const mode=chipVal("rsmode");
   /* Snapped before clamping, so a snap can never push a size out of range. */
   let nw=Math.max(1,Math.min(4096,parseInt($("rsw").value,10)||0));
   if(snap) nw=Math.min(4096,snapFor(mode,nw));
@@ -4331,6 +4343,31 @@ function refreshStats(){
   outlinePreview();
   autosave();
 }
+/* A three-option choice, as chips rather than a dropdown. Same aria-pressed
+   idiom as oltidy, olpatch, rslock and rssnap, so this extends a pattern the
+   panel already has instead of inventing one.
+
+   A select carries a .value and a div does not, so these exist rather than a
+   hidden select shadowing the chips - two sources of truth that drift - or
+   Object.defineProperty on a div, which reads like a bug to whoever finds it. */
+function chipVal(id){
+  const on=document.querySelector("#"+id+" [aria-pressed='true']");
+  const first=document.querySelector("#"+id+" button");
+  return on ? on.dataset.v : (first ? first.dataset.v : "");
+}
+function setChip(id,v){
+  const all=document.querySelectorAll("#"+id+" button");
+  let hit=false;
+  for(const b of all){ const on=b.dataset.v===v; b.setAttribute("aria-pressed",String(on)); if(on) hit=true; }
+  /* An unknown value must not leave every chip off, which would read as
+     "no choice" and send chipVal to the first one anyway. */
+  if(!hit&&all.length) all[0].setAttribute("aria-pressed","true");
+}
+for(const id of ["rsmode","tstatus"]){
+  const g=document.getElementById(id);
+  if(g) g.onclick=e=>{ const b=e.target.closest("button[data-v]"); if(b) setChip(id,b.dataset.v); };
+}
+
 function selectTool(t){
   tool=t; panMode=(t==='pan');
   document.querySelectorAll('.tool[data-tool]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.tool===t)));
@@ -7637,7 +7674,7 @@ $('filltol').addEventListener('input',()=>{
     /* Snapped in CANVAS pixels, not screen pixels, or the step would change
        with the zoom. */
     if(snapOn()){
-      const sm=$("rsmode").value;
+      const sm=chipVal("rsmode");
       w=Math.max(1,snapFor(sm,w/zoom))*zoom;
       h=Math.max(1,snapFor(sm,h/zoom))*zoom;
     }
@@ -7659,8 +7696,8 @@ $('filltol').addEventListener('input',()=>{
     /* The drag preview scales the art on screen; committing in "inside" mode
        puts the canvas back and scales the pixels instead, which lands on the
        same picture. */
-    if(resizeTo(nw,nh,$("rsmode").value)){ fitZoom();
-      toast($("rsmode").value==="inside" ? "Trait scaled on a "+art.width+" by "+art.height+" canvas"
+    if(resizeTo(nw,nh,chipVal("rsmode"))){ fitZoom();
+      toast(chipVal("rsmode")==="inside" ? "Trait scaled on a "+art.width+" by "+art.height+" canvas"
                                          : "Resized to "+art.width+" by "+art.height); }
   };
   box.addEventListener("pointerup",finish);

@@ -1105,6 +1105,10 @@ let baseBitmap=null;  /* the image drawn behind the art, never part of it */
    base is attached and is also the old behaviour. */
 let basePin=null;
 let moveBuf=null, moveFrom=null, moveDelta={x:0,y:0};
+/* What the move drag has to hand back if it ends where it began: the redo
+   stack its snapshot cleared, and anything that snapshot pushed off the
+   front. Cleared with moveBuf. */
+let moveRedoWas=null, moveDropped=null;
 /* The colours Recolour will replace, as upper-case hex strings. A set rather
    than one value: merging several shades into one is the common job - a trait
    that came back with six near-identical greys, or three passes at the same
@@ -3033,7 +3037,56 @@ function fitZoom(){
   st.scrollLeft=Math.max(0,cx-st.clientWidth/2);
   st.scrollTop =Math.max(0,cy-st.clientHeight/2);
 }
-function snapshot(){ undoStack.push(ctx.getImageData(0,0,art.width,art.height)); if(undoStack.length>60) undoStack.shift(); redoStack.length=0; }
+/* The history is bounded by BYTES, not only by a count of steps.
+
+   An entry is width*height*4 and resizeTo clamps at 4096, so one legal entry
+   is 67MB and a legal 60-deep stack is 3.75 GB. The count cap bounds the
+   count and says nothing about that.
+
+   192 MiB leaves the sizes people work at exactly as they were - 60 steps at
+   512 and below - and cuts only the tail: 30 steps at 1280, 3 at 4096.
+
+   No OOM, GC stall or tab kill was ever reproduced at any size, so this is
+   not a crash fix. It closes an unbounded quantity. */
+const HISTORY_BYTES=192*1048576;
+
+/* Rescanned, never kept as a running total: dropSnapshot and the two handlers
+   all move entries without telling any accounting, and a counter that drifts
+   is worse than no counter. Both stacks, because pressing undo pushes a copy
+   of the LIVE canvas onto redo which can be far larger than the entry it
+   pops - measured, one click after a resize to 4096 took the pair 58% past a
+   budget that only snapshot() enforced. */
+function historyBytes(){
+  let t=0;
+  for(const e of undoStack) t+=e.data.byteLength;
+  for(const e of redoStack) t+=e.data.byteLength;
+  /* An entry that is not a bare ImageData reads undefined here and sums to
+     NaN, and NaN>budget is false - the trim would switch itself off in
+     silence. Say so instead. */
+  if(!Number.isFinite(t)) throw new Error("undo history accounting is not a number");
+  return t;
+}
+
+/* Only ever from the FRONT of undoStack - the oldest steps - and never from
+   redoStack, where trimming would delete the redo the user just created by
+   pressing undo. Always leaves one entry, so undo is never dead even when a
+   single entry is larger than the whole budget. */
+function trimHistory(){
+  while(undoStack.length>1 && historyBytes()>HISTORY_BYTES) undoStack.shift();
+}
+
+/* Returns everything it removed to make room, so dropSnapshot can put the
+   stack back EXACTLY as it was. Without that, taking a snapshot and dropping
+   it again on a full stack silently ate the oldest step - measured at 160:
+   60 entries in, 59 out, and the oldest one gone. */
+function snapshot(){
+  undoStack.push(ctx.getImageData(0,0,art.width,art.height));
+  const dropped=[];
+  if(undoStack.length>60) dropped.push(undoStack.shift());
+  while(undoStack.length>1 && historyBytes()>HISTORY_BYTES) dropped.push(undoStack.shift());
+  redoStack.length=0;
+  return dropped;
+}
 
 /* Take back a snapshot that turned out to describe nothing.
 
@@ -3043,8 +3096,11 @@ function snapshot(){ undoStack.push(ctx.getImageData(0,0,art.width,art.height));
    6.25MB to record that nothing happened, and it also costs a redo, because
    snapshot() clears the redo stack on the way in. Hand it what redo held and
    both go back. */
-function dropSnapshot(redoWas){
+function dropSnapshot(redoWas,dropped){
   undoStack.pop();
+  /* Back in the order they left, so the stack is byte-for-byte what it was
+     before the snapshot nobody needed. */
+  if(dropped) for(let i=dropped.length-1;i>=0;i--) undoStack.unshift(dropped[i]);
   if(redoWas){ redoStack.length=0; for(const r of redoWas) redoStack.push(r); }
 }
 
@@ -6275,7 +6331,10 @@ function acctToggle(){
 function beginStroke(e){
   const c=cellFrom(e); if(!c) return;
   if(tool==="move"){
-    snapshot();
+    /* Same as the fill branch below: hold the redo stack aside, because
+       snapshot() clears it and this drag may end where it started. */
+    moveRedoWas=redoStack.slice();
+    moveDropped=snapshot();
     moveBuf=ctx.getImageData(0,0,art.width,art.height);
     moveFrom=rawCell(e); moveDelta={x:0,y:0};
     $("olpv").style.display="none";
@@ -6285,14 +6344,14 @@ function beginStroke(e){
     /* Held aside before the snapshot, because snapshot() clears it and this
        fill may turn out to have been nothing at all. */
     const redoWas=redoStack.slice();
-    snapshot();
+    const dropped=snapshot();
     const n=floodFill(c.x,c.y,hx2(color));
     /* Said out loud, because a fill that filled one cell used to look exactly
        like a fill that did nothing. */
     if(!n){
       /* Nothing changed, so nothing to remember. The same rule the move tool
          has always followed at the end of a drag. */
-      dropSnapshot(redoWas);
+      dropSnapshot(redoWas,dropped);
       toast("Nothing to fill there");
     }
     else if(n===1) toast("Filled 1 cell - raise Fill spread to cover more");
@@ -6401,8 +6460,9 @@ function endPointer(e){
     moveBuf=null;
     /* A drag that ended where it started is not an edit, so it does not earn
        an undo step that appears to do nothing. */
-    if(!moveDelta.x&&!moveDelta.y) dropSnapshot();
+    if(!moveDelta.x&&!moveDelta.y) dropSnapshot(moveRedoWas,moveDropped);
     else toast('Moved '+moveDelta.x+', '+moveDelta.y+' cells');
+    moveRedoWas=null; moveDropped=null;
     refreshStats();
   }
   if(pendingTouch&&pendingTouch.pointerId===e.pointerId){
@@ -6422,8 +6482,12 @@ stage.addEventListener('wheel',e=>{ e.preventDefault(); setZoom(zoom+(e.deltaY<0
 document.querySelectorAll('.tool[data-tool]').forEach(b=>b.onclick=()=>selectTool(b.dataset.tool));
 $('panbtn').onclick=()=>selectTool(panMode?'pencil':'pan');
 $('gridbtn').onclick=e=>{ const on=$('grid').classList.toggle('on'); e.currentTarget.setAttribute('aria-pressed',String(on)); };
-$('undo').onclick=()=>{ if(!undoStack.length) return; redoStack.push(ctx.getImageData(0,0,art.width,art.height)); restoreImage(undoStack.pop()); refreshStats(); resizeBoxes(); repalette(); };
-$('redo').onclick=()=>{ if(!redoStack.length) return; undoStack.push(ctx.getImageData(0,0,art.width,art.height)); restoreImage(redoStack.pop()); refreshStats(); resizeBoxes(); repalette(); };
+/* trimHistory here as well as in snapshot(): this pushes a copy of the LIVE
+   canvas, which after a resize can be far larger than the entry it is about
+   to pop. Measured, one click at 4096 took the pair 58% past a budget that
+   only snapshot() enforced. */
+$('undo').onclick=()=>{ if(!undoStack.length) return; redoStack.push(ctx.getImageData(0,0,art.width,art.height)); trimHistory(); restoreImage(undoStack.pop()); refreshStats(); resizeBoxes(); repalette(); };
+$('redo').onclick=()=>{ if(!redoStack.length) return; undoStack.push(ctx.getImageData(0,0,art.width,art.height)); trimHistory(); restoreImage(redoStack.pop()); refreshStats(); resizeBoxes(); repalette(); };
 $('zin').onclick=()=>setZoom(zoom+1);
 $('zout').onclick=()=>setZoom(zoom-1);
 $('zfit').onclick=fitZoom;

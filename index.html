@@ -350,6 +350,43 @@ canvas{display:block; image-rendering:pixelated; cursor:crosshair; touch-action:
    own resolution, so it never touches a pixel until Add outline is pressed. */
 #olpv{position:absolute; left:0; top:0; display:none; pointer-events:none; z-index:2;
   image-rendering:pixelated;}
+#textpv{position:absolute; left:0; top:0; display:none; pointer-events:none; z-index:2;
+  image-rendering:pixelated;}
+.textcoords{display:grid; grid-template-columns:1fr 1fr; gap:8px;}
+.textcoords label{display:flex; align-items:center; gap:6px; color:var(--muted); font-size:12px;}
+.textcoords input{width:100%; min-width:0; padding:7px 8px; border-radius:7px;
+  background:var(--ground); border:1px solid var(--line); color:var(--ink); font:12px "JetBrains Mono",monospace;}
+.textnudges{display:grid; grid-template-columns:repeat(4,1fr); gap:6px;}
+.textnudges .mini{padding:6px; font-size:15px;}
+.textoptions{display:grid; grid-template-columns:1fr 1fr; gap:7px 8px;}
+.textoptions label{display:flex; align-items:center; gap:5px; color:var(--muted); font-size:11px;}
+.textoptions input,.textoptions select{width:100%; min-width:0; padding:6px 7px; border-radius:7px;
+  background:var(--ground); border:1px solid var(--line); color:var(--ink); font:11px "JetBrains Mono",monospace;}
+.texttransform{margin:0; padding:10px; border:1px solid var(--line); border-radius:9px;
+  background:var(--ground); display:grid; gap:9px; min-width:0;}
+.texttransform legend{padding:0 6px; color:var(--ink); font-size:11px; font-weight:600;
+  text-transform:uppercase; letter-spacing:.07em;}
+.transformhint{margin:0; color:var(--dim); font-size:10.5px; line-height:1.4;}
+.transformgroup{display:grid; gap:5px;}
+.transformlabel{color:var(--muted); font-size:10.5px; font-weight:600;}
+.texttransform .textnudges{grid-template-columns:repeat(2,minmax(0,1fr));}
+.texttransform .textnudges.four{grid-template-columns:repeat(4,minmax(0,1fr));}
+.texttransform .textnudges .mini{padding:7px 4px; font-size:10.5px; line-height:1.25;}
+.texttransform .textoptions{margin-top:1px;}
+.holdstep{display:grid; grid-template-columns:24px minmax(0,1fr) 24px; align-items:center; gap:3px;
+  width:100%; min-width:0;}
+.holdstep input{width:100%; min-width:0;}
+.holdstep button{height:28px; padding:0; border-radius:6px; border:1px solid var(--line);
+  background:var(--ground); color:var(--ink); font:700 13px "JetBrains Mono",monospace; cursor:pointer;}
+.holdstep button:active{background:var(--accent-soft); border-color:var(--accent);}
+.holdstep button:disabled{opacity:.35; cursor:not-allowed;}
+.textlayers{display:flex; flex-wrap:wrap; gap:5px; min-height:0;}
+.textlayer{max-width:100%; padding:5px 7px; border-radius:6px; border:1px solid var(--line);
+  background:var(--ground); color:var(--muted); font:10px "JetBrains Mono",monospace;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.textlayer.active{border-color:var(--accent); color:var(--ink); background:var(--accent-soft);}
+.textentry{width:100%; min-height:54px; resize:vertical; padding:8px 9px; border-radius:8px;
+  background:var(--ground); border:1px solid var(--line); color:var(--ink); font:12px "JetBrains Mono",monospace;}
 input[type=range]{width:100%; accent-color:#f5a524; cursor:pointer;}
 .olrow{display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--muted);}
 .olrow select,.olrow input[type=number]{margin-left:auto;}
@@ -732,10 +769,13 @@ footer .mono{color:var(--ink);}
       <div class="pxctl">
         <label class="olchk"><input type="checkbox" id="pxvivid" checked> Use the saved Vivid Pixel Agent rules</label>
         <div id="pxvividcontrols">
+          <div class="olrow"><label for="pxvividprofile">Trait profile</label>
+            <select id="pxvividprofile"><option value="standard" selected>Standard traits (128 → 1024)</option><option value="clothing">Clothing — fixed project palette + locked black ink (128/256 → 1024)</option><option value="skins">Skins (160 → 1280)</option></select>
+          </div>
           <div class="olrow" id="pxvividgridrow"><label for="pxvividgrid">Working grid</label>
             <select id="pxvividgrid"><option>32</option><option>64</option><option selected>128</option><option>256</option></select>
           </div>
-          <p class="note">1024×1024 · 16 colors max · black exterior outline · hard transparency</p>
+          <p class="note" id="pxvividnote">1024×1024 · 16 colors max · black exterior outline · hard transparency</p>
           <label for="pxinstruction">Instruction</label>
           <textarea id="pxinstruction" rows="3" maxlength="2000" placeholder="Example: remove the small white dot outside the hat"></textarea>
           <button class="btn" id="pxgenerate" disabled>Generate locally with ComfyUI</button>
@@ -792,7 +832,7 @@ footer .mono{color:var(--ink);}
   </nav>
 
   <main class="stage" id="stage">
-    <div class="frame" id="frame"><canvas id="base"></canvas><canvas id="art"></canvas><div id="grid"></div><canvas id="olpv"></canvas><div id="bcur"></div></div>
+    <div class="frame" id="frame"><canvas id="base"></canvas><canvas id="art"></canvas><canvas id="textpv"></canvas><div id="grid"></div><canvas id="olpv"></canvas><div id="bcur"></div></div>
   </main>
 
   <aside class="side" id="sidepanel">
@@ -855,6 +895,126 @@ footer .mono{color:var(--ink);}
       <p class="note">Never drawn into the artwork, so it cannot reach a save or an export. <kbd>M</kbd> drags the trait over it.</p>
     </section>
     <section>
+      <h2>Text patch</h2>
+      <div class="stack">
+        <div class="savebar">
+          <button class="mini" id="textadd" style="flex:1">+ Add text box</button>
+          <span class="note mono" id="textcount">0 boxes</span>
+        </div>
+        <div class="textlayers" id="textlayers" aria-label="Text boxes"></div>
+        <textarea class="textentry" id="texttyped" rows="2" placeholder="EXIT&#10;LIQUIDITY" aria-label="Pixel text"></textarea>
+        <div class="savebar">
+          <input id="textcolor" type="color" value="#ffffff" aria-label="Text colour" style="flex:0 0 54px; width:54px">
+          <button class="mini" id="textbrush" style="flex:1">Use brush colour</button>
+        </div>
+        <div class="savebar">
+          <input id="textoutlinecolor" type="color" value="#000000" aria-label="Text outline colour" style="flex:0 0 54px; width:54px">
+          <button class="mini" id="textoutlinebrush" style="flex:1">Use brush for outline</button>
+        </div>
+        <div class="savebar">
+          <label style="flex:0 0 auto"><input id="textshadowenabled" type="checkbox"> Shadow</label>
+          <input id="textshadowcolor" type="color" value="#000000" aria-label="Text shadow colour" style="flex:0 0 54px; width:54px">
+          <button class="mini" id="textshadowbrush" style="flex:1">Use brush for shadow</button>
+        </div>
+        <div class="textoptions">
+          <label>Font <select id="textfont"><option value="classic" selected>Classic 5×7</option><option value="compact">Compact 3×5</option><option value="arcade">Arcade 5×7</option><option value="rounded">Rounded 5×7</option><option value="stencil">Stencil 5×7</option></select></label>
+          <label>Pixel W <input id="textscale" type="number" min="1" max="16" step="0.1" value="3"></label>
+          <label>Pixel H <input id="textheight" type="number" min="1" max="16" step="0.1" value="3"></label>
+          <label>Letter gap <input id="texttracking" type="number" min="0" max="48" step="0.1" value="3"></label>
+          <label>Line gap <input id="textlinegap" type="number" min="0" max="48" step="0.1" value="3"></label>
+          <label>Bold <input id="textbold" type="number" min="0" max="4" step="1" value="0"></label>
+          <label>Outline px <input id="textoutlinesize" type="number" min="0" max="4" step="1" value="0"></label>
+          <label>Align <select id="textalign"><option value="left">left</option><option value="center" selected>centre</option><option value="right">right</option></select></label>
+        </div>
+        <fieldset class="texttransform" aria-labelledby="textshapeheading">
+          <legend id="textshapeheading">Shape the letters</legend>
+          <p class="transformhint">Changes the letter shapes. The outline and shadow follow the result.</p>
+          <div class="transformgroup">
+            <span class="transformlabel">Slant letter tops</span>
+            <div class="textnudges" aria-label="Slant letter tops">
+              <button class="mini" data-text-lean="-1" aria-label="Slant letter tops left">Top left</button>
+              <button class="mini" data-text-lean="1" aria-label="Slant letter tops right">Top right</button>
+            </div>
+          </div>
+          <div class="transformgroup">
+            <span class="transformlabel">Angle the text line</span>
+            <div class="textnudges" aria-label="Angle the text line">
+              <button class="mini" data-text-slope="-1" aria-label="Raise the right side of the text line">Right side up</button>
+              <button class="mini" data-text-slope="1" aria-label="Lower the right side of the text line">Right side down</button>
+            </div>
+          </div>
+          <div class="textoptions">
+            <label>Top slant <input id="textlean" type="number" min="-64" max="64" step="0.1" value="0"></label>
+            <label>Line angle <input id="textslope" type="number" min="-64" max="64" step="0.1" value="0"></label>
+          </div>
+        </fieldset>
+        <fieldset class="texttransform" aria-labelledby="textshadowheading">
+          <legend id="textshadowheading">Move the shadow</legend>
+          <p class="transformhint">Positions the shadow without moving the text or its outline.</p>
+          <div class="textnudges four" aria-label="Move the text shadow">
+            <button class="mini" data-text-shadow-dx="-1" data-text-shadow-dy="0" aria-label="Move shadow left">Shadow left</button>
+            <button class="mini" data-text-shadow-dx="0" data-text-shadow-dy="-1" aria-label="Move shadow up">Shadow up</button>
+            <button class="mini" data-text-shadow-dx="0" data-text-shadow-dy="1" aria-label="Move shadow down">Shadow down</button>
+            <button class="mini" data-text-shadow-dx="1" data-text-shadow-dy="0" aria-label="Move shadow right">Shadow right</button>
+          </div>
+          <div class="textoptions">
+            <label>Horizontal <input id="textshadowx" type="number" min="-64" max="64" step="0.1" value="1"></label>
+            <label>Vertical <input id="textshadowy" type="number" min="-64" max="64" step="0.1" value="1"></label>
+          </div>
+        </fieldset>
+        <fieldset class="texttransform" aria-labelledby="textboxheading">
+          <legend id="textboxheading">Tilt the whole text box</legend>
+          <p class="transformhint">Tilts the finished text, outline, and shadow together as one box.</p>
+          <div class="transformgroup">
+            <span class="transformlabel">Slant the whole box</span>
+            <div class="textnudges" aria-label="Slant the whole text box">
+              <button class="mini" data-text-wrap-x="-1" aria-label="Slant whole text box top left">Box top left</button>
+              <button class="mini" data-text-wrap-x="1" aria-label="Slant whole text box top right">Box top right</button>
+            </div>
+          </div>
+          <div class="transformgroup">
+            <span class="transformlabel">Angle the whole box</span>
+            <div class="textnudges" aria-label="Angle the whole text box">
+              <button class="mini" data-text-wrap-y="-1" aria-label="Raise whole text box right side">Box right side up</button>
+              <button class="mini" data-text-wrap-y="1" aria-label="Lower whole text box right side">Box right side down</button>
+            </div>
+          </div>
+          <div class="textoptions">
+            <label>Box slant <input id="textwrapx" type="number" min="-64" max="64" step="0.1" value="0"></label>
+            <label>Box angle <input id="textwrapy" type="number" min="-64" max="64" step="0.1" value="0"></label>
+          </div>
+        </fieldset>
+        <button class="btn" id="textgenerate">Create / update text box</button>
+        <input id="textfile" type="file" accept="image/png" hidden>
+        <button class="btn ghost" id="textchoose">Or choose transparent text PNG</button>
+        <div class="note mono" id="textinfo">No text sprite loaded.</div>
+        <div class="textcoords" aria-label="Old lettering cleanup box">
+          <label>X <input id="textcleanx" type="number" step="1" value="0"></label>
+          <label>Y <input id="textcleany" type="number" step="1" value="0"></label>
+          <label>W <input id="textcleanw" type="number" min="0" step="1" value="0"></label>
+          <label>H <input id="textcleanh" type="number" min="0" step="1" value="0"></label>
+        </div>
+        <button class="btn ghost" id="textclean">Clear old lettering pixels in box</button>
+        <p class="note">Uses the brush colour as the garment fill. Only visible pixels that differ inside this exact box are changed; everything outside it is protected.</p>
+        <div class="textcoords">
+          <label>X <input id="textx" type="number" step="1" value="0" disabled></label>
+          <label>Y <input id="texty" type="number" step="1" value="0" disabled></label>
+        </div>
+        <div class="textnudges" aria-label="Nudge text one cell">
+          <button class="mini" data-text-dx="-1" data-text-dy="0" disabled aria-label="Nudge text left">←</button>
+          <button class="mini" data-text-dx="0" data-text-dy="-1" disabled aria-label="Nudge text up">↑</button>
+          <button class="mini" data-text-dx="0" data-text-dy="1" disabled aria-label="Nudge text down">↓</button>
+          <button class="mini" data-text-dx="1" data-text-dy="0" disabled aria-label="Nudge text right">→</button>
+        </div>
+        <button class="btn ghost" id="textcenter" disabled>Centre selected in cleanup box</button>
+        <div class="savebar">
+          <button class="btn" id="textapply" disabled style="flex:2">Apply all text only</button>
+          <button class="btn ghost" id="textclear" disabled style="flex:1">Remove selected</button>
+        </div>
+      </div>
+      <p class="note">Every box stays editable and separate. Click visible preview letters to select a box. Applying changes only visible sprite pixels; transparent pixels leave the v1 art byte-for-byte unchanged.</p>
+    </section>
+    <section>
       <h2>Outline</h2>
       <div class="stack">
         <div class="olrow"><label for="olthick">Thickness</label>
@@ -895,6 +1055,7 @@ footer .mono{color:var(--ink);}
     <section>
       <h2>Export</h2>
       <div class="stack">
+        <button class="btn" id="savedisk">Save exact PNG to disk</button>
         <button class="btn ghost" id="dlNative">Download at grid size</button>
         <button class="btn ghost" id="dlBig">Download at 8×</button>
         <button class="btn ghost" id="dlTrim">Download trimmed to the art</button>
@@ -904,7 +1065,7 @@ footer .mono{color:var(--ink);}
         <button class="btn" id="saveclose">Save and close</button>
         <button class="btn ghost" id="closeed">Close</button>
       </div>
-      <p class="note">PNG, no smoothing. Keep the full canvas for anything you will layer back onto a character — that is what makes it line up.</p>
+      <p class="note">The disk save writes the live editor pixels to the selected layer and status in <span class="mono">new-traits</span>. PNG, no smoothing, and no extraction or palette rebuild.</p>
     </section>
   </aside>
 
@@ -926,10 +1087,13 @@ footer .mono{color:var(--ink);}
 
 <script src="./browser-environment.js"></script>
 <script src="./pixel-agent-core.js"></script>
+<script src="./text-overlay-core.js"></script>
+<script src="./text-control-core.js"></script>
 <script>
 "use strict";
 const $=id=>document.getElementById(id);
 let vividContract=null, vividCore=null, vividResult=null, editorVivid=false, editorVividOwner=null;
+let vividCanonicalMasks={};
 
 async function initVividAgent(){
   try{
@@ -938,7 +1102,14 @@ async function initVividAgent(){
       fetch('./palette/vivid-fixed-128.json').then(r=>{ if(!r.ok) throw new Error('palette'); return r.json(); }),
     ]);
     vividContract=config;
+    for(const [name,profile] of Object.entries(config.profiles||{})){
+      if(!profile.canonicalMask) continue;
+      const mask=await decodePngDataUrl('./'+profile.canonicalMask);
+      if(mask.width!==profile.grid.default||mask.height!==profile.grid.default) throw new Error('canonical mask');
+      vividCanonicalMasks[name]=mask.data;
+    }
     vividCore=ChatNftPixelAgent.create(config,palette.colors.map(c=>c.hex));
+    syncVividProfile();
     $('pxgenerate').disabled=!$('pxvivid').checked;
     pxRender();
     try{
@@ -957,6 +1128,8 @@ let N=0, art=$('art'), ctx=null, zoom=4, tool='pencil', color='#000000';
 let hoverCell=null;   /* cell under the pointer, or null when the cursor is away */
 let gridBlock=1;      /* measured block size of the open image, in canvas cells */
 let baseBitmap=null;  /* the image drawn behind the art, never part of it */
+let textPatches=[], textPatch=null, nextTextPatchId=1;
+/* Independent transparent text sprites previewed above the locked art. */
 let moveBuf=null, moveFrom=null, moveDelta={x:0,y:0};
 /* The colours Recolour will replace, as upper-case hex strings. A set rather
    than one value: merging several shades into one is the common job - a trait
@@ -1086,6 +1259,23 @@ function load(file){
   im.onerror=()=>{ URL.revokeObjectURL(url); $('err').textContent='That image could not be decoded.'; };
   im.src=url;
 }
+
+async function loadSourceFromQuery(){
+  const params=new URLSearchParams(location.search), source=params.get('source');
+  if(!source) return;
+  try{
+    const target=new URL(source,location.href);
+    if(target.origin!==location.origin) throw new Error('Local sources must use this ChatNFT server.');
+    const response=await fetch(target);
+    if(!response.ok) throw new Error('Local source could not be loaded.');
+    const blob=await response.blob();
+    const fallback=decodeURIComponent(target.pathname.split('/').pop()||'trait.png');
+    const name=(params.get('name')||fallback).replace(/[\\/]/g,'-');
+    history.replaceState(null,'',location.pathname);
+    load(new File([blob],name,{type:blob.type||'image/png'}));
+  }catch(error){ $('err').textContent=error.message||'Local source could not be loaded.'; }
+}
+loadSourceFromQuery();
 
 /* ============ the project ========================================
    Traits live in IndexedDB, not localStorage: a 1024px PNG runs to tens
@@ -2588,10 +2778,15 @@ function startEditor(data,w,h,srcW,srcH,pal,recovered,meta={}){
   editorVividOwner=editorVivid?(meta.owner||null):null;
   $('dlVivid').hidden=!editorVivid;
   $('dlVividSwatch').hidden=!editorVivid;
+  if(editorVivid){
+    const outputSize=editorVividOwner&&editorVividOwner.outputSize||1024;
+    $('dlVivid').textContent='Download '+outputSize+'×'+outputSize;
+  }
   N=w;
   art.width=w; art.height=h;
   gridBlock=1;   /* callers that measured a block size set it after this */
   const opv=$('olpv'); opv.width=w; opv.height=h; opv.style.display='none';
+  clearTextPatch();
   drawBase(); fillBasePicker();
   ctx=art.getContext('2d',{willReadFrequently:true});
   const id=new ImageData(new Uint8ClampedArray(data),w,h);
@@ -2642,6 +2837,8 @@ function applyZoom(){
   art.style.width=(art.width*zoom)+'px'; art.style.height=(art.height*zoom)+'px';
   const opv=$('olpv');
   if(opv.style.display!=='none'){ opv.style.width=(art.width*zoom)+'px'; opv.style.height=(art.height*zoom)+'px'; }
+  const tpv=$('textpv');
+  if(tpv.style.display!=='none'){ tpv.style.width=(art.width*zoom)+'px'; tpv.style.height=(art.height*zoom)+'px'; }
   if(baseBitmap){ const bc=$('base'); bc.style.width=(art.width*zoom)+'px'; bc.style.height=(art.height*zoom)+'px'; }
   $('frame').style.setProperty('--z',zoom+'px'); $('zlab').textContent=zoom+'×';
   paintCursor();
@@ -3057,6 +3254,464 @@ async function fillBasePicker(){
   up.value="upload"; up.textContent="Upload an image\u2026"; sel.appendChild(up);
   if(keep&&[...sel.options].some(o=>o.value===keep)) sel.value=keep;
 }
+
+/* ================= protected text patch ==========================
+   Text is deliberately kept on its own preview canvas until Apply is pressed.
+   The core compositor skips alpha-zero sprite pixels, which is the safety
+   boundary: no cleanup, redraw, quantisation or shading pass ever sees the v1
+   garment. */
+function textPatchControls(){
+  const active=!!textPatch, any=textPatches.length>0;
+  $("textx").disabled=!active;
+  $("texty").disabled=!active;
+  $("textcenter").disabled=!active;
+  $("textapply").disabled=!any;
+  $("textclear").disabled=!active;
+  $("textapply").textContent=any?"Apply all "+textPatches.length+" text box"+(textPatches.length===1?"":"es"):"Apply all text only";
+  document.querySelectorAll("[data-text-dx]").forEach(b=>{ b.disabled=!active; });
+  syncTextHoldSteppers();
+}
+function textPatchLabel(patch){
+  if(patch.kind!=="typed") return patch.name;
+  const first=String(patch.text||"").split("\n").find(line=>line.trim())||"empty";
+  return "Text "+patch.id+": "+first.trim();
+}
+function renderTextLayerList(){
+  const layers=$("textlayers");
+  layers.innerHTML="";
+  for(const patch of textPatches){
+    const button=document.createElement("button");
+    button.type="button";
+    button.className="textlayer"+(patch===textPatch?" active":"");
+    button.textContent=textPatchLabel(patch);
+    button.title="Select "+textPatchLabel(patch);
+    button.onclick=()=>selectTextPatch(patch);
+    layers.appendChild(button);
+  }
+  $("textcount").textContent=textPatches.length+" box"+(textPatches.length===1?"":"es");
+}
+function syncTextInputs(patch){
+  if(!patch||patch.kind!=="typed") return;
+  $("texttyped").disabled=false;
+  $("texttyped").value=patch.text;
+  $("textcolor").value=patch.color;
+  $("textfont").value=patch.options.font||"classic";
+  $("textscale").value=patch.options.pixelWidth;
+  $("textheight").value=patch.options.pixelHeight;
+  $("texttracking").value=patch.options.letterSpacing;
+  $("textlinegap").value=patch.options.lineSpacing;
+  $("textbold").value=patch.options.bold;
+  $("textoutlinesize").value=patch.options.outlineSize||0;
+  $("textoutlinecolor").value=patch.outlineColor||"#000000";
+  $("textshadowenabled").checked=!!patch.options.shadowEnabled;
+  $("textshadowcolor").value=patch.shadowColor||"#000000";
+  $("textshadowx").value=patch.options.shadowOffsetX??1;
+  $("textshadowy").value=patch.options.shadowOffsetY??1;
+  $("textalign").value=patch.options.align;
+  $("textlean").value=patch.options.lean;
+  $("textslope").value=patch.options.slope;
+  $("textwrapx").value=patch.options.wrapX||0;
+  $("textwrapy").value=patch.options.wrapY||0;
+}
+function selectTextPatch(patch){
+  if(!patch||!textPatches.includes(patch)) return;
+  textPatch=patch;
+  if(patch.kind==="typed") syncTextInputs(patch);
+  else{
+    $("texttyped").value="";
+    $("texttyped").disabled=true;
+  }
+  drawTextPatch();
+}
+function startNewTextPatch(){
+  textPatch=null;
+  $("texttyped").disabled=false;
+  $("texttyped").value="";
+  $("textinfo").textContent="Ready for a new editable text box.";
+  renderTextLayerList();
+  textPatchControls();
+  drawTextPatch();
+}
+function clearTextPatch(){
+  textPatches=[];
+  textPatch=null;
+  const pv=$("textpv");
+  if(pv){
+    const g=pv.getContext("2d");
+    g.clearRect(0,0,pv.width,pv.height);
+    pv.style.display="none";
+  }
+  if($("textfile")) $("textfile").value="";
+  if($("textinfo")) $("textinfo").textContent="No text sprite loaded.";
+  if($("texttyped")){ $("texttyped").disabled=false; $("texttyped").value=""; }
+  renderTextLayerList();
+  textPatchControls();
+}
+function removeActiveTextPatch(){
+  if(!textPatch) return;
+  const index=textPatches.indexOf(textPatch);
+  if(index>=0) textPatches.splice(index,1);
+  textPatch=textPatches[Math.min(index,textPatches.length-1)]||null;
+  if(textPatch&&textPatch.kind==="typed") syncTextInputs(textPatch);
+  drawTextPatch();
+  toast("Removed only that text box — the v1 art is unchanged");
+}
+function drawTextPatch(){
+  const pv=$("textpv");
+  if(!textPatches.length||!ctx){
+    pv.style.display="none";
+    renderTextLayerList();
+    textPatchControls();
+    return;
+  }
+  pv.width=art.width; pv.height=art.height;
+  const g=pv.getContext("2d");
+  g.clearRect(0,0,pv.width,pv.height);
+  const core=window.ChatNftTextOverlay;
+  const preview=core.applyTextOverlays(
+    new Uint8ClampedArray(art.width*art.height*4),art.width,art.height,textPatches,
+  );
+  g.putImageData(new ImageData(preview,art.width,art.height),0,0);
+  if(textPatch){
+    g.save();
+    g.strokeStyle="#f5a524";
+    g.lineWidth=1;
+    g.setLineDash([4,3]);
+    g.strokeRect(textPatch.x-.5,textPatch.y-.5,textPatch.width+1,textPatch.height+1);
+    g.restore();
+  }
+  pv.style.width=(art.width*zoom)+"px";
+  pv.style.height=(art.height*zoom)+"px";
+  pv.style.display="block";
+  if(textPatch){
+    $("textx").value=textPatch.x;
+    $("texty").value=textPatch.y;
+    $("textinfo").textContent=textPatchLabel(textPatch)+" · "+textPatch.width+"×"+textPatch.height+
+      " · "+textPatch.visible.toLocaleString()+" visible px";
+  }else $("textinfo").textContent=textPatches.length+" text boxes ready — select one to edit";
+  renderTextLayerList();
+  textPatchControls();
+}
+function moveTextPatch(x,y){
+  if(!textPatch) return;
+  textPatch.x=Math.round(Number(x)||0);
+  textPatch.y=Math.round(Number(y)||0);
+  drawTextPatch();
+}
+async function loadTextPatch(file){
+  if(!file) return;
+  try{
+    const bm=await createImageBitmap(file);
+    const c=document.createElement("canvas");
+    c.width=bm.width; c.height=bm.height;
+    const g=c.getContext("2d",{willReadFrequently:true});
+    g.imageSmoothingEnabled=false;
+    g.drawImage(bm,0,0);
+    if(bm.close) bm.close();
+    const data=g.getImageData(0,0,c.width,c.height).data;
+    let visible=0, transparent=0;
+    for(let i=3;i<data.length;i+=4){
+      if(data[i]) visible++; else transparent++;
+    }
+    if(!visible) throw new Error("That PNG has no visible text pixels");
+    if(!transparent) throw new Error("That PNG has no transparency. Export only the text on a transparent background");
+    textPatch={
+      id:nextTextPatchId++, kind:"image",
+      data:new Uint8ClampedArray(data), width:c.width, height:c.height,
+      x:c.width===art.width?0:Math.round((art.width-c.width)/2),
+      y:c.height===art.height?0:Math.round((art.height-c.height)/2),
+      visible, name:file.name,
+    };
+    textPatches.push(textPatch);
+    drawTextPatch();
+    toast("Text preview loaded — the v1 art is still untouched");
+  }catch(err){
+    $("textfile").value="";
+    toast(err&&err.message?err.message:"Could not read that text PNG");
+  }
+}
+function applyTextPatch(){
+  if(!textPatches.length||!ctx) return;
+  const core=window.ChatNftTextOverlay;
+  if(!core||typeof core.applyTextOverlays!=="function"){
+    toast("Text patch tool is still loading"); return;
+  }
+  const before=ctx.getImageData(0,0,art.width,art.height);
+  const after=core.applyTextOverlays(before.data,art.width,art.height,textPatches);
+  let changed=0;
+  for(let i=0;i<after.length;i+=4){
+    if(after[i]!==before.data[i]||after[i+1]!==before.data[i+1]||
+       after[i+2]!==before.data[i+2]||after[i+3]!==before.data[i+3]) changed++;
+  }
+  if(!changed){ toast("Text does not overlap or already matches the art"); return; }
+  snapshot();
+  ctx.putImageData(new ImageData(after,art.width,art.height),0,0);
+  const appliedCount=textPatches.length;
+  clearTextPatch();
+  refreshStats(); outlinePreview();
+  toast("Applied "+appliedCount+" text box"+(appliedCount===1?"":"es")+" to "+changed.toLocaleString()+" cells — all other v1 pixels stayed exact");
+}
+
+function applyTextCleanup(){
+  if(!ctx) return;
+  const core=window.ChatNftTextOverlay;
+  if(!core||typeof core.clearNonMatchingPixelsInBox!=="function"){
+    toast("Text cleanup tool is still loading"); return;
+  }
+  try{
+    const x=Math.round(Number($("textcleanx").value)||0);
+    const y=Math.round(Number($("textcleany").value)||0);
+    const w=Math.max(0,Math.round(Number($("textcleanw").value)||0));
+    const h=Math.max(0,Math.round(Number($("textcleanh").value)||0));
+    if(!w||!h){ toast("Set a non-empty old-lettering box first"); return; }
+    const rgb=hx2(color);
+    const before=ctx.getImageData(0,0,art.width,art.height);
+    const after=core.clearNonMatchingPixelsInBox(
+      before.data,art.width,art.height,x,y,w,h,[rgb[0],rgb[1],rgb[2],255],
+    );
+    let changed=0;
+    for(let i=0;i<after.length;i+=4){
+      if(after[i]!==before.data[i]||after[i+1]!==before.data[i+1]
+          ||after[i+2]!==before.data[i+2]||after[i+3]!==before.data[i+3]) changed++;
+    }
+    if(!changed){ toast("No old lettering pixels differed inside that box"); return; }
+    snapshot();
+    ctx.putImageData(new ImageData(after,art.width,art.height),0,0);
+    refreshStats(); outlinePreview();
+    toast("Cleared "+changed.toLocaleString()+" old-letter pixels — outside the box stayed exact");
+  }catch(err){ toast(err&&err.message?err.message:"Could not clean that text box"); }
+}
+
+function textWhole(id,min,max,fallback){
+  const input=$(id);
+  const value=Math.max(min,Math.min(max,Math.round(Number(input.value))));
+  const safe=Number.isFinite(value)?value:fallback;
+  input.value=safe;
+  return safe;
+}
+function textDecimal(id,min,max,fallback){
+  const input=$(id);
+  const value=Math.max(min,Math.min(max,Number(input.value)));
+  const safe=Number.isFinite(value)?Number(value.toFixed(1)):fallback;
+  input.value=safe;
+  return safe;
+}
+function textRenderOptions(){
+  return {
+    font:$("textfont").value,
+    pixelWidth:textDecimal("textscale",1,16,3),
+    pixelHeight:textDecimal("textheight",1,16,3),
+    letterSpacing:textDecimal("texttracking",0,48,3),
+    lineSpacing:textDecimal("textlinegap",0,48,3),
+    bold:textWhole("textbold",0,4,0),
+    align:$("textalign").value,
+    lean:textDecimal("textlean",-64,64,0),
+    slope:textDecimal("textslope",-64,64,0),
+    outlineSize:textWhole("textoutlinesize",0,4,0),
+    outlineColor:(()=>{ const rgb=hx2($("textoutlinecolor").value); return [rgb[0],rgb[1],rgb[2],255]; })(),
+    shadowEnabled:$("textshadowenabled").checked,
+    shadowOffsetX:textDecimal("textshadowx",-64,64,1),
+    shadowOffsetY:textDecimal("textshadowy",-64,64,1),
+    shadowColor:(()=>{ const rgb=hx2($("textshadowcolor").value); return [rgb[0],rgb[1],rgb[2],255]; })(),
+    wrapX:textDecimal("textwrapx",-64,64,0),
+    wrapY:textDecimal("textwrapy",-64,64,0),
+  };
+}
+function updateTypedTextPatch(patch){
+  const core=window.ChatNftTextOverlay;
+  const text=$("texttyped").value;
+  const rgb=hx2($("textcolor").value);
+  const options=textRenderOptions();
+  const sprite=core.renderPixelText(text,[rgb[0],rgb[1],rgb[2],255],options);
+  const previousContentOffsetX=patch.contentOffsetX||0;
+  const previousContentOffsetY=patch.contentOffsetY||0;
+  if(Number.isFinite(patch.x)&&Number.isFinite(patch.y)){
+    patch.x+=previousContentOffsetX-(sprite.contentOffsetX||0);
+    patch.y+=previousContentOffsetY-(sprite.contentOffsetY||0);
+  }
+  let visible=0;
+  for(let i=3;i<sprite.data.length;i+=4) if(sprite.data[i]) visible++;
+  patch.text=text;
+  patch.color=$("textcolor").value;
+  patch.outlineColor=$("textoutlinecolor").value;
+  patch.shadowColor=$("textshadowcolor").value;
+  patch.options=options;
+  patch.data=sprite.data;
+  patch.width=sprite.width;
+  patch.height=sprite.height;
+  patch.contentOffsetX=sprite.contentOffsetX||0;
+  patch.contentOffsetY=sprite.contentOffsetY||0;
+  patch.visible=visible;
+  patch.name="Typed pixel text";
+  return patch;
+}
+function defaultTextPatchPosition(width,height){
+  const cleanW=Math.max(0,Math.round(Number($("textcleanw").value)||0));
+  const cleanH=Math.max(0,Math.round(Number($("textcleanh").value)||0));
+  const boxX=cleanW?Math.round(Number($("textcleanx").value)||0):0;
+  const boxY=cleanH?Math.round(Number($("textcleany").value)||0):0;
+  const boxW=cleanW||art.width, boxH=cleanH||art.height;
+  return {x:Math.round(boxX+(boxW-width)/2),y:Math.round(boxY+(boxH-height)/2)};
+}
+function generateTextPatch(quiet=false){
+  if(!ctx) return;
+  const core=window.ChatNftTextOverlay;
+  if(!core||typeof core.renderPixelText!=="function"){
+    toast("Pixel text tool is still loading"); return;
+  }
+  try{
+    if(!textPatch||textPatch.kind!=="typed"){
+      textPatch={id:nextTextPatchId++,kind:"typed",x:0,y:0};
+      updateTypedTextPatch(textPatch);
+      Object.assign(textPatch,defaultTextPatchPosition(textPatch.width,textPatch.height));
+      textPatches.push(textPatch);
+    }else updateTypedTextPatch(textPatch);
+    drawTextPatch();
+    if(!quiet) toast("Editable text box updated separately — v1 art is still untouched");
+  }catch(err){ if(!quiet) toast(err&&err.message?err.message:"Could not generate that text"); }
+}
+function updateActiveTextLive(){
+  if(!textPatch||textPatch.kind!=="typed"||!$("texttyped").value) return;
+  generateTextPatch(true);
+}
+function centerActiveTextPatch(){
+  if(!textPatch) return;
+  Object.assign(textPatch,defaultTextPatchPosition(textPatch.width,textPatch.height));
+  drawTextPatch();
+  toast("Selected text centred without touching the v1 art");
+}
+
+function syncTextHoldSteppers(){
+  document.querySelectorAll(".holdstep").forEach(wrapper=>{
+    const input=wrapper.querySelector("input");
+    wrapper.querySelectorAll("button").forEach(button=>{ button.disabled=!!input.disabled; });
+  });
+}
+function bindAcceleratedTextButton(button,onStep){
+  let delay=0, interval=0, started=0;
+  const stop=()=>{
+    clearTimeout(delay); clearInterval(interval);
+    delay=0; interval=0;
+  };
+  button.addEventListener("pointerdown",event=>{
+    if(button.disabled) return;
+    event.preventDefault();
+    stop(); started=performance.now(); onStep(0);
+    delay=setTimeout(()=>{
+      interval=setInterval(()=>onStep(performance.now()-started),90);
+    },350);
+    if(button.setPointerCapture) button.setPointerCapture(event.pointerId);
+  });
+  button.addEventListener("pointerup",stop);
+  button.addEventListener("pointercancel",stop);
+  button.addEventListener("lostpointercapture",stop);
+  button.addEventListener("keydown",event=>{
+    if(button.disabled||!(event.key==="Enter"||event.key===" ")) return;
+    event.preventDefault(); onStep(event.repeat?800:0);
+  });
+  button.addEventListener("click",event=>event.preventDefault());
+}
+function adjustTextNumber(input,direction,held,integer){
+  const core=window.ChatNftTextControls;
+  if(!core||typeof core.stepValue!=="function") return;
+  input.value=core.stepValue(input.value,direction,held,{
+    step:Number(input.step)||1,
+    min:input.min===""?-Infinity:Number(input.min),
+    max:input.max===""?Infinity:Number(input.max),
+    integer,
+  });
+  input.dispatchEvent(new Event("input",{bubbles:true}));
+}
+function installTextHoldStepper(input,integer){
+  if(!input||input.closest(".holdstep")) return;
+  const label=input.closest("label");
+  const labelText=label?[...label.childNodes]
+    .filter(node=>node.nodeType===Node.TEXT_NODE)
+    .map(node=>node.textContent).join(" ").trim():input.id;
+  if(!input.getAttribute("aria-label")) input.setAttribute("aria-label",labelText);
+  const wrapper=document.createElement("span");
+  wrapper.className="holdstep";
+  const minus=document.createElement("button"), plus=document.createElement("button");
+  minus.type="button"; minus.textContent="−"; minus.title="Hold to decrease faster";
+  minus.setAttribute("aria-label","Decrease "+labelText);
+  plus.type="button"; plus.textContent="+"; plus.title="Hold to increase faster";
+  plus.setAttribute("aria-label","Increase "+labelText);
+  input.parentNode.insertBefore(wrapper,input);
+  wrapper.append(minus,input,plus);
+  bindAcceleratedTextButton(minus,held=>adjustTextNumber(input,-1,held,integer));
+  bindAcceleratedTextButton(plus,held=>adjustTextNumber(input,1,held,integer));
+}
+[
+  "textscale","textheight","texttracking","textlinegap","textshadowx","textshadowy",
+  "textlean","textslope","textwrapx","textwrapy",
+].forEach(id=>installTextHoldStepper($(id),false));
+[
+  "textbold","textoutlinesize","textcleanx","textcleany","textcleanw","textcleanh","textx","texty",
+].forEach(id=>installTextHoldStepper($(id),true));
+syncTextHoldSteppers();
+
+$("textadd").onclick=startNewTextPatch;
+$("textchoose").onclick=()=>$("textfile").click();
+$("textfile").onchange=e=>loadTextPatch(e.target.files&&e.target.files[0]);
+$("textbrush").onclick=()=>{ $("textcolor").value=color; updateActiveTextLive(); };
+$("textoutlinebrush").onclick=()=>{ $("textoutlinecolor").value=color; updateActiveTextLive(); };
+$("textshadowbrush").onclick=()=>{ $("textshadowcolor").value=color; updateActiveTextLive(); };
+$("textgenerate").onclick=()=>generateTextPatch(false);
+$("textcenter").onclick=centerActiveTextPatch;
+$("textx").oninput=e=>moveTextPatch(e.target.value,textPatch?textPatch.y:0);
+$("texty").oninput=e=>moveTextPatch(textPatch?textPatch.x:0,e.target.value);
+$("texttyped").addEventListener("input",updateActiveTextLive);
+$("textcolor").addEventListener("input",updateActiveTextLive);
+$("textoutlinecolor").addEventListener("input",updateActiveTextLive);
+$("textshadowcolor").addEventListener("input",updateActiveTextLive);
+["textfont","textscale","textheight","texttracking","textlinegap","textbold","textoutlinesize","textshadowenabled","textshadowx","textshadowy","textalign","textlean","textslope","textwrapx","textwrapy"].forEach(id=>{
+  $(id).addEventListener("input",updateActiveTextLive);
+  $(id).addEventListener("change",updateActiveTextLive);
+});
+document.querySelectorAll("[data-text-lean],[data-text-slope]").forEach(button=>{
+  button.onclick=()=>{
+    const id=button.dataset.textLean!==undefined?"textlean":"textslope";
+    const delta=Number(button.dataset.textLean!==undefined?button.dataset.textLean:button.dataset.textSlope);
+    $(id).value=Number($(id).value||0)+delta;
+    updateActiveTextLive();
+  };
+});
+document.querySelectorAll("[data-text-shadow-dx]").forEach(button=>{
+  button.onclick=()=>{
+    const dx=Number(button.dataset.textShadowDx);
+    const dy=Number(button.dataset.textShadowDy);
+    $("textshadowx").value=Number($("textshadowx").value||0)+dx;
+    $("textshadowy").value=Number($("textshadowy").value||0)+dy;
+    updateActiveTextLive();
+  };
+});
+document.querySelectorAll("[data-text-wrap-x],[data-text-wrap-y]").forEach(button=>{
+  const id=button.dataset.textWrapX!==undefined?"textwrapx":"textwrapy";
+  const direction=Number(button.dataset.textWrapX!==undefined?button.dataset.textWrapX:button.dataset.textWrapY);
+  bindAcceleratedTextButton(button,held=>adjustTextNumber($(id),direction,held,false));
+});
+document.querySelectorAll("[data-text-dx]").forEach(b=>{
+  b.onclick=()=>moveTextPatch(
+    (textPatch?textPatch.x:0)+Number(b.dataset.textDx),
+    (textPatch?textPatch.y:0)+Number(b.dataset.textDy),
+  );
+});
+$("textapply").onclick=applyTextPatch;
+$("textclean").onclick=applyTextCleanup;
+$("textclear").onclick=removeActiveTextPatch;
+
+art.addEventListener("pointerdown",event=>{
+  if(!textPatches.length||!ctx||!window.ChatNftTextOverlay) return;
+  const rect=art.getBoundingClientRect();
+  const x=Math.floor((event.clientX-rect.left)/zoom);
+  const y=Math.floor((event.clientY-rect.top)/zoom);
+  const hit=window.ChatNftTextOverlay.hitTestTextPatches(textPatches,x,y);
+  if(!hit) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  selectTextPatch(hit);
+  toast("Selected "+textPatchLabel(hit)+" — edit it in Text patch");
+},true);
 
 /* ================= move ==========================================
    Every frame is drawn from the pristine buffer captured on pointerdown, so
@@ -3889,7 +4544,40 @@ function pxOpts(){
           outline:$("pxline").checked,
           fixed:$("pxmatch").checked?pxFixed:null};
 }
-function pxVividOpts(){ return {size:+$('pxvividgrid').value}; }
+function pxVividOpts(){
+  const profile=$('pxvividprofile').value||'standard';
+  const selected=vividContract&&vividContract.profiles&&vividContract.profiles[profile];
+  return {profile,size:+$('pxvividgrid').value,outputSize:selected?selected.canvas.width:1024};
+}
+function vividPaletteOptions(profile,sourceData){
+  const selected=vividContract&&vividContract.profiles&&vividContract.profiles[profile];
+  const paletteRule=selected&&selected.palette||{mode:'fixed',maxOpaqueColors:vividContract.palette.maxOpaqueColors};
+  return {
+    paletteHex:paletteRule.mode==='clothing'
+      ?vividCore.deriveClothingPalette(sourceData,paletteRule.maxOpaqueColors)
+      :paletteRule.mode==='source'
+        ?vividCore.deriveSourcePalette(sourceData,paletteRule.maxOpaqueColors)
+        :null,
+    maxOpaqueColors:paletteRule.maxOpaqueColors,
+    preserveSourceBlack:paletteRule.mode==='clothing',
+    cleanClothingShading:paletteRule.mode==='clothing'
+  };
+}
+function syncVividProfile(){
+  if(!vividContract||!vividContract.profiles) return;
+  const profile=$('pxvividprofile').value||'standard';
+  const selected=vividContract.profiles[profile]||vividContract.profiles.standard;
+  const grid=$('pxvividgrid');
+  grid.innerHTML='';
+  selected.grid.allowed.forEach(size=>{
+    const option=document.createElement('option');
+    option.value=String(size); option.textContent=String(size);
+    option.selected=size===selected.grid.default;
+    grid.appendChild(option);
+  });
+  $('pxvividnote').textContent=selected.canvas.width+'×'+selected.canvas.height+
+    ' · '+selected.grid.default+'×'+selected.grid.default+' native grid · '+selected.palette.maxOpaqueColors+' colors max · black exterior outline · hard transparency';
+}
 function invalidateVividGeneration(){ return ++vividGenerationEpoch; }
 function clearPixelResult(){
   pxData=null;
@@ -3904,7 +4592,9 @@ function vividRequestCurrent(request){
   return request.epoch===vividGenerationEpoch
     &&request.source===pxSrc
     &&request.grid===pxVividOpts().size
-    &&request.mode===$('pxvivid').checked;
+    &&request.mode===$('pxvivid').checked
+    &&request.profile===pxVividOpts().profile
+    &&request.outputSize===pxVividOpts().outputSize;
 }
 function syncVividGenerationButton(){
   $('pxgenerate').disabled=!$('pxvivid').checked||!vividCore;
@@ -3930,19 +4620,32 @@ function renderVividBefore(data,grid){
   canvas.width=grid; canvas.height=grid;
   canvas.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(data),grid,grid),0,0);
 }
-function deterministicVividResult(grid){
-  const canvas=vividCore.resizeNearest(pxSrc.data,pxSrc.width,pxSrc.height,1024,1024);
-  const normalized=vividCore.recoverToGrid(canvas.data,canvas.width,canvas.height,grid);
+function normalizeVividGrid(data,width,height,grid,profile){
+  return profile==='skins'
+    ?vividCore.resizeNearest(data,width,height,grid,grid)
+    :vividCore.recoverToGrid(data,width,height,grid);
+}
+function deterministicVividResult(grid,outputSize){
+  const canvas=vividCore.resizeNearest(pxSrc.data,pxSrc.width,pxSrc.height,outputSize,outputSize);
+  const profile=pxVividOpts().profile;
+  const normalized=normalizeVividGrid(canvas.data,canvas.width,canvas.height,grid,profile);
   renderVividBefore(normalized.data,grid);
-  const repaired=vividCore.finalizeCreative(normalized.data,normalized.data,grid,grid,{grid});
+  const paletteOptions=vividPaletteOptions(profile,normalized.data);
+  const repaired=vividCore.finalizeCreative(normalized.data,normalized.data,grid,grid,{
+    grid,...paletteOptions,canonicalAlphaMask:vividCanonicalMasks[profile]
+  });
   const violations=vividCore.verify(repaired.data,grid,grid,{
-    grid,alphaMask:repaired.alphaMask,anchoredWhiteMask:repaired.anchoredWhiteMask
+    grid,alphaMask:repaired.alphaMask,anchoredWhiteMask:repaired.anchoredWhiteMask,
+    anchoredBlackMask:repaired.anchoredBlackMask,...paletteOptions
   });
   if(violations.length) throw new Error(violations.join('; '));
   return {data:repaired.data,size:grid,colors:repaired.colors,
           originalWidth:pxSrc.width,originalHeight:pxSrc.height,mode:'vivid',
           owner:{epoch:vividGenerationEpoch,source:pxSrc,grid,mode:true,
+                 profile:pxVividOpts().profile,outputSize,
+                 paletteHex:paletteOptions.paletteHex,maxOpaqueColors:paletteOptions.maxOpaqueColors,
                  alphaMask:repaired.alphaMask,anchoredWhiteMask:repaired.anchoredWhiteMask,
+                 anchoredBlackMask:repaired.anchoredBlackMask,
                  anchorAuthorization:repaired.anchorAuthorization}};
 }
 function pxRender(){
@@ -3959,7 +4662,8 @@ function pxRender(){
         return;
       }
       try{
-        const r=deterministicVividResult(pxVividOpts().size);
+        const vividOptions=pxVividOpts();
+        const r=deterministicVividResult(vividOptions.size,vividOptions.outputSize);
         vividResult=r;
         renderVividSwatches(r.colors);
         showPixelResult(r,r.colors.length+' saved colors used · deterministic cleanup preview.');
@@ -4015,19 +4719,26 @@ async function generateVivid(){
     $('pxagentstatus').textContent='Waiting for the saved Vivid Agent rules…';
     return;
   }
-  const request={epoch:invalidateVividGeneration(),source:pxSrc,grid:pxVividOpts().size,mode:$('pxvivid').checked};
+  const request={epoch:invalidateVividGeneration(),source:pxSrc,grid:pxVividOpts().size,mode:$('pxvivid').checked,
+                 profile:pxVividOpts().profile,outputSize:pxVividOpts().outputSize};
   request.instruction=$('pxinstruction').value.trim();
   const button=$('pxgenerate'); button.disabled=true;
   $('pxagentstatus').textContent='Generating locally with ComfyUI…';
   try{
     const grid=request.grid;
-    const canvas=vividCore.resizeNearest(request.source.data,request.source.width,request.source.height,1024,1024);
-    const recovered=vividCore.recoverToGrid(canvas.data,canvas.width,canvas.height,grid);
-    const input=vividCore.renderGridToCanvas(recovered.data,grid);
+    const canvas=vividCore.resizeNearest(request.source.data,request.source.width,request.source.height,request.outputSize,request.outputSize);
+    const recovered=normalizeVividGrid(canvas.data,canvas.width,canvas.height,grid,request.profile);
+    Object.assign(request,vividPaletteOptions(request.profile,recovered.data));
+    const focused=request.profile==='clothing'
+      ?vividCore.focusOpaqueRegion(recovered.data,grid,grid,{padding:12,targetSize:request.outputSize})
+      :{...vividCore.renderGridToCanvas(recovered.data,grid,request.outputSize),transform:null};
+    const generationInstruction=request.paletteHex
+      ?request.instruction+' Use only this source-derived color palette: '+request.paletteHex.join(', ')+'.'
+      :request.instruction;
     const response=await fetch('/api/pixel-agent/generate',{
       method:'POST', headers:{'content-type':'application/json'},
-      body:JSON.stringify({imageDataUrl:canvasFromRgba(input.data,1024,1024).toDataURL('image/png'),
-                           instruction:request.instruction,grid}),
+      body:JSON.stringify({imageDataUrl:canvasFromRgba(focused.data,focused.width,focused.height).toDataURL('image/png'),
+                           instruction:generationInstruction,profile:request.profile,grid}),
       signal:AbortSignal.timeout(vividContract.comfy.timeoutMilliseconds+5000)
     });
     if(!response.ok){
@@ -4036,13 +4747,23 @@ async function generateVivid(){
     }
     const payload=await response.json();
     const draft=await decodePngDataUrl(payload.pngDataUrl);
-    if(draft.width!==1024||draft.height!==1024) throw new Error('ComfyUI must return a 1024×1024 draft.');
-    const normalized=vividCore.recoverToGrid(draft.data,draft.width,draft.height,grid);
+    if(draft.width!==request.outputSize||draft.height!==request.outputSize) {
+      throw new Error('ComfyUI must return a '+request.outputSize+'×'+request.outputSize+' draft.');
+    }
+    const normalized=focused.transform
+      ?vividCore.restoreFocusedRegion(draft.data,draft.width,draft.height,focused.transform)
+      :normalizeVividGrid(draft.data,draft.width,draft.height,grid,request.profile);
     const repaired=vividCore.finalizeCreative(normalized.data,recovered.data,grid,grid,{
-      grid,instruction:request.instruction
+      grid,instruction:request.instruction,
+      paletteHex:request.paletteHex,maxOpaqueColors:request.maxOpaqueColors,
+      preserveSourceBlack:request.preserveSourceBlack,
+      cleanClothingShading:request.cleanClothingShading,
+      canonicalAlphaMask:vividCanonicalMasks[request.profile]
     });
     const violations=vividCore.verify(repaired.data,grid,grid,{
-      grid,alphaMask:repaired.alphaMask,anchoredWhiteMask:repaired.anchoredWhiteMask
+      grid,alphaMask:repaired.alphaMask,anchoredWhiteMask:repaired.anchoredWhiteMask,
+      anchoredBlackMask:repaired.anchoredBlackMask,
+      paletteHex:request.paletteHex,maxOpaqueColors:request.maxOpaqueColors
     });
     if(violations.length) throw new Error(violations.join('; '));
     if(!vividRequestCurrent(request)) return;
@@ -4050,6 +4771,7 @@ async function generateVivid(){
                 originalWidth:request.source.width,originalHeight:request.source.height,
                 mode:'vivid',owner:{...request,alphaMask:repaired.alphaMask,
                                      anchoredWhiteMask:repaired.anchoredWhiteMask,
+                                     anchoredBlackMask:repaired.anchoredBlackMask,
                                      anchorAuthorization:repaired.anchorAuthorization}};
     vividResult=next;
     renderVividSwatches(next.colors);
@@ -5464,22 +6186,67 @@ function currentVerifiedVivid(){
   const violations=vividCore.verify(image.data,art.width,art.height,{
     grid:art.width,
     alphaMask:editorVividOwner&&editorVividOwner.alphaMask,
-    anchoredWhiteMask:editorVividOwner&&editorVividOwner.anchoredWhiteMask
+    anchoredWhiteMask:editorVividOwner&&editorVividOwner.anchoredWhiteMask,
+    anchoredBlackMask:editorVividOwner&&editorVividOwner.anchoredBlackMask,
+    paletteHex:editorVividOwner&&editorVividOwner.paletteHex,
+    maxOpaqueColors:editorVividOwner&&editorVividOwner.maxOpaqueColors
   });
   if(violations.length){ toast(violations.join('; ')); return null; }
   return image.data;
 }
+async function saveExactPngToDisk(){
+  if(!ctx) return;
+  const button=$('savedisk');
+  const oldLabel=button.textContent;
+  const rawName=$('tname').value.trim()||fileName.replace(/\.png$/i,'')||'trait';
+  const name=rawName.replace(/\.png$/i,'').replace(/-trait$/i,'').trim();
+  const layer=$('tlayer').value||'unsorted';
+  const status=$('tstatus').value||'wip';
+  const image=ctx.getImageData(0,0,art.width,art.height);
+  const native=document.createElement('canvas');
+  native.width=art.width; native.height=art.height;
+  native.getContext('2d').putImageData(image,0,0);
+  const outputSize=editorVividOwner&&editorVividOwner.outputSize||(art.width===160?1280:1024);
+  const output=document.createElement('canvas');
+  output.width=outputSize; output.height=outputSize;
+  const outputContext=output.getContext('2d');
+  outputContext.imageSmoothingEnabled=false;
+  outputContext.drawImage(native,0,0,outputSize,outputSize);
+  button.disabled=true;
+  button.textContent='Saving exact PNG…';
+  try{
+    const response=await fetch('/api/pixel-agent/save',{
+      method:'POST',
+      headers:{'content-type':'application/json'},
+      body:JSON.stringify({imageDataUrl:output.toDataURL('image/png'),name,layer,status})
+    });
+    const result=await response.json().catch(()=>({}));
+    if(!response.ok) throw new Error(result.error||'Save failed');
+    toast('Saved exact '+result.width+'×'+result.height+' PNG to '+result.path);
+  }catch(error){
+    toast(error.message||'Could not save exact PNG');
+  }finally{
+    button.disabled=false;
+    button.textContent=oldLabel;
+  }
+}
+$('savedisk').onclick=saveExactPngToDisk;
 $('dlNative').onclick=()=>download(1);
 $('dlBig').onclick=()=>download(8);
 $('dlVivid').onclick=()=>{
   const data=currentVerifiedVivid(); if(!data) return;
-  const rendered=vividCore.renderGridToCanvas(data,art.width);
-  downloadCanvas(canvasFromRgba(rendered.data,1024,1024),fileName.replace(/\.png$/i,'')+'-1024.png','Downloaded 1024×1024');
+  const outputSize=editorVividOwner&&editorVividOwner.outputSize||1024;
+  const rendered=vividCore.renderGridToCanvas(data,art.width,outputSize);
+  downloadCanvas(canvasFromRgba(rendered.data,outputSize,outputSize),fileName.replace(/\.png$/i,'')+'-'+outputSize+'.png','Downloaded '+outputSize+'×'+outputSize);
 };
 $('dlVividSwatch').onclick=()=>{
   const data=currentVerifiedVivid(); if(!data) return;
-  const swatch=vividCore.renderSwatch(vividCore.usedColors(data),1024,128);
-  downloadCanvas(canvasFromRgba(swatch.data,1024,128),fileName.replace(/\.png$/i,'')+'-used-colors.png','Downloaded used colors');
+  const outputSize=editorVividOwner&&editorVividOwner.outputSize||1024;
+  const swatch=vividCore.renderSwatch(
+    vividCore.usedColors(data,editorVividOwner&&editorVividOwner.paletteHex),
+    outputSize,art.width,editorVividOwner&&editorVividOwner.paletteHex
+  );
+  downloadCanvas(canvasFromRgba(swatch.data,outputSize,art.width),fileName.replace(/\.png$/i,'')+'-used-colors.png','Downloaded used colors');
 };
 /* Strip a flat background by flooding inwards from the border, so only colour
    REACHABLE from the edge goes. A white shirt in the middle of the character is
@@ -5490,6 +6257,7 @@ $('dlVividSwatch').onclick=()=>{
   e.addEventListener("change",queuePixelRender);
 });
 $('pxvivid').addEventListener('change',()=>{ invalidateVividGeneration(); clearPixelResult(); syncVividControls(); });
+$('pxvividprofile').addEventListener('change',()=>{ invalidateVividGeneration(); clearPixelResult(); syncVividProfile(); syncVividGenerationButton(); pxRender(); });
 $('pxvividgrid').addEventListener('change',()=>{ invalidateVividGeneration(); clearPixelResult(); syncVividGenerationButton(); pxRender(); });
 $('pxgenerate').onclick=generateVivid;
 syncVividControls();

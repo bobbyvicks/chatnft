@@ -10,7 +10,7 @@ export function materializeWorkflow(template, request) {
   graph["3"].inputs.seed = request.seed;
   graph["3"].inputs.steps = request.config.comfy.steps;
   graph["3"].inputs.cfg = request.config.comfy.cfg;
-  graph["3"].inputs.denoise = request.config.comfy.denoise;
+  graph["3"].inputs.denoise = request.denoise ?? request.config.comfy.denoise;
   graph["3"].inputs.sampler_name = request.config.comfy.sampler;
   graph["3"].inputs.scheduler = request.config.comfy.scheduler;
   graph["9"].inputs.filename_prefix = `ChatNFT/${request.requestId}`;

@@ -21,8 +21,12 @@ export async function createPixelAgentService(options = {}) {
       const stats = await client.health();
       return { ok: true, version: stats.system?.comfyui_version || "unknown" };
     },
-    async generate({ imageDataUrl, instruction, grid }) {
-      if (!contract.config.grid.allowed.includes(grid)) throw new TypeError("Unsupported working grid");
+    async generate({ imageDataUrl, instruction, grid, profile = "standard" }) {
+      const selectedProfile = contract.config.profiles?.[profile]
+        || (profile === "standard" ? { grid: contract.config.grid } : null);
+      if (!selectedProfile || !selectedProfile.grid.allowed.includes(grid)) {
+        throw new TypeError("Unsupported profile or working grid");
+      }
       const match = dataUrlPattern.exec(imageDataUrl || "");
       if (!match) throw new TypeError("Malformed image data");
       if (!contract.config.input.mimeTypes.includes(match[1])) throw new TypeError("Unsupported image MIME type");
@@ -40,6 +44,7 @@ export async function createPixelAgentService(options = {}) {
           prompt,
           requestId,
           seed: randomInt(1, 2 ** 31),
+          denoise: selectedProfile.comfy?.denoise,
           config: contract.config,
         });
         const promptId = await client.queue(graph);
@@ -51,6 +56,7 @@ export async function createPixelAgentService(options = {}) {
           outputName: output.filename,
           instruction: String(instruction || ""),
           grid,
+          profile,
         };
       } finally {
         // Comfy's upload route returns this exact subfolder for our request. Refuse

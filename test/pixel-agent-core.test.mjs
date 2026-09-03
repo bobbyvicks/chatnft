@@ -35,6 +35,211 @@ test("normalizes the whole canvas with nearest-neighbor and without recentering"
   assert.deepEqual(opaqueBounds(normalized.data, 10, 10), { x0: 8, y0: 2, x1: 9, y1: 3 });
 });
 
+test("renders the skin grid at an exact integer 160 to 1280 scale without changing the legacy default", () => {
+  const skinGrid = new Uint8ClampedArray(160 * 160 * 4);
+  skinGrid.set([23, 45, 67, 255], (3 * 160 + 2) * 4);
+
+  const skin = core.renderGridToCanvas(skinGrid, 160, 1280);
+  assert.equal(skin.width, 1280);
+  assert.equal(skin.height, 1280);
+  assert.deepEqual([...skin.data.slice((24 * 1280 + 16) * 4, (24 * 1280 + 16) * 4 + 4)], [23, 45, 67, 255]);
+  assert.deepEqual([...skin.data.slice((31 * 1280 + 23) * 4, (31 * 1280 + 23) * 4 + 4)], [23, 45, 67, 255]);
+  assert.deepEqual([...skin.data.slice((32 * 1280 + 24) * 4, (32 * 1280 + 24) * 4 + 4)], [0, 0, 0, 0]);
+
+  const legacyGrid = new Uint8ClampedArray(128 * 128 * 4);
+  const legacy = core.renderGridToCanvas(legacyGrid, 128);
+  assert.equal(legacy.width, 1024);
+  assert.equal(legacy.height, 1024);
+});
+
+test("locks skin repair to a deterministic source-derived palette instead of the hats palette", () => {
+  const source = new Uint8ClampedArray(32 * 32 * 4);
+  const draft = new Uint8ClampedArray(32 * 32 * 4);
+  for (let y = 1; y < 31; y++) for (let x = 1; x < 31; x++) {
+    const edge = x === 1 || x === 30 || y === 1 || y === 30;
+    setPixel(source, 32, x, y, edge ? [2, 1, 1, 255] : [103, 64, 46, 255]);
+    setPixel(draft, 32, x, y, edge ? [89, 56, 0, 255] : [89, 56, 0, 255]);
+  }
+  setPixel(source, 32, 3, 3, [87, 48, 34, 255]);
+
+  const sourcePalette = core.deriveSourcePalette(source, 16);
+  assert.deepEqual([...sourcePalette], ["#000000", "#67402E", "#020101", "#573022"]);
+  assert.equal(sourcePalette.includes("#593800"), false, "orange hats color leaked into the skin palette");
+
+  const finalized = core.finalizeCreative(draft, source, 32, 32, {
+    grid: 32,
+    paletteHex: sourcePalette,
+    maxOpaqueColors: 16,
+  });
+  assert.equal(finalized.colors.includes("#593800"), false);
+  assert.ok(finalized.colors.some((hex) => ["#67402E", "#573022"].includes(hex)), "source brown was not retained");
+  assert.deepEqual([...core.verify(finalized.data, 32, 32, {
+    grid: 32,
+    paletteHex: sourcePalette,
+    maxOpaqueColors: 16,
+    alphaMask: finalized.alphaMask,
+  })], []);
+});
+
+test("skin source palette keeps sparse coral motif color families instead of filling every slot with blue variants", () => {
+  const source = new Uint8ClampedArray(32 * 32 * 4);
+  let point = 0;
+  const paint = (count, rgba) => {
+    for (let n = 0; n < count; n++, point++) source.set(rgba, point * 4);
+  };
+  paint(53, [0, 0, 0, 255]);
+  for (let shade = 0; shade < 25; shade++) {
+    paint(35, [40 + shade % 8, 32 + Math.floor(shade / 8), 128 + shade % 12, 255]);
+  }
+  paint(24, [244, 216, 73, 255]);
+  paint(24, [233, 60, 55, 255]);
+  paint(24, [25, 155, 150, 255]);
+  paint(24, [139, 100, 184, 255]);
+
+  const selected = core.deriveSourcePalette(source, 16);
+
+  assert.equal(selected[0], "#000000");
+  for (const motif of ["#F4D849", "#E93C37", "#199B96", "#8B64B8"]) {
+    assert.ok(selected.includes(motif), `${motif} motif family was discarded`);
+  }
+  assert.ok(selected.length <= 16);
+});
+
+test("locks skin finalization to the canonical body silhouette instead of a damaged source mask", () => {
+  const width = 32;
+  const canonicalMask = new Uint8ClampedArray(width * width * 4);
+  const source = new Uint8ClampedArray(width * width * 4);
+  const draft = new Uint8ClampedArray(width * width * 4);
+  for (let y = 3; y <= 28; y++) for (let x = 3; x <= 28; x++) {
+    setPixel(canonicalMask, width, x, y, [110, 80, 60, 255]);
+    setPixel(draft, width, x, y, [103, 64, 46, 255]);
+    if (x !== 3) setPixel(source, width, x, y, [103, 64, 46, 255]);
+  }
+  for (let y = 12; y <= 18; y++) {
+    setPixel(source, width, 29, y, [103, 64, 46, 255]);
+    setPixel(draft, width, 29, y, [103, 64, 46, 255]);
+  }
+  const sourcePalette = core.deriveSourcePalette(source, 16);
+
+  const finalized = core.finalizeCreative(draft, source, width, width, {
+    grid: width,
+    canonicalAlphaMask: canonicalMask,
+    paletteHex: sourcePalette,
+    maxOpaqueColors: 16,
+  });
+
+  for (let point = 0; point < width * width; point++) {
+    assert.equal(
+      finalized.data[point * 4 + 3],
+      canonicalMask[point * 4 + 3],
+      `alpha mismatch at cell ${point}`,
+    );
+  }
+  assert.equal(pixelHex(finalized.data, 3, 15, width), "#000000", "restored canonical edge is not black");
+  assert.equal(alphaAt(finalized.data, 29, 15, width), 0, "source-only edge survived outside the canonical silhouette");
+  assert.equal(pixelHex(finalized.data, 10, 10, width), "#67402E", "interior skin artwork changed");
+});
+
+test("builds a clothing palette that keeps sparse light text and collapses near-duplicate neutral shading", () => {
+  assert.equal(typeof core.deriveClothingPalette, "function");
+  const shirt = new Uint8ClampedArray(32 * 32 * 4);
+  let point = 0;
+  const paint = (count, rgba) => {
+    for (let n = 0; n < count; n++, point++) shirt.set(rgba, point * 4);
+  };
+  paint(540, [57, 62, 66, 255]);
+  paint(180, [58, 63, 67, 255]);
+  paint(120, [24, 28, 32, 255]);
+  paint(70, [245, 246, 247, 255]);
+  paint(60, [220, 20, 30, 255]);
+  paint(54, [0, 0, 0, 255]);
+
+  const clothing = core.deriveClothingPalette(shirt, 16);
+  const projectColors = new Set(palette.colors.map((color) => color.hex.toUpperCase()));
+  assert.equal(clothing[0], "#000000");
+  assert.ok(clothing.includes("#FFFFFF"), "near-white lettering was not reserved");
+  assert.ok(clothing.some((hex) => ["#B60020", "#F4002E", "#FF7873"].includes(hex)), "small red accent was discarded");
+  assert.ok(clothing.every((hex) => projectColors.has(hex)), "clothing cleanup left the fixed project palette");
+  assert.equal(clothing.some((hex) => ["#004A48", "#006F6D", "#009793"].includes(hex)), false,
+    "neutral shirt shading was incorrectly mapped to teal");
+  assert.ok(clothing.length <= 16);
+});
+
+test("locks source-black clothing ink across exterior borders and interior arm seams", () => {
+  const shirt = new Uint8ClampedArray(32 * 32 * 4);
+  for (let y = 8; y < 30; y++) for (let x = 5; x < 27; x++) {
+    const edge = x === 5 || x === 26 || y === 8 || y === 29;
+    setPixel(shirt, 32, x, y, edge ? [8, 8, 8, 255] : [62, 62, 62, 255]);
+  }
+  for (let y = 16; y < 29; y++) setPixel(shirt, 32, 10, y, [14, 14, 14, 255]);
+  const draft = new Uint8ClampedArray(shirt);
+  for (let y = 8; y < 30; y++) for (let x = 5; x < 27; x++) {
+    if (pixelHex(shirt, x, y, 32) !== "#3E3E3E") setPixel(draft, 32, x, y, [48, 48, 48, 255]);
+  }
+
+  const clothing = core.deriveClothingPalette(shirt, 8);
+  const finalized = core.finalizeCreative(draft, shirt, 32, 32, {
+    grid: 32,
+    paletteHex: clothing,
+    maxOpaqueColors: 8,
+    preserveSourceBlack: true,
+  });
+
+  assert.equal(pixelHex(finalized.data, 10, 20, 32), "#000000", "black arm seam was recolored");
+  assert.equal(pixelHex(finalized.data, 5, 12, 32), "#000000", "black exterior border was recolored");
+  assert.equal(finalized.anchoredBlackMask[20 * 32 + 10], 1, "interior black ink was not anchored");
+  assert.deepEqual([...core.verify(finalized.data, 32, 32, {
+    grid: 32,
+    paletteHex: clothing,
+    maxOpaqueColors: 8,
+    alphaMask: finalized.alphaMask,
+    anchoredBlackMask: finalized.anchoredBlackMask,
+  })], []);
+});
+
+test("focuses a small clothing trait for generation and restores its exact grid position", () => {
+  const source = new Uint8ClampedArray(32 * 32 * 4);
+  for (let y = 20; y < 24; y++) for (let x = 10; x < 18; x++) {
+    setPixel(source, 32, x, y, x === 10 || x === 17 ? [0, 0, 0, 255] : [48, 48, 48, 255]);
+  }
+
+  const focused = core.focusOpaqueRegion(source, 32, 32, { padding: 4, targetSize: 64 });
+  assert.deepEqual({ width: focused.width, height: focused.height }, { width: 64, height: 64 });
+  assert.equal(focused.transform.sourceWidth, 32);
+  assert.equal(focused.transform.sourceHeight, 32);
+  assert.ok(focused.transform.x <= 10 && focused.transform.x + focused.transform.width > 17);
+  assert.ok(focused.transform.y <= 20 && focused.transform.y + focused.transform.height > 23);
+  assert.ok(focused.transform.height < focused.transform.width, "the short shirt crop was forced back into a square");
+
+  const restored = core.restoreFocusedRegion(focused.data, 64, 64, focused.transform);
+  assert.deepEqual([...restored.data], [...source]);
+  assert.deepEqual({ width: restored.width, height: restored.height }, { width: 32, height: 32 });
+});
+
+test("removes isolated neutral clothing specks without flattening text edge pixels", () => {
+  const shirt = new Uint8ClampedArray(32 * 32 * 4);
+  for (let y = 8; y < 30; y++) for (let x = 5; x < 27; x++) {
+    const edge = x === 5 || x === 26 || y === 8 || y === 29;
+    setPixel(shirt, 32, x, y, edge ? [0, 0, 0, 255] : [48, 48, 48, 255]);
+  }
+  setPixel(shirt, 32, 9, 14, [88, 88, 88, 255]);
+  setPixel(shirt, 32, 18, 20, [255, 255, 255, 255]);
+  setPixel(shirt, 32, 17, 20, [88, 88, 88, 255]);
+
+  const clothing = core.deriveClothingPalette(shirt, 8);
+  const finalized = core.finalizeCreative(shirt, shirt, 32, 32, {
+    grid: 32,
+    paletteHex: clothing,
+    maxOpaqueColors: 8,
+    preserveSourceBlack: true,
+    cleanClothingShading: true,
+  });
+
+  assert.equal(pixelHex(finalized.data, 9, 14, 32), "#303030", "isolated chest speck survived");
+  assert.equal(pixelHex(finalized.data, 17, 20, 32), "#585858", "text edge shading was flattened");
+  assert.equal(pixelHex(finalized.data, 18, 20, 32), "#FFFFFF", "text anchor changed");
+});
+
 test("preserves sparse enclosed white while reducing a crowded palette", () => {
   const data = crowdedPaletteWithEnclosedWhiteDetail();
   const repaired = core.repair(data, 32, 32, { grid: 32 });

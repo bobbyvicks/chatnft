@@ -13,8 +13,30 @@ test("loads the permanent Vivid contract and exact palette", async () => {
     fit: "full-canvas",
     sampling: "nearest-neighbor",
   });
-  assert.deepEqual(contract.config.grid.allowed, [32, 64, 128, 256]);
+  assert.deepEqual(contract.config.grid.allowed, [32, 64, 128, 160, 256]);
   assert.equal(contract.config.grid.default, 128);
+  assert.deepEqual(contract.config.profiles, {
+    standard: {
+      label: "Standard traits (128 → 1024)",
+      canvas: { width: 1024, height: 1024 },
+      grid: { allowed: [32, 64, 128, 256], default: 128 },
+      palette: { mode: "fixed", maxOpaqueColors: 16 },
+    },
+    clothing: {
+      label: "Clothing — fixed project palette + locked black ink (128/256 → 1024)",
+      canvas: { width: 1024, height: 1024 },
+      grid: { allowed: [128, 256], default: 128 },
+      palette: { mode: "clothing", maxOpaqueColors: 8 },
+      comfy: { denoise: 0.4 },
+    },
+    skins: {
+      label: "Skins (160 → 1280)",
+      canvas: { width: 1280, height: 1280 },
+      grid: { allowed: [160], default: 160 },
+      palette: { mode: "source", maxOpaqueColors: 16 },
+      canonicalMask: "assets/canonical-skin-mask-160.png",
+    },
+  });
   assert.equal(contract.config.palette.maxOpaqueColors, 16);
   assert.equal(contract.config.outline.color, "#000000");
   assert.equal(contract.config.outline.placement, "exterior");

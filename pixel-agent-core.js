@@ -9,6 +9,147 @@
     const paletteRgb = palette.map(hexToRgb);
     const paletteLab = paletteRgb.map(rgbToOklab);
 
+    function resolvePalette(options = {}) {
+      const custom = Array.isArray(options.paletteHex) && options.paletteHex.length;
+      const requested = custom
+        ? options.paletteHex.map((hex) => String(hex).toUpperCase())
+        : palette;
+      if (requested[0] !== "#000000" || requested.some((hex) => !/^#[0-9A-F]{6}$/.test(hex))) {
+        throw new Error("A custom palette must start with #000000 and contain only six-digit hex colors");
+      }
+      const unique = [...new Set(requested)];
+      const maxColors = options.maxOpaqueColors || config.palette.maxOpaqueColors;
+      if (!Number.isInteger(maxColors) || maxColors < 1 || (custom && unique.length > maxColors)) {
+        throw new Error("Custom palette exceeds the opaque-color limit");
+      }
+      return { hex: unique, rgb: unique.map(hexToRgb), lab: unique.map((color) => rgbToOklab(hexToRgb(color))), maxColors };
+    }
+
+    function deriveSourcePalette(data, maxColors = config.palette.maxOpaqueColors) {
+      if (!data || data.length % 4 !== 0 || !Number.isInteger(maxColors) || maxColors < 1) {
+        throw new Error("A valid RGBA source and color limit are required");
+      }
+      const counts = new Map();
+      for (let offset = 0; offset < data.length; offset += 4) {
+        if (data[offset + 3] === 0) continue;
+        const hex = rgbToHex(data[offset], data[offset + 1], data[offset + 2]);
+        counts.set(hex, (counts.get(hex) || 0) + 1);
+      }
+      counts.delete("#000000");
+      const selected = ["#000000"];
+      if (counts.has("#FFFFFF") && selected.length < maxColors) {
+        selected.push("#FFFFFF");
+        counts.delete("#FFFFFF");
+      }
+      if (counts.size <= maxColors - selected.length) {
+        selected.push(...[...counts]
+          .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+          .map(([hex]) => hex));
+        return selected;
+      }
+
+      const buckets = new Map();
+      for (let offset = 0; offset < data.length; offset += 4) {
+        if (data[offset + 3] === 0) continue;
+        const red = data[offset], green = data[offset + 1], blue = data[offset + 2];
+        const key = `${red >> 4},${green >> 4},${blue >> 4}`;
+        if (!buckets.has(key)) buckets.set(key, { count: 0, sum: [0, 0, 0], exact: new Map() });
+        const bucket = buckets.get(key);
+        const hex = rgbToHex(red, green, blue);
+        bucket.count++;
+        bucket.sum[0] += red; bucket.sum[1] += green; bucket.sum[2] += blue;
+        bucket.exact.set(hex, (bucket.exact.get(hex) || 0) + 1);
+      }
+      const minimumCount = Math.max(2, Math.floor(data.length / 4 * 0.0005));
+      const candidates = [...buckets.values()]
+        .filter((bucket) => bucket.count >= minimumCount)
+        .map((bucket) => {
+          const mean = bucket.sum.map((total) => total / bucket.count);
+          const representative = [...bucket.exact]
+            .map(([hex, count]) => ({ hex, count, rgb: hexToRgb(hex) }))
+            .sort((left, right) => {
+              const leftDistance = left.rgb.reduce((sum, value, index) => sum + (value - mean[index]) ** 2, 0);
+              const rightDistance = right.rgb.reduce((sum, value, index) => sum + (value - mean[index]) ** 2, 0);
+              return leftDistance - rightDistance || right.count - left.count || left.hex.localeCompare(right.hex);
+            })[0];
+          return { hex: representative.hex, count: bucket.count, lab: rgbToOklab(representative.rgb) };
+        })
+        .filter((candidate) => !selected.includes(candidate.hex));
+      const selectedLabs = selected.map((hex) => rgbToOklab(hexToRgb(hex)));
+      while (candidates.length && selected.length < maxColors) {
+        let bestIndex = -1, bestScore = -1;
+        for (let index = 0; index < candidates.length; index++) {
+          const candidate = candidates[index];
+          const distance = selectedLabs.reduce((nearest, color) => Math.min(nearest,
+            (candidate.lab[0] - color[0]) ** 2 +
+            (candidate.lab[1] - color[1]) ** 2 +
+            (candidate.lab[2] - color[2]) ** 2), Infinity);
+          const score = distance * Math.log2(candidate.count + 1);
+          if (score > bestScore) { bestIndex = index; bestScore = score; }
+        }
+        if (bestIndex < 0) break;
+        const [chosen] = candidates.splice(bestIndex, 1);
+        selected.push(chosen.hex);
+        selectedLabs.push(chosen.lab);
+      }
+      return selected;
+    }
+
+    function deriveClothingPalette(data, maxColors = config.palette.maxOpaqueColors) {
+      if (!data || data.length % 4 !== 0 || !Number.isInteger(maxColors) || maxColors < 1) {
+        throw new Error("A valid RGBA source and color limit are required");
+      }
+      const counts = new Map();
+      const allIndexes = palette.map((_, index) => index);
+      const neutralIndexes = allIndexes.filter((index) => {
+        const [red, green, blue] = paletteRgb[index];
+        return red === green && green === blue;
+      });
+      let opaque = 0;
+      for (let offset = 0; offset < data.length; offset += 4) {
+        if (data[offset + 3] === 0) continue;
+        opaque++;
+        const red = data[offset], green = data[offset + 1], blue = data[offset + 2];
+        const high = Math.max(red, green, blue), low = Math.min(red, green, blue);
+        const candidates = high - low <= 18 ? neutralIndexes : allIndexes;
+        const relativeIndex = nearestPaletteIndex([red, green, blue], candidates.map((index) => paletteLab[index]));
+        const hex = palette[candidates[relativeIndex]];
+        counts.set(hex, (counts.get(hex) || 0) + 1);
+      }
+
+      const selected = ["#000000"];
+      counts.delete("#000000");
+      if (counts.has("#FFFFFF") && selected.length < maxColors) {
+        selected.push("#FFFFFF");
+        counts.delete("#FFFFFF");
+      }
+      const minimumCount = Math.max(2, Math.floor(opaque * 0.0005));
+      const candidates = [...counts]
+        .filter(([, count]) => count >= minimumCount)
+        .map(([hex, count]) => ({ hex, count, lab: paletteLab[palette.indexOf(hex)] }))
+        .sort((left, right) => right.count - left.count || left.hex.localeCompare(right.hex));
+      const selectedLabs = selected.map((hex) => rgbToOklab(hexToRgb(hex)));
+      while (candidates.length && selected.length < maxColors) {
+        let bestIndex = -1, bestScore = -1, bestDistance = 0;
+        for (let index = 0; index < candidates.length; index++) {
+          const candidate = candidates[index];
+          const distance = selectedLabs.reduce((nearest, color) => Math.min(nearest,
+            (candidate.lab[0] - color[0]) ** 2 +
+            (candidate.lab[1] - color[1]) ** 2 +
+            (candidate.lab[2] - color[2]) ** 2), Infinity);
+          const score = distance * Math.log2(candidate.count + 1);
+          if (score > bestScore) {
+            bestIndex = index; bestScore = score; bestDistance = distance;
+          }
+        }
+        if (bestIndex < 0 || bestDistance < 0.0009) break;
+        const [chosen] = candidates.splice(bestIndex, 1);
+        selected.push(chosen.hex);
+        selectedLabs.push(chosen.lab);
+      }
+      return selected;
+    }
+
     function resizeNearest(source, sourceWidth, sourceHeight, targetWidth, targetHeight) {
       const out = new Uint8ClampedArray(targetWidth * targetHeight * 4);
       for (let y = 0; y < targetHeight; y++) {
@@ -20,6 +161,55 @@
         }
       }
       return { data: out, width: targetWidth, height: targetHeight };
+    }
+
+    function focusOpaqueRegion(source, sourceWidth, sourceHeight, options = {}) {
+      if (!source || source.length !== sourceWidth * sourceHeight * 4 || sourceWidth !== sourceHeight) {
+        throw new Error("A square RGBA source is required for focused generation");
+      }
+      const padding = Number.isInteger(options.padding) ? Math.max(0, options.padding) : 8;
+      const targetSize = Number.isInteger(options.targetSize) && options.targetSize > 0
+        ? options.targetSize : sourceWidth;
+      let minX = sourceWidth, minY = sourceHeight, maxX = -1, maxY = -1;
+      for (let y = 0; y < sourceHeight; y++) for (let x = 0; x < sourceWidth; x++) {
+        if (source[(y * sourceWidth + x) * 4 + 3] >= config.alpha.threshold) {
+          minX = Math.min(minX, x); minY = Math.min(minY, y);
+          maxX = Math.max(maxX, x); maxY = Math.max(maxY, y);
+        }
+      }
+      if (maxX < minX || maxY < minY) {
+        const whole = resizeNearest(source, sourceWidth, sourceHeight, targetSize, targetSize);
+        return { ...whole, transform: { x: 0, y: 0, width: sourceWidth, height: sourceHeight, sourceWidth, sourceHeight } };
+      }
+      const contentWidth = maxX - minX + 1, contentHeight = maxY - minY + 1;
+      const cropWidth = Math.min(sourceWidth, contentWidth + padding * 2);
+      const cropHeight = Math.min(sourceHeight, contentHeight + padding * 2);
+      const centerX = (minX + maxX + 1) / 2, centerY = (minY + maxY + 1) / 2;
+      const x = Math.max(0, Math.min(sourceWidth - cropWidth, Math.floor(centerX - cropWidth / 2)));
+      const y = Math.max(0, Math.min(sourceHeight - cropHeight, Math.floor(centerY - cropHeight / 2)));
+      const crop = new Uint8ClampedArray(cropWidth * cropHeight * 4);
+      for (let cy = 0; cy < cropHeight; cy++) for (let cx = 0; cx < cropWidth; cx++) {
+        const from = ((y + cy) * sourceWidth + x + cx) * 4;
+        crop.set(source.subarray(from, from + 4), (cy * cropWidth + cx) * 4);
+      }
+      const focused = resizeNearest(crop, cropWidth, cropHeight, targetSize, targetSize);
+      return { ...focused, transform: { x, y, width: cropWidth, height: cropHeight, sourceWidth, sourceHeight } };
+    }
+
+    function restoreFocusedRegion(generated, generatedWidth, generatedHeight, transform) {
+      if (!transform || !Number.isInteger(transform.width) || transform.width <= 0 ||
+          !Number.isInteger(transform.height) || transform.height <= 0) {
+        throw new Error("A valid focused-generation transform is required");
+      }
+      const restored = new Uint8ClampedArray(transform.sourceWidth * transform.sourceHeight * 4);
+      for (let cy = 0; cy < transform.height; cy++) for (let cx = 0; cx < transform.width; cx++) {
+        const to = ((transform.y + cy) * transform.sourceWidth + transform.x + cx) * 4;
+        const generatedX = Math.min(generatedWidth - 1, Math.floor((cx + 0.5) * generatedWidth / transform.width));
+        const generatedY = Math.min(generatedHeight - 1, Math.floor((cy + 0.5) * generatedHeight / transform.height));
+        const from = (generatedY * generatedWidth + generatedX) * 4;
+        restored.set(generated.subarray(from, from + 4), to);
+      }
+      return { data: restored, width: transform.sourceWidth, height: transform.sourceHeight };
     }
 
     function recoverToGrid(source, sourceWidth, sourceHeight, grid) {
@@ -39,17 +229,22 @@
 
     function repair(input, width, height, options = {}) {
       const data = new Uint8ClampedArray(input);
+      const selectedPalette = resolvePalette(options);
       hardenAlpha(data, config.alpha.threshold);
-      applyVividPalette(data, palette, paletteRgb, paletteLab, config.palette.maxOpaqueColors);
+      applyVividPalette(data, selectedPalette.hex, selectedPalette.rgb, selectedPalette.lab, selectedPalette.maxColors);
       removeExteriorSpecks(data, width, height, config.cleanup.minimumComponentCells);
       enforceExteriorOutline(data, width, height);
       hardenAlpha(data, config.alpha.threshold);
-      return { data, width, height, colors: usedColors(data, palette) };
+      return { data, width, height, colors: usedColors(data, selectedPalette.hex) };
     }
 
     function finalizeCreative(input, source, width, height, options = {}) {
-      const alphaMask = repair(source, width, height, options).data;
+      const sourceRepair = repair(source, width, height, options).data;
+      const alphaMask = options.canonicalAlphaMask
+        ? canonicalizeAlphaMask(sourceRepair, options.canonicalAlphaMask, width, height, config.alpha.threshold)
+        : sourceRepair;
       const anchoredWhiteMask = new Uint8Array(width * height);
+      const anchoredBlackMask = new Uint8Array(width * height);
       const allowAnchoredWhiteRecolor = allowsAnchoredWhiteRecolor(options.instruction);
       let authorizedCells = 0;
       for (let point = 0; point < anchoredWhiteMask.length; point++) {
@@ -58,6 +253,18 @@
           const draftChangedWhite = input[offset] !== 255 || input[offset + 1] !== 255 || input[offset + 2] !== 255;
           if (allowAnchoredWhiteRecolor && draftChangedWhite) authorizedCells++;
           else anchoredWhiteMask[point] = 1;
+        }
+        if (options.preserveSourceBlack && source[offset + 3] >= config.alpha.threshold &&
+            Math.max(source[offset], source[offset + 1], source[offset + 2]) <= 24) {
+          anchoredBlackMask[point] = 1;
+        }
+      }
+      if (options.preserveSourceBlack) {
+        const exterior = exteriorTransparent(alphaMask, width, height);
+        for (let point = 0; point < anchoredBlackMask.length; point++) {
+          if (alphaMask[point * 4 + 3] !== 0 && touchesExterior(point, exterior, width, height)) {
+            anchoredBlackMask[point] = 1;
+          }
         }
       }
       const masked = new Uint8ClampedArray(input);
@@ -68,32 +275,50 @@
       let finalized = repair(masked, width, height, options);
       for (let point = 0; point < anchoredWhiteMask.length; point++) {
         if (anchoredWhiteMask[point]) finalized.data.set([255, 255, 255, 255], point * 4);
+        if (anchoredBlackMask[point]) finalized.data.set([0, 0, 0, 255], point * 4);
       }
       // Re-run palette reduction after restoring white so the anchors count
       // toward the same sixteen-color ceiling instead of becoming color 17.
       finalized = repair(finalized.data, width, height, options);
+      if (options.cleanClothingShading) {
+        cleanIsolatedNeutralShading(finalized.data, width, height, anchoredWhiteMask, anchoredBlackMask);
+      }
+      finalized.colors = usedColors(finalized.data, resolvePalette(options).hex);
       return {
         ...finalized,
         alphaMask,
         anchoredWhiteMask,
+        anchoredBlackMask,
         anchorAuthorization: { allowed: allowAnchoredWhiteRecolor, authorizedCells },
       };
     }
 
     return Object.freeze({
       resizeNearest,
+      focusOpaqueRegion,
+      restoreFocusedRegion,
       recoverToGrid,
-      renderGridToCanvas: (data, grid) => resizeNearest(data, grid, grid, 1024, 1024),
+      renderGridToCanvas: (data, grid, targetSize = 1024) => {
+        if (!Number.isInteger(targetSize) || targetSize <= 0 || targetSize % grid !== 0) {
+          throw new Error("Output canvas must be a positive integer multiple of the working grid");
+        }
+        return resizeNearest(data, grid, grid, targetSize, targetSize);
+      },
       hardenAlpha: (data) => hardenAlpha(data, config.alpha.threshold),
       applyVividPalette: (data) => applyVividPalette(data, palette, paletteRgb, paletteLab, config.palette.maxOpaqueColors),
       enforceExteriorOutline,
       removeExteriorSpecks,
       repair,
       finalizeCreative,
+      deriveSourcePalette,
+      deriveClothingPalette,
       allowsAnchoredWhiteRecolor,
-      verify: (data, width, height, options) => verify(data, width, height, options, config, palette),
-      usedColors: (data) => usedColors(data, palette),
-      renderSwatch: (colors, width, height) => renderSwatch(colors, width, height, palette),
+      verify: (data, width, height, options = {}) => {
+        const selectedPalette = resolvePalette(options);
+        return verify(data, width, height, options, config, selectedPalette.hex, selectedPalette.maxColors);
+      },
+      usedColors: (data, paletteOverride) => usedColors(data, paletteOverride || palette),
+      renderSwatch: (colors, width, height, paletteOverride) => renderSwatch(colors, width, height, paletteOverride || palette),
     });
   }
 
@@ -126,6 +351,10 @@
       if (data[i + 3] < threshold) data[i] = data[i + 1] = data[i + 2] = data[i + 3] = 0;
       else data[i + 3] = 255;
     }
+  }
+
+  function rgbToHex(red, green, blue) {
+    return `#${red.toString(16).padStart(2, "0")}${green.toString(16).padStart(2, "0")}${blue.toString(16).padStart(2, "0")}`.toUpperCase();
   }
 
   function writeMedianRgba(out, offset, source, sourceWidth, sx0, sy0, sx1, sy1) {
@@ -267,6 +496,66 @@
     }
   }
 
+  function cleanIsolatedNeutralShading(data, width, height, anchoredWhiteMask, anchoredBlackMask, maximumCells = 16) {
+    const counts = new Map();
+    for (let point = 0; point < width * height; point++) {
+      const offset = point * 4;
+      if (data[offset + 3] === 0 || anchoredWhiteMask[point] || anchoredBlackMask[point]) continue;
+      const red = data[offset], green = data[offset + 1], blue = data[offset + 2];
+      if (red !== green || green !== blue || red === 0 || red === 255) continue;
+      counts.set(red, (counts.get(red) || 0) + 1);
+    }
+    if (!counts.size) return;
+    const base = [...counts].sort((left, right) => right[1] - left[1] || left[0] - right[0])[0][0];
+    const visited = new Uint8Array(width * height);
+    const isWhite = (point) => data[point * 4] === 255 && data[point * 4 + 1] === 255 && data[point * 4 + 2] === 255 && data[point * 4 + 3] === 255;
+    for (let start = 0; start < visited.length; start++) {
+      if (visited[start] || data[start * 4 + 3] === 0) continue;
+      const offset = start * 4;
+      const shade = data[offset];
+      if (data[offset + 1] !== shade || data[offset + 2] !== shade || shade === 0 || shade === 255 || shade === base) continue;
+      const component = [], queue = [start];
+      visited[start] = 1;
+      let touchesWhite = false;
+      for (let head = 0; head < queue.length; head++) {
+        const point = queue[head];
+        component.push(point);
+        const x = point % width, y = Math.floor(point / width);
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          const nx = x + dx, ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+          const neighbor = ny * width + nx;
+          if (isWhite(neighbor) || anchoredWhiteMask[neighbor]) touchesWhite = true;
+          if (!visited[neighbor]) {
+            const next = neighbor * 4;
+            if (data[next + 3] !== 0 && data[next] === shade && data[next + 1] === shade && data[next + 2] === shade) {
+              visited[neighbor] = 1;
+              queue.push(neighbor);
+            }
+          }
+        }
+      }
+      if (!touchesWhite && component.length <= maximumCells) {
+        for (const point of component) data.set([base, base, base, 255], point * 4);
+      }
+    }
+  }
+
+  function canonicalizeAlphaMask(source, canonical, width, height, threshold) {
+    if (!canonical || canonical.length !== width * height * 4) {
+      throw new Error("Canonical alpha mask dimensions must match the working grid");
+    }
+    const data = new Uint8ClampedArray(source.length);
+    for (let offset = 0; offset < data.length; offset += 4) {
+      if (canonical[offset + 3] < threshold) continue;
+      if (source[offset + 3] >= threshold) data.set(source.subarray(offset, offset + 3), offset);
+      data[offset + 3] = 255;
+    }
+    enforceExteriorOutline(data, width, height);
+    return data;
+  }
+
   function usedColors(data, palette) {
     const used = new Set();
     for (let offset = 0; offset < data.length; offset += 4) {
@@ -275,7 +564,7 @@
     return palette.filter((hex) => used.has(hex));
   }
 
-  function verify(data, width, height, options = {}, config, palette) {
+  function verify(data, width, height, options = {}, config, palette, maxColors) {
     const errors = [];
     if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0 || width !== height || !data || data.length !== width * height * 4) {
       return ["Invalid dimensions: expected a square RGBA buffer"];
@@ -285,12 +574,15 @@
     const paletteSet = new Set(palette);
     const alphaMask = options && options.alphaMask;
     const anchoredWhiteMask = options && options.anchoredWhiteMask;
+    const anchoredBlackMask = options && options.anchoredBlackMask;
     if (alphaMask && alphaMask.length !== data.length) errors.push("Invalid source alpha mask");
     if (anchoredWhiteMask && anchoredWhiteMask.length !== width * height) errors.push("Invalid anchored white mask");
+    if (anchoredBlackMask && anchoredBlackMask.length !== width * height) errors.push("Invalid anchored black mask");
     const colors = new Set();
     let alphaReported = false;
     let silhouetteReported = false;
     let anchoredWhiteReported = false;
+    let anchoredBlackReported = false;
     let paletteReported = false;
     for (let offset = 0; offset < data.length; offset += 4) {
       const alpha = data[offset + 3];
@@ -312,6 +604,12 @@
           anchoredWhiteReported = true;
         }
       }
+      if (!anchoredBlackReported && anchoredBlackMask && anchoredBlackMask.length === width * height && anchoredBlackMask[point]) {
+        if (data[offset] !== 0 || data[offset + 1] !== 0 || data[offset + 2] !== 0 || alpha !== 255) {
+          errors.push(`Anchored black detail mismatch at pixel ${point}`);
+          anchoredBlackReported = true;
+        }
+      }
       if (alpha === 0) continue;
       const hex = `#${data[offset].toString(16).padStart(2, "0")}${data[offset + 1].toString(16).padStart(2, "0")}${data[offset + 2].toString(16).padStart(2, "0")}`.toUpperCase();
       colors.add(hex);
@@ -320,7 +618,7 @@
         paletteReported = true;
       }
     }
-    if (colors.size > config.palette.maxOpaqueColors) errors.push(`Too many opaque colors: ${colors.size}`);
+    if (colors.size > maxColors) errors.push(`Too many opaque colors: ${colors.size}`);
     const exterior = exteriorTransparent(data, width, height);
     for (let point = 0; point < exterior.length; point++) {
       const offset = point * 4;

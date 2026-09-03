@@ -14,6 +14,7 @@ test("materializes the saved workflow without changing its template", async () =
     prompt,
     requestId: "request-1",
     seed: 12345,
+    denoise: 0.4,
     config: contract.config,
   });
 
@@ -21,7 +22,7 @@ test("materializes the saved workflow without changing its template", async () =
   assert.equal(graph["1"].inputs.image, "chatnft/request-1.png");
   assert.equal(graph["27"].inputs.text, prompt);
   assert.equal(graph["3"].inputs.seed, 12345);
-  assert.equal(graph["3"].inputs.denoise, 0.25);
+  assert.equal(graph["3"].inputs.denoise, 0.4);
   assert.equal(graph["9"].inputs.filename_prefix, "ChatNFT/request-1");
   assert.match(prompt, /User request:\nRemove the small white dot outside the hat\./);
 });

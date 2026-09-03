@@ -32,10 +32,13 @@ Core image editing runs in the browser. The optional Vivid creative revision sen
 3. Open http://127.0.0.1:4173/.
 4. Drop a PNG, JPEG, or WebP and choose **Turn this into a trait**.
 5. Keep **Use the saved Vivid Pixel Agent rules** enabled.
-6. Use the immediate preview for faithful cleanup, or enter an instruction and choose **Generate locally with ComfyUI** for a creative revision.
-7. Open the verified result in the editor and download the 1024×1024 PNG and used-color swatch.
+6. Choose the trait profile before generating:
+   - **Standard traits (128 → 1024)** preserves the existing hats and accessories workflow.
+   - **Skins (160 → 1280)** maps any input size to the closest source pixels on the 160×160 native grid, locks the alpha silhouette cell-for-cell to `assets/canonical-skin-mask-160.png`, and outputs the exact 8× 1280×1280 size required by `traits/base/approved/README.md`.
+7. Use the immediate preview for faithful cleanup, or enter an instruction and choose **Generate locally with ComfyUI** for a creative revision.
+8. Open the verified result in the editor. After any hand edits, choose its layer and status, then press **Save exact PNG to disk**. The live editor pixels are scaled with nearest-neighbor only and written directly under `E:\X content\pixel art_\new-traits\<layer>\<status>\`; no extraction, palette rebuild, or ComfyUI rerun occurs during this save. A skin save is rejected unless every 8×8 output cell matches the canonical 160×160 body silhouette exactly.
 
-The art contract is stored in `pixel-agent.config.json`, the palette is stored in `palette/vivid-fixed-128.json`, and creative rules are stored in `agent/vivid-pixel-instructions.md`. Tests enforce these files; the workflow does not rely on chat memory.
+The art contract is stored in `pixel-agent.config.json`, the standard-trait palette is stored in `palette/vivid-fixed-128.json`, skin palettes are derived from each source within the configured colour cap, and creative rules are stored in `agent/vivid-pixel-instructions.md`. Tests enforce these files; the workflow does not rely on chat memory.
 
 ## Deploying
 

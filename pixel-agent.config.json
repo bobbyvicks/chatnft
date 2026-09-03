@@ -2,7 +2,29 @@
   "schemaVersion": 1,
   "canvas": { "width": 1024, "height": 1024, "fit": "full-canvas", "sampling": "nearest-neighbor" },
   "input": { "mimeTypes": ["image/png", "image/jpeg", "image/webp"], "maxBytes": 25165824 },
-  "grid": { "allowed": [32, 64, 128, 256], "default": 128 },
+  "grid": { "allowed": [32, 64, 128, 160, 256], "default": 128 },
+  "profiles": {
+    "standard": {
+      "label": "Standard traits (128 → 1024)",
+      "canvas": { "width": 1024, "height": 1024 },
+      "grid": { "allowed": [32, 64, 128, 256], "default": 128 },
+      "palette": { "mode": "fixed", "maxOpaqueColors": 16 }
+    },
+    "clothing": {
+      "label": "Clothing — fixed project palette + locked black ink (128/256 → 1024)",
+      "canvas": { "width": 1024, "height": 1024 },
+      "grid": { "allowed": [128, 256], "default": 128 },
+      "palette": { "mode": "clothing", "maxOpaqueColors": 8 },
+      "comfy": { "denoise": 0.4 }
+    },
+    "skins": {
+      "label": "Skins (160 → 1280)",
+      "canvas": { "width": 1280, "height": 1280 },
+      "grid": { "allowed": [160], "default": 160 },
+      "palette": { "mode": "source", "maxOpaqueColors": 16 },
+      "canonicalMask": "assets/canonical-skin-mask-160.png"
+    }
+  },
   "palette": { "file": "palette/vivid-fixed-128.json", "maxOpaqueColors": 16 },
   "alpha": { "allowed": [0, 255], "threshold": 128 },
   "outline": { "color": "#000000", "placement": "exterior", "thicknessCells": 1 },

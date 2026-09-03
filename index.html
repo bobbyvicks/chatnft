@@ -173,7 +173,10 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
    back and nothing below it jumps. */
 .err{color:var(--bad); font-size:13.5px; min-height:20px;}
 .err:empty{min-height:0; display:none;}
-.extract{width:min(760px,92vw); text-align:left; padding:18px; border-radius:13px;
+/* 1180 rather than 760 on a wide screen. This panel is where a render gets
+   judged before it is cut up, and it was a 760px card floating in a 1585px
+   page - the preview inside it got 220px to show a 1024px image in. */
+.extract{width:min(1180px,92vw); text-align:left; padding:18px; border-radius:13px;
   background:var(--panel); border:1px solid var(--line);}
 .extract h2{font-size:13px; text-transform:uppercase; letter-spacing:.1em; color:var(--good);}
 /* The only browser-default controls left on the page. Green rather than the
@@ -215,7 +218,12 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
    stretched a wide trait into a square - and this preview is the first look anyone
    gets at an extraction, so it is the worst place to lie about shape. A small trait
    still scales up to fill the box, which plain max-width would have lost. */
-.preview canvas{width:220px; height:220px; object-fit:contain; cursor:crosshair; touch-action:none;
+/* Was a flat 220px square. You cannot see whether a crop is right in 220px
+   when the render is 1024 - the whole point of this panel is judging the
+   cropping, and it was showing it at a fifth scale. Grows with the panel and
+   stays square, with a floor so it never gets smaller than it used to be. */
+.preview canvas{width:clamp(220px, 42vw, 620px); height:auto; aspect-ratio:1;
+  object-fit:contain; cursor:crosshair; touch-action:none;
   /* crosshair because it is draggable, and touch-action:none so a drag on a
      phone chooses an area instead of scrolling the page */
   flex:none; border-radius:9px; border:1px solid var(--line);
@@ -227,7 +235,9 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
 .cleanup label{font-size:12.5px; gap:6px; cursor:pointer;}
 .cleanup input{accent-color:var(--good); cursor:pointer;}
 .cleanup select{padding:4px 6px; border-radius:6px; background:var(--ground); border:1px solid var(--line); color:var(--ink); font:inherit; font-size:12px;}
-.pvinfo{font-size:12.5px; color:var(--muted); line-height:1.5;}
+/* Was taking 488px of a 722px row and leaving the canvas 220. It is a status
+   line and a hint; it does not need to be wider than the thing it describes. */
+.pvinfo{font-size:12.5px; color:var(--muted); line-height:1.5; flex:1; min-width:0; max-width:34ch;}
 .pvinfo .mono{display:block; color:var(--ink); font-size:15px; margin-bottom:4px;}
 @media (max-width:560px){ .preview{flex-direction:column;} .preview canvas{width:100%; height:auto; aspect-ratio:1;} }
 @media (max-width:560px){ .slots{grid-template-columns:1fr;} .exrow .btn{margin-left:0; width:100%;} }

@@ -3030,9 +3030,164 @@ function restoreImage(im){
    colours, and the app's own recover() takes each channel's median
    independently, which can emit a triple that appears nowhere in the source.
    For pixel art that is the difference between a resize and a blur. */
-function scaleArt(src,W,H,nw,nh){
+/* Choose the colour for a destination cell.
+
+   The most locally CONCENTRATED colour, not the most numerous: the count in
+   this window divided by that colour's share of the whole image. A
+   background is common everywhere and scores low; an outline is rare
+   overall and scores high wherever it appears, so it wins a window it is
+   outnumbered in and a line keeps its colour instead of dissolving into
+   what surrounds it. A tie goes to the larger count, so a window of one
+   colour is unaffected.
+
+   The winner is always a colour that was in the input. Nothing is averaged
+   and no colour is invented - the property the old commonest-colour rule
+   was chosen for, and the reason this replaces it rather than blending. */
+function pickCell(cnt,glob){
+  let bk=0, best=-1, bn=-1;
+  for(const e of cnt){
+    const s=e[1]/(glob.get(e[0])||1);
+    if(s>best || (s===best && e[1]>bn)){ best=s; bn=e[1]; bk=e[0]; }
+  }
+  return bk;
+}
+
+/* Resample to a new size without losing the art.
+
+   Windows TILE - x1 of one cell is x0 of the next - so no source pixel is
+   read twice. The old bound used Math.ceil and overlapped: at 160->136,
+   destination 0 read source [0,2) and destination 1 read [1,3), and 20
+   one-pixel lines came out as 28. At 128 they came out as 32.
+
+   A cell less than half covered stays empty, as before - that is what keeps
+   a shrink from fattening the silhouette. The rescue pass below is the
+   floor under it. */
+function resample(src,W,H,nw,nh){
   const out=new Uint8ClampedArray(nw*nh*4);
+  const NP=W*H, ND=nw*nh;
+  const glob=new Map();
+  for(let p=0;p<NP;p++){
+    if(src[p*4+3]<128) continue;
+    const k=(src[p*4]<<16)|(src[p*4+1]<<8)|src[p*4+2];
+    glob.set(k,(glob.get(k)||0)+1);
+  }
+  const bx=new Int32Array(nw+1), by=new Int32Array(nh+1);
+  for(let i=0;i<=nw;i++) bx[i]=Math.floor(i*W/nw);
+  for(let i=0;i<=nh;i++) by[i]=Math.floor(i*H/nh);
+  /* Only ever widens an EMPTY window, which happens when upscaling. While
+     shrinking every window already has at least one pixel, so the tiling is
+     left exact and nothing is read twice. */
+  for(let i=0;i<nw;i++) if(bx[i+1]<=bx[i]) bx[i+1]=Math.min(W,bx[i]+1);
+  for(let i=0;i<nh;i++) if(by[i+1]<=by[i]) by[i+1]=Math.min(H,by[i]+1);
+
+  const on=new Uint8Array(ND), cnt=new Map();
+  /* Windows that held art and were dropped for coverage. Only the edge of a
+     shape produces these, so this stays the size of a perimeter. */
+  const dropped=new Map();
+  for(let dy=0;dy<nh;dy++){
+    const y0=by[dy], y1=Math.min(H,by[dy+1]);
+    for(let dx=0;dx<nw;dx++){
+      const x0=bx[dx], x1=Math.min(W,bx[dx+1]);
+      cnt.clear();
+      let lit=0, tot=0;
+      for(let y=y0;y<y1;y++) for(let x=x0;x<x1;x++){
+        const i=(y*W+x)*4; tot++;
+        if(src[i+3]<128) continue;
+        lit++;
+        const k=(src[i]<<16)|(src[i+1]<<8)|src[i+2];
+        cnt.set(k,(cnt.get(k)||0)+1);
+      }
+      const d=(dy*nw+dx)*4;
+      if(!cnt.size || lit*2<tot){
+        out[d+3]=0;
+        if(cnt.size) dropped.set(dy*nw+dx,new Map(cnt));
+        continue;
+      }
+      const bk=pickCell(cnt,glob);
+      out[d]=(bk>>16)&255; out[d+1]=(bk>>8)&255; out[d+2]=bk&255; out[d+3]=255;
+      on[dy*nw+dx]=1;
+    }
+  }
+
+  /* A dropped window's AREA is absorbed by the neighbour that survives; its
+     colours should be too. On a trait those colours are the outline, and
+     without this they are simply lost: measured on a square with a one-pixel
+     border at 160 -> 40, every one of the four edges came out with zero
+     outline cells, because the window holding the border is covered 1 of 16.
+
+     Colour only. This never sets alpha, so the silhouette is exactly what the
+     under-half rule decided and a shrink still cannot fatten it. */
+  if(dropped.size){
+    const carried=new Map();
+    for(const pair of dropped){
+      const c=pair[0], x=c%nw, y=(c/nw)|0;
+      for(const nb of [x>0?c-1:-1,x<nw-1?c+1:-1,y>0?c-nw:-1,y<nh-1?c+nw:-1]){
+        if(nb<0||!on[nb]) continue;
+        let mm=carried.get(nb); if(!mm){ mm=new Map(); carried.set(nb,mm); }
+        for(const e of pair[1]) mm.set(e[0],(mm.get(e[0])||0)+e[1]);
+        break;
+      }
+    }
+    for(const pair of carried){
+      const c=pair[0], dx=c%nw, dy=(c/nw)|0;
+      const x0=bx[dx], x1=Math.min(W,bx[dx+1]), y0=by[dy], y1=Math.min(H,by[dy+1]);
+      cnt.clear();
+      for(let y=y0;y<y1;y++) for(let x=x0;x<x1;x++){
+        const i=(y*W+x)*4; if(src[i+3]<128) continue;
+        const k=(src[i]<<16)|(src[i+1]<<8)|src[i+2];
+        cnt.set(k,(cnt.get(k)||0)+1);
+      }
+      for(const e of pair[1]) cnt.set(e[0],(cnt.get(e[0])||0)+e[1]);
+      const bk=pickCell(cnt,glob), d=c*4;
+      out[d]=(bk>>16)&255; out[d+1]=(bk>>8)&255; out[d+2]=bk&255;
+    }
+  }
+
+  /* Which destination cell a source pixel falls in. Walked once rather than
+     divided per pixel, because the bounds are not a uniform ratio. */
+  const mapX=new Int32Array(W), mapY=new Int32Array(H);
+  for(let x=0,q=0;x<W;x++){ while(q<nw-1 && x>=bx[q+1]) q++; mapX[x]=q; }
+  for(let y=0,q=0;y<H;y++){ while(q<nh-1 && y>=by[q+1]) q++; mapY[y]=q; }
+
+  /* Nothing disappears. A connected piece of art that maps to no surviving
+     cell is drawn back into the cells it touches - measured, this is the
+     difference between 20 one-pixel lines coming out as 20 and as 0.
+     It only fires for something that would otherwise be gone, so the
+     under-half rule still governs everything that survives on its own and
+     the silhouette is not fattened. */
+  const seen=new Uint8Array(NP), st=[];
+  for(let p0=0;p0<NP;p0++){
+    if(seen[p0]||src[p0*4+3]<128) continue;
+    st.length=0; st.push(p0); seen[p0]=1;
+    let survives=false;
+    const cells=new Map();
+    for(let i=0;i<st.length;i++){
+      const p=st[i], x=p%W, y=(p/W)|0;
+      const c=mapY[y]*nw+mapX[x];
+      if(on[c]) survives=true;
+      else {
+        let mm=cells.get(c); if(!mm){ mm=new Map(); cells.set(c,mm); }
+        const k=(src[p*4]<<16)|(src[p*4+1]<<8)|src[p*4+2];
+        mm.set(k,(mm.get(k)||0)+1);
+      }
+      for(const nb of [x>0?p-1:-1,x<W-1?p+1:-1,y>0?p-W:-1,y<H-1?p+W:-1])
+        if(nb>=0 && !seen[nb] && src[nb*4+3]>=128){ seen[nb]=1; st.push(nb); }
+    }
+    if(survives) continue;
+    for(const pair of cells){
+      const c=pair[0], bk=pickCell(pair[1],glob), d=c*4;
+      out[d]=(bk>>16)&255; out[d+1]=(bk>>8)&255; out[d+2]=bk&255; out[d+3]=255;
+      on[c]=1;
+    }
+  }
+  return out;
+}
+
+function scaleArt(src,W,H,nw,nh){
+  /* A whole-number enlargement copies each cell exactly, which no resampler
+     can improve on. Everything else goes through resample. */
   if(nw>=W && nh>=H && nw%W===0 && nh%H===0){
+    const out=new Uint8ClampedArray(nw*nh*4);
     const kx=nw/W, ky=nh/H;
     for(let y=0;y<nh;y++) for(let x=0;x<nw;x++){
       const s=(((y/ky)|0)*W+((x/kx)|0))*4, d=(y*nw+x)*4;
@@ -3040,30 +3195,7 @@ function scaleArt(src,W,H,nw,nh){
     }
     return out;
   }
-  const cnt=new Map();
-  for(let dy=0;dy<nh;dy++){
-    const y0=Math.floor(dy*H/nh), y1=Math.max(y0+1,Math.ceil((dy+1)*H/nh));
-    for(let dx=0;dx<nw;dx++){
-      const x0=Math.floor(dx*W/nw), x1=Math.max(x0+1,Math.ceil((dx+1)*W/nw));
-      cnt.clear();
-      let on=0, tot=0;
-      for(let y=y0;y<y1&&y<H;y++) for(let x=x0;x<x1&&x<W;x++){
-        const i=(y*W+x)*4; tot++;
-        if(src[i+3]<128) continue;
-        on++;
-        const k=(src[i]<<16)|(src[i+1]<<8)|src[i+2];
-        cnt.set(k,(cnt.get(k)||0)+1);
-      }
-      const d=(dy*nw+dx)*4;
-      /* A cell less than half covered by art becomes empty, so shrinking does
-         not fatten the silhouette by rounding every stray pixel up. */
-      if(on*2<tot || !cnt.size){ out[d+3]=0; continue; }
-      let bk=0,bn=-1;
-      for(const e of cnt){ if(e[1]>bn){ bn=e[1]; bk=e[0]; } }
-      out[d]=(bk>>16)&255; out[d+1]=(bk>>8)&255; out[d+2]=bk&255; out[d+3]=255;
-    }
-  }
-  return out;
+  return resample(src,W,H,nw,nh);
 }
 
 /* Change the canvas without touching the art: pad with empty space or crop.

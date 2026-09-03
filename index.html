@@ -35,6 +35,12 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
 @media (prefers-reduced-motion:reduce){*{transition:none!important; animation:none!important;}}
 
 /* ---------- landing ---------- */
+/* The dropzone first. Everything here is a grid item, so the reading order is
+   set by order: and the markup is untouched - the extract panel keeps its
+   place in the document, its ids and everything wired to them. It was the
+   headline only because it was written first. */
+.tag{order:1} .restore{order:2} .drop{order:3} .bulkrow{order:4}
+.err{order:5} .extract{order:6} .proj{order:7} .how{order:8}
 .land{min-height:100dvh; display:grid; place-content:center; justify-items:center;
   gap:26px; padding:32px 20px; text-align:center;}
 .brand{display:flex; align-items:center; gap:11px;}
@@ -122,9 +128,14 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
   .acct{top:10px; right:10px; width:36px; height:36px;}
   .acctpanel{top:52px; right:8px; left:8px; width:auto;}
 }
-.restore{width:min(560px,92vw); margin-bottom:14px;
-  background:var(--panel); border:1px solid var(--accent); display:flex; align-items:center;
-  gap:12px; flex-wrap:wrap; font-size:13px; color:var(--ink);}
+/* A convenience, not an alert. It had the accent border - the only one on
+   the page - so it read louder than the dropzone it sits above, and its
+   filename ran to the edge of the box. Quieter, padded, and narrower than
+   the thing it is offering to take you back into. */
+.restore{width:min(430px,92vw); margin-bottom:14px; padding:8px 12px;
+  border-radius:10px; background:var(--panel); border:1px solid var(--line);
+  display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+  font-size:12.5px; color:var(--muted);}
 .restore .acts{margin-left:auto; display:flex; gap:8px;}
 .drop{width:min(560px,92vw); padding:44px 26px; border-radius:16px; cursor:pointer;
   border:2px dashed var(--line); background:var(--panel);
@@ -137,10 +148,29 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
 .how div{padding:15px 16px; border-radius:11px; background:var(--panel); border:1px solid var(--line);}
 .how h3{font-size:12px; text-transform:uppercase; letter-spacing:.1em; color:var(--accent); margin-bottom:5px;}
 .how p{margin:0; color:var(--muted); font-size:13px; line-height:1.5;}
+/* No height until there is something to say. The reserved 20px plus the grid
+   gap on either side of it left a 99px hole in the middle of the front page,
+   waiting for an error that is almost never there. :empty is exact - the
+   element is filled by script, so the moment it has text it takes its space
+   back and nothing below it jumps. */
 .err{color:var(--bad); font-size:13.5px; min-height:20px;}
+.err:empty{min-height:0; display:none;}
 .extract{width:min(760px,92vw); text-align:left; padding:18px; border-radius:13px;
   background:var(--panel); border:1px solid var(--line);}
 .extract h2{font-size:13px; text-transform:uppercase; letter-spacing:.1em; color:var(--good);}
+/* The only browser-default controls left on the page. Green rather than the
+   accent because they belong to this panel, which is green throughout. */
+.extract input[type=checkbox]{appearance:none; -webkit-appearance:none;
+  width:16px; height:16px; border-radius:5px; margin:0; flex:none;
+  border:1px solid var(--line); background:var(--panel-2);
+  display:inline-grid; place-content:center; cursor:pointer;
+  transition:background .14s,border-color .14s;}
+.extract input[type=checkbox]:hover{border-color:var(--good);}
+.extract input[type=checkbox]:checked{background:var(--good); border-color:var(--good);}
+.extract input[type=checkbox]:checked::after{content:""; width:9px; height:5px;
+  margin-top:-2px; border-left:2px solid #14131a; border-bottom:2px solid #14131a;
+  transform:rotate(-45deg);}
+.extract input[type=checkbox]:focus-visible{outline:2px solid var(--good); outline-offset:2px;}
 .extract p.lead{margin:6px 0 14px; color:var(--muted); font-size:13.5px; max-width:62ch;}
 .slots{display:grid; grid-template-columns:1fr 1fr; gap:10px;}
 .slot{padding:16px 14px; border-radius:10px; border:2px dashed var(--line);
@@ -462,7 +492,9 @@ input[type=range]{width:100%; accent-color:#f5a524; cursor:pointer;}
 .btn.ghost:hover{background:var(--line);}
 .btn.ghost.on{background:var(--accent-soft); border-color:var(--accent); color:var(--accent);}
 .stack{display:flex; flex-direction:column; gap:8px;}
-.note{font-size:11.5px; color:var(--muted); line-height:1.45;}
+/* A caption under a control, not a paragraph. Smaller, quieter and given room
+   above so it belongs to the thing before it rather than floating between. */
+.note{font-size:11.5px; color:var(--dim); line-height:1.5; margin-top:2px;}
 footer{grid-area:foot; display:flex; align-items:center; gap:15px; padding:8px 16px;
   border-top:1px solid var(--line); background:var(--panel); font-size:11.5px; color:var(--muted);}
 footer .mono{color:var(--ink);}
@@ -571,7 +603,7 @@ footer .mono{color:var(--ink);}
       <div class="savebar">
         <button class="btn" id="supgo" style="flex:1">Create account</button>
       </div>
-      <p class="note" id="supnote">Your account name is what you sign in with. Your name is what people you share a project with will see. There is no email on the account, so keep the password somewhere safe.</p>
+      <p class="note" id="supnote">No email on the account, so keep the password safe.</p>
       <p class="note" style="text-align:center">Already have one? <button class="linkish" id="gotosignin">Sign in</button></p>
     </div>
   </div>
@@ -609,16 +641,13 @@ footer .mono{color:var(--ink);}
         <button class="mini" id="setpass" hidden>Set a password</button>
       </div>
     </div>
-    <p class="note" id="cloudnote">Signing in keeps your collection on the server so it follows you to
-      another device. Nothing is uploaded until you press Save to cloud.</p>
+    <p class="note" id="cloudnote">Nothing uploads until you press Save to cloud.</p>
   </section>
   </div>
-  <p class="tag">A pixel editor that works on the grid your art was actually drawn on. Drop a PNG in, rebuild it at its true resolution, and <b>edit it cell by cell</b> — then download a clean file. Nothing is uploaded anywhere.</p>
+  <p class="tag">Edit pixel art on the grid it was <b>actually drawn on</b>. Nothing leaves your device.</p>
   <section class="extract">
     <h2>Pull a trait off a character</h2>
-    <p class="lead">If someone sends you the whole character wearing a hat, a necklace, glasses, drop it here
-      with the bare character it was drawn over. Whatever differs between the two is the trait, and it comes
-      back on transparency ready to layer. Load a bare character for each skin once; the right one is matched automatically per submission.</p>
+    <p class="lead">Drop the character wearing the trait beside the bare one. What differs comes back on transparency.</p>
     <div class="slots">
       <div class="slot" id="refslot" tabindex="0" role="button">
         <strong>References</strong><span>bare characters, one per skin</span>
@@ -687,17 +716,18 @@ footer .mono{color:var(--ink);}
   </div>
   <input type="file" id="file" accept="image/png,image/gif,image/webp,image/jpeg" hidden>
   <div class="bulkrow">
-    <button class="mini" id="bulkbtn">Import a folder of traits</button>
-    <span class="hintline">Reads the layer and the wip / approved / rejected state out of the folder names</span>
+    <button class="mini" id="bulkbtn"
+      title="Reads the layer and the wip / approved / rejected state out of the folder names">Import a folder of traits</button>
+
   </div>
   <input type="file" id="bulkfile" webkitdirectory directory multiple hidden>
   <p class="note" id="bulknote" hidden></p>
   <p class="err" id="err" role="status"></p>
 
   <div class="how">
-    <div><h3>Measures</h3><p>Reads the repeating block size from where the art's own edges fall and suggests a resolution. You confirm it — you know what you drew at.</p></div>
-    <div><h3>Recovers</h3><p>Rebuilds each cell from the median of its source pixels, so no colour appears that was not already there.</p></div>
-    <div><h3>Edits</h3><p>Paint on the true grid with the palette taken from your own image, then download a clean PNG.</p></div>
+    <div><h3>Measures</h3><p>Finds the real block size and suggests a resolution.</p></div>
+    <div><h3>Recovers</h3><p>Rebuilds each cell from its own pixels. No new colours.</p></div>
+    <div><h3>Edits</h3><p>Paint on the true grid, download a clean PNG.</p></div>
   </div>
 
 
@@ -740,9 +770,7 @@ footer .mono{color:var(--ink);}
       <canvas id="ccanvas" width="160" height="160"></canvas>
       <div class="crows" id="crows"></div>
     </div>
-    <p class="note" id="cnote">Stacks one saved trait per layer, in the order the collection draws them,
-      over a base. This is the check that the set actually works together - a trait can look right on its
-      own and still collide with the hat above it.</p>
+    <p class="note" id="cnote">Stacks one trait per layer over a base, in draw order, to check the set works together.</p>
   </section>
   <section class="proj" id="layers" hidden>
     <div class="projhead">
@@ -754,9 +782,7 @@ footer .mono{color:var(--ink);}
       </div>
     </div>
     <div id="layerbody"></div>
-    <p class="note">The top of this list is drawn in front of everything below it. Renaming a layer
-      takes every trait on it along; removing one sends its traits to unsorted rather than deleting
-      them. This order is what the character builder and the sheet draw in.</p>
+    <p class="note">Top of the list draws in front. Removing a layer sends its traits to unsorted.</p>
   </section>
 </main>
 
@@ -872,18 +898,17 @@ footer .mono{color:var(--ink);}
     <section>
       <h2>Background</h2>
       <div class="savebar">
-        <button class="btn ghost" id="debg" style="flex:1">Clear flat background</button>
+        <button class="btn ghost" id="debg" style="flex:1"
+          title="Floods in from the border, so a white shirt in the middle stays">Clear flat background</button>
         <input id="bgtol" type="number" min="0" max="120" value="24" style="width:64px" aria-label="Background tolerance">
       </div>
-      <p class="note">Only colour connected to the border goes. A white shirt in the middle stays.</p>
+      <p class="note">Only colour touching the border goes.</p>
       <div class="savebar">
         <button class="btn ghost" id="fillholes" style="flex:1"
           title="Close gaps the artwork surrounds on every side">Fill interior holes</button>
         <input id="holemax" type="number" min="0" max="99999" value="0" style="width:64px"
           aria-label="Biggest gap to close, in cells; 0 for any size"></div>
-      <p class="note">Closes gaps the art surrounds completely - the specks a crop or an erase leaves behind.
-        Each is filled with the colours around it, not a flat block. The number is the biggest gap to close,
-        in cells; 0 closes every one, so raise it if the trait has a hole that belongs there.</p>
+      <p class="note">Closes gaps the art surrounds. 0 means any size; raise it to keep a hole that belongs.</p>
     </section>
     <section>
       <h2>Transform</h2>
@@ -893,9 +918,7 @@ footer .mono{color:var(--ink);}
         <button class="tool" id="rotl" title="Turn a quarter to the left"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg></button>
         <button class="tool" id="rotr" title="Turn a quarter to the right"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/></svg></button>
       </div>
-      <p class="note">Flip, quarter-turn, or pick the Transform tool and drag the box - corners resize, the handle above
-        rotates. Snap fixes the angle to 15 degrees, moves to whole cells and sizes to whole multiples of the cell count;
-        off, the angle is free. Everything here acts on the whole canvas, so the trait stays lined up.</p>
+      <p class="note">Drag the box: corners resize, the handle rotates. Snap locks to 15° and to the grid.</p>
       <div class="olrow" style="margin-top:10px"><label for="rsw">Size</label>
         <input id="rsw" type="number" min="1" max="4096" style="width:70px">
         <span class="mono">x</span>
@@ -917,10 +940,8 @@ footer .mono{color:var(--ink);}
           style="width:auto;padding:6px 12px;font-size:12px;margin-left:4px"
           title="Snap the angle to 15 degrees, moves to whole cells, and sizes to whole multiples of the cell count">Snap</button></div>
       <button class="btn ghost" id="rsgo">Resize</button>
-      <p class="note">Now <span class="mono" id="rsnow">-</span>. Whole multiples of the cell count keep every cell the same
-        width; other sizes take the commonest colour under each new cell, so no new colour appears. Pick
-        <em>the trait inside it</em> to resize the trait without changing the canvas - what you want when fitting one to
-        a character, since every trait has to export the same size.</p>
+      <p class="note">Now <span class="mono" id="rsnow">-</span>. Whole multiples of the cell count stay sharp.
+        <em>The trait inside it</em> resizes without changing the canvas.</p>
     </section>
     <section>
       <h2>Recolour</h2>
@@ -941,9 +962,7 @@ footer .mono{color:var(--ink);}
         </div>
         <button class="btn" id="rcclean">Clean up colours</button>
       </div>
-      <p class="note">Swaps every colour you pick for the current one, everywhere. Pick several to merge them into one.
-        Erase takes them out instead, leaving nothing there - useful for lifting a background or a stray shade off a trait.
-        Cells that are already empty are never touched by either.</p>
+      <p class="note">Replace swaps your picked colours for the current one. Erase removes them.</p>
     </section>
     <section>
       <h2>Base layer</h2>
@@ -958,7 +977,7 @@ footer .mono{color:var(--ink);}
         <input id="basefile" type="file" accept="image/*" hidden>
         <button class="btn ghost" id="baseoutline" aria-pressed="false">Show base outline</button>
       </div>
-      <p class="note">Never drawn into the artwork, so it cannot reach a save or an export. <kbd>M</kbd> drags the trait over it.</p>
+      <p class="note">Never part of the artwork. <kbd>M</kbd> drags the trait over it.</p>
     </section>
     <section>
       <h2>Outline</h2>
@@ -985,7 +1004,7 @@ footer .mono{color:var(--ink);}
             title="Fill holes the crop left inside the art">Patch holes</button></div>
         <button class="btn" id="oladd">Add outline</button>
       </div>
-      <p class="note" id="olnote">Outside the art, never over it. Snapping squares off the silhouette first, so a ragged crop cannot leave one-cell indents — at the cost of detail finer than a block.</p>
+      <p class="note" id="olnote">Outside the art, never over it. Snap squares off the silhouette first.</p>
     </section>
     <section>
       <h2>Save to project</h2>
@@ -1001,7 +1020,7 @@ footer .mono{color:var(--ink);}
         </div>
         <button class="btn" id="saveproj">Save to project</button>
       </div>
-      <p class="note">Kept in this browser under the layer you choose.</p>
+      <p class="note">Kept in this browser.</p>
     </section>
     <section>
       <h2>Export</h2>
@@ -1013,7 +1032,7 @@ footer .mono{color:var(--ink);}
         <button class="btn" id="saveclose">Save and close</button>
         <button class="btn ghost" id="closeed">Close</button>
       </div>
-      <p class="note">PNG, no smoothing. Keep the full canvas for anything you will layer back onto a character — that is what makes it line up.</p>
+      <p class="note">PNG, no smoothing. Keep the full canvas so it lines up.</p>
     </section>
   </aside>
 
@@ -1323,8 +1342,10 @@ async function renderShelf(){
     if(!traits.length){ b.hidden=true; return; }
     if(!activeWs){
       b.hidden=false; b.className="calm";
-      b.textContent="These are on your own page, which only you can see. To share them, "
-        +"switch Working in to a group project at the top of your account and save them there.";
+      /* A status line, not a paragraph. How to share belongs on hover, next
+         to the control that does it, not above the list every time. */
+      b.title="Switch Working in to a group project at the top of your account, then save them there";
+      b.textContent="On your own page - only you can see these.";
       return;
     }
     const behind=traits.filter(function(t){ return !t.synced; });
@@ -3804,7 +3825,10 @@ function outlinePreview(){
   (function(){
     const note=$("olnote"); if(!note) return;
     const col=($("olcol").value||"#000000").toLowerCase();
-    const plain="Outside the art, never over it. Snapping squares off the silhouette first, so a ragged crop cannot leave one-cell indents — at the cost of detail finer than a block.";
+    /* The same words as the markup. outlinePreview rewrites this element on
+       every redraw, so a copy that drifts puts the old text back the first
+       time anything moves. */
+    const plain="Outside the art, never over it. Snap squares off the silhouette first.";
     if(t===0 || col==="#000000"){ note.textContent=plain; note.style.color=""; return; }
     note.style.color="var(--accent)";
     note.textContent = t===1
@@ -4348,8 +4372,8 @@ async function drawCompose(){
         .map(e=>e[0]+" ("+e[1].join(", ")+")")
     : [];
   $("cnote").textContent = odd.length
-    ? "These are not all the same size: "+odd.join(" and ")+". Drawn scaled to the biggest, but traits meant to layer have to be saved at one canvas size or they will not line up on a real character."
-    : "Stacks one saved trait per layer, in the order the collection draws them, over a base. This is the check that the set actually works together - a trait can look right on its own and still collide with the hat above it.";
+    ? "Not all the same size: "+odd.join(" and ")+". Traits that layer have to share one canvas size."
+    : "Stacks one trait per layer over a base, in draw order, to check the set works together.";
   $("cdl").disabled=!picked.length;
 }
 function composeRandom(){
@@ -5858,7 +5882,7 @@ async function joinShowPending(){
       /* A dead link should say so here rather than after someone has gone to
          the trouble of making an account. */
       joinClear();
-      $("gatenote").textContent="That invite link has expired or been withdrawn. Ask for a new one - you can still sign in and use your own page.";
+      $("gatenote").textContent="That invite link has expired. Ask for a new one - you can still use your own page.";
       return;
     }
     $("gateinvite").hidden=false;
@@ -6023,7 +6047,7 @@ async function gateReset(){
      only honest answer; pretending to send a link that can never arrive is
      worse than having no button at all. */
   if(looksLikeUsername(id)){
-    $("gatenote").textContent="There is no email on a username account, so there is nothing to send a reset to. That is the trade for signing up without one.";
+    $("gatenote").textContent="No email on this account, so there is nothing to send a reset to.";
     return; }
   if(!EMAIL_RE.test(id)){
     $("gatenote").textContent="Put the email address the account was made with in the box above, then press this again."; return; }
@@ -6161,7 +6185,7 @@ async function gateSignUp(){
       toast("Welcome, "+name);
       return;
     }
-    $("supnote").textContent="The account was made, but this site is still set to confirm new accounts by email, so it cannot let you in. That setting has to be turned off.";
+    $("supnote").textContent="Account made, but this site confirms new accounts by email. Turn that setting off.";
   }catch(_){ $("supnote").textContent="Could not reach the server."; }
   finally{ gateBusy(false); }
 }

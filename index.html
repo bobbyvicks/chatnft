@@ -3035,6 +3035,19 @@ function fitZoom(){
 }
 function snapshot(){ undoStack.push(ctx.getImageData(0,0,art.width,art.height)); if(undoStack.length>60) undoStack.shift(); redoStack.length=0; }
 
+/* Take back a snapshot that turned out to describe nothing.
+
+   Some operations cannot know whether they will change anything until they
+   have run - a fill on the colour that is already there, a drag that ends
+   where it began - and by then the entry is taken. On a 1280 canvas that is
+   6.25MB to record that nothing happened, and it also costs a redo, because
+   snapshot() clears the redo stack on the way in. Hand it what redo held and
+   both go back. */
+function dropSnapshot(redoWas){
+  undoStack.pop();
+  if(redoWas){ redoStack.length=0; for(const r of redoWas) redoStack.push(r); }
+}
+
 /* Put an ImageData on the canvas, resizing the canvas to match it first.
 
    Undo used to be putImageData alone, which was fine while nothing could
@@ -4010,9 +4023,13 @@ function rawCell(e){
   const r=art.getBoundingClientRect();
   return {x:Math.floor((e.clientX-r.left)/zoom), y:Math.floor((e.clientY-r.top)/zoom)};
 }
-function nudge(dx,dy){
+/* repeating is true for an auto-repeat of a held key. The first press takes
+   the entry and the repeats ride on it, so a run of nudges is one undo step.
+   Measured before this: twelve repeats on a 1280 canvas made twelve entries
+   and 75MB, and undoing the run took twelve presses. */
+function nudge(dx,dy,repeating){
   if(!ctx||(!dx&&!dy)) return;
-  snapshot();
+  if(!repeating) snapshot();
   const b=ctx.getImageData(0,0,art.width,art.height);
   ctx.clearRect(0,0,art.width,art.height);
   ctx.putImageData(b,dx,dy);
@@ -6257,21 +6274,31 @@ function acctToggle(){
    away; a finger has to wait to find out whether a second one is coming. */
 function beginStroke(e){
   const c=cellFrom(e); if(!c) return;
-  snapshot();
   if(tool==="move"){
+    snapshot();
     moveBuf=ctx.getImageData(0,0,art.width,art.height);
     moveFrom=rawCell(e); moveDelta={x:0,y:0};
     $("olpv").style.display="none";
     return;
   }
   if(tool==="fill"){
+    /* Held aside before the snapshot, because snapshot() clears it and this
+       fill may turn out to have been nothing at all. */
+    const redoWas=redoStack.slice();
+    snapshot();
     const n=floodFill(c.x,c.y,hx2(color));
     /* Said out loud, because a fill that filled one cell used to look exactly
        like a fill that did nothing. */
-    if(!n) toast("Nothing to fill there");
+    if(!n){
+      /* Nothing changed, so nothing to remember. The same rule the move tool
+         has always followed at the end of a drag. */
+      dropSnapshot(redoWas);
+      toast("Nothing to fill there");
+    }
     else if(n===1) toast("Filled 1 cell - raise Fill spread to cover more");
     refreshStats(); return;
   }
+  snapshot();
   painting=true; lastCell=null;
   stroke(e);
 }
@@ -6374,7 +6401,7 @@ function endPointer(e){
     moveBuf=null;
     /* A drag that ended where it started is not an edit, so it does not earn
        an undo step that appears to do nothing. */
-    if(!moveDelta.x&&!moveDelta.y) undoStack.pop();
+    if(!moveDelta.x&&!moveDelta.y) dropSnapshot();
     else toast('Moved '+moveDelta.x+', '+moveDelta.y+' cells');
     refreshStats();
   }
@@ -6895,7 +6922,7 @@ const SHORTCUTS=[
   {show:'Arrows', desc:'Nudge the art one pixel, while Move is the tool',
     match:e=>tool==='move'&&e.key.indexOf('Arrow')===0, prevent:true,
     run:(k,e)=>nudge(e.key==='ArrowLeft'?-1:e.key==='ArrowRight'?1:0,
-                     e.key==='ArrowUp'?-1:e.key==='ArrowDown'?1:0)},
+                     e.key==='ArrowUp'?-1:e.key==='ArrowDown'?1:0, e.repeat)},
   {show:'Ctrl+Z', desc:'Undo', prevent:true,
     match:e=>(e.ctrlKey||e.metaKey)&&!e.shiftKey&&e.key.toLowerCase()==='z',
     run:()=>$('undo').click()},

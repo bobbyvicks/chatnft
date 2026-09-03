@@ -365,6 +365,17 @@ header .logo{width:24px; height:24px; border-radius:6px;}
 .spec{margin-left:auto; display:flex; gap:15px; font-size:10.5px; color:var(--muted);
   text-transform:uppercase; letter-spacing:.09em;}
 .spec b{color:var(--ink); font-weight:600; letter-spacing:0;}
+/* The only way out that does not need reading a shortcut list or opening a
+   collapsed panel. Last in the header, after .spec, which carries the
+   margin-left:auto - so this sits hard right without competing for the
+   free space. */
+.closex{margin-left:14px; flex:none; width:30px; height:30px; display:grid;
+  place-items:center; border-radius:8px; border:1px solid var(--line);
+  background:transparent; color:var(--muted); cursor:pointer;}
+.closex svg{width:17px; height:17px; fill:none; stroke:currentColor;
+  stroke-width:2; stroke-linecap:round;}
+.closex:hover{color:var(--ink); border-color:var(--muted);}
+.closex:focus-visible{outline:2px solid var(--accent); outline-offset:2px;}
 /* Wraps into a second column rather than overflowing. The rail is a fixed
    column and had no overflow handling, so on a short screen the last tools
    would simply have been cut off - which is exactly the bug the phone layout
@@ -535,6 +546,10 @@ footer .mono{color:var(--ink);}
   .app{grid-template-columns:1fr; grid-template-rows:auto auto minmax(0,1fr) auto auto;
     grid-template-areas:"head" "tools" "stage" "foot" "side";}
   .spec{width:100%; margin-left:0; gap:11px; font-size:9.5px;}
+  /* .spec wraps to its own row here, which would carry the close button
+     down with it. It stays in the top-right corner instead. */
+  header{position:relative; padding-right:52px;}
+  .closex{position:absolute; top:10px; right:14px; margin-left:0;}
   /* Wrapping, not scrolling. A sideways-scrolling rail with no scrollbar hid
      the last two tools completely - they were at x=500 on a 375px screen. */
   .tools{flex-direction:row; flex-wrap:wrap; justify-content:center; overflow-x:visible;
@@ -862,6 +877,9 @@ footer .mono{color:var(--ink);}
   <header>
     <span class="brand"><span class="logo" aria-hidden="true"><i></i><i></i><i></i><i></i></span><h1>ChatNFT</h1></span>
     <span class="fname mono" id="fname"></span>
+    <button class="closex" id="editorclose" type="button"
+      title="Close the editor (Esc)" aria-label="Close the editor">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
     <div class="spec">
       <span>Grid <b class="mono" id="sGrid">—</b></span>
       <span>Colours <b class="mono" id="sCols">—</b></span>
@@ -1655,12 +1673,23 @@ $('saveproj').onclick=saveTrait;
 
    Nothing is lost either way: the working canvas is autosaved, so a closed
    trait is offered back as "pick up where you left off". */
-function closeEditor(){
+/* Closing has never destroyed anything - autosave has the canvas - but the
+   restore bar was only built at page load, so after closing you saw a shelf
+   and no sign of what you had been working on. That is what it LOOKS like
+   to lose work, and it is why people hard-refresh. */
+/* The editor closes IMMEDIATELY - every DOM change here happens before the
+   await - and only the restore bar waits, because it has to know what was
+   actually stored before it can offer the right thing. */
+async function closeEditor(){
+  const flushed=autosaveNow();
   $("app").hidden=true; $("land").hidden=false;
   fileInput.value="";
   renderShelf();
+  await flushed;
+  offerRestore();
 }
 $("closeed").onclick=closeEditor;
+$("editorclose").onclick=closeEditor;
 $("saveclose").onclick=async()=>{
   const b=$("saveclose"), was=b.textContent;
   b.disabled=true; b.textContent="Saving...";
@@ -4243,18 +4272,32 @@ function setupFolds(){
    a crash or a stray gesture takes the lot. This keeps the working canvas in
    the same store the project uses, under one fixed id, and offers it back. */
 const AUTO_ID="autosave.working";
+/* The debounced write, on its own, so closing can force it. Without this,
+   closing within 1.5s of the last stroke left that stroke in a timeout
+   that never fired - the one case where work really was lost. */
+/* Resolves when the row is actually written, not when the write is merely
+   started. art.toBlob is asynchronous, so anything that reads the store
+   straight afterwards - offerRestore, for one - would otherwise see the
+   PREVIOUS autosave and look entirely plausible while doing so. */
+function autosaveNow(){
+  clearTimeout(autoPending); autoPending=null;
+  if(!ctx) return Promise.resolve();
+  return new Promise(done=>{
+    art.toBlob(b=>{
+      if(!b){ done(); return; }
+      dbPut({id:AUTO_ID, kind:"autosave", name:fileName||"untitled.png",
+             w:art.width, h:art.height, blob:b, at:Date.now()})
+        .then(done, done);
+    },"image/png");
+  });
+}
+/* The debounced path. It calls autosaveNow rather than carrying a second
+   copy of the same toBlob-and-dbPut: two copies of one write is how the
+   two come to disagree about what an autosave record contains. */
 function autosave(){
   if(!ctx||$("app").hidden) return;
   clearTimeout(autoPending);
-  autoPending=setTimeout(()=>{
-    autoPending=null;
-    if(!ctx) return;
-    art.toBlob(b=>{
-      if(!b) return;
-      dbPut({id:AUTO_ID, kind:"autosave", name:fileName||"untitled.png",
-             w:art.width, h:art.height, blob:b, at:Date.now()}).catch(()=>{});
-    },"image/png");
-  },1500);
+  autoPending=setTimeout(()=>{ autosaveNow(); },1500);
 }
 async function offerRestore(){
   let rec=null;
@@ -7140,6 +7183,20 @@ const SHORTCUTS=[
     run:()=>$('redo').click()},
   {show:'Backspace', desc:'Close the editor',
     match:e=>e.key==='Backspace', prevent:true, run:()=>closeEditor()},
+  /* Escape as well as Backspace, because Backspace is swallowed by every
+     input in the panel - the brush slider and the number fields - and that
+     is most of it. Escape is not used for text editing, so it survives
+     focus being anywhere.
+
+     Guarded on the overlays. If a scrim is up, Escape belongs to the scrim,
+     and closing the editor underneath one would leave it floating over the
+     landing page. The shortcuts panel has its own Escape entry ABOVE this
+     one and the dispatcher stops at the first match, so that case is
+     already handled - this covers the other two. */
+  {show:'Esc', desc:'Close the editor',
+    match:e=>e.key==='Escape' && $('scrim').hidden && $('pxscrim').hidden
+           && $('ksscrim').hidden && $('signin').hidden,
+    prevent:true, run:()=>closeEditor()},
   {show:'?', desc:'Show this list', match:e=>e.key==='?', prevent:true,
     run:()=>keysPanel(true)},
   {show:'Esc', desc:'Close this list',
@@ -7180,6 +7237,17 @@ addEventListener('keydown',e=>{
                ||e.target.isContentEditable;
   if(e.key==="Backspace"&&!typing) e.preventDefault();
   if($('app').hidden) return;
+  /* Escape from inside a text or number field steps out of the FIELD. The
+     input branch below returns before any shortcut is consulted for every
+     input that is not a range, so without this Escape lands in the same
+     hole Backspace does and quietly does nothing.
+
+     It stops here rather than also closing the editor, because Escape in a
+     field means "leave this field" - the trait-name input already reverts
+     and blurs on it - and tearing the editor down from under someone
+     mid-edit would be the next bug report. Press it again and the shortcut
+     below closes the editor, because focus is no longer in a field. */
+  if(e.key==="Escape"&&typing){ e.target.blur(); return; }
   /* A range input needs the arrows, Home/End and the page keys and nothing
      else, so every other shortcut is let through. Bailing on ANY input was
      harmless while the brush sizes were buttons; with a slider, clicking it

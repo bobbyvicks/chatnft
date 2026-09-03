@@ -5237,6 +5237,10 @@ async function bulkImport(files){
   const MAX=1200;
   const list=pngs.slice(0,MAX);
   let ok=0,failed=0,refs=0,oversized=0,strips=0,renamed=0;
+  /* What this batch actually contained, so the reconcile below can tell a
+     file that MOVED from one the import never mentioned. */
+  const supplied=[];
+  let moved=0;
   /* Numbered per layer, so a folder of nine unnamed backgrounds becomes
      background-1 .. background-9 rather than nine UUIDs. */
   const nextNum={};
@@ -5291,12 +5295,35 @@ async function bulkImport(files){
                     layer:layer, status:status, w:w, h:h2, blob:f, at:Date.now(),
                     shelfOrder:shelfCore.nextShelfOrder(shelfItems,layer)};
         await dbPut(trec);
+        supplied.push({name:info.name, layer:layer, status:status, id:trec.id});
         shelfItems.push(trec);
         if(activeWs) await cloudSyncOne(trec);
         perLayer[layer]=(perLayer[layer]||0)+1;
       }
       ok++;
     }catch(_){ failed++; }
+  }
+  /* A file that changed folder is the SAME file. Same name, same layer, a
+     status this import did not supply - that record is what the moved file
+     used to be, and on disk it no longer exists.
+
+     Narrow on purpose, because this deletes. Both statuses present in one
+     batch means someone keeps two files and both stay. A different layer is
+     a different trait - the live collection repeats names across layers. A
+     layer this import never touched is never reached into. */
+  if(supplied.length){
+    let existing=[]; try{ existing=await dbAll(); }catch(_){ existing=[]; }
+    const here=new Set(supplied.map(s=>s.id));
+    for(const rec of existing){
+      if(rec.kind!=="trait" || here.has(rec.id)) continue;
+      const moves=supplied.some(s=>s.name===rec.name && s.layer===rec.layer
+                                   && s.status!==(rec.status||"wip"));
+      if(!moves) continue;
+      try{ await dbDel(rec.id); }catch(_){ continue; }
+      /* The server copy too, or the next pull brings it back. */
+      try{ await cloudDropOne(rec); }catch(_){}
+      moved++;
+    }
   }
   await renderShelf();
   /* Report what was GUESSED, not just what was counted: files that landed in
@@ -5311,6 +5338,9 @@ async function bulkImport(files){
   /* Reported, not silent. "Imported 40" while quietly inventing nine names
      is the kind of help nobody asked for. */
   if(renamed) bits.push(renamed+" named for you");
+  /* Named, because it is a DELETION. "Imported 40" while quietly removing
+     nine records is not a report. */
+  if(moved) bits.push(moved+" moved, not duplicated");
   if(refs) bits.push(refs+" kept as a base");
   if(noLayer.length) bits.push(noLayer.length+" had no layer in the path and went to unsorted"+
     (noLayer.length<=4?" ("+noLayer.join(", ")+")":""));

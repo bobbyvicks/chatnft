@@ -122,6 +122,49 @@ test.describe('folder import keeps out what is not a trait', () => {
     expect(r.note, 'nothing was renamed').not.toContain('named for you');
   });
 
+  test('a file that moved folder replaces its old record', async ({ page }) => {
+    /* The reported bug. Measured before the fix:
+         import c/eyes/wip/happy.png            -> 1 record
+         re-import the SAME path, new content   -> 1 record, updated in place
+         re-import as c/eyes/approved/happy.png -> 2 records
+       Editing a file already worked; changing FOLDER duplicated, because the
+       record id is built from the path and nothing removed the old key. */
+    await landing(page);
+    await importFiles(page, [{ path: 'c/eyes/wip/happy.png', w: 32, h: 32 }]);
+    const after = await importFiles(page, [{ path: 'c/eyes/approved/happy.png', w: 32, h: 32 }]);
+    expect(after.count, 'one file on disk is one trait').toBe(1);
+    expect(after.note, 'and the deletion is reported, not silent')
+      .toContain('1 moved, not duplicated');
+  });
+
+  test('but both survive when the batch supplies both - the control',
+    async ({ page }) => {
+      /* Someone deliberately keeping a wip and an approved version has TWO
+         files, and both are in the import. Without this the fix above would
+         quietly delete work. */
+      await landing(page);
+      const r = await importFiles(page, [
+        { path: 'c/eyes/wip/happy.png', w: 32, h: 32 },
+        { path: 'c/eyes/approved/happy.png', w: 32, h: 32 },
+      ]);
+      expect(r.count).toBe(2);
+      expect(r.note, 'nothing was removed').not.toContain('moved');
+    });
+
+  test('and it never reaches into another layer', async ({ page }) => {
+    /* The same name in a different layer is a different trait - the live
+       collection repeats names across layers - and a layer this import never
+       touched must be left alone entirely. */
+    await landing(page);
+    await importFiles(page, [
+      { path: 'c/skins/wip/gold.png', w: 32, h: 32 },
+      { path: 'c/mouth/wip/grin.png', w: 32, h: 32 },
+    ]);
+    const r = await importFiles(page, [{ path: 'c/chains/approved/gold.png', w: 32, h: 32 }]);
+    expect(r.count, 'both golds and the untouched grin all survive').toBe(3);
+    expect(r.names).toEqual(['gold', 'gold', 'grin']);
+  });
+
   test('the same trait at two statuses is two records, not a duplicate',
     async ({ page }) => {
       /* The audit called this duplication. It is how the app versions a trait:

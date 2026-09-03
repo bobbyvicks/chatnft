@@ -21,6 +21,7 @@ const TYPES = {
   '.json': 'application/json; charset=utf-8',
   '.png': 'image/png', '.jpg': 'image/jpeg', '.gif': 'image/gif',
   '.webp': 'image/webp', '.svg': 'image/svg+xml',
+  '.woff2': 'font/woff2', '.woff': 'font/woff', '.ttf': 'font/ttf',
 };
 
 http.createServer((req, res) => {

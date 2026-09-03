@@ -7,10 +7,22 @@
 <meta name="description" content="A pixel art editor that works on your art's true grid. Drop in a PNG, rebuild it at its native resolution, edit cell by cell, download clean.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23121016'/><rect x='6' y='6' width='8' height='8' fill='%23f5a524'/><rect x='18' y='6' width='8' height='8' fill='%233ddc97'/><rect x='6' y='18' width='8' height='8' fill='%233ddc97'/><rect x='18' y='18' width='8' height='8' fill='%23f5a524'/></svg>">
 <meta name="build" content="e99019c56f8a3c58">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
 <style>
+/* Served from this repo, not from Google.
+
+   These were the only external requests the page made, so every visitor's
+   IP and User-Agent reached a third party on load - on a page whose own
+   strapline says nothing leaves your device. 65KB for the two, against
+   342KB of page, and the app now works offline the way it claims to.
+
+   Both are latin VARIABLE fonts: one file per family covers every weight
+   used here, which is why a font-weight RANGE is declared rather than one
+   rule per weight. Both are SIL Open Font License - see the OFL files
+   beside them, which the licence requires to travel with the fonts. */
+@font-face{font-family:Archivo; font-style:normal; font-weight:400 700;
+  font-display:swap; src:url(fonts/archivo-latin.woff2) format("woff2");}
+@font-face{font-family:"JetBrains Mono"; font-style:normal; font-weight:400 700;
+  font-display:swap; src:url(fonts/jetbrains-mono-latin.woff2) format("woff2");}
 /* Single dark ground on purpose: this is an image editor, and light chrome
    changes how the artwork's own colours read. Every colour is explicit. */
 :root{

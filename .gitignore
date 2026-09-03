@@ -3,3 +3,7 @@ node_modules/
 *.log
 .vercel
 .probe/
+
+# Playwright output
+test-results/
+playwright-report/

@@ -58,3 +58,38 @@ shown to test anything — and this suite has already caught one of its own:
 "shrinking works on a canvas that is not a multiple of the cell count" asserted
 only that the trait got *smaller*, and passed on the very defect it existed for,
 because a cropped blow-up is also smaller. It asserts the ratio now.
+
+## The sign-in tests, and running them against the live project
+
+`auth.spec.js` intercepts `/auth/v1/token` and answers it here, so what runs is
+the page's own `gateCreds` → `gateSignIn` → `gateKeep` → `cloudRender` against a
+server that replies the way the real one would. No account is used and no real
+password appears anywhere in this repository — which is public, so a password in
+a spec file would be a published password.
+
+One test in that file is skipped by default. It signs in for real, and it is the
+only thing that can catch the mock and the live Supabase project having drifted
+apart — a changed endpoint, a changed error shape, an account that stopped
+existing. Give it credentials through the environment and it runs:
+
+```
+CHATNFT_USER=<username> CHATNFT_PASS=<password> npx playwright test tests/auth.spec.js
+```
+
+Worth running before a release, and not otherwise.
+
+**A mock's registration order is not obvious, and getting it wrong looks like
+success.** Playwright tries the most recently added route first, so a catch-all
+must be registered *before* the specific routes or it answers for them. On the
+first run of `auth.spec.js` the catch-all swallowed every sign-in: the token
+handler never ran, and the account-enumeration test still passed, because the
+catch-all's `[]` made `gateKeep` fail and put the exact sentence the test was
+looking for on screen. Six tests failed loudly and the seventh passed for the
+wrong reason, which is the one that would have shipped.
+
+**What these tests do not show.** The gate is presentational. `gateShow` sets
+`.hidden` on `#signin` and `visibility` on `#land`, and nothing else — measured
+by leaving the scrim up, opening a trait, drawing a pixel and reading it back.
+The editor, the project store and the export all work underneath it. Whatever
+protects the cloud data, it is not this gate; it is row-level security in the
+database, which this suite does not test.

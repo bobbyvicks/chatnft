@@ -74,6 +74,13 @@ function code(text) {
   }).join(NL);
 }
 
+/* Split any text into lines without leaving carriage returns behind. code()
+   preserves the EOL it was given, so splitting its result on "
+" alone
+   leaves every line ending in  and every exact-match check silently fails -
+   which is the same trap as a multi-line search, one level up. */
+function lines(text) { return String(text).split(new RegExp(CR + "?" + NL)); }
+
 /* ---- finding a place -------------------------------------------- */
 
 /* The line range of a function, from its exact signature line to the closing
@@ -141,12 +148,18 @@ function save(doc, checks) {
   const script = scriptOf(out);
   // eslint-disable-next-line no-new-func
   new Function(script);
-  if (typeof checks === 'function') checks({ text: out, script, code: code(script) });
+  /* codeLines is handed over already split, because a check that splits it
+     itself will reach for "
+" and get a  on the end of every line. */
+  if (typeof checks === 'function') {
+    const c = code(script);
+    checks({ text: out, script, code: c, lines: lines(out), codeLines: lines(c) });
+  }
   fs.writeFileSync(doc.file, out);
   return out.length - doc.original.length;
 }
 
-module.exports = { load, scriptOf, code, inFunction, only, near, run, replace, save };
+module.exports = { load, scriptOf, code, lines, inFunction, only, near, run, replace, save };
 
 /* ---- its own tests ---------------------------------------------- */
 /* Run this file directly. A tool that finds mistakes has to be able to show

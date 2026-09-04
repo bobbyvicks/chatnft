@@ -116,6 +116,24 @@ test.describe('the patch machinery', () => {
     expect(doc.lines.join(doc.EOL), 'and it round-trips exactly').toBe(raw);
   });
 
+  test('stripped code splits without carrying carriage returns', () => {
+    // A patch check hit this the first time the kit was used for real. code()
+    // preserves the EOL it was given, so splitting its result on LF alone
+    // leaves a CR on the end of every line and an exact-match lookup finds
+    // nothing - which reads as "that function is gone", not as "I split it
+    // wrong". It refused to write, which was right, and for the wrong reason.
+    const doc = kit.load(INDEX);
+    const stripped = kit.code(kit.scriptOf(doc.original));
+    const naive = stripped.split(String.fromCharCode(10));
+    const proper = kit.lines(stripped);
+
+    const sig = 'async function buildCollection(n,onProgress){';
+    expect(naive.indexOf(sig), 'splitting on LF alone cannot find it').toBe(-1);
+    expect(proper.indexOf(sig), 'kit.lines finds it exactly').toBeGreaterThan(0);
+    expect(proper.some(l => l.indexOf(String.fromCharCode(13)) >= 0),
+      'and leaves no carriage return behind').toBe(false);
+  });
+
   test('a run is found by its two ends', () => {
     const doc = kit.load(INDEX);
     const sig = doc.lines.find(l => l.indexOf('function bulkImport') >= 0);

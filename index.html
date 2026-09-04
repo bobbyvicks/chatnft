@@ -6251,6 +6251,69 @@ function pctLabel(p){
   if(v>0 && v<0.01) return "<0.01%";
   return (v<1 ? v.toFixed(2) : v<10 ? v.toFixed(1) : String(Math.round(v)))+"%";
 }
+/* What the built collection ACTUALLY contains, against what each tile said.
+
+   The tile shows a per-character probability and is right about that. A
+   collection is a set of DISTINCT characters, and distinctness ignores
+   weights - once the likely combinations are used up the only way to make
+   another different character is to reach for a rare trait. Measured on one
+   layer of two skins weighted 100 and 1: at six characters the 0.99% trait
+   was on 50% of them, and the only number shown was 0.99%.
+
+   Counted over the combos that were written to the zip, so this is a
+   measurement of the download rather than a second prediction about it.
+
+   NOISE IS THE THING TO AVOID HERE. Six characters make every share a
+   multiple of 16.7%, so a trait is only named when it is off by a factor of
+   THREE and by at least ten points of the collection - a wobble that size is
+   the set being too small to carry the weights, which is worth saying, and
+   anything smaller is arithmetic nobody can act on. */
+/* A trait is named when it is off by a factor of DRIFT_RATIO and by more
+   than drawing the set could explain. DRIFT_POINTS is a floor, not the bar:
+   sigma shrinks as a collection grows and on its own would start reporting
+   gaps too small to act on. */
+const DRIFT_RATIO=3, DRIFT_POINTS=0.10, DRIFT_SIGMAS=3;
+function shareDrift(combos,items,wipIncluded){
+  if(!combos||combos.length<2) return [];
+  const n=combos.length, seen=new Map();
+  for(const c of combos){
+    /* A character carrying a trait counts once, however many times it
+       appears - the tile is a chance per character, not per pixel. */
+    const once=new Set();
+    for(const r of c) if(r&&r.id) once.add(r.id);
+    for(const id of once) seen.set(id,(seen.get(id)||0)+1);
+  }
+  const out=[];
+  for(const t of (items||[])){
+    if(!traitEligible(t,wipIncluded)) continue;
+    const said=traitChance(t,items,wipIncluded);
+    if(said.pct===null||!(said.pct>0)) continue;
+    const got=(seen.get(t.id)||0)/n;
+    /* A trait that never appeared would divide by zero, so it is compared
+       against the smallest share this collection could even express. */
+    const ratio = got>said.pct ? got/said.pct : said.pct/(got||(0.5/n));
+    if(ratio<DRIFT_RATIO) continue;
+    /* How far a share of this size wobbles over a collection of this size,
+       from drawing alone. Measured over 300 even collections of 40, the flat
+       ten-point bar named a trait in 90 of them and this one in none. */
+    const sd=Math.sqrt(Math.max(said.pct*(1-said.pct),1e-9)/n);
+    if(Math.abs(got-said.pct)<Math.max(DRIFT_POINTS,DRIFT_SIGMAS*sd)) continue;
+    out.push({ name:t.name, said:said.pct, got, gap:Math.abs(got-said.pct) });
+  }
+  /* Worst first: the one most worth looking at leads, and only a few are
+     named - a list of twenty is a wall, not a warning. */
+  out.sort((a,b)=>b.gap-a.gap);
+  return out;
+}
+/* One sentence, or nothing at all. */
+function driftLine(drift,n){
+  if(!drift.length) return "";
+  const top=drift.slice(0,2).map(d=>d.name+" on "+pctLabel(d.got)
+    +" of them though its tile says "+pctLabel(d.said)).join(", and ");
+  const rest=drift.length>2 ? " ("+(drift.length-2)+" more are also off)" : "";
+  return "  The weights do not survive "+n+" distinct characters: "+top+rest
+    +". A bigger set, or weights closer together, brings these back in line.";
+}
 /* How many distinct characters this set can make, and how many it behaves
    like once the weights are uneven.
 
@@ -6488,7 +6551,7 @@ async function buildCollection(n,onProgress){
   const combos=uniqueCombos(pools,n);
   let W=0,H=0;
   for(const c of combos) for(const r of c){ if(r.w>W) W=r.w; if(r.h>H) H=r.h; }
-  if(!combos.length||!W||!H) return { files:[], made:0, asked:n };
+  if(!combos.length||!W||!H) return { files:[], made:0, asked:n, combos:[] };
   const cv=document.createElement("canvas"); cv.width=W; cv.height=H;
   const g=cv.getContext("2d"); g.imageSmoothingEnabled=false;
   const enc=new TextEncoder();
@@ -6510,7 +6573,11 @@ async function buildCollection(n,onProgress){
     },null,2))});
     if(onProgress && i%20===0){ onProgress(i+1,combos.length); await new Promise(r=>setTimeout(r,0)); }
   }
-  return { files, made:combos.length, asked:n };
+  /* combos travels with the files. The note measures what was actually built
+     against what each tile promised, and it can only do that if the thing
+     built is handed back - the first version of this returned only the count
+     and the whole report was silently inert. */
+  return { files, made:combos.length, asked:n, combos };
 }
 async function drawSheet(count){
   const pools=cPools();
@@ -9038,7 +9105,7 @@ $('cgenzip').onclick=async()=>{
           ? ", and the weights make it behave like "+bigLabel(cstat.effective)+"." : ".")
       : "";
     $("cnote").textContent="Built "+r.made+" different character"+(r.made===1?"":"s")
-      +" with metadata."+short+missed;
+      +" with metadata."+short+missed+driftLine(shareDrift(r.combos,cItems,$("cwip").checked),r.made);
     toast("Downloaded "+r.made+" character"+(r.made===1?"":"s"));
   }catch(e){
     toast("Could not build the set: "+((e&&e.message)||"error"));

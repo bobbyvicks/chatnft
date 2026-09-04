@@ -71,6 +71,7 @@ const run = () => {
       else if (/stripped by delimiter/.test(t)) red.push(5);
       else if (/CRLF and splitting/.test(t)) red.push(6);
       else if (/run is found by its two ends/.test(t)) red.push(7);
+      else if (/splits without carrying carriage returns/.test(t)) red.push(8);
       else throw new Error("unrecognised failing test: " + t);
     }
     walk(s.suites); } };
@@ -78,7 +79,7 @@ const run = () => {
   /* A run that reported no tests at all is an instrument failure, not a pass. */
   let total = 0; const count = (su) => { for (const s of su||[]) { total += (s.specs||[]).length; count(s.suites); } };
   count(j.suites);
-  if (total !== 7) throw new Error("expected 7 tests, the run reported " + total);
+  if (total !== 8) throw new Error("expected 8 tests, the run reported " + total);
   return [...new Set(red)].sort((a,b)=>a-b);
 };
 

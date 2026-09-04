@@ -164,6 +164,74 @@ test.describe('resize', () => {
     await page.waitForTimeout(300);
     expect(await art.size(page), '128 must snap up to a whole 160').toBe('160x160');
   });
+
+  /* Below one cell. The four above and the 128 test above them are the same
+     rule read in opposite directions, and only one direction was ever tested -
+     which is why a snap that mapped EVERY request from 1 to 239 onto 160 sat
+     green in this file. Measured before the fix: 24, 32, 40, 64, 80, 96, 120,
+     159, 200 and 239 all came back 160, so shrinking was not expressible at
+     all in Canvas or Art mode without turning snap off. */
+
+  test('the snap ladder goes down as well as up', async ({ page }) => {
+    await openTrait(page, { w: 160, h: 160, draw: (set) => { set(1, 1, [1, 2, 3]); } });
+    const g = await page.evaluate(() => projectGrid);
+    expect(g, 'this test is written against the default grid').toBe(160);
+    const ladder = await page.evaluate(() => {
+      const out = {};
+      for (let v = 1; v < 400; v++) out[v] = snapToGrid(v);
+      return out;
+    });
+    // The defect, stated as the property it violated: something below a cell
+    // has to be reachable. It was zero sizes, not few.
+    const below = new Set(Object.values(ladder).filter(v => v < 160));
+    expect(below.size, 'no size below one cell was reachable at all').toBeGreaterThan(4);
+    // And the constraint the old floor existed to protect, asserted directly
+    // rather than being satisfied vacuously by there being no sizes.
+    for (const v of below) expect(160 % v, v + ' does not tile the cell').toBe(0);
+    // The ladder must never invert - a smaller request giving a larger size.
+    for (let v = 2; v < 400; v++)
+      expect(ladder[v], 'not monotonic at ' + v).toBeGreaterThanOrEqual(ladder[v - 1]);
+    // At and above a cell, unchanged.
+    expect(ladder[128], '128 still snaps up').toBe(160);
+    expect(ladder[240], '240 still snaps to two cells').toBe(320);
+  });
+
+  for (const mode of ['canvas', 'art']) {
+    test('a shrink in ' + mode + ' mode works with snap left alone', async ({ page }) => {
+      // Snap is on by default and is not touched here, which is the point: the
+      // old behaviour was reachable by anyone who never found that control.
+      await openTrait(page, {
+        w: 160, h: 160,
+        draw: (set) => { for (let y = 20; y < 140; y++) for (let x = 20; x < 140; x++) set(x, y, [226, 146, 116]); },
+      });
+      await openAllSections(page);
+      expect(await page.evaluate(() => pressed('rssnap')), 'snap is on and stays on').toBe(true);
+      await setSelect(page, 'rsmode', mode);
+      await setField(page, 'rsw', 40);
+      await setField(page, 'rsh', 40);
+      await page.click('#rsgo');
+      await page.waitForTimeout(300);
+      expect(await art.size(page), 'asking for 40 used to give back 160').toBe('40x40');
+    });
+  }
+
+  test('a refusal caused by snap says it was snap', async ({ page }) => {
+    // "Already 160 by 160" to someone who typed 159 is true of the value that
+    // got used and silent about the request that was made, which sends them
+    // looking for a bug in the resize instead of at a control three rows up.
+    await openTrait(page, { w: 160, h: 160, draw: (set) => { set(1, 1, [1, 2, 3]); } });
+    await openAllSections(page);
+    await setSelect(page, 'rsmode', 'art');
+    await setField(page, 'rsw', 159);
+    await setField(page, 'rsh', 159);
+    await page.click('#rsgo');
+    await page.waitForTimeout(300);
+    const said = await page.evaluate(() => (($('toast') || {}).textContent) || '');
+    expect(said, 'the message must name snap').toMatch(/snap/i);
+    expect(said, 'and quote the number that was typed').toContain('159');
+    expect(said, 'and the number it became').toContain('160');
+    expect(await art.size(page), 'and nothing should have happened to the canvas').toBe('160x160');
+  });
 });
 
 test.describe('downscaling', () => {

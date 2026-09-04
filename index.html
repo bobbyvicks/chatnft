@@ -4214,6 +4214,10 @@ function applyResize(){
   const cbox = mode==="inside" ? contentBox() : null;
   const curW = cbox ? cbox.w : W, curH = cbox ? cbox.h : H;
   /* Snapped before clamping, so a snap can never push a size out of range. */
+  /* Kept so the refusal below can say what snap did to it. "Already 160 by
+     160" in answer to someone who typed 40 is true of the value that was
+     used and useless about the request that was made. */
+  const askedW=Math.max(1,Math.min(4096,parseInt($("rsw").value,10)||0));
   let nw=Math.max(1,Math.min(4096,parseInt($("rsw").value,10)||0));
   if(snap) nw=Math.min(4096,snapFor(mode,nw));
   let nh=Math.max(1,Math.min(4096,parseInt($("rsh").value,10)||0));
@@ -4243,8 +4247,13 @@ function applyResize(){
        with the canvas size reads as a refusal of something the user did not
        request. Scaling the art to the canvas size really is a no-op - the art
        already fills exactly that - so say what to type instead. */
-    toast(mode==="inside" ? "The trait is already that size"
-                          : "Already "+W+" by "+H);
+    /* If snap moved the number, that is the whole story and the size is a
+       detail. Saying only the size sends someone to look for a bug in the
+       resize when the answer is a control three rows up. */
+    const moved = snap && askedW!==nw;
+    toast(moved ? "Snap turned "+askedW+" into "+nw+", which is the size it already is - turn snap off for any size"
+        : mode==="inside" ? "The trait is already that size"
+        : "Already "+W+" by "+H);
     return;
   }
   const src=ctx.getImageData(0,0,W,H).data;
@@ -5623,9 +5632,41 @@ function snapArt(v){
 }
 function snapFor(mode,v){ return mode==="inside" ? snapArt(v) : snapToGrid(v); }
 
+/* The project grid, in BOTH directions.
+
+   At or above one cell this is unchanged: whole multiples, so 128 still
+   snaps up to 160 and a trait canvas lands on the collection grid.
+
+   Below one cell it used to be Math.max(g, ...), which put a FLOOR at the
+   grid itself - and with the default grid of 160 that mapped every request
+   from 1 to 239 onto 160. Shrinking was not merely awkward in Canvas and Art
+   mode, it was inexpressible, and the app answered "Already 160 by 160",
+   reporting the snapped value as though it were what had been asked for.
+
+   Whole divisors are the ladder going down. 80, 40, 32, 20, 16, 10, 8, 5, 4,
+   2, 1 all tile a 160 cell exactly, so the grid is as intact at 40 as at 160 -
+   four of them fill the cell the way one 160 does. Nothing is loosened.
+
+   Ties go to the smaller, because this branch only runs when the request was
+   for less than a cell, and rounding a shrink UP past its starting size is
+   the behaviour being removed rather than one to preserve in a tie.
+
+   A prime grid has no divisor between 1 and itself, and snapping to 1 is a
+   worse answer than not snapping at all, so that falls back to the art's own
+   block size - the rule Trait mode already uses. */
 function snapToGrid(v){
   const g=Math.max(1,projectGrid);
-  return Math.max(g, Math.round(v/g)*g);
+  if(v>=g) return Math.round(v/g)*g;
+  let best=g, bd=Infinity, count=0;
+  for(let k=1;k<=g;k++){
+    if(g%k) continue;
+    count++;
+    const d=Math.abs(k-v);
+    if(d<bd){ bd=d; best=k; }
+  }
+  /* Only 1 and g divide a prime, and 1 is not a size anybody asked for. */
+  if(count<3) return snapArt(v);
+  return best;
 }
 function applyLayers(items){
   const rec=items.find(i=>i.id===LAYERS_ID);

@@ -7951,20 +7951,29 @@ const cloudPath=(team,c,it)=>team+"/"+c.id+"/"+
 
    Your own page is untouched by this. It stays local until you ask, which is
    what the page has always promised. */
-async function cloudSyncOne(rec){
+/* ctx carries the user, team, collection and headers when the caller already
+   has them - which cloudPush does, for every item. Without it this asks for
+   the user and the collection again per trait: measured at 61 and 62 requests
+   for a 60-trait push, 40% of the whole operation spent re-deriving two
+   answers that cannot change while it runs.
+
+   Optional, because a single save inside a group calls this with nothing in
+   hand and must keep working exactly as it did. */
+async function cloudSyncOne(rec,ctx){
   /* No guard here: the caller decides. saveTrait only calls this inside a
      group, and cloudPush calls it for everything on either kind of page. */
-  const u=await sbUser(); if(!u) return null;
-  const team=await cloudTeam(); if(!team) return null;
-  const c=await cloudCollection(u); if(!c) return null;
+  ctx=ctx||{};
+  const u=ctx.u||await sbUser(); if(!u) return null;
+  const team=ctx.team||await cloudTeam(); if(!team) return null;
+  const c=ctx.c||await cloudCollection(u); if(!c) return null;
   const p=cloudPath(team,c,rec);
   try{
-    const hb=await sbHeaders({"Content-Type":"image/png","x-upsert":"true"});
+    const hb=ctx.hb||await sbHeaders({"Content-Type":"image/png","x-upsert":"true"});
     if(!hb) return null;
     const up=await fetch(SB_URL+"/storage/v1/object/traits/"+p,
       {method:"POST",headers:hb,body:rec.blob});
     if(!up.ok) return null;
-    const h=await sbHeaders({"Content-Type":"application/json"});
+    const h=ctx.h||await sbHeaders({"Content-Type":"application/json"});
     if(!h) return null;
     /* Identified the same way the local store identifies it - name, layer and
        status - so saving the same trait twice replaces it rather than leaving
@@ -8124,23 +8133,96 @@ async function cloudPush(){
      that is not yours to delete, and a stale row left behind is a far smaller
      harm than someone else losing a day. */
   const h=await sbHeaders({"Content-Type":"application/json"});
-  if(!activeWs){
-    await fetch(SB_URL+"/rest/v1/traits?collection_id=eq."+c.id,{method:"DELETE",headers:h});
-  }
-  let saved=0, failed=0;
+  /* The blanket delete that used to be here ran BEFORE the first upload:
+
+       if(!activeWs) await fetch(".../traits?collection_id=eq."+c.id,{method:"DELETE"})
+
+     Measured with 60 rows on the server and the connection dropping after 10
+     uploads, it left TEN. Its intent was right - a trait deleted here must
+     stop being there - but doing it first means a push that dies half way
+     has destroyed the server copy and not yet rebuilt it. Stale rows are
+     removed at the end now, by comparison, once their replacements exist. */
+  let saved=0, failed=0, done=0;
   const rows=[];
+  /* Everything that cannot change while this runs, worked out once. */
+  const ctx={u:u, team:team, c:c, h:h,
+    hb:await sbHeaders({"Content-Type":"image/png","x-upsert":"true"})};
+  /* SIX AT A TIME, not one. cloudPull already does this and says why in its
+     own comment - a project with 310 traits meant 310 round trips in a row -
+     and the upload never got the same treatment. Six rather than the pull's
+     eight because each item here is an upload AND two row requests against
+     one collection; both numbers are guesses, and the smaller guess is the
+     cheaper one to be wrong about on the write path. */
+  const PUSH_AT_ONCE=6;
+  let next=0;
+  /* Silence is what made the pull look broken rather than slow. */
+  const say=function(){
+    $("cloudnote").textContent="Uploading "+done+" of "+fresh.length+"...";
+  };
+  /* `synced` is set only after a row lands, and saveTrait rebuilds a record
+     without it, so it means exactly "this record reached the server and has
+     not been edited since". Re-uploading those is the bulk of a second press
+     of the button for no change at all.
+
+     THE PATH STILL COUNTS. cloudSweep removes every file in the bucket that is
+     not in the list it is given, so a skipped item has to contribute its path
+     or its image is deleted - which would be silent, and the opposite of what
+     skipping is for. */
+  let unchangedSkipped=0;
+  const fresh=[];
   for(const it of items){
-    const okd=await cloudSyncOne(it);
-    if(okd){ saved++; rows.push({path:cloudPath(team,c,it)}); }
-    else failed++;
+    const p=cloudPath(team,c,it);
+    if(it.synced && it.rowId && it.path===p){ unchangedSkipped++; rows.push({path:p}); }
+    else fresh.push(it);
+  }
+  async function pusher(){
+    while(next<fresh.length){
+      const it=fresh[next++];
+      const okd=await cloudSyncOne(it,ctx);
+      if(okd){ saved++; rows.push({path:cloudPath(team,c,it)}); }
+      else failed++;
+      done++;
+      if(done%10===0||done===fresh.length) say();
+    }
+  }
+  await Promise.all(Array.from({length:Math.min(PUSH_AT_ONCE,fresh.length)},pusher));
+  /* What the server holds that this device does not, removed only now that
+     everything here has landed. On a personal page that is the whole point of
+     the old blanket delete, done in the safe order. In a group it stays off:
+     a row that is not here may be somebody else's work, and the comment on
+     the old delete said exactly that.
+
+     Skipped only when something failed - deleting rows off a partial picture
+     is how the destructive version got it wrong in the first place. */
+  let stale=0;
+  if(!activeWs && !failed){
+    try{
+      const here=new Set(items.map(i=>cloudPath(team,c,i)));
+      const got=await cloudRows(c,h);
+      if(got.ok && !got.truncated){
+        const dead=got.rows.filter(r=>r.path && !here.has(r.path));
+        for(const d of dead){
+          const q="id=eq."+encodeURIComponent(d.id);
+          const del=await fetch(SB_URL+"/rest/v1/traits?"+q,{method:"DELETE",headers:h});
+          if(del.ok) stale++;
+        }
+      }
+    }catch(_){ }
   }
   const swept=await cloudSweep(team,c,rows.map(r=>r.path));
   await fetch(SB_URL+"/rest/v1/collections?id=eq."+c.id,{method:"PATCH",headers:h,
     body:JSON.stringify({layers:LAYERS})});
   $("cloudpush").disabled=false;
   await cloudStatus(u);
-  toast("Saved "+saved+" to the cloud"+(failed?", "+failed+" failed":"")+
-        (swept?", removed "+swept+" old image"+(swept===1?"":"s"):""));
+  /* Every number that is not zero, and none that is. "0 skipped" on a first
+     push is noise, and noise is what stops the useful ones being read. */
+  const bits=[];
+  if(saved) bits.push("Saved "+saved+" to the cloud");
+  if(unchangedSkipped) bits.push(unchangedSkipped+" already up to date");
+  if(failed) bits.push(failed+" failed");
+  if(stale) bits.push("removed "+stale+" no longer here");
+  if(swept) bits.push("removed "+swept+" old image"+(swept===1?"":"s"));
+  toast(bits.length?bits.join(", "):"Everything was already up to date");
 }
 
 /* opts.quiet    - no toast, for the pull that happens on opening a project

@@ -7890,8 +7890,25 @@ async function cloudStatus(u){
       const rows=await cr.json();
       if(rows.length){
         when=rows[0].updated_at;
-        const tr=await fetch(SB_URL+"/rest/v1/traits?select=id&collection_id=eq."+rows[0].id,{headers:h});
-        if(tr.ok) remoteN=(await tr.json()).length;
+        /* COUNTED BY THE SERVER, not by measuring the response. This used to
+           be (await tr.json()).length on an unpaginated select, so it stopped
+           at the same row cap the pull did - and the two then AGREED. The
+           panel said 1,000 here and 1,000 on the server and looked healthy
+           while 1,500 rows were missing from both numbers. Two instruments
+           sharing one origin corroborate each other and prove nothing.
+
+           count=exact with a one-row range asks for the total in the
+           Content-Range header and carries no rows back at all. */
+        const tr=await fetch(SB_URL+"/rest/v1/traits?select=id&collection_id=eq."+rows[0].id,
+          {headers:Object.assign({Prefer:"count=exact",Range:"0-0"},h)});
+        if(tr.ok){
+          const cr=tr.headers.get("content-range")||"";
+          const total=cr.indexOf("/")>=0 ? parseInt(cr.slice(cr.indexOf("/")+1),10) : NaN;
+          /* A server that will not count is a server whose number we do not
+             have. Falling back to the response length would put the capped
+             figure back, which is the bug. */
+          remoteN = isFinite(total) ? total : null;
+        }
       } else remoteN=0;
     }
   }catch(_){}
@@ -8122,6 +8139,40 @@ async function cloudPush(){
      local work. That is right for a button somebody chose to press, and wrong
      for a pull that happens every time a project opens - it would breed
      hat-2, hat-3, hat-4 on every visit. */
+/* Every row in a collection, however many there are.
+
+   The single unpaginated select this replaces stopped at the server's row
+   cap and reported success. Measured against a stand-in holding 2,500 rows
+   that answered with 1,000: one request, no Range header, "Loaded 1000
+   items", and no sign that 1,500 were missing.
+
+   ORDERED BY ID because limit/offset over an unordered result is not stable -
+   the server may return rows in a different order between two requests, and
+   then paging skips some and repeats others.
+
+   STOPS ON AN EMPTY BATCH, never on a short one. The server has its own cap
+   and it can be lower than PAGE: ask for 1,000 from a server capped at 500
+   and every full page looks short, so a short-batch test would stop after
+   the first one and reintroduce this bug in a form that is harder to see.
+
+   truncated is returned rather than thrown so the caller can SAY so. Running
+   out of pages silently is the failure being fixed here, and doing it again
+   at a different limit would be worse for having been deliberate. */
+const PULL_PAGE=1000, PULL_MAX_PAGES=500;
+async function cloudRows(c,h){
+  let out=[], from=0, truncated=false;
+  for(let page=0;;page++){
+    if(page>=PULL_MAX_PAGES){ truncated=true; break; }
+    const r=await fetch(SB_URL+"/rest/v1/traits?select=*&collection_id=eq."+c.id
+      +"&order=id.asc&limit="+PULL_PAGE+"&offset="+from,{headers:h});
+    if(!r.ok) return {rows:out, ok:false, truncated:false};
+    const batch=await r.json();
+    if(!Array.isArray(batch)||!batch.length) break;
+    out=out.concat(batch);
+    from+=batch.length;
+  }
+  return {rows:out, ok:true, truncated:truncated};
+}
 async function cloudPull(opts){
   opts=opts||{};
   const u=await sbUser();
@@ -8130,9 +8181,9 @@ async function cloudPull(opts){
   if(!c){ toast("Nothing on the server yet"); return; }
   const h=await sbHeaders();
   if(!h) return;
-  const r=await fetch(SB_URL+"/rest/v1/traits?select=*&collection_id=eq."+c.id,{headers:h});
-  if(!r.ok){ toast("Could not read your collection"); return; }
-  const rows=await r.json();
+  const got=await cloudRows(c,h);
+  if(!got.ok){ toast("Could not read your collection"); return; }
+  const rows=got.rows;
   /* The identities the server holds, so the caller can work out what has been
      removed by somebody else since this device last looked. */
   /* Server row ids survive local collision-renames and layer moves. A derived
@@ -8257,6 +8308,10 @@ async function cloudPull(opts){
   if(renamed) bits.push(renamed+" renamed so nothing here was replaced");
   if(newLayers) bits.push(newLayers+" new layer"+(newLayers===1?"":"s"));
   if(failed) bits.push(failed+" could not be read");
+  /* Only reachable on a collection past half a million rows, and said out
+     loud rather than left to look like a complete answer - which is exactly
+     what the unpaginated version did at 1,000. */
+  if(got.truncated) bits.push("there may be more on the server than this");
   $("cloudnote").textContent=bits.join(", ")+".";
   if(!opts.quiet) toast(bits.join(", "));
   return onServer;

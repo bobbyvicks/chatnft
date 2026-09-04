@@ -57,6 +57,7 @@ something. Good places to look, in order:
 
 Newest first. Delete the oldest when this passes 12.
 
+- 2026-09-04 — Load from cloud pages the rows instead of stopping at the server cap; the remote count now asks the server rather than measuring the response
 - 2026-09-04 — A dropped request no longer signs you out and blanks the shelf; `sbAuthState` separates "the server said no" from "could not ask"
 - 2026-09-04 — A trait set (a layer) can be turned off, so nothing in it is drawn; persisted, and the cards stay on screen dimmed
 - 2026-09-04 — A rule holds any number of traits and each row can be widened; `ruleId` read only the first two members, so `{a,b,c}` and `{a,b,d}` were one rule
@@ -90,6 +91,10 @@ Measured, with the date. Delete one the moment the code contradicts it.
   required layer; a rule against an optional layer is just skipped, so
   `ruleMisses` stays 0 and a fixture built to exercise it measures nothing.
   Setting `emptyChance = 0` is what forces the corner. *(09-04)*
+- **PostgREST caps rows per response and says so in `Content-Range`.** Any
+  `select` that can return many rows must page, ordered, stopping on an EMPTY
+  batch - not a short one, because the server cap can be lower than the page
+  size. `cloudSweep` had this right for storage; the row select did not. *(09-04)*
 - **`sbUser()` returns null for two different facts** — "the server says no" and
   "could not ask it". Five callers still read that null as signed-out, so a cloud
   action becomes a silent no-op on a hiccup. `cloudRender` uses `sbAuthState()`

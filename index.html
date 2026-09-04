@@ -6007,8 +6007,15 @@ async function buildCompose(items){
       const skewed = cs.effective < cs.distinct*0.9;
       el.textContent = base+" \u00b7 "+bigLabel(cs.distinct)+" possible character"
         +(Math.round(cs.distinct)===1?"":"s")
-        +(skewed ? ", behaving like "+bigLabel(cs.effective) : "");
-      el.title = "Every combination of one trait per layer, counting the chance a"
+        +(skewed ? ", behaving like "+bigLabel(cs.effective) : "")
+        /* Said out loud, because a figure that moved because of a rule and does
+           not say so reads as the exact one it used to be. */
+        +(cs.estimated ? " (estimated, with the rules applied)" : "");
+      el.title = (cs.estimated
+        ? "Every combination of one trait per layer, minus the ones a"
+          +" Never-together rule forbids. That share is estimated by sampling,"
+          +" because counting them exactly is not practical once a set is large."
+        : "Every combination of one trait per layer, counting the chance a")
         +" layer is left empty. \"Behaving like\" is how many EVENLY likely"
         +" characters would repeat as often as these weights do - if it is far"
         +" below, a few traits are taking most of the collection.";
@@ -6574,6 +6581,47 @@ function driftLine(drift,n){
    Eligibility is the generator's, matching traitChance - rejected never counts,
    wip only when the box is ticked. Any other population reports on a collection
    nobody is minting. */
+/* The share of COMBINATIONS that no rule forbids, estimated by sampling.
+
+   UNIFORM, not the way the generator draws. The question is what fraction of
+   the combinations counted by the product are legal, so each one has to be
+   equally likely to come up: one option per layer, with "empty" as one more
+   option wherever a layer may be empty. Drawing with rarity weights and
+   emptyChance would answer "what fraction of DRAWS are legal", which is a
+   different number whenever the weights are uneven, and is not the one that
+   scales a count of combinations.
+
+   Membership is tested directly rather than through conflictsWith, which asks
+   about one candidate against a partial character; here the whole combination
+   already exists and the question is whether any group holds two of it. */
+const LEGAL_SAMPLES=4000;
+function legalFraction(by){
+  if(!RULES.length) return 1;
+  const layers=[...by.keys()];
+  if(!layers.length) return 1;
+  let legal=0;
+  for(let i=0;i<LEGAL_SAMPLES;i++){
+    const keys=[];
+    for(const layer of layers){
+      const pool=by.get(layer);
+      const canEmpty = ALWAYS_PRESENT.indexOf(layer)<0;
+      /* One extra slot for "empty" where it is allowed, so the empty case is
+         exactly as likely as any single trait - which is what makes this a
+         uniform draw over the combinations the product counts. */
+      const n=pool.length+(canEmpty?1:0);
+      const pick=Math.floor(rnd()*n);
+      if(pick<pool.length) keys.push(traitKey(pool[pick]));
+    }
+    let ok=true;
+    for(const g of RULES){
+      let hits=0;
+      for(const k of keys) if(g.indexOf(k)>=0){ hits++; if(hits>1) break; }
+      if(hits>1){ ok=false; break; }
+    }
+    if(ok) legal++;
+  }
+  return legal/LEGAL_SAMPLES;
+}
 function comboStats(items,wipIncluded){
   const by=new Map();
   for(const t of (items||[])){
@@ -6603,7 +6651,14 @@ function comboStats(items,wipIncluded){
   }
   /* No layers with candidates means one character, itself, every time. */
   if(!layers) return { distinct:0, effective:0, layers:0 };
-  return { distinct, effective: collide>0 ? 1/collide : Infinity, layers };
+  /* Scaled by the share the rules leave, and MARKED as an estimate when they
+     do anything - the product alone is exact only while there are no rules.
+     Measured before this: two skins, one mask and one rule said 4 when the
+     generator could make 3. */
+  const share = RULES.length ? withSeed(DIST_SEED,()=>legalFraction(by)) : 1;
+  const ruled = share<1;
+  return { distinct: distinct*share, effective: collide>0 ? 1/collide : Infinity,
+    layers, estimated: RULES.length>0, ruled, share };
 }
 /* Readable at any magnitude. A collection can reach into the billions, where
    every digit past the first three is noise, and a set of four layers of three

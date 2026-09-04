@@ -58,6 +58,7 @@ something. Good places to look, in order:
 
 Newest first. Delete the oldest when this passes 12.
 
+- 2026-09-04 — "N possible characters" counts the rules now; it was a product of pool sizes that said 4 where the generator could make 3
 - 2026-09-04 — The account panel compares the two collections instead of subtracting their sizes; "they match" was true of ten-vs-ten with three different
 - 2026-09-04 — The upload retries a dropped file three times like the download does, and the stale check stops selecting every column
 - 2026-09-04 — Save to cloud: 308 requests to 189 on a first push and 8 on a repeat; stopped emptying the server before re-uploading

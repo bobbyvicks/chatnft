@@ -12,3 +12,6 @@ playwright-report/
 # measuring something; they are not tests and must never be committed.
 probe.spec.js
 probe.config.js
+
+# The scheduled run's lock. Machine-local, never travels, never committed.
+.runlock

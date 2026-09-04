@@ -501,3 +501,95 @@ test.describe('the exported PNG', () => {
     expect(out.black, 'and reach the file as their own colour').toBe(0);
   });
 });
+
+/* THE SIZE LADDER, THE MENU THAT OFFERS IT, AND WHAT UNDO PUTS BACK.
+
+   None of this was tested. The menu offered only sizes LARGER than the canvas
+   and was measured empty at startup, and both facts sat green because no test
+   had ever read it. The brush and the zoom were never checked across an undo.
+
+   One shape underneath all three: a consequence attached to a caller instead of
+   to the place the change happens. The menu was rebuilt in applyResize, so undo
+   left it stale; fitZoom ran on every forward resize path and on neither undo
+   nor redo; and the brush ceiling was applied by the same function that recorded
+   the intent, so re-applying it destroyed the intent. Every existing test drove
+   the forward path only, which is exactly the half that worked. */
+test.describe('the size ladder and undo', () => {
+  const BLOCK = new Function('set', 'W', 'H',
+    'for (let y = 20; y < 140; y++) for (let x = 20; x < 140; x++) set(x, y, [226, 146, 116]);');
+
+  const menu = (page) => page.evaluate(() =>
+    [...$('rspreset').options].map(o => parseInt(o.value, 10)).filter(v => v > 0));
+  const state = (page) => page.evaluate(() => ({ canvas: art.width, brush, zoom }));
+  const shrink = async (page, n) => {
+    await page.evaluate(() => { const b = $('rssnap'); if (b.getAttribute('aria-pressed') === 'true') b.click(); });
+    await setSelect(page, 'rsmode', 'art');
+    await setField(page, 'rsw', n);
+    await setField(page, 'rsh', n);
+    await page.click('#rsgo');
+    await page.waitForTimeout(300);
+  };
+
+  test('the menu offers sizes below the canvas, and does so from the start', async ({ page }) => {
+    // Measured empty at startup before this: zero options until something else
+    // happened to build it. And once built it ran 160, 320, 480 upward - the only
+    // option at or below the canvas was the 1x no-op that answers "Already 160".
+    await openTrait(page, { w: 160, h: 160, draw: BLOCK });
+    await openAllSections(page);
+    const opts = await menu(page);
+    expect(opts.length, 'the menu was measured empty at startup').toBeGreaterThan(0);
+    const down = opts.filter(v => v < 160);
+    expect(down.length, 'every option used to point upward').toBeGreaterThan(3);
+    // Every rung must still tile the collection cell, which is the constraint the
+    // old upward-only list satisfied by having nothing below it.
+    for (const v of down) expect(160 % v, v + ' does not tile the cell').toBe(0);
+    // And it must still point up, or this traded one half for the other.
+    expect(opts.filter(v => v > 160).length, 'the multiples must survive').toBeGreaterThan(3);
+  });
+
+  test('the ladder re-anchors to the canvas, so a second shrink stays whole', async ({ page }) => {
+    // projectGrid is a project setting that no resize updates, so after shrinking
+    // 160 to 40 the ladder still offered the divisors of 160: typing 30 snapped to
+    // 32, and 40/32 is 1.25:1 - a fractional ratio that smears the pixel blocks,
+    // produced by the control whose whole purpose is preventing that.
+    await openTrait(page, { w: 160, h: 160, draw: BLOCK });
+    await openAllSections(page);
+    expect(await menu(page), 'from 160, 32 is a clean 5:1').toContain(32);
+    await shrink(page, 40);
+    expect((await state(page)).canvas).toBe(40);
+    expect(await menu(page), '32 is fractional from 40 and must not be offered').not.toContain(32);
+    expect(await menu(page), 'nor is 16').not.toContain(16);
+    expect(await menu(page), '20 is a clean 2:1 and must be').toContain(20);
+    // The arithmetic and the menu must agree - they were separate before, which
+    // is why one learned to shrink and the other did not.
+    const snapped = await page.evaluate(() => snapToGrid(30));
+    expect(snapped, 'typing 30 on a 40 canvas used to give 32').toBe(20);
+  });
+
+  test('undo puts back the brush, the zoom and the menu', async ({ page }) => {
+    // Measured before: brush 32 became 20 and stayed 20 after undo, while the
+    // slider ceiling went back to 80 - an operation the artist took back had
+    // permanently resized their tool. The zoom stayed at the 20x that fitted the
+    // 40 canvas, so a restored 160 canvas sat four times too big, off the stage.
+    await openTrait(page, { w: 160, h: 160, draw: BLOCK });
+    await openAllSections(page);
+    await page.evaluate(() => setBrush(32));
+    const before = await state(page);
+    const menuBefore = await menu(page);
+    expect(before.brush).toBe(32);
+
+    await shrink(page, 40);
+    const small = await state(page);
+    expect(small.canvas).toBe(40);
+    // The clamp must still bite going down - this is not about removing it.
+    expect(small.brush, 'a 40 canvas cannot take a 32 brush').toBe(20);
+
+    await page.click('#undo');
+    await page.waitForTimeout(300);
+    const back = await state(page);
+    expect(back.canvas, 'the canvas comes back').toBe(160);
+    expect(back.brush, 'and so must the brush - it used to stay at 20').toBe(32);
+    expect(back.zoom, 'and the zoom - it used to stay at the 40 canvas fit').toBe(before.zoom);
+    expect(await menu(page), 'and the menu, which used to keep the 40 ladder').toEqual(menuBefore);
+  });
+});

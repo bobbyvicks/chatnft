@@ -1465,6 +1465,14 @@ const rcPick=new Set();
 let autoPending=null; /* debounce handle for the working-canvas autosave */
 let undoStack=[], redoStack=[], original=null, painting=false, panMode=false, fileName='pixel-art.png';
 let brush=1;
+/* What the artist ASKED for, as opposed to what the canvas currently allows.
+
+   brush is brushWanted capped by brushMax(). Keeping only the capped value
+   made a shrink permanent: setBrush clamped 32 down to 20 on a 40 canvas -
+   correct - and restoreImage then fed that 20 back in, so undoing the shrink
+   returned a 160 canvas with a slider running to 80 and a brush of 20 sitting
+   under it. An operation the artist took back had resized their tool. */
+let brushWanted=1;
 
 /* ================= measurement ==================================
    Ported from an audit of a real trait set. The key idea: a grid shows
@@ -3617,6 +3625,10 @@ function startEditor(data,w,h,srcW,srcH,pal,recovered){
   $('sCols').textContent=pal.distinct.toLocaleString();
   buildPalette(pal.list); buildRecolour(pal.list);
   buildBrushes(); selectTool(tool);
+  /* Measured empty at startup: zero options until something else happened to
+     build it. Its only callers were applyGrid and the grid input's change
+     handler, neither of which has necessarily run by the time art is open. */
+  buildResizePresets();
   setColor(pal.list.length?hex(pal.list[0].r,pal.list[0].g,pal.list[0].b):'#000000');
   /* Every image starts with the outline off and the grid guessed. These
      carried over from the last picture otherwise, so opening something new
@@ -3846,7 +3858,26 @@ function restoreImage(im){
     outlinePreview();
     /* The slider ceiling comes from the canvas, so it moves when the canvas
        does - and a brush wider than the new canvas has to come down with it. */
-    setBrush(brush);
+    reclampBrush();
+    /* The canvas just changed size, so the zoom that fitted the old one does
+       not fit this one. Every FORWARD resize path called fitZoom and neither
+       undo nor redo did, so undoing a 160-to-40 shrink restored a 160 canvas
+       at the 20x that fitted 40 - four times too big, off the edge of the
+       stage. Measured, fitZoom at that moment gives 5.
+
+       Here rather than on the undo button because this branch is the one place
+       every route that changes the canvas size passes through, so nothing added
+       later can forget - and an ordinary undo of a brush stroke never enters it
+       and cannot yank the view. */
+    fitZoom();
+    /* Same argument as the line above, and the same defect it was fixing. The
+       size ladder is anchored to the canvas, so a canvas that changed leaves the
+       menu offering the rungs of the size the art used to be. Hanging this off
+       applyResize covered the forward paths and missed undo - measured, after
+       undoing a 160-to-40 shrink the menu still offered the 40 ladder, without
+       the 16 and 32 that are clean from 160. Attached to the change itself, so
+       no route can forget it. */
+    buildResizePresets();
   }
   ctx.putImageData(im,0,0);
   applyZoom();
@@ -3854,10 +3885,22 @@ function restoreImage(im){
 
 /* Scale the artwork to a new size.
 
-   Growing by a whole number replicates each cell, which cannot introduce a
-   colour or soften an edge. Anything else takes the MODE of the source pixels
-   under each destination cell - the colour that appears most often - which can
-   only ever return a colour that was already there. A mean would invent
+   Growing replicates each cell - nearest neighbour at any ratio - which cannot
+   introduce a colour or soften an edge. Shrinking picks ONE source colour per
+   destination cell, weighted by rarity: each colour's count in the cell is
+   divided by its count across the whole image, so a colour that is scarce
+   overall beats a common one it is outnumbered by locally. That is what
+   carries a one-pixel outline through a shrink.
+
+   This paragraph said "the MODE of the source pixels - the colour that appears
+   most often" until now, which is the rule pickCell REPLACED, and pickCell's
+   own comment a few lines down calls it "the old commonest-colour rule". Two
+   descriptions of one function with different answers, in the part of the file
+   that four changes this week have turned on. Either can only ever return a
+   colour that was already there, so nothing measured was wrong - but a reader
+   deciding whether rare colours survive would have got the wrong answer here.
+
+   A mean would invent
    colours, and the app's own recover() takes each channel's median
    independently, which can emit a triple that appears nowhere in the source.
    For pixel art that is the difference between a resize and a blur. */
@@ -4423,13 +4466,21 @@ function brushMax(){
 function buildBrushes(){
   const sl=$("bslider"); if(!sl) return;
   sl.max=String(brushMax());
-  setBrush(brush);
+  reclampBrush();
 }
+/* Records the intent, then applies the ceiling. Anything that only needs the
+   ceiling re-applied - a canvas that changed size under an unchanged brush -
+   calls reclampBrush instead, so the number the artist chose survives it. */
 function setBrush(n){
-  /* The ceiling is re-read every time rather than cached, so a brush set on
-     a big canvas is pulled back down when the canvas shrinks under it. */
+  brushWanted=Math.max(1,Math.round(n)||1);
+  reclampBrush();
+}
+/* The ceiling is re-read every time rather than cached, so a brush set on a
+   big canvas is pulled back down when the canvas shrinks under it - and comes
+   back up when the canvas does, because brushWanted was not overwritten. */
+function reclampBrush(){
   const hi=brushMax();
-  brush=Math.max(1,Math.min(hi,Math.round(n)||1));
+  brush=Math.max(1,Math.min(hi,brushWanted));
   const sl=$("bslider");
   if(sl){ sl.max=String(hi); sl.value=String(brush); }
   const lab=$("bslab"); if(lab) lab.textContent=brush+" × "+brush;
@@ -5637,6 +5688,23 @@ function buildResizePresets(){
   /* The label beside it already says "Jump to". */
   first.value=""; first.textContent="Preset";
   sel.appendChild(first);
+  /* DOWN first, from the same ladder the snapping uses. This menu offered
+     nothing at or below the current canvas except the 1x no-op, so the only
+     way to find a shrink was to know to type a raw number.
+
+     Floored at 8 deliberately: below that a trait is fewer than 64 pixels
+     across its whole width and is not something anyone edits, and the field
+     beside this still accepts any number. Stated as a choice rather than left
+     as an accident of the list. */
+  for(const px of (gridLadder(ladderAnchor())||[])){
+    if(px>=projectGrid || px<8) continue;
+    const o=document.createElement("option");
+    o.value=String(px);
+    /* "1/4x" reads as the operation being performed. The bare pixel count
+       does not say that 40 is a quarter of the cell. */
+    o.textContent=px+" (1/"+(projectGrid/px)+"\u00d7)";
+    sel.appendChild(o);
+  }
   for(const k of [1,2,3,4,6,8,10,12,16]){
     const px=projectGrid*k;
     if(px>4096) continue;
@@ -5693,18 +5761,61 @@ function snapFor(mode,v){ return mode==="inside" ? snapArt(v) : snapToGrid(v); }
    A prime grid has no divisor between 1 and itself, and snapping to 1 is a
    worse answer than not snapping at all, so that falls back to the art's own
    block size - the rule Trait mode already uses. */
+/* The sizes a trait canvas may take below one cell, smallest first.
+
+   Read by BOTH the snapping and the "Jump to" menu, deliberately. They were
+   separate before, and the menu was never taught what the snapping learned -
+   it offered 160, 320, 480 and upward only, so the one control built to
+   answer "what size should I pick" could not express a shrink at all.
+
+   WHOLE DIVISORS OF THE GRID. Each tiles the cell exactly, so a trait still
+   lands on the collection grid - the invariant the "128 snaps up to 160" test
+   defends.
+
+   NARROWED TO WHOLE RATIOS OF THE CURRENT CANVAS, when the canvas is itself
+   one of those divisors. projectGrid is a project setting that no resize
+   updates, so after shrinking 160 to 40 the ladder still offered the divisors
+   of 160 and typing 30 gave 32 - and 40/32 is 1.25:1, a fractional ratio that
+   smears the pixel blocks, produced by the control that exists to stop that
+   happening. From a 40 canvas the ladder is now 1, 2, 4, 5, 8, 10, 20, 40, 80,
+   160; 16 and 32 are gone because neither divides 40 nor is divided by it.
+
+   A divisor of a divisor of the grid is still a divisor of the grid, so the
+   narrowing can never step off the collection grid.
+
+   When the canvas does not divide the grid there is no clean ratio to keep and
+   the full list stands - which is why the pinned test still passes, its canvas
+   being 120 and 160/120 not whole.
+
+   A prime grid has no divisor between 1 and itself; null says so, and the
+   caller falls back to the art's own block size. */
+function gridLadder(cur){
+  const g=Math.max(1,projectGrid);
+  const div=[];
+  for(let k=1;k<=g;k++) if(g%k===0) div.push(k);
+  if(div.length<3) return null;
+  const c=Math.max(0,Math.round(cur||0));
+  if(c>0 && c<g && g%c===0) return div.filter(s=>s%c===0 || c%s===0);
+  return div;
+}
+
+/* The canvas the ladder should be measured against, or 0 before one is open.
+   Guarded because the menu is built at startup, before any art exists. */
+function ladderAnchor(){ return (typeof ctx!=="undefined" && ctx && art) ? art.width : 0; }
+
 function snapToGrid(v){
   const g=Math.max(1,projectGrid);
   if(v>=g) return Math.round(v/g)*g;
-  let best=g, bd=Infinity, count=0;
-  for(let k=1;k<=g;k++){
-    if(g%k) continue;
-    count++;
-    const d=Math.abs(k-v);
-    if(d<bd){ bd=d; best=k; }
-  }
+  /* From the shared ladder, so the menu below and the arithmetic here can
+     never drift. Ascending, and the comparison is strict, so a tie takes the
+     SMALLER rung - this branch only runs for a request below one cell, and
+     rounding a shrink up past where it started is the behaviour being removed. */
+  const lad=gridLadder(ladderAnchor());
   /* Only 1 and g divide a prime, and 1 is not a size anybody asked for. */
-  if(count<3) return snapArt(v);
+  if(!lad) return snapArt(v);
+  let best=lad[0], bd=Infinity;
+  for(const s of lad){ const d=Math.abs(s-v); if(d<bd){ bd=d; best=s; } }
+  return best;
   return best;
 }
 function applyLayers(items){

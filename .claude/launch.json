@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "pixelbench",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["tools/serve.cjs", ".", "5774"],
+      "port": 5774
+    }
+  ]
+}

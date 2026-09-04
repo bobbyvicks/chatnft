@@ -4685,8 +4685,29 @@ function resizeOp(mode,src,W,H,nw,nh){
   return {data:scaleArt(src,W,H,nw,nh), w:nw, h:nh};
 }
 
-function applyResize(){
-  if(!ctx) return;
+/* What the Resize button will actually do, worked out from the panel.
+
+   Split out of applyResize so the note under the button can say the same
+   thing the button is about to do. It used to be computed only inside the
+   handler, so the only way to find out that snap had turned 120 into 80 was
+   to press the button and read the toast - and the width box still said 120
+   afterwards.
+
+   The preview must never do this arithmetic itself. A second copy would be a
+   private copy of the very code whose disagreement with the box caused the
+   complaint, and it would drift. */
+/* The shape keep-shape is keeping.
+
+   In Trait mode that is the TRAIT, everywhere else the canvas. resizeTarget
+   already made this distinction and the width/height mirrors did not, so the
+   number typed into one box produced a height for the wrong subject - and a
+   SQUARE canvas cannot tell the two apart, so the default 160x160 project hid
+   it entirely. */
+function shapeBasis(){
+  const b = (typeof chipVal==="function" && chipVal("rsmode")==="inside") ? contentBox() : null;
+  return b && b.w && b.h ? {w:b.w, h:b.h} : {w:art.width, h:art.height};
+}
+function resizeTarget(){
   const W=art.width, H=art.height;
   const snap=snapOn();
   /* Read before the snapping, not after: which rule applies depends on it. */
@@ -4704,6 +4725,9 @@ function applyResize(){
   const askedW=Math.max(1,Math.min(4096,parseInt($("rsw").value,10)||0));
   let nw=Math.max(1,Math.min(4096,parseInt($("rsw").value,10)||0));
   if(snap) nw=Math.min(4096,snapFor(mode,nw));
+  /* Kept for the same reason askedW is: the note has to be able to say what
+     was TYPED, not only what will be used. */
+  const askedH=Math.max(1,Math.min(4096,parseInt($("rsh").value,10)||0));
   let nh=Math.max(1,Math.min(4096,parseInt($("rsh").value,10)||0));
   /* With keep-shape on the height follows the width and is left alone, or
      snapping both would fight the aspect and win. */
@@ -4718,7 +4742,19 @@ function applyResize(){
      trait on a square canvas cannot tell the two apart, which is why the
      first check of this mode missed it. Outside Trait mode curW/curH ARE W/H,
      so those modes are unchanged. */
-  else if(snap && pressed("rslock")) nh=Math.max(1,Math.round(nw*curH/curW));
+  /* NOT "snap && pressed" any more. Both arms used to test snap, so with snap
+     off neither ran and the height was whatever was in the box - keep-shape,
+     a control with nothing to do with snapping, quietly stopped working when
+     snap was turned off. Measured: a 112x56 trait, snap off, asking for a
+     width of 100 produced 100 x 9. */
+  else if(pressed("rslock")) nh=Math.max(1,Math.round(nw*curH/curW));
+  return {W,H,mode,snap,curW,curH,askedW,askedH,nw,nh};
+}
+function applyResize(){
+  if(!ctx) return;
+  const t=resizeTarget();
+  const W=t.W, H=t.H, snap=t.snap, mode=t.mode;
+  const curW=t.curW, curH=t.curH, askedW=t.askedW, nw=t.nw, nh=t.nh;
   /* Against the TRAIT in Trait mode, because that is what the number means
      there now. Against the canvas it was wrong both ways at once: typing the
      canvas size refused a real request ("already that size" for a 112 trait on
@@ -4757,6 +4793,36 @@ function applyResize(){
 
 /* The boxes always show what the canvas actually is, so the panel cannot
    disagree with the artwork after an undo or a reset. */
+/* Say what the button will do, while there is still time to change it.
+
+   With the default grid of 160 the legal sizes are its whole divisors and
+   multiples - 1 2 4 5 8 10 16 20 32 40 80 160 320 - so between 41 and 140
+   there is exactly one, and every number in that range becomes 80. Typing
+   120 and getting 80 is correct and completely opaque: the box still reads
+   120, and the control responsible is three rows down.
+
+   Only shown when it would differ. A note that repeats the size back
+   unchanged on every keystroke is noise, and noise is what stops the one
+   that matters from being read. */
+function resizePreview(){
+  const n=$("rsnow"); if(!n||!art||!art.width) return;
+  const now=art.width+" \u00d7 "+art.height;
+  let t=null; try{ t=resizeTarget(); }catch(_){ }
+  if(!t){ n.textContent=now; n.title=""; return; }
+  /* In Trait mode the canvas does not move, so the arrow would point at the
+     size it already is. What changes there is the trait. */
+  const target = t.mode==="inside" ? t.nw+" \u00d7 "+t.nh+" trait" : t.nw+" \u00d7 "+t.nh;
+  const moved = t.snap && (t.askedW!==t.nw || (!pressed("rslock") && t.askedH!==t.nh));
+  const same = t.mode==="inside" ? (t.nw===t.curW && t.nh===t.curH) : (t.nw===t.W && t.nh===t.H);
+  if(!moved && same){ n.textContent=now; n.title=""; return; }
+  const why = moved
+    ? "  \u00b7 snap moved "+t.askedW+" to "+t.nw+"; turn Snap off for "+t.askedW
+    : "";
+  n.textContent = now+"  \u2192  "+target+why;
+  n.title = moved
+    ? "Sizes snap to whole parts of the "+projectGrid+" cell grid. Turn Snap off to use any size."
+    : "";
+}
 function resizeBoxes(){
   if(!art||!$("rsw")) return;
   /* In Trait mode the number is the trait, so show the trait. Editing a
@@ -4766,6 +4832,7 @@ function resizeBoxes(){
   $("rsw").value = tb ? tb.w : art.width;
   $("rsh").value = tb ? tb.h : art.height;
   const n=$("rsnow"); if(n) n.textContent=art.width+" \u00d7 "+art.height;
+  resizePreview();
 }
 function cellFrom(e){
   const r=art.getBoundingClientRect();
@@ -9054,7 +9121,10 @@ $('filltol').addEventListener('input',()=>{
   box.addEventListener("pointercancel",()=>{ if(drag){ drag=null; $("tang").style.display="none";
     frameTurn(0); applyZoom(); } });
 })();
-$('rssnap').onclick=()=>toggle('rssnap');
+/* Every control that feeds resizeTarget refreshes the note. Snap is the one
+   that matters most - it is the answer to "why did it not use my number" and
+   the note is the only thing that points at it. */
+$('rssnap').onclick=()=>{ toggle('rssnap'); resizePreview(); };
 $('rsgo').onclick=applyResize;
 $('rotl').onclick=()=>rotateQuarter(false);
 $('rotr').onclick=()=>rotateQuarter(true);
@@ -9072,16 +9142,27 @@ $('rsgrid').addEventListener('change',async()=>{
 });
 /* Keeping the shape is what stops a trait being stretched by a careless
    number, and it is on by default for that reason. */
+$('rsmode').addEventListener('click',()=>setTimeout(resizePreview,0));
+$('rslock').addEventListener('click',()=>setTimeout(resizePreview,0));
 $('rsw').addEventListener('input',()=>{
   if(!pressed('rslock')||!art.width||!art.height) return;
   const v=parseInt($('rsw').value,10); if(!v) return;
-  $('rsh').value=Math.max(1,Math.round(v*art.height/art.width));
+  const bw=shapeBasis(); $('rsh').value=Math.max(1,Math.round(v*bw.h/bw.w));
 });
 $('rsh').addEventListener('input',()=>{
   if(!pressed('rslock')||!art.width||!art.height) return;
   const v=parseInt($('rsh').value,10); if(!v) return;
-  $('rsw').value=Math.max(1,Math.round(v*art.width/art.height));
+  const bh=shapeBasis(); $('rsw').value=Math.max(1,Math.round(v*bh.w/bh.h));
 });
+/* BELOW the mirrors, deliberately. Listeners fire in registration order, and
+   above them this read the height box before keep-shape had written to it -
+   so with Snap off the note promised 120 x 160 for a resize the button would
+   do as 120 x 120. Sharing resizeTarget stops the preview and the button
+   computing DIFFERENT things; only the ordering stops them computing the same
+   thing at moments when the inputs differ. */
+$('rsw').addEventListener('input',resizePreview);
+$('rsh').addEventListener('input',resizePreview);
+$('rsgrid').addEventListener('input',resizePreview);
 $('crand').onclick=composeRandom;
 $('ruleadd').onclick=async()=>{
   const a=$("rulea").value, b=$("ruleb").value;

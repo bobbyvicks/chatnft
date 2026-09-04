@@ -489,4 +489,47 @@ test.describe('never together', () => {
     const shown = await page.evaluate(() => $('rulelist').textContent);
     expect(shown, 'and says the trait is gone').toContain('no longer in the set');
   });
+
+  test('the promise holds at collection scale, not just at a sample', async ({ page }) => {
+    /* Found through the flake in "a draw that would break a rule is redrawn":
+       that test asserted the miss counter was 0 over 1500 draws, and a miss
+       means randomCombo gave up and returned the cornered draw - which CARRIES
+       the forbidden pair. Measured at COMBO_TRIES=24 on this same satisfiable
+       set: one attempt corners 64.7% of the time, all 24 corner 2.87e-5 of the
+       time, and 200,000 draws emitted 5 characters breaking the rule against
+       5.7 predicted. On a 10,000-piece collection that is about a one in four
+       chance of shipping one.
+
+       The bound is 64 now, which takes the same collection to about one in a
+       hundred million. This draws far more than any earlier test so the old
+       bound would fail it reliably rather than 4% of the time. */
+    await openTrait(page, { w: 160, h: 160, draw: BLOCK });
+    await openAllSections(page);
+    await put(page, CORNER);
+    await page.waitForTimeout(300);
+    await addRule(page, 'backgrounds/sky', 'skins/tan');
+    const r = await pairIn(page, 'backgrounds/sky', 'skins/tan', 40000);
+    expect(r.both, 'not one character in forty thousand carries both').toBe(0);
+    expect(r.misses, 'and nothing had to be given up on').toBe(0);
+  });
+
+  test('but a set with no legal character at all still stops and still says so', async ({ page }) => {
+    /* THE CONTROL for the bound. Raising it must not turn "this cannot be done"
+       into a hang, and must not quieten the report - a silently broken rule is
+       worse than a reported one. With the background never skipped there is no
+       legal character here at all. */
+    await openTrait(page, { w: 160, h: 160, draw: BLOCK });
+    await openAllSections(page);
+    await put(page, CORNER);
+    await page.waitForTimeout(300);
+    await addRule(page, 'backgrounds/sky', 'skins/tan');
+    await page.evaluate(() => {
+      $('cempty').value = '0';
+      $('cempty').dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await page.waitForTimeout(300);
+    const r = await pairIn(page, 'backgrounds/sky', 'skins/tan', 500);
+    expect(r.misses, 'every draw is counted as a miss').toBe(500);
+    expect(r.both, 'and it says so by emitting them rather than hanging').toBe(500);
+  });
 });

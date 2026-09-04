@@ -939,7 +939,7 @@ footer .mono{color:var(--ink);}
       <span class="count" id="ccount"></span>
       <div class="acts">
         <label class="olchk" style="margin-right:4px"><input type="checkbox" id="cwip"> include wip</label>
-        <label class="olchk" style="margin-right:4px" title="How often a layer is left out when randomising. Skins is always drawn.">empty
+        <label class="olchk" style="margin-right:4px" id="cemptytip" title="How often a layer is left out when randomising.">empty
           <input id="cempty" type="number" min="0" max="90" step="5" value="35" style="width:52px">%</label>
         <button class="mini" id="crand">Randomise</button>
         <button class="mini" id="csheet">Sheet of 12</button>
@@ -1210,7 +1210,7 @@ footer .mono{color:var(--ink);}
         <input id="rsgrid" type="number" min="4" max="1024" value="160" style="width:72px">
         <button class="btn ghost" id="rssnap" aria-pressed="true"
           style="width:auto;padding:6px 12px;font-size:12px;margin-left:4px"
-          title="Snap the angle to 15 degrees, moves to whole cells, and sizes to whole multiples of the cell count">Snap</button></div>
+          title="Snap the angle to 15 degrees, moves to whole cells, and sizes to whole multiples of the cell count - or, below one cell, to whole divisions of it">Snap</button></div>
       <button class="btn ghost" id="rsgo">Resize</button>
       <p class="note"><span class="mono" id="rsnow">-</span></p>
     </section>
@@ -5975,6 +5975,22 @@ function buildRules(traits){
     L.appendChild(row);
   }
 }
+/* The empty-chance tooltip names the layer that is never left out, and until
+   now it said "Skins" in prose. Two things were wrong with that: a copy of a
+   value in a comment or a label is a dependency in the direction nobody
+   checks, and the sentence became false the moment a set could be turned off
+   - measured, 500 of 500 characters carry a skin, and 0 of 500 once the skins
+   set is off. Built from ALWAYS_PRESENT and from what is actually on. */
+function emptyChanceTip(){
+  const el=$("cemptytip"); if(!el) return;
+  const always=ALWAYS_PRESENT.filter(l=>!HIDDEN_LAYERS.has(l));
+  const off=ALWAYS_PRESENT.filter(l=>HIDDEN_LAYERS.has(l));
+  let t="How often a layer is left out when randomising.";
+  if(always.length) t+=" "+always.join(" and ")+(always.length===1?" is":" are")+" always drawn.";
+  if(off.length) t+=" "+off.join(" and ")+(off.length===1?" is":" are")
+    +" normally always drawn, but the set is turned off.";
+  el.title=t;
+}
 async function buildCompose(items){
   cItems=items;
   const wip=$("cwip").checked;
@@ -6021,6 +6037,7 @@ async function buildCompose(items){
         +" below, a few traits are taking most of the collection.";
     }
   }
+  emptyChanceTip();
   buildRules(traits);
   const rows=$("crows");
   const keep={};
@@ -6778,7 +6795,20 @@ function buildCombo(pools){
    at all escapes a corner quickly; the bound only matters when the rules are
    genuinely unsatisfiable, which is the case worth reporting rather than
    retrying forever. */
-const COMBO_TRIES=24;
+/* 64, not 24. Measured on a satisfiable set where one attempt corners 64.7%
+   of the time: at 24 tries every attempt corners 2.87e-5 of the time, and over
+   200,000 draws that emitted 5 characters carrying a forbidden pair - against
+   5.7 predicted, so the arithmetic and the measurement agree. On a 10,000
+   character collection that is about a one in four chance of shipping one.
+
+   0.647^64 is 7.9e-13, which takes the same collection to about one in a
+   hundred million.
+
+   It is free in the ordinary case - the loop returns on the first attempt that
+   succeeds, so a set with no rules or no corners never runs a second one. The
+   extra attempts are paid only where every one corners, which is exactly the
+   case that was already giving up. */
+const COMBO_TRIES=64;
 /* A character that does not break a rule, if this set has one.
 
    The old version emitted the cornered draw and counted it, so a forbidden pair

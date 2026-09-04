@@ -58,6 +58,8 @@ something. Good places to look, in order:
 
 Newest first. Delete the oldest when this passes 12.
 
+- 2026-09-04 — A forbidden pair reached the collection about once in 40,000 draws on a SATISFIABLE set; the retry bound was too low, now 64
+- 2026-09-04 — Two tooltips corrected: "Skins is always drawn" was false once a set could be turned off, and snap also uses divisors, not only multiples
 - 2026-09-04 — "N possible characters" counts the rules now; it was a product of pool sizes that said 4 where the generator could make 3
 - 2026-09-04 — The account panel compares the two collections instead of subtracting their sizes; "they match" was true of ten-vs-ten with three different
 - 2026-09-04 — The upload retries a dropped file three times like the download does, and the stale check stops selecting every column
@@ -68,8 +70,6 @@ Newest first. Delete the oldest when this passes 12.
 - 2026-09-04 — A dropped request no longer signs you out and blanks the shelf; `sbAuthState` separates "the server said no" from "could not ask"
 - 2026-09-04 — A trait set (a layer) can be turned off, so nothing in it is drawn; persisted, and the cards stay on screen dimmed
 - 2026-09-04 — A rule holds any number of traits and each row can be widened; `ruleId` read only the first two members, so `{a,b,c}` and `{a,b,d}` were one rule
-- 2026-09-04 — `ruleMisses` no longer counts the rarity estimator's 20,000 draws as the collection's failures (was reporting 20,200 for a 1-character set)
-- 2026-09-04 — Resize says what it will do before you press it; keep-shape fixed to keep the trait's shape rather than the canvas's with snap off
 
 ## Facts worth keeping
 

@@ -1961,9 +1961,26 @@ async function renderShelf(){
      across: fixing the message did not cover its neighbour. */
   const shownCount=traits.filter(shows).length;
   const noun=n=>n+(n===1?' trait':' traits');
-  $('projcount').textContent = shownCount===traits.length
+  /* The count, and then whether the collection is actually shippable.
+
+     A set holding two canvas sizes cannot be minted, and until now the only
+     screen that said so was the character preview - which you have to think to
+     open. The count is on screen whenever the shelf is, so the fact lives next
+     to the thing it is a fact about.
+
+     Over ALL traits, not the filtered view: a search narrowing 300 down to 10
+     does not make the other 290 the right size, and the count beside this has
+     already been fixed once for exactly that confusion. */
+  const census=sizeCensus(traits);
+  const base = shownCount===traits.length
     ? noun(traits.length)
     : shownCount+' of '+noun(traits.length);
+  const pc=$('projcount');
+  pc.textContent = base + (census.oddCount
+    ? "  \u00b7  "+census.oddCount+" not "+census.want : "");
+  pc.title = census.oddCount
+    ? census.detail+"  \u2014 every trait in a collection has to share one canvas size."
+    : "";
   $('dlzip').disabled=!traits.length;
   const body=$('projbody'); body.innerHTML='';
   if(savedRefs.length){
@@ -2192,6 +2209,14 @@ async function saveTrait(){
   const c=traitCanvas();
   const blob=await blobOf(c);
   try{
+    /* Said at the moment it happens, when it is fresh and one undo away,
+       rather than only at the download when the reason has been forgotten.
+       Shrinking used to be unreachable in Canvas and Art mode, so an off-size
+       trait was hard to make by accident; that is no longer true. */
+    const offGrid = (art.width!==projectGrid || art.height!==projectGrid)
+      ? " \u2014 saved at "+art.width+"\u00d7"+art.height+", not the collection's "
+        +projectGrid+"\u00d7"+projectGrid
+      : "";
     const status=chipVal('tstatus')||'wip';
     const id='t_'+name+'_'+layer+'_'+status;
     let shelfItems=[];
@@ -2234,10 +2259,10 @@ async function saveTrait(){
          the group stays unmarked, and the reconcile below will not remove it -
          losing work because the network blinked would be worse than the stale
          copy it is meant to clean up. */
-      toast(shared ? "Saved "+name+" and shared it with the group"
-        : "Saved "+name+" here only - could not reach the group. Press Save to cloud when you are back.");
+      toast((shared ? "Saved "+name+" and shared it with the group"
+        : "Saved "+name+" here only - could not reach the group. Press Save to cloud when you are back.")+offGrid);
     } else {
-      toast('Saved '+name+' to '+layer+'/'+status);
+      toast('Saved '+name+' to '+layer+'/'+status+offGrid);
     }
     return true;
   }catch(e){ toast('Could not save: '+(e&&e.name||'storage error')); return false; }
@@ -2303,6 +2328,38 @@ $('clearproj').onclick=async()=>{
 const CRCT=(()=>{const t=new Int32Array(256);
   for(let n=0;n<256;n++){let c=n; for(let k=0;k<8;k++) c=c&1?0xedb88320^(c>>>1):c>>>1; t[n]=c;} return t;})();
 function crc32(u8){ let c=-1; for(let i=0;i<u8.length;i++) c=CRCT[(c^u8[i])&255]^(c>>>8); return (c^-1)>>>0; }
+/* Which canvas sizes a set of traits actually uses, and which of them are
+   not the collection's.
+
+   Every trait in a collection shares one size - they layer over each other
+   and a mint lays them out on a grid - so a set holding two sizes is broken
+   output, not a preference. drawCompose was the only thing in the app that
+   knew this; the shelf, the sheet, the save and the zip download all handled
+   sizes without ever comparing them.
+
+   Returned rather than rendered, because four callers need the same answer in
+   four different sentences, and four hand-rolled versions of "are these all
+   the same" is how they came to disagree in the first place.
+
+   Records carry w and h from when they were SAVED, which is the honest source
+   here: what is in the collection is what was written, not what the editor
+   happens to be showing now. */
+function sizeCensus(items){
+  const key=(w,h)=>(w|0)+"\u00d7"+(h|0);
+  const want=key(projectGrid,projectGrid);
+  const by=new Map();
+  for(const t of (items||[])){
+    if(!t||t.kind!=="trait") continue;
+    const k=key(t.w,t.h);
+    if(!by.has(k)) by.set(k,[]);
+    by.get(k).push(t.name||t.id||"unnamed");
+  }
+  /* Biggest group first, so the sentence names the widest problem first. */
+  const odd=[...by.entries()].filter(e=>e[0]!==want).sort((a,b)=>b[1].length-a[1].length);
+  return { want, sizes:by, odd, oddCount:odd.reduce((n,e)=>n+e[1].length,0),
+    detail:odd.map(e=>e[0]+": "+e[1].join(", ")).join(" \u00b7 ") };
+}
+
 function zip(files){
   const enc=new TextEncoder(), parts=[], central=[];
   let off=0;
@@ -2345,7 +2402,14 @@ $('dlzip').onclick=async()=>{
   a.href=u; a.download='chatnft-project.zip';
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(u),1500);
-  toast('Downloaded '+files.length+' traits');
+  /* The last moment before these files go to a mint, which is the one place
+     where being wrong actually costs something. Named, not blocked: refusing
+     the download would strand anyone with a deliberate reason, and silently
+     resizing their art on the way out would be worse than shipping it wrong. */
+  const zcen=sizeCensus(items);
+  toast('Downloaded '+files.length+' traits'+(zcen.oddCount
+    ? " \u2014 "+zcen.oddCount+" not "+zcen.want+" ("+zcen.detail+"). A mint needs one size."
+    : ""));
 };
 buildLayerSelect();
 /* NOT called here any more. This ran at top level, so the shelf - names,
@@ -5653,10 +5717,17 @@ async function drawSheet(count){
   }
   sheetMode=true;
   const empties=combos.filter(c=>c.length<=1).length;
+  /* drawSheet computes the same max W,H that drawCompose does and drew every
+     piece stretched to it without ever saying so - the one-character preview
+     warned about mixed sizes and the twelve-character sheet did not, though it
+     is the screen you look at to decide the set works. */
+  const scen=sizeCensus([].concat(...combos));
   $("cnote").textContent=count+" random characters drawn from what is saved"+
     ($("cwip").checked?"":" and approved")+". Look for traits that collide rather than stack"+
     (empties?", and note "+empties+" came out with nothing but a base":"")+
-    ". Change any dropdown to go back to one character.";
+    ". Change any dropdown to go back to one character."+
+    (scen.oddCount ? "  Not all the same size: "+scen.detail
+      +". Traits that layer have to share one canvas size." : "");
   $("cdl").disabled=false;
 }
 

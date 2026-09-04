@@ -103,9 +103,12 @@ Measured, with the date. Delete one the moment the code contradicts it.
   batch - not a short one, because the server cap can be lower than the page
   size. `cloudSweep` had this right for storage; the row select did not. *(09-04)*
 - **`sbUser()` returns null for two different facts** — "the server says no" and
-  "could not ask it". Five callers still read that null as signed-out, so a cloud
-  action becomes a silent no-op on a hiccup. `cloudRender` uses `sbAuthState()`
-  instead; the other five are unmeasured. *(09-04)*
+  "could not ask it". `sbAuthState()` is the one that tells them apart; use it
+  anywhere the answer decides what to SAY or whether to take something away.
+  All five callers have now been read: `cloudPush` and `cloudPull` were turning
+  a hiccup into "Sign in first" and are fixed; the per-trait save, the reorder
+  and `cloudDropOne` were already honest and were deliberately left alone.
+  `sbUser` itself is fine as a primitive. *(09-04, measured)*
 - **Subagents will write into this repo.** A verifier fan-out left 13 throwaway
   spec files in `tests/` and repointed the port in `playwright.config.js`, which
   made a full run report 182 passed instead of 247. `tests/zz*.spec.js` and

@@ -5928,14 +5928,47 @@ function randomCombo(pools){
   }
   return out;
 }
+/* A character's identity: the traits it carries, in draw order.
+
+   Draw order is fixed by LAYERS, so joining the ids is enough - and a layer
+   left empty on one character and filled on another makes the two different,
+   because the empty one contributes no id at that position. */
+function comboKey(c){ return (c||[]).map(r=>(r&&r.id)||"").join("|"); }
+/* n DIFFERENT characters, or as many as the set can actually supply.
+
+   The sheet used to take n independent draws with no memory, so on a small or
+   skewed set the same character turned up two or three times in one sheet -
+   on the screen whose whole job is showing what the set produces. It read as
+   bad luck rather than as the set having fewer combinations than expected.
+
+   Rejection sampling against what is already drawn. The bound is forty tries
+   per character and never below 200: a set that comfortably supports the
+   request finishes in barely more than n draws, so the bound only bites when
+   the set genuinely cannot answer - which is the case worth reporting rather
+   than retrying forever. */
+function uniqueCombos(pools,n){
+  const out=[], seen=new Set();
+  const cap=Math.max(200,n*40);
+  for(let tries=0; out.length<n && tries<cap; tries++){
+    const c=randomCombo(pools);
+    if(!c||!c.length) continue;
+    const k=comboKey(c);
+    if(seen.has(k)) continue;
+    seen.add(k); out.push(c);
+  }
+  return out;
+}
 async function drawSheet(count){
   const pools=cPools();
-  const combos=[];
-  for(let i=0;i<count;i++) combos.push(randomCombo(pools));
+  /* DIFFERENT characters, not just that many draws. */
+  const combos=uniqueCombos(pools,count);
+  const got=combos.length;
   let W=0,H=0;
   for(const c of combos) for(const r of c){ if(r.w>W) W=r.w; if(r.h>H) H=r.h; }
   if(!W||!H){ toast("Nothing saved to build from"); return; }
-  const cols=Math.min(4,count), rows=Math.ceil(count/cols), GAP=2;
+  /* From what was actually drawn: laying out for `count` when fewer came
+     back leaves a band of empty canvas that reads as a rendering fault. */
+  const cols=Math.min(4,got), rows=Math.ceil(got/cols), GAP=2;
   const cv=$("ccanvas");
   cv.width=cols*(W+GAP)-GAP; cv.height=rows*(H+GAP)-GAP;
   const g=cv.getContext("2d");
@@ -5955,10 +5988,20 @@ async function drawSheet(count){
      warned about mixed sizes and the twelve-character sheet did not, though it
      is the screen you look at to decide the set works. */
   const scen=sizeCensus([].concat(...combos));
-  $("cnote").textContent=count+" random characters drawn from what is saved"+
+  /* Asking for more than the set holds is a fact about the set, not a
+     failure - and "only 8 exist" and "586 exist but the weights make repeats
+     likely" are different problems with the same symptom. Both are said. */
+  const cstat=comboStats(cItems,$("cwip").checked);
+  const shortBy = got<count
+    ? "  Asked for "+count+" and the set could only give "+got+" different"
+      +" - "+bigLabel(cstat.distinct)+" combinations exist"
+      +(cstat.effective < cstat.distinct*0.9
+        ? ", but the weights make it behave like "+bigLabel(cstat.effective)+"." : ".")
+    : "";
+  $("cnote").textContent=got+" different characters drawn from what is saved"+
     ($("cwip").checked?"":" and approved")+". Look for traits that collide rather than stack"+
     (empties?", and note "+empties+" came out with nothing but a base":"")+
-    ". Change any dropdown to go back to one character."+
+    ". Change any dropdown to go back to one character."+shortBy+
     (scen.oddCount ? "  Not all the same size: "+scen.detail
       +". Traits that layer have to share one canvas size." : "");
   $("cdl").disabled=false;

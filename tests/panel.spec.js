@@ -8,34 +8,59 @@ test.describe('the panel', () => {
     await openTrait(page, { w: 80, h: 80, draw: (set) => { set(1, 1, [1, 2, 3]); } });
     const panel = await page.evaluate(() => {
       const s = document.querySelector('.side');
-      const r = s.getBoundingClientRect();
+      const rect = s.getBoundingClientRect(), r = rect;
       const heads = [...s.querySelectorAll('section h2')].map(h => {
         const hr = h.getBoundingClientRect();
         return { name: h.textContent.replace(/[^A-Za-z ]/g, '').trim(),
                  onScreen: hr.top >= r.top - 1 && hr.bottom <= r.bottom + 1 };
       });
+      /* The two controls the old `open === 2` stood for, measured directly.
+         Counting sections never checked WHICH two were open. */
+      const usable = id => {
+        const e = document.getElementById(id);
+        if (!e) return false;
+        const r = e.getBoundingClientRect();
+        return r.width > 0 && r.height > 0 && r.top >= rect.top - 1 && r.bottom <= rect.bottom + 1;
+      };
       return { scroll: s.scrollHeight, window: s.clientHeight, heads,
+               brush: usable('bslider'), palette: usable('pal'),
                open: [...s.querySelectorAll('section')].filter(x => !x.classList.contains('folded')).length };
     });
     expect(panel.scroll, 'no scrolling on arrival').toBeLessThanOrEqual(panel.window + 2);
-    expect(panel.open, 'two sections open, the rest one click away').toBe(2);
+    /* NOT a count. The code's own reason for opening two was "the brush and the
+       palette are what you need before you have decided what you are doing" - two
+       was how that got delivered, not what it meant, and counting sections never
+       checked WHICH two were open.
+
+       Merging Recolour into the palette section put the brush, the palette, the
+       mode chips and the replace controls into one, so the same promise is kept
+       by one open section now. Asserting the promise instead of the number is
+       also strictly stronger: this would fail on two open sections that happened
+       to be the wrong two, which the old assertion would have passed. */
+    expect(panel.open, 'something must be open').toBeGreaterThan(0);
+    expect(panel.brush, 'the brush is usable on arrival, without scrolling').toBe(true);
+    expect(panel.palette, 'and so is the palette').toBe(true);
     for (const h of panel.heads) expect(h.onScreen, `${h.name} should be reachable without scrolling`).toBe(true);
   });
 
   test('one click on a heading reveals its controls', async ({ page }) => {
+    /* The subject moved with the sections. This used to open Recolour and watch
+       #rcerase appear - but Recolour is no longer a heading, its controls having
+       moved under the palette they act on, and that section is open on arrival.
+       Aiming this at 'Colour' would keep the test passing while proving nothing,
+       because there would be nothing folded to unfold. Base layer is folded on
+       arrival and has a control of its own. */
     await openTrait(page, { w: 80, h: 80, draw: (set) => { set(1, 1, [1, 2, 3]); } });
-    expect(await page.evaluate(() => {
-      const b = document.getElementById('rcerase');
-      const r = b.getBoundingClientRect();
-      return r.width > 0 && r.height > 0;
-    }), 'folded to begin with').toBe(false);
-
-    await openSection(page, 'Recolour');
-    const shown = await page.evaluate(() => {
-      const b = document.getElementById('rcerase'), s = document.querySelector('.side');
+    const box = () => page.evaluate(() => {
+      const b = document.getElementById('baseop'), s = document.querySelector('.side');
       const r = b.getBoundingClientRect(), sr = s.getBoundingClientRect();
-      return { visible: r.width > 0 && r.height > 0, inView: r.top >= sr.top - 1 && r.bottom <= sr.bottom + 1 };
+      return { visible: r.width > 0 && r.height > 0,
+               inView: r.top >= sr.top - 1 && r.bottom <= sr.bottom + 1 };
     });
+    expect((await box()).visible, 'folded to begin with').toBe(false);
+
+    await openSection(page, 'Base layer');
+    const shown = await box();
     expect(shown.visible).toBe(true);
     expect(shown.inView, 'and in view, not below the fold').toBe(true);
   });
@@ -69,7 +94,7 @@ test.describe('the merged sections', () => {
        the section instead of the rows, your colours vanish the moment you pick
        the fill, the move or the picker - and nothing else would notice. */
     await openTrait(page, { w: 80, h: 80, draw: (set) => { set(1, 1, [1, 2, 3]); set(2, 2, [9, 9, 9]); } });
-    await openSection(page, 'Paint with');
+    await openSection(page, 'Colour');
     const shown = async () => page.evaluate(() => {
       const p = document.getElementById('pal');
       const r = p.getBoundingClientRect();
@@ -96,7 +121,7 @@ test.describe('the merged sections', () => {
 
   test('every control from the merged pairs is still reachable', async ({ page }) => {
     await openTrait(page, { w: 80, h: 80, draw: (set) => { set(1, 1, [1, 2, 3]); } });
-    await openSection(page, 'Paint with');
+    await openSection(page, 'Colour');
     await openSection(page, 'Save and export');
     const seen = id => page.evaluate(i => {
       const e = document.getElementById(i);

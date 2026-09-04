@@ -1031,7 +1031,7 @@ footer .mono{color:var(--ink);}
       <span><small>Current</small><span class="mono" id="curhex">#000000</span></span>
     </div>
     <section id="brushsec">
-      <h2>Paint with</h2>
+      <h2>Colour</h2>
       <!-- The brush rows only, so selectTool can hide THEM. Hiding the whole
            section would take the palette with it the moment you picked the
            fill or the move tool. -->
@@ -1064,6 +1064,28 @@ footer .mono{color:var(--ink);}
           title="Click colours to mark them for replacing - pick as many as you like">Replace</button>
       </div>
       <div class="swatches" id="pal"></div>
+      <div class="rule"></div>
+      <!-- What to DO with the colours picked above. This lived under its own
+           "Recolour" heading two sections away, which was fine while the
+           recolour swatches were down there with it - merging the two grids
+           moved the selection up here and left the buttons behind, acting on
+           something you could not see while using them. -->
+      <div class="stack">
+        <p class="note" id="rcfrom">Set the palette to Replace, then pick colours.</p>
+        <button class="btn ghost" id="rcnear" aria-pressed="false"
+          style="width:auto;padding:6px 10px;font-size:12px"
+          title="Also replace shades within the distance below">Include near shades</button>
+        <div class="olrow"><label for="rctol">How close</label>
+          <input id="rctol" type="number" min="1" max="120" value="24" style="width:72px"></div>
+        <div class="savebar">
+          <button class="btn ghost" id="rcgo" disabled style="flex:2">Replace</button>
+          <button class="btn ghost" id="rcerase" disabled style="flex:2"
+            title="Take those colours out of the trait completely, leaving nothing there">Erase</button>
+          <button class="btn ghost" id="rcnone" disabled style="flex:1"
+            title="Unpick the colours you chose - does not change the artwork">Deselect</button>
+        </div>
+        <button class="btn" id="rcclean">Clean up colours</button>
+      </div>
     </section>
     <section>
       <h2>Edges and holes</h2>
@@ -1138,25 +1160,6 @@ footer .mono{color:var(--ink);}
       <p class="note"><span class="mono" id="rsnow">-</span></p>
     </section>
     <section>
-      <h2>Recolour</h2>
-      <div class="stack">
-        <p class="note" id="rcfrom">Set the palette to Replace, then pick colours.</p>
-        <button class="btn ghost" id="rcnear" aria-pressed="false"
-          style="width:auto;padding:6px 10px;font-size:12px"
-          title="Also replace shades within the distance below">Include near shades</button>
-        <div class="olrow"><label for="rctol">How close</label>
-          <input id="rctol" type="number" min="1" max="120" value="24" style="width:72px"></div>
-        <div class="savebar">
-          <button class="btn ghost" id="rcgo" disabled style="flex:2">Replace</button>
-          <button class="btn ghost" id="rcerase" disabled style="flex:2"
-            title="Take those colours out of the trait completely, leaving nothing there">Erase</button>
-          <button class="btn ghost" id="rcnone" disabled style="flex:1"
-            title="Unpick the colours you chose - does not change the artwork">Deselect</button>
-        </div>
-        <button class="btn" id="rcclean">Clean up colours</button>
-      </div>
-    </section>
-    <section>
       <h2>Base layer</h2>
       <div class="stack">
         <div class="savebar">
@@ -1187,9 +1190,20 @@ footer .mono{color:var(--ink);}
       </div>
       <div class="rule"></div>
       <div class="stack">
-        <button class="btn ghost" id="dlNative">Download at grid size</button>
-        <button class="btn ghost" id="dlBig">Download at 8×</button>
-        <button class="btn ghost" id="dlTrim">Download trimmed to the art</button>
+        <!-- One row, not three full-width buttons. Save and export was the
+             tallest section in the panel at 388px and these were three of its
+             seven stacked buttons. Same three ids, same three actions; the
+             sentence each one used to spell out is in its title. -->
+        <div class="olrow"><span>Download</span>
+          <div class="savebar" style="flex:1" role="group" aria-label="Download">
+            <button class="btn ghost" id="dlNative" style="flex:1"
+              title="Download at the grid size - the size every trait has to be to line up">Grid</button>
+            <button class="btn ghost" id="dlBig" style="flex:1"
+              title="Download at eight times the size, for previews and posts">8×</button>
+            <button class="btn ghost" id="dlTrim" style="flex:1"
+              title="Download cropped to the artwork, with the empty canvas removed">Trimmed</button>
+          </div>
+        </div>
         <button class="btn ghost" id="reset">Reset to original</button>
         <button class="btn" id="saveclose">Save and close</button>
         <button class="btn ghost" id="closeed">Close</button>
@@ -5083,16 +5097,39 @@ function foldDefaults(){
   const s=document.querySelector(".side"); if(!s) return 0;
   if(s.scrollHeight <= s.clientHeight+1) return 0;
   let saved={}; try{ saved=JSON.parse(localStorage.getItem("pb.folds")||"{}"); }catch(_){}
-  let folded=0;
-  [...s.querySelectorAll("section")].forEach((sec,i)=>{
+  /* Fold every section the user has not chosen for themselves, then open them
+     back from the top while the panel still fits.
+
+     This used to be `const fold = i>1` - a hardcoded first two. Two was a guess
+     about content, and the content changed: merging Recolour into the palette
+     section made the first section taller, the first two stopped fitting, and
+     the panel scrolled 858px inside an 818px window on arrival. Replacing the
+     constant with a bigger one would keep the same defect and change the number
+     at which it returns.
+
+     Measuring instead cannot overflow whatever anyone puts in a section later,
+     which is the property that was actually wanted - "two" was a stand-in for
+     it, and the comment above says so in its own words: the panel must not bury
+     its own tail. Opening stops at the FIRST section that would not fit rather
+     than skipping it for a smaller one further down, because a panel that opens
+     its third section and not its second reads as broken. */
+  const free=[];
+  [...s.querySelectorAll("section")].forEach(sec=>{
     const t=sec.querySelector("h2"); if(!t) return;
     const key=(t.textContent||"").replace(/[^a-z]/gi,"").toLowerCase();
     if(key in saved) return;
-    const fold = i>1;
-    sec.classList.toggle("folded",fold);
-    t.setAttribute("aria-expanded",String(!fold));
-    if(fold) folded++;
+    sec.classList.add("folded"); t.setAttribute("aria-expanded","false");
+    free.push([sec,t]);
   });
+  let folded=free.length;
+  for(const [sec,t] of free){
+    sec.classList.remove("folded"); t.setAttribute("aria-expanded","true");
+    if(s.scrollHeight > s.clientHeight+1){
+      sec.classList.add("folded"); t.setAttribute("aria-expanded","false");
+      break;
+    }
+    folded--;
+  }
   return folded;
 }
 

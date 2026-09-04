@@ -57,6 +57,7 @@ something. Good places to look, in order:
 
 Newest first. Delete the oldest when this passes 12.
 
+- 2026-09-04 — The upload retries a dropped file three times like the download does, and the stale check stops selecting every column
 - 2026-09-04 — Save to cloud: 308 requests to 189 on a first push and 8 on a repeat; stopped emptying the server before re-uploading
 - 2026-09-04 — Save/Load to cloud no longer tell a signed-in person to sign in when the network hiccups
 - 2026-09-04 — A file dropped mid-pull is retried three times instead of abandoned; a 404 still costs one request

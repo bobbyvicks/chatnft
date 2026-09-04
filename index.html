@@ -6430,6 +6430,34 @@ function traitEligible(t,wipIncluded){
    a 1% trait near 0.07 - below what the label prints either way. */
 const DIST_DRAWS=20000, DIST_SEED=0x9E3779B9;
 let distCache=null, distKey="";
+/* The pools to simulate over.
+
+   cPools() reads the #crows <select> OPTIONS, so it answers only once the
+   compose panel has been built. renderShelf asks every tile for its share at
+   line 2387 and builds that panel at 2471, so on a fresh load the pools were
+   empty, every draw produced nothing, and the empty result was cached -
+   measured, every trait read 0.00% until the cache was cleared by hand.
+
+   The rows stay the authority when they exist: they carry the per-layer
+   choices a person has made, which the records do not. This only fills in the
+   moment before they have been built. */
+function poolsForDistribution(items,wipIncluded){
+  const fromRows=cPools();
+  for(const k in fromRows) if(fromRows[k]&&fromRows[k].length) return fromRows;
+  /* Same shape cPools returns: one array per layer, keyed by layer name, and
+     __base for the references. Built straight from the records. */
+  const out={};
+  const refs=(items||[]).filter(i=>i.kind==="ref");
+  if(refs.length) out.__base=refs;
+  for(const t of (items||[])){
+    if(!traitEligible(t,wipIncluded)) continue;
+    const l=t.layer||"unsorted";
+    if(HIDDEN_LAYERS.has(l)) continue;
+    if(!out[l]) out[l]=[];
+    out[l].push(t);
+  }
+  return out;
+}
 function distributionOf(items,wipIncluded){
   const elig=(items||[]).filter(t=>traitEligible(t,wipIncluded)&&!HIDDEN_LAYERS.has(t.layer||"unsorted"))
     .map(t=>traitKey(t)+":"+traitWeight(t)).sort();
@@ -6438,7 +6466,7 @@ function distributionOf(items,wipIncluded){
      input which changes the answer appears in it. */
   const key=JSON.stringify([elig,RULES,emptyChance,!!wipIncluded,LAYERS,[...HIDDEN_LAYERS].sort()]);
   if(distCache && distKey===key) return distCache;
-  const pools=cPools();
+  const pools=poolsForDistribution(items,wipIncluded);
   const count=new Map();
   /* The estimator's own draws are not the collection's failures. randomCombo
      counts a miss whenever a draw cannot satisfy the rules, and this makes
@@ -6458,6 +6486,10 @@ function distributionOf(items,wipIncluded){
       }
   });
   ruleMisses=misses;
+  /* An empty distribution is not an answer, and caching one is what turned a
+     single mis-ordered render into a permanent 0.00% on every tile. Left
+     uncached, any later call recomputes and repairs itself. */
+  if(!count.size) return count;
   distCache=count; distKey=key;
   return count;
 }

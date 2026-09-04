@@ -6266,12 +6266,24 @@ function distributionOf(items,wipIncluded){
   if(distCache && distKey===key) return distCache;
   const pools=cPools();
   const count=new Map();
+  /* The estimator's own draws are not the collection's failures. randomCombo
+     counts a miss whenever a draw cannot satisfy the rules, and this makes
+     20,000 of them to work out a percentage - none of which anybody asked for
+     or kept. Measured before this: generating a 1-character collection left
+     ruleMisses at 200, and asking the shelf for one trait's chance took it to
+     20,200, which the sheet then reported as characters.
+
+     Saved and restored rather than zeroed afterwards: uniqueCombos owns the
+     zeroing, and an estimate can be asked for at any moment - including
+     between generating a collection and reading the number off it. */
+  const misses=ruleMisses;
   withSeed(DIST_SEED,()=>{
     for(let i=0;i<DIST_DRAWS;i++)
       for(const r of randomCombo(pools)){
         const k=traitKey(r); count.set(k,(count.get(k)||0)+1);
       }
   });
+  ruleMisses=misses;
   distCache=count; distKey=key;
   return count;
 }

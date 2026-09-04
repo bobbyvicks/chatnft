@@ -927,6 +927,16 @@ footer .mono{color:var(--ink);}
       <div class="crows" id="crows"></div>
     </div>
     <p class="note" id="cnote">Stacks one trait per layer over a base, in draw order, to check the set works together.</p>
+    <!-- The other half of "look for traits that collide rather than stack".
+         Finding one used to be the end of it: the next sheet drew it again. -->
+    <div class="olrow" style="margin-top:6px">
+      <span>Never together</span>
+      <select id="rulea" aria-label="First trait" style="flex:1;min-width:0"></select>
+      <select id="ruleb" aria-label="Second trait" style="flex:1;min-width:0"></select>
+      <button class="mini" id="ruleadd"
+        title="These two will never appear on the same character">Add</button>
+    </div>
+    <div id="rulelist"></div>
   </section>
   <section class="proj" id="layers" hidden>
     <div class="projhead">
@@ -1671,6 +1681,19 @@ const DEFAULT_LAYERS=['backgrounds','skins','clothing','costumes','chains','acce
 let LAYERS=DEFAULT_LAYERS.slice();
 const LAYERS_ID='settings.layers';
 const GRID_ID='settings.grid';
+const RULES_ID='settings.rules';
+/* Pairs of traits that must never share a character, each side keyed by
+   layer/name.
+
+   NOT by id: an id is built from name, layer AND status, so approving a trait
+   changes it - and a rule stored by id would stop applying at the exact moment
+   the collection starts being generated for real. layer/name is also what a
+   person means by "the crown", and what the list on screen shows. */
+let RULES=[];
+function traitKey(rec){ return rec ? (rec.layer||"unsorted")+"/"+(rec.name||"") : ""; }
+/* Sorted, so a rule added as A-then-B matches a character carrying B-then-A. */
+function rulePair(a,b){ return a<b ? [a,b] : [b,a]; }
+function ruleId(p){ return p[0]+"\u0000"+p[1]; }
 /* How many cells across the collection's art is. A size is only safe when it
    is a whole multiple of this: at any other size a cell is a fractional number
    of pixels and comes out alternately n and n+1 wide. The collection this was
@@ -1947,6 +1970,9 @@ async function renderShelf(){
      the default list is only what it starts from. */
   applyLayers(items);
   applyGrid(items);
+  /* Before buildCompose runs: generation reads RULES, and a sheet drawn with
+     an empty rule list would quietly ignore every rule on the first render. */
+  applyRules(items);
   const traits=items.filter(i=>i.kind==='trait');
   const visibility=currentShelfVisibility();
   const liveTraitKeys=new Set(traits.map(shelfCore.recordKey));
@@ -5458,6 +5484,48 @@ async function cBitmap(rec){
   return bm;
 }
 let cItems=[];
+/* The two pickers and the current list.
+
+   A rule whose trait is gone is shown as missing rather than dropped - see
+   applyRules. It still counts against generation, harmlessly: nothing in the
+   set carries that key, so it can never match. */
+function buildRules(traits){
+  const A=$("rulea"), B=$("ruleb"), L=$("rulelist");
+  if(!A||!B||!L) return;
+  const keys=[...new Set(traits.map(traitKey))].sort();
+  for(const sel of [A,B]){
+    const keep=sel.value;
+    sel.innerHTML="";
+    for(const k of keys){
+      const o=document.createElement("option");
+      o.value=k; o.textContent=k;
+      sel.appendChild(o);
+    }
+    if(keys.indexOf(keep)>=0) sel.value=keep;
+  }
+  const have=new Set(keys);
+  L.innerHTML="";
+  for(const p of RULES){
+    const row=document.createElement("div");
+    row.className="olrow";
+    const gone = !have.has(p[0]) || !have.has(p[1]);
+    const t=document.createElement("span");
+    t.textContent=p[0]+"  and  "+p[1]+(gone?"  (no longer in the set)":"");
+    if(gone) t.style.color="var(--bad)";
+    row.appendChild(t);
+    const x=document.createElement("button");
+    x.className="mini"; x.textContent="remove";
+    x.style.marginLeft="auto";
+    x.setAttribute("aria-label","Remove the rule keeping "+p[0]+" and "+p[1]+" apart");
+    x.onclick=async()=>{
+      RULES=RULES.filter(q=>ruleId(q)!==ruleId(p));
+      try{ await saveRules(); }catch(_){}
+      renderShelf();
+    };
+    row.appendChild(x);
+    L.appendChild(row);
+  }
+}
 async function buildCompose(items){
   cItems=items;
   const wip=$("cwip").checked;
@@ -5497,6 +5565,7 @@ async function buildCompose(items){
         +" below, a few traits are taking most of the collection.";
     }
   }
+  buildRules(traits);
   const rows=$("crows");
   const keep={};
   rows.querySelectorAll("select").forEach(s=>{ keep[s.dataset.layer]=s.value; });
@@ -5931,7 +6000,21 @@ function randomCombo(pools){
     /* An empty layer is what makes characters differ, but not every layer can
        be empty - see ALWAYS_PRESENT. */
     if(ALWAYS_PRESENT.indexOf(layer)<0 && Math.random()<emptyChance) continue;
-    out.push(weightedPick(p));
+    /* Only what goes with the character so far. Filtering here rather than
+       drawing a whole character and rejecting it means this cannot loop, and
+       cannot emit a conflict at all. */
+    const ok = RULES.length ? p.filter(r=>!conflictsWith(r,out)) : p;
+    if(!ok.length){
+      /* Everything in this layer clashes with something already chosen. Leaving
+         it out is the honest answer where a layer may be empty. Where it may
+         not, the set is over-constrained: one is picked anyway and the miss is
+         counted, because a silently broken rule is worse than a reported one. */
+      if(ALWAYS_PRESENT.indexOf(layer)<0) continue;
+      ruleMisses++;
+      out.push(weightedPick(p));
+      continue;
+    }
+    out.push(weightedPick(ok));
   }
   return out;
 }
@@ -5940,6 +6023,11 @@ function randomCombo(pools){
    Draw order is fixed by LAYERS, so joining the ids is enough - and a layer
    left empty on one character and filled on another makes the two different,
    because the empty one contributes no id at that position. */
+/* Characters that had to break a rule because the set left no choice. Reset
+   by whatever is about to draw a batch, and read afterwards - the only case
+   where the output can disagree with the Never-together list, so it is
+   counted rather than left to be noticed. */
+let ruleMisses=0;
 function comboKey(c){ return (c||[]).map(r=>(r&&r.id)||"").join("|"); }
 /* n DIFFERENT characters, or as many as the set can actually supply.
 
@@ -5954,6 +6042,7 @@ function comboKey(c){ return (c||[]).map(r=>(r&&r.id)||"").join("|"); }
    the set genuinely cannot answer - which is the case worth reporting rather
    than retrying forever. */
 function uniqueCombos(pools,n){
+  ruleMisses=0;
   const out=[], seen=new Set();
   const cap=Math.max(200,n*40);
   for(let tries=0; out.length<n && tries<cap; tries++){
@@ -6075,6 +6164,33 @@ function applyGrid(items){
   const box=$("rsgrid"); if(box) box.value=projectGrid;
   buildResizePresets();
 }
+/* A rule naming a trait that no longer exists stays in the list, shown as
+   missing. Renaming a trait can strand one, and dropping it quietly would
+   throw away an instruction the owner gave. */
+function applyRules(items){
+  const rec=items.find(i=>i.id===RULES_ID);
+  RULES = (rec&&Array.isArray(rec.pairs) ? rec.pairs : [])
+    .filter(p=>Array.isArray(p)&&p.length===2&&p[0]&&p[1]&&p[0]!==p[1])
+    .map(p=>rulePair(String(p[0]),String(p[1])));
+  /* Two of the same rule would double every conflict check for nothing. */
+  const seen=new Set();
+  RULES=RULES.filter(p=>{ const k=ruleId(p); if(seen.has(k)) return false; seen.add(k); return true; });
+}
+async function saveRules(){
+  await dbPut({id:RULES_ID, kind:"settings", pairs:RULES.map(p=>p.slice()), at:Date.now()});
+}
+/* Does this trait clash with anything already on the character? */
+function conflictsWith(rec,chosen){
+  if(!RULES.length) return false;
+  const k=traitKey(rec);
+  for(const other of chosen){
+    const o=traitKey(other);
+    const id=ruleId(rulePair(k,o));
+    for(const p of RULES) if(ruleId(p)===id) return true;
+  }
+  return false;
+}
+
 async function saveGrid(){
   await dbPut({id:GRID_ID, kind:"settings", cells:projectGrid, at:Date.now()});
 }
@@ -8457,6 +8573,19 @@ $('rsh').addEventListener('input',()=>{
   $('rsw').value=Math.max(1,Math.round(v*art.width/art.height));
 });
 $('crand').onclick=composeRandom;
+$('ruleadd').onclick=async()=>{
+  const a=$("rulea").value, b=$("ruleb").value;
+  if(!a||!b){ toast("Pick two traits"); return; }
+  /* A trait cannot clash with itself, and saying so is more use than a rule
+     that would empty its own layer on every draw. */
+  if(a===b){ toast("Pick two different traits"); return; }
+  const p=rulePair(a,b);
+  if(RULES.some(q=>ruleId(q)===ruleId(p))){ toast("Already never together"); return; }
+  RULES.push(p);
+  try{ await saveRules(); }catch(_){ toast("Could not save the rule"); }
+  renderShelf();
+  toast(a+" and "+b+" will not appear together");
+};
 $('csheet').onclick=()=>drawSheet(12);
 $('cgenzip').onclick=async()=>{
   const btn=$("cgenzip");

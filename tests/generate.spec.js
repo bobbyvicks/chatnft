@@ -264,3 +264,163 @@ test.describe('the generated collection', () => {
     expect(r.names.length, 'and the files match what was made').toBe(4);
   });
 });
+
+/* NEVER TOGETHER.
+
+   The sheet's own note says to look for traits that collide rather than stack.
+   Finding one used to be the end of the road - there was no way to say so, and
+   the next sheet drew it again.
+
+   The control is the first test. "The pair never appeared in 400 draws" proves
+   nothing unless the pair appears WITHOUT the rule: a rule engine that did
+   nothing, or a picker that never made that combination anyway, would pass the
+   same way. Measured, 83 of 400 before and 0 after. */
+test.describe('never together', () => {
+  const SET = [
+    { n: 'tan', l: 'skins' }, { n: 'pale', l: 'skins' },
+    { n: 'crown', l: 'hair-headwear' }, { n: 'cap', l: 'hair-headwear' },
+    { n: 'mask', l: 'masks' },
+  ];
+  const CROWN = 'hair-headwear/crown', MASK = 'masks/mask';
+
+  /* How often the two land on the same character across many draws. */
+  const togetherIn = (page, a, b, n) => page.evaluate(({ a, b, n }) => {
+    const pools = cPools();
+    let both = 0;
+    for (let i = 0; i < n; i++) {
+      const keys = randomCombo(pools).map(traitKey);
+      if (keys.indexOf(a) >= 0 && keys.indexOf(b) >= 0) both++;
+    }
+    return both;
+  }, { a, b, n });
+
+  const addRule = async (page, a, b) => {
+    await page.evaluate(({ a, b }) => {
+      $('rulea').value = a; $('ruleb').value = b;
+      return $('ruleadd').onclick();
+    }, { a, b });
+    await page.waitForTimeout(400);
+  };
+
+  const ready = async (page) => {
+    await openTrait(page, { w: 160, h: 160, draw: BLOCK });
+    await openAllSections(page);
+    await put(page, SET);
+    await page.waitForTimeout(300);
+  };
+
+  test('the pair happens on its own, and stops once the rule exists', async ({ page }) => {
+    await ready(page);
+    const before = await togetherIn(page, CROWN, MASK, 400);
+    expect(before, 'the control: without a rule these land together often').toBeGreaterThan(10);
+
+    await addRule(page, CROWN, MASK);
+    const after = await togetherIn(page, CROWN, MASK, 400);
+    expect(after, 'and never once the rule exists').toBe(0);
+  });
+
+  test('both traits are still drawn - the rule separates them, it does not delete one', async ({ page }) => {
+    // A rule engine that simply stopped picking the crown would pass the test
+    // above perfectly.
+    await ready(page);
+    await addRule(page, CROWN, MASK);
+    const seen = await page.evaluate(({ a, b }) => {
+      const pools = cPools();
+      let sawA = 0, sawB = 0;
+      for (let i = 0; i < 400; i++) {
+        const keys = randomCombo(pools).map(traitKey);
+        if (keys.indexOf(a) >= 0) sawA++;
+        if (keys.indexOf(b) >= 0) sawB++;
+      }
+      return { sawA, sawB };
+    }, { a: CROWN, b: MASK });
+    expect(seen.sawA, 'the crown still appears').toBeGreaterThan(10);
+    expect(seen.sawB, 'and so does the mask').toBeGreaterThan(10);
+  });
+
+  test('the order it was added in does not matter', async ({ page }) => {
+    await ready(page);
+    await addRule(page, MASK, CROWN);   // the other way round
+    expect(await togetherIn(page, CROWN, MASK, 300), 'a rule is about a pair, not a sequence').toBe(0);
+  });
+
+  test('it survives being reloaded from storage', async ({ page }) => {
+    // The reason rules are keyed by layer/name and not by id: an id carries the
+    // trait's STATUS, so approving a trait rewrites it, and a rule stored by id
+    // would quietly stop applying exactly when the collection is generated for
+    // real. A test living inside one page load would never see that.
+    await ready(page);
+    await addRule(page, CROWN, MASK);
+    const stored = await page.evaluate(async () => {
+      const rec = (await dbAll()).find(i => i.id === 'settings.rules');
+      return rec ? rec.pairs : null;
+    });
+    expect(stored, 'the rule reached storage').toEqual([[CROWN, MASK].sort()]);
+
+    // Reload, and let the shelf render the way boot does.
+    await page.reload();
+    await page.evaluate(() => { try { authed = true; } catch (_) {} try { gateShow(false); } catch (_) {} });
+    await page.waitForTimeout(500);
+    const back = await page.evaluate(async () => { await renderShelf(); return RULES; });
+    expect(back, 'and comes back as it was').toEqual([[CROWN, MASK].sort()]);
+  });
+
+  test('a trait cannot be set against itself, and a rule is not added twice', async ({ page }) => {
+    await ready(page);
+    await addRule(page, CROWN, CROWN);
+    expect(await page.evaluate(() => RULES.length), 'a self-pair would empty its own layer').toBe(0);
+    await addRule(page, CROWN, MASK);
+    await addRule(page, MASK, CROWN);
+    expect(await page.evaluate(() => RULES.length), 'the same rule twice is one rule').toBe(1);
+  });
+
+  test('a rule survives the trait being approved', async ({ page }) => {
+    // THE CASE THE DESIGN EXISTS FOR, and the one my other tests all missed.
+    // A trait id is built from name, layer AND status - t_crown_hair-headwear_wip
+    // - so marking a trait approved REWRITES its id. A rule keyed by id would
+    // stop applying at that exact moment, which is when the collection starts
+    // being generated for real, and nothing on screen would say so.
+    await openTrait(page, { w: 160, h: 160, draw: BLOCK });
+    await openAllSections(page);
+    await page.evaluate(async () => {
+      const png = async hue => { const c = document.createElement('canvas'); c.width = 160; c.height = 160;
+        const g = c.getContext('2d'); g.fillStyle = 'hsl(' + hue + ',70%,55%)'; g.fillRect(20, 20, 120, 120);
+        return await new Promise(r => c.toBlob(r, 'image/png')); };
+      const mk = async (name, layer, status) => ({ id: 't_' + name + '_' + layer + '_' + status,
+        kind: 'trait', name, layer, status, blob: await png(120), w: 160, h: 160, rarity: 1, at: 1 });
+      await dbPut(await mk('tan', 'skins', 'approved'));
+      await dbPut(await mk('pale', 'skins', 'approved'));
+      await dbPut(await mk('crown', 'hair-headwear', 'wip'));
+      await dbPut(await mk('cap', 'hair-headwear', 'approved'));
+      await dbPut(await mk('mask', 'masks', 'approved'));
+      $('cwip').checked = true;
+      await renderShelf();
+    });
+    await page.waitForTimeout(400);
+    await addRule(page, CROWN, MASK);
+    expect(await togetherIn(page, CROWN, MASK, 300), 'the rule bites while the crown is wip').toBe(0);
+
+    // Approve it: same name, same layer, a NEW id - exactly what saveTrait does.
+    await page.evaluate(async () => {
+      const old = (await dbAll()).find(i => i.id === 't_crown_hair-headwear_wip');
+      await dbPut({ ...old, id: 't_crown_hair-headwear_approved', status: 'approved' });
+      await dbDel('t_crown_hair-headwear_wip');
+      await renderShelf();
+    });
+    await page.waitForTimeout(400);
+    expect(await page.evaluate(() => RULES.length), 'the rule is still there').toBe(1);
+    expect(await togetherIn(page, CROWN, MASK, 300), 'and still bites after approval').toBe(0);
+  });
+
+  test('a rule naming a trait that is gone is shown, not silently dropped', async ({ page }) => {
+    // Renaming a trait can strand a rule. Deleting it quietly would throw away
+    // an instruction the owner gave, and they would never know it had gone.
+    await ready(page);
+    await addRule(page, CROWN, MASK);
+    await page.evaluate(async () => { await dbDel('t_crown'); await renderShelf(); });
+    await page.waitForTimeout(400);
+    expect(await page.evaluate(() => RULES.length), 'the rule is kept').toBe(1);
+    const shown = await page.evaluate(() => $('rulelist').textContent);
+    expect(shown, 'and says the trait is gone').toContain('no longer in the set');
+  });
+});

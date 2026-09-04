@@ -41,10 +41,11 @@ early September were all shipped on 2026-09-04 and are listed under Done.
 When the queue is empty the run's job is to **find** something, not to invent
 something. Good places to look, in order:
 
-1. **A number the app shows that nothing measures.** Three separate defects this
-   week were a confident figure computed from a formula that had drifted from
-   the code it described. Ask of every number on screen: what would make this
-   wrong, and would anything notice?
+1. **A number the app shows that nothing measures.** The richest lens by far —
+   four defects this week, including "they match" being decided by comparing two
+   totals rather than the two sets. Ask of every number and every claim on
+   screen: **what question does this actually answer, and is it the one being
+   asked?** A count answers "how many", never "which".
 2. **A promise in a tooltip or button title.** They are written once and outlive
    the behaviour. Check each against what the function actually does.
 3. **A control the tests always bypass.** `openAllSections` force-unfolds every
@@ -57,6 +58,7 @@ something. Good places to look, in order:
 
 Newest first. Delete the oldest when this passes 12.
 
+- 2026-09-04 — The account panel compares the two collections instead of subtracting their sizes; "they match" was true of ten-vs-ten with three different
 - 2026-09-04 — The upload retries a dropped file three times like the download does, and the stale check stops selecting every column
 - 2026-09-04 — Save to cloud: 308 requests to 189 on a first push and 8 on a repeat; stopped emptying the server before re-uploading
 - 2026-09-04 — Save/Load to cloud no longer tell a signed-in person to sign in when the network hiccups

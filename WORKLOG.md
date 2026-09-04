@@ -95,7 +95,7 @@ Measured, with the date. Delete one the moment the code contradicts it.
   `ruleMisses` stays 0 and a fixture built to exercise it measures nothing.
   Setting `emptyChance = 0` is what forces the corner. *(09-04)*
 - **Do not write test code through a shell string.** A regex written via
-  `node -e` inside bash lost its backslash - `(d+)` became `(d+)` - so a stub
+  `node -e` inside bash lost its backslash - `(\d+)` became `(d+)` - so a stub
   could not read the offset out of the request it was answering, paged forever,
   and asked for 25,000 downloads of 50 files. Three tests failed and none of it
   was the app. Use the Write tool for code. *(09-04)*

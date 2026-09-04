@@ -2149,7 +2149,26 @@ function traitCanvas(){
   const g=c.getContext("2d"); g.imageSmoothingEnabled=false;
   g.drawImage(art,0,0);
   const im=g.getImageData(0,0,c.width,c.height);
-  blackenEdge(im.data,c.width,c.height);
+  /* At the collection grid size and above only.
+
+     The border is one pixel wide at whatever size the canvas now is, and the
+     reasoning above blackenEdge weighs that against ENLARGEMENT only. Shrinking
+     redefines what a pixel is worth, and the share of the art it consumes was
+     measured on a sprite with no black in it: 4% at 160, 7.8% at 80, 14.9% at
+     40, 36% at 16, 62.5% at 8 - and 100% of six one-pixel lines shrunk to 40,
+     which came out of the canvas sky blue and out of the export solid black.
+     A thin line is entirely edge, so this rule was eating precisely what the
+     resampler rescue exists to save.
+
+     A canvas below the grid is not a collection trait, so the collection's
+     border rule has nothing to say about it. At or above the grid nothing here
+     changes, which covers every trait that was not deliberately shrunk.
+
+     This gates on the CANVAS. Trait mode holds the canvas at the grid and
+     shrinks the art inside it, so a small trait on a full canvas is still
+     outlined - a 30x30 trait inside 160 loses about 13% of itself. Smaller
+     than what is being fixed here, and a separate question. */
+  if(c.width>=projectGrid && c.height>=projectGrid) blackenEdge(im.data,c.width,c.height);
   g.putImageData(im,0,0);
   return c;
 }

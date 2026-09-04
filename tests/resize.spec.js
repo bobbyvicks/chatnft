@@ -420,3 +420,84 @@ test.describe('downscaling', () => {
     expect(box.opaque, 'and nothing inside it invented either').toBe(100);
   });
 });
+
+/* THE EXPORT, which no test here had ever looked at.
+
+   Everything above measures the canvas, and the canvas was never the problem -
+   it keeps its colours, invents nothing, and holds alpha at 0 or 255. All true,
+   and none of it true of the PNG: traitCanvas() runs blackenEdge on the way out,
+   repainting every pixel that touches empty space or the frame edge pure black.
+
+   Measured on a sprite containing no black at all: 4% of the export was black at
+   160, 14.9% at 40, 36% at 16, and six one-pixel lines shrunk to 40 came out
+   100% black - sky blue on the canvas, solid black in the file. The rule is
+   deliberate and stated ("the collection's outer border is black. Always"), but
+   it is one pixel wide at whatever size the canvas now is, and its own comment
+   reasons only about enlargement.
+
+   The owner's call: outline at collection size and above, skip below it. */
+test.describe('the exported PNG', () => {
+  const SPRITE = new Function('set', 'W', 'H',
+    'for (let y = 30; y < 130; y++) for (let x = 30; x < 130; x++) set(x, y, [226, 146, 116]);' +
+    'for (let y = 50; y < 110; y++) for (let x = 50; x < 110; x++) set(x, y, [90, 200, 240]);');
+
+  /* Reads what a download would actually contain, not what is on the canvas.
+     Every export route - both downloads, the trim download, the save to the
+     shelf - goes through traitCanvas(), so this is the file. */
+  const exported = (page) => page.evaluate(() => {
+    const c = traitCanvas(), W = c.width, H = c.height;
+    const d = c.getContext('2d').getImageData(0, 0, W, H).data;
+    let opaque = 0, black = 0;
+    for (let i = 0; i < d.length; i += 4) {
+      if (!d[i + 3]) continue;
+      opaque++;
+      if (!d[i] && !d[i + 1] && !d[i + 2]) black++;
+    }
+    return { size: W + 'x' + H, opaque, black };
+  });
+
+  const shrinkTo = async (page, n) => {
+    await openAllSections(page);
+    await page.evaluate(() => { const b = $('rssnap'); if (b.getAttribute('aria-pressed') === 'true') b.click(); });
+    await setSelect(page, 'rsmode', 'art');
+    await setField(page, 'rsw', n);
+    await setField(page, 'rsh', n);
+    await page.click('#rsgo');
+    await page.waitForTimeout(300);
+  };
+
+  test('a full-size trait is still outlined in black', async ({ page }) => {
+    // The half that must NOT change. Every trait that was not deliberately
+    // shrunk goes down this path, and the border is the collection's look.
+    await openTrait(page, { w: 160, h: 160, draw: SPRITE });
+    const out = await exported(page);
+    expect(out.size).toBe('160x160');
+    expect(out.black, 'the collection border must survive at full size').toBeGreaterThan(300);
+  });
+
+  test('a shrunk trait is not', async ({ page }) => {
+    // The same sprite, which contains no black anywhere, so any black in the
+    // export was invented by the border rule and nothing else.
+    await openTrait(page, { w: 160, h: 160, draw: SPRITE });
+    await shrinkTo(page, 40);
+    const out = await exported(page);
+    expect(out.size).toBe('40x40');
+    expect(out.black, 'a 40 canvas is not a collection trait - 100 pixels used to be black').toBe(0);
+    // And the art is still there: this is about not repainting it, not about
+    // dropping it.
+    expect(out.opaque, 'the art itself must be untouched').toBeGreaterThan(500);
+  });
+
+  test('thin art shrinks without turning into a black silhouette', async ({ page }) => {
+    // The worst measured case. A one-pixel line is entirely edge, so every line
+    // the resampler rescued was repainted #000000 on the way out - the border
+    // rule consuming exactly what the rescue exists to save. 180 opaque sky-blue
+    // pixels on the canvas came out as 180 pure black ones in the file.
+    await openTrait(page, { w: 160, h: 160, draw: new Function('set', 'W', 'H',
+      'for (let k = 0; k < 6; k++) for (let y = 20; y < 140; y++) set(20 + k * 24, y, [90, 200, 240]);') });
+    await shrinkTo(page, 40);
+    const out = await exported(page);
+    expect(out.opaque, 'the lines survive the shrink').toBeGreaterThan(100);
+    expect(out.black, 'and reach the file as their own colour').toBe(0);
+  });
+});

@@ -171,3 +171,118 @@ test.describe('what a rarity weight comes to', () => {
     expect(p.rare, 'and is not confused with never').not.toBe('never');
   });
 });
+
+/* HOW MANY CHARACTERS THE SET CAN MAKE.
+
+   The per-trait shares answer "how often does this one turn up". The question
+   that follows is whether there is enough here at all - a set supporting 2,000
+   distinct characters cannot mint 10,000, and nothing in the app said so.
+
+   Two numbers: how many are possible, and how many it BEHAVES like once the
+   weights are uneven. The second is one over the chance two generated
+   characters come out identical - the count of evenly-likely characters that
+   would repeat as often as this set does.
+
+   The uniform case is the control. If the second number is not really measuring
+   evenly-likely outcomes then it has no reason to land exactly on the first, so
+   that equality is what makes the skewed figure worth believing. The fixture is
+   built to be checkable by hand: two skins, a layer every character has, and
+   three eyes in a layer that can be empty - at a 25% empty chance the four eye
+   outcomes are 25% each, so everything is uniform and both numbers are 8. */
+test.describe('how many characters the set can make', () => {
+  const put = (page, rows) => page.evaluate(async list => {
+    for (const r of list) {
+      await dbPut({ id: 't_' + r.n, kind: 'trait', name: r.n, layer: r.l, status: r.s || 'approved',
+                    blob: new Blob([new Uint8Array([0])]), w: 160, h: 160, rarity: r.r, at: 1 });
+    }
+    await renderShelf();
+  }, rows);
+  const stats = (page) => page.evaluate(async () => {
+    const items = (await dbAll()).filter(i => i.kind === 'trait');
+    return comboStats(items, $('cwip').checked);
+  });
+  const setEmpty = async (page, pct) => {
+    await page.evaluate(v => {
+      $('cempty').value = String(v);
+      $('cempty').dispatchEvent(new Event('input', { bubbles: true }));
+    }, pct);
+    await page.waitForTimeout(300);
+  };
+  const UNIFORM = [
+    { n: 's1', l: 'skins', r: 1 }, { n: 's2', l: 'skins', r: 1 },
+    { n: 'e1', l: 'eyes', r: 1 }, { n: 'e2', l: 'eyes', r: 1 }, { n: 'e3', l: 'eyes', r: 1 },
+  ];
+
+  test('with even weights, possible and effective are the same number', async ({ page }) => {
+    await openTrait(page, { w: 160, h: 160, draw: BLOCK });
+    await openAllSections(page);
+    await put(page, UNIFORM);
+    await setEmpty(page, 25);   // makes the four eye outcomes 25% each
+    const s = await stats(page);
+    expect(s.distinct, '2 skins x (3 eyes + empty)').toBe(8);
+    expect(s.effective, 'evenly likely outcomes behave like their own count').toBeCloseTo(8, 6);
+  });
+
+  test('an empty layer is an outcome of its own', async ({ page }) => {
+    // Three eyes in a layer that can be empty is four outcomes, not three. A
+    // count that ignored it would say 6 here.
+    await openTrait(page, { w: 160, h: 160, draw: BLOCK });
+    await openAllSections(page);
+    await put(page, UNIFORM);
+    expect((await stats(page)).distinct).toBe(8);
+  });
+
+  test('skewing the weights lowers what it behaves like, and says so', async ({ page }) => {
+    await openTrait(page, { w: 160, h: 160, draw: BLOCK });
+    await openAllSections(page);
+    await put(page, UNIFORM);
+    await setEmpty(page, 25);
+    const even = await stats(page);
+
+    await put(page, [{ n: 'e1', l: 'eyes', r: 99 }]);   // one eye takes nearly everything
+    await page.waitForTimeout(300);
+    const skew = await stats(page);
+    expect(skew.distinct, 'the same combinations are still possible').toBe(even.distinct);
+    expect(skew.effective, 'but far fewer of them actually happen').toBeLessThan(even.effective / 2);
+    // And it is said on screen, which the even case must NOT be - two numbers
+    // where there is one fact is how a real warning gets ignored.
+    expect(await page.evaluate(() => $('ccount').textContent)).toMatch(/behaving like/);
+  });
+
+  test('an even set does not print a second number', async ({ page }) => {
+    await openTrait(page, { w: 160, h: 160, draw: BLOCK });
+    await openAllSections(page);
+    await put(page, UNIFORM);
+    await setEmpty(page, 25);
+    const text = await page.evaluate(() => $('ccount').textContent);
+    expect(text, 'the count is there').toMatch(/8 possible characters/);
+    expect(text, 'and nothing to explain away').not.toMatch(/behaving like/);
+  });
+
+  test('what it behaves like never exceeds what is possible', async ({ page }) => {
+    // An impossible claim, and the one an inverted formula would make. Checked
+    // across empty chances, because that term enters both numbers differently.
+    await openTrait(page, { w: 160, h: 160, draw: BLOCK });
+    await openAllSections(page);
+    await put(page, [...UNIFORM, { n: 'e4', l: 'eyes', r: 40 }, { n: 's3', l: 'skins', r: 7 }]);
+    for (const pct of [0, 20, 35, 60, 90]) {
+      await setEmpty(page, pct);
+      const s = await stats(page);
+      expect(s.effective, 'at ' + pct + '% empty').toBeLessThanOrEqual(s.distinct + 1e-9);
+      expect(s.effective, 'and at least one character exists').toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  test('a rejected trait adds no combinations', async ({ page }) => {
+    // The same population rule as the shares and the generator. A rejected trait
+    // counted here would promise combinations that can never be generated.
+    await openTrait(page, { w: 160, h: 160, draw: BLOCK });
+    await openAllSections(page);
+    await put(page, UNIFORM);
+    const before = await stats(page);
+    await put(page, [{ n: 'junk', l: 'eyes', r: 5, s: 'rejected' }]);
+    await page.waitForTimeout(300);
+    const after = await stats(page);
+    expect(after.distinct, 'rejected work is not part of the collection').toBe(before.distinct);
+  });
+});

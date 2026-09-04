@@ -5468,7 +5468,28 @@ async function buildCompose(items){
   const sec=$("compose");
   if(!traits.length && !refs.length){ sec.hidden=true; return; }
   sec.hidden=false;
-  $("ccount").textContent=traits.length+" trait"+(traits.length===1?"":"s")+" to draw from";
+  /* The count alone answers "have I saved anything". The question it raises is
+     whether there is ENOUGH, which is a product of the layers rather than a sum
+     of the traits - and the honest version of that is how many the set behaves
+     like once the weights are uneven, which can be far smaller. */
+  {
+    const cs=comboStats(items,wip);
+    const base=traits.length+" trait"+(traits.length===1?"":"s")+" to draw from";
+    const el=$("ccount");
+    if(!cs.layers){ el.textContent=base; el.title=""; }
+    else {
+      /* Only worth saying when the weights actually cost something. Printing
+         both when they are equal is two numbers where there is one fact. */
+      const skewed = cs.effective < cs.distinct*0.9;
+      el.textContent = base+" \u00b7 "+bigLabel(cs.distinct)+" possible character"
+        +(Math.round(cs.distinct)===1?"":"s")
+        +(skewed ? ", behaving like "+bigLabel(cs.effective) : "");
+      el.title = "Every combination of one trait per layer, counting the chance a"
+        +" layer is left empty. \"Behaving like\" is how many EVENLY likely"
+        +" characters would repeat as often as these weights do - if it is far"
+        +" below, a few traits are taking most of the collection.";
+    }
+  }
   const rows=$("crows");
   const keep={};
   rows.querySelectorAll("select").forEach(s=>{ keep[s.dataset.layer]=s.value; });
@@ -5805,6 +5826,73 @@ function pctLabel(p){
   const v=p*100;
   if(v>0 && v<0.01) return "<0.01%";
   return (v<1 ? v.toFixed(2) : v<10 ? v.toFixed(1) : String(Math.round(v)))+"%";
+}
+/* How many distinct characters this set can make, and how many it behaves
+   like once the weights are uneven.
+
+   POSSIBLE is a product: layers are drawn independently, so it is the
+   candidates in each layer, plus one for "left empty" wherever a layer can be.
+
+   BEHAVES LIKE is the inverse Simpson index - one over the chance that two
+   independently generated characters come out identical. That is the count of
+   EVENLY likely characters which would collide as often as this set does, and
+   it is the number that decides whether a drop is viable. Two options at 90/10
+   are not two options in any sense that matters; nine characters in ten carry
+   the same one.
+
+   It factorises, which is why nothing is enumerated. Two characters match only
+   if they match in EVERY layer and the layers are independent, so the collision
+   chance is the product of each layer's own - and a layer's own is the sum of
+   its options' squared probabilities, with "empty" counted as an option. A set
+   with sixty million combinations costs exactly what one with 256 costs.
+
+   With uniform weights the two numbers come out equal, which is the check that
+   the second measures what it says. Skewed weights pull it below, and that gap
+   is the finding: sixty million possible that behaves like forty thousand is a
+   set whose rare traits are unreachable, and nothing else here would say so.
+
+   Eligibility is the generator's, matching traitChance - rejected never counts,
+   wip only when the box is ticked. Any other population reports on a collection
+   nobody is minting. */
+function comboStats(items,wipIncluded){
+  const by=new Map();
+  for(const t of (items||[])){
+    if(!traitEligible(t,wipIncluded)) continue;
+    const l=t.layer||"unsorted";
+    if(!by.has(l)) by.set(l,[]);
+    by.get(l).push(t);
+  }
+  let distinct=1, collide=1, layers=0;
+  for(const pair of by){
+    const layer=pair[0], pool=pair[1];
+    if(!pool.length) continue;
+    layers++;
+    const canEmpty = ALWAYS_PRESENT.indexOf(layer)<0;
+    const present = canEmpty ? Math.max(0,Math.min(1,1-emptyChance)) : 1;
+    distinct *= pool.length + (canEmpty ? 1 : 0);
+    let total=0;
+    for(const t of pool) total+=traitWeight(t);
+    /* Squared probabilities, "empty" included as an option of its own - a
+       layer that is usually empty makes characters MORE alike, not less. */
+    let s=0;
+    for(const t of pool){ const p=traitWeight(t)/total*present; s+=p*p; }
+    if(canEmpty){ const e=1-present; s+=e*e; }
+    collide *= s;
+  }
+  /* No layers with candidates means one character, itself, every time. */
+  if(!layers) return { distinct:0, effective:0, layers:0 };
+  return { distinct, effective: collide>0 ? 1/collide : Infinity, layers };
+}
+/* Readable at any magnitude. A collection can reach into the billions, where
+   every digit past the first three is noise, and a set of four layers of three
+   is 256 - where rounding to a thousand would say "0". */
+function bigLabel(n){
+  if(!isFinite(n)) return "\u221e";
+  const v=Math.round(n);
+  if(v<10000) return v.toLocaleString();
+  if(v<1e6) return Math.round(v/1000)+"k";
+  if(v<1e9) return (v/1e6).toFixed(v<1e7?1:0)+"M";
+  return (v/1e9).toFixed(1)+"B";
 }
 function weightedPick(recs){
   if(!recs||!recs.length) return null;

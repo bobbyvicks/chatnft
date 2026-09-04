@@ -335,4 +335,88 @@ test.describe('downscaling', () => {
     const invented = after.filter(c => !before.includes(c));
     expect(invented, 'a downscale must not blend new colours into existence').toEqual([]);
   });
+
+  /* Thin features ATTACHED to a body. Both tests above use art detached from
+     any surviving mass - twenty free-standing lines, and a ring whose colour is
+     carried rather than drawn - so neither could reach the branch that decided
+     an attached feature's fate, and both were green while a 1px antenna joined
+     to a sprite was deleted in full. The rescue asked its question per
+     connected component of the SOURCE: the antenna is one component with the
+     body, the body survived, so the antenna went with it. */
+  test('a thin feature attached to a body survives, exactly as a detached one does', async ({ page }) => {
+    // The same antenna twice. Asserting the two counts are EQUAL is what pins
+    // the defect - a single attached case would assert a number that could be
+    // right for the wrong reason, and the thing that was false was precisely
+    // that being joined to the sprite changed the answer.
+    // openTrait serialises `draw` to SOURCE and runs it inside the page, so it
+    // cannot close over anything declared here - a helper in this file arrives
+    // as an unresolved name and throws in the browser, not in the test. Both the
+    // body and the gap are therefore written into the source string itself.
+    const run = async (gap) => {
+      const tip = 60 - gap;
+      await openTrait(page, { w: 160, h: 160, draw: new Function('set', 'W', 'H',
+        'for (let y = 60; y < 100; y++) for (let x = 60; x < 100; x++) set(x, y, [220, 40, 40]);' +
+        'for (let y = 20; y < ' + tip + '; y++) set(81, y, [10, 10, 10]);') });
+      await openAllSections(page);
+      await page.evaluate(() => { const b = $('rssnap'); if (b.getAttribute('aria-pressed') === 'true') b.click(); });
+      await setSelect(page, 'rsmode', 'art');
+      await setField(page, 'rsw', 40);
+      await setField(page, 'rsh', 40);
+      await page.click('#rsgo');
+      await page.waitForTimeout(300);
+      return page.evaluate(() => {
+        const W = art.width, H = art.height, d = ctx.getImageData(0, 0, W, H).data;
+        let opaque = 0, aboveBody = 0;
+        for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+          if (!d[(y * W + x) * 4 + 3]) continue;
+          opaque++;
+          if (y < 15) aboveBody++;   // the body lands on rows 15..24
+        }
+        return { opaque, aboveBody };
+      });
+    };
+    const attached = await run(0);
+    const detached = await run(1);   // the identical antenna, one pixel short
+
+    expect(attached.aboveBody, 'the antenna used to contribute nothing at all').toBeGreaterThan(0);
+    expect(attached.opaque, 'attached and detached must give the same answer')
+      .toBe(detached.opaque);
+    // And it is the whole antenna, not a token pixel: 40 source rows over a 4:1
+    // shrink is 10 cells.
+    expect(attached.aboveBody, 'the whole antenna, not a stub').toBe(10);
+  });
+
+  test('restoring lost cells does not fatten a solid shape', async ({ page }) => {
+    // The control for the test above. The under-half coverage rule exists to
+    // stop a shrink growing a silhouette, and drawing lost cells back is exactly
+    // how that guarantee would be lost. Offset by one so the block's edge cells
+    // really are under-half covered and really do land in the lost set - an
+    // aligned block never reaches the branch and would prove nothing.
+    await openTrait(page, { w: 160, h: 160, draw: (set) => {
+      for (let y = 59; y < 100; y++) for (let x = 59; x < 100; x++) set(x, y, [220, 40, 40]);
+    } });
+    await openAllSections(page);
+    await page.evaluate(() => { const b = $('rssnap'); if (b.getAttribute('aria-pressed') === 'true') b.click(); });
+    await setSelect(page, 'rsmode', 'art');
+    await setField(page, 'rsw', 40);
+    await setField(page, 'rsh', 40);
+    await page.click('#rsgo');
+    await page.waitForTimeout(300);
+    const box = await page.evaluate(() => {
+      const W = art.width, H = art.height, d = ctx.getImageData(0, 0, W, H).data;
+      let x0 = W, y0 = H, x1 = -1, y1 = -1, opaque = 0;
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        if (!d[(y * W + x) * 4 + 3]) continue;
+        opaque++;
+        if (x < x0) x0 = x; if (x > x1) x1 = x;
+        if (y < y0) y0 = y; if (y > y1) y1 = y;
+      }
+      return { w: x1 - x0 + 1, h: y1 - y0 + 1, opaque };
+    });
+    // 41 source pixels over a 4:1 shrink is 10 cells and a bit. Eleven would
+    // mean the edge row was drawn back in.
+    expect(box.w, 'the block must not have grown a row').toBe(10);
+    expect(box.h, 'nor a column').toBe(10);
+    expect(box.opaque, 'and nothing inside it invented either').toBe(100);
+  });
 });

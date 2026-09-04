@@ -3930,11 +3930,69 @@ function resample(src,W,H,nw,nh){
      Colour only. This never sets alpha, so the silhouette is exactly what the
      under-half rule decided and a shrink still cannot fatten it. */
   if(dropped.size){
+    /* Lost cells, grouped, and each group asked whether it is a PERIMETER or a
+       FEATURE.
+
+       This used to flood the source for connected components and restore one
+       only if the whole component had landed on nothing. All-or-nothing per
+       component, and a component can be partly gone: an antenna is joined to
+       the body it sticks out of, the body survives, so the antenna was
+       abandoned with it. Measured at 160 -> 40 on a 40x40 body with a 1px
+       antenna 40 long: attached it contributed ZERO cells, and the identical
+       antenna detached by one pixel came back perfectly at 10. A thin feature
+       survived precisely when it was not part of the sprite, which is backwards
+       for antennae, whiskers, tails and ears - all attached by definition.
+
+       So: cells that were dropped and touch each other form a group, and the
+       group is restored when FEWER THAN HALF of its cells sit next to a cell
+       that survived. A group hugging a surviving mass is that mass's perimeter
+       and drawing it would fatten the silhouette, which the under-half rule
+       exists to prevent. A group mostly standing alone is a feature, and its
+       absence is a hole. The antenna touches the body at 1 of its 10 cells; a
+       misaligned edge row touches along its whole length, 10 of 10.
+
+       This subsumes the old rule: something that vanishes entirely touches no
+       survivor at all, 0 of N, and is restored - which is what kept 20
+       one-pixel lines coming out as 20 rather than 0.
+
+       Groups are MAXIMAL connected sets of lost cells, so two groups are never
+       adjacent and restoring one cannot change another's count. Visit order
+       does not matter, which is worth stating because `on` is mutated here. */
+    const lost=new Set(dropped.keys()), walked=new Set(), restored=new Set();
+    const nbrs=(c)=>{ const x=c%nw, y=(c/nw)|0;
+      return [x>0?c-1:-1, x<nw-1?c+1:-1, y>0?c-nw:-1, y<nh-1?c+nw:-1]; };
+    for(const k0 of lost){
+      if(walked.has(k0)) continue;
+      const grp=[k0]; walked.add(k0);
+      for(let i=0;i<grp.length;i++)
+        for(const nb of nbrs(grp[i]))
+          if(nb>=0 && lost.has(nb) && !walked.has(nb)){ walked.add(nb); grp.push(nb); }
+      let touching=0;
+      for(const c of grp) for(const nb of nbrs(c)) if(nb>=0 && on[nb]){ touching++; break; }
+      if(touching*2>=grp.length) continue;
+      for(const c of grp){
+        const bk=pickCell(dropped.get(c),glob), d=c*4;
+        out[d]=(bk>>16)&255; out[d+1]=(bk>>8)&255; out[d+2]=bk&255; out[d+3]=255;
+        on[c]=1; restored.add(c);
+      }
+    }
+
+    /* A group that stayed lost had its AREA absorbed by the neighbour that
+       survived, and its colours should be too - on a trait those colours are
+       the outline, and without this a one-pixel border is simply gone.
+
+       Colour only: this never sets alpha, so the silhouette is still exactly
+       what the under-half rule and the restore above decided.
+
+       A restored group is drawn in its own right now, so it is neither a source
+       nor a target here - smearing it into a neighbour as well would state its
+       colour twice and pull the neighbour off its own. */
     const carried=new Map();
     for(const pair of dropped){
-      const c=pair[0], x=c%nw, y=(c/nw)|0;
-      for(const nb of [x>0?c-1:-1,x<nw-1?c+1:-1,y>0?c-nw:-1,y<nh-1?c+nw:-1]){
-        if(nb<0||!on[nb]) continue;
+      const c=pair[0];
+      if(restored.has(c)) continue;
+      for(const nb of nbrs(c)){
+        if(nb<0||!on[nb]||restored.has(nb)) continue;
         let mm=carried.get(nb); if(!mm){ mm=new Map(); carried.set(nb,mm); }
         for(const e of pair[1]) mm.set(e[0],(mm.get(e[0])||0)+e[1]);
         break;
@@ -3952,44 +4010,6 @@ function resample(src,W,H,nw,nh){
       for(const e of pair[1]) cnt.set(e[0],(cnt.get(e[0])||0)+e[1]);
       const bk=pickCell(cnt,glob), d=c*4;
       out[d]=(bk>>16)&255; out[d+1]=(bk>>8)&255; out[d+2]=bk&255;
-    }
-  }
-
-  /* Which destination cell a source pixel falls in. Walked once rather than
-     divided per pixel, because the bounds are not a uniform ratio. */
-  const mapX=new Int32Array(W), mapY=new Int32Array(H);
-  for(let x=0,q=0;x<W;x++){ while(q<nw-1 && x>=bx[q+1]) q++; mapX[x]=q; }
-  for(let y=0,q=0;y<H;y++){ while(q<nh-1 && y>=by[q+1]) q++; mapY[y]=q; }
-
-  /* Nothing disappears. A connected piece of art that maps to no surviving
-     cell is drawn back into the cells it touches - measured, this is the
-     difference between 20 one-pixel lines coming out as 20 and as 0.
-     It only fires for something that would otherwise be gone, so the
-     under-half rule still governs everything that survives on its own and
-     the silhouette is not fattened. */
-  const seen=new Uint8Array(NP), st=[];
-  for(let p0=0;p0<NP;p0++){
-    if(seen[p0]||src[p0*4+3]<128) continue;
-    st.length=0; st.push(p0); seen[p0]=1;
-    let survives=false;
-    const cells=new Map();
-    for(let i=0;i<st.length;i++){
-      const p=st[i], x=p%W, y=(p/W)|0;
-      const c=mapY[y]*nw+mapX[x];
-      if(on[c]) survives=true;
-      else {
-        let mm=cells.get(c); if(!mm){ mm=new Map(); cells.set(c,mm); }
-        const k=(src[p*4]<<16)|(src[p*4+1]<<8)|src[p*4+2];
-        mm.set(k,(mm.get(k)||0)+1);
-      }
-      for(const nb of [x>0?p-1:-1,x<W-1?p+1:-1,y>0?p-W:-1,y<H-1?p+W:-1])
-        if(nb>=0 && !seen[nb] && src[nb*4+3]>=128){ seen[nb]=1; st.push(nb); }
-    }
-    if(survives) continue;
-    for(const pair of cells){
-      const c=pair[0], bk=pickCell(pair[1],glob), d=c*4;
-      out[d]=(bk>>16)&255; out[d+1]=(bk>>8)&255; out[d+2]=bk&255; out[d+3]=255;
-      on[c]=1;
     }
   }
   return out;

@@ -7,3 +7,8 @@ node_modules/
 # Playwright output
 test-results/
 playwright-report/
+
+# Throwaway browser probes. These are written and deleted constantly while
+# measuring something; they are not tests and must never be committed.
+probe.spec.js
+probe.config.js

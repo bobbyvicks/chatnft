@@ -8159,6 +8159,32 @@ async function cloudPush(){
    out of pages silently is the failure being fixed here, and doing it again
    at a different limit would be worse for having been deliberate. */
 const PULL_PAGE=1000, PULL_MAX_PAGES=500;
+/* One trait's image, retried through a bad moment.
+
+   Measured before this, on 200 traits with one download in ten failing: 180
+   arrived and 20 were gone until somebody pressed the button again - and
+   pressing it again means another 200 requests over the same connection that
+   just dropped 20 of them.
+
+   A 404, 401 or 403 is an ANSWER and is not retried: the object is not there,
+   or this session may not read it, and asking twice more turns a clear
+   failure into a slow one. Only a dropped connection or a server error is
+   worth another go.
+
+   The backoff is per file and the pull already runs eight at a time, so the
+   other seven keep going while one waits. */
+const PULL_TRIES=3;
+async function pullBlob(path,h){
+  for(let attempt=0; attempt<PULL_TRIES; attempt++){
+    try{
+      const g=await fetch(SB_URL+"/storage/v1/object/traits/"+path,{headers:h});
+      if(g.ok) return await g.blob();
+      if(g.status===404||g.status===401||g.status===403) return null;
+    }catch(_){ }
+    if(attempt<PULL_TRIES-1) await new Promise(r=>setTimeout(r,250*(attempt+1)));
+  }
+  return null;
+}
 async function cloudRows(c,h){
   let out=[], from=0, truncated=false;
   for(let page=0;;page++){
@@ -8273,9 +8299,10 @@ async function cloudPull(opts){
     while(next<wanted.length){
       const w=wanted[next++];
       try{
-        const g=await fetch(SB_URL+"/storage/v1/object/traits/"+w.row.path,{headers:h});
-        if(!g.ok) throw new Error("download "+g.status);
-        const blob=await g.blob();
+        const blob=await pullBlob(w.row.path,h);
+        /* Still counted as failed after three tries - the note has always
+           said how many could not be read, and that stays true. */
+        if(!blob) throw new Error("download");
         /* rowId is the server row this copy came from. It is the only handle
            that survives a rename: the local name can be changed here (a clash
            with something already on this device gets a -2 suffix) while the

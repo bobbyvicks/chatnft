@@ -82,6 +82,55 @@ const pullFrom = (page, total, cap) => page.evaluate(async ([TOTAL, CAP]) => {
            note: document.getElementById('cloudnote').textContent };
 }, [total, cap]);
 
+
+/* Like pullFrom, but the FILE downloads misbehave: every `dropEvery`th one is
+   dropped like a flaky connection, or every one 404s if `mode` says so. */
+const pullWithBadFiles = (page, total, dropEvery, mode) => page.evaluate(async ([TOTAL, DROP, MODE]) => {
+  try { authed = true; } catch (_) {}
+  gateShow(false);
+  await dbClear();
+  cloudTeamId = null; activeWs = null;
+  localStorage.setItem('chatnft.session', JSON.stringify({
+    access_token: 'not-a-real-token', refresh_token: 'not-a-real-refresh',
+    expires_at: Math.floor(Date.now() / 1000) + 3600, user: { id: 'u1' } }));
+  const all = [];
+  for (let i = 0; i < TOTAL; i++) all.push({
+    id: 'row' + String(i).padStart(4, '0'), name: 'trait' + i, kind: 'trait',
+    layer: 'skins', status: 'approved', path: 'p/' + i + '.png', w: 160, h: 160, rarity: 1 });
+  let attempts = 0;
+  const real = window.fetch;
+  const json = (o, x) => new Response(JSON.stringify(o),
+    { status: 200, headers: Object.assign({ 'Content-Type': 'application/json' }, x || {}) });
+  window.fetch = (u, o) => {
+    const s = String(u);
+    if (s.indexOf('/auth/v1/user') >= 0) return Promise.resolve(json({ id: 'u1' }));
+    if (s.indexOf('/rpc/my_team') >= 0) return Promise.resolve(json('team1'));
+    if (s.indexOf('/rest/v1/collections') >= 0) return Promise.resolve(json([{ id: 'c1', layers: ['skins'] }]));
+    if (s.indexOf('/rest/v1/traits?select=id') >= 0) return Promise.resolve(json([], { 'Content-Range': '0-0/' + TOTAL }));
+    if (s.indexOf('/rest/v1/traits?select=*') >= 0) {
+      // \d, not d. Written through a shell string the first time, which ate the
+      // backslash: the offset never parsed, every page returned the same rows,
+      // the pager ran its full 500 and asked for 25,000 downloads of 50 files.
+      // A stub that cannot read the request measures nothing about it.
+      const off = parseInt((s.match(/offset=(\d+)/) || [])[1] || '0', 10);
+      const lim = parseInt((s.match(/limit=(\d+)/) || [])[1] || '1000', 10);
+      return Promise.resolve(json(all.slice(off, off + lim)));
+    }
+    if (s.indexOf('/storage/v1/object/traits/') >= 0) {
+      attempts++;
+      if (MODE === 'missing') return Promise.resolve(new Response('', { status: 404 }));
+      // Deterministic, so the numbers are repeatable rather than flaky.
+      if (attempts % DROP === 0) return Promise.reject(new TypeError('Failed to fetch'));
+      return Promise.resolve(new Response(new Blob([new Uint8Array([0])]), { status: 200 }));
+    }
+    return real(u, o);
+  };
+  try { await cloudPull({ quiet: true }); } finally { window.fetch = real; }
+  const stored = (await dbAll()).filter(i => i.kind === 'trait').length;
+  return { loaded: stored, missing: TOTAL - stored, attempts,
+           note: document.getElementById('cloudnote').textContent };
+}, [total, dropEvery, mode]);
+
 test.describe('loading a collection bigger than one response', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/index.html');
@@ -156,5 +205,36 @@ test.describe('loading a collection bigger than one response', () => {
     const r = await pullFrom(page, 250, 100);
     expect(r.countPrefer, 'it asks the server to count').toContain('count=exact');
     expect(r.countRange, 'and carries no rows back to do it').toBe('0-0');
+  });
+
+  test('a file dropped by a flaky connection is retried, not abandoned', async ({ page }) => {
+    // Measured before the retry: 200 traits with one download in ten failing
+    // loaded 180 and left 20 missing until somebody pressed the button again -
+    // which is another 200 requests over the connection that just dropped 20.
+    const r = await pullWithBadFiles(page, 200, 10, 'flaky');
+    expect(r.loaded, 'all of them arrive').toBe(200);
+    expect(r.missing).toBe(0);
+    expect(r.attempts, 'at the cost of a few repeats').toBeGreaterThan(200);
+    expect(r.note, 'and nothing is reported unread').not.toContain('could not be read');
+  });
+
+  test('but a file that is genuinely gone costs ONE request, not three', async ({ page }) => {
+    // THE CONTROL, and the reason the retry is scoped. A 404 is an answer: the
+    // object is not in the bucket and asking twice more will not put it there.
+    // Retrying it would turn a fast clear failure into a slow one, and this is
+    // what proves the retry only covers transient failures.
+    const r = await pullWithBadFiles(page, 50, 1, 'missing');
+    expect(r.attempts, 'exactly one attempt each').toBe(50);
+    expect(r.loaded).toBe(0);
+    expect(r.note, 'and it says so plainly').toContain('could not be read');
+  });
+
+  test('a genuinely bad connection still loses some, and still says so', async ({ page }) => {
+    // Three tries is not magic and must not pretend to be. At one drop in
+    // three it recovers nearly everything, and whatever it cannot get is
+    // counted rather than quietly left out.
+    const r = await pullWithBadFiles(page, 200, 3, 'flaky');
+    expect(r.loaded, 'nearly all of them').toBeGreaterThan(190);
+    if (r.missing) expect(r.note).toContain('could not be read');
   });
 });

@@ -57,6 +57,7 @@ something. Good places to look, in order:
 
 Newest first. Delete the oldest when this passes 12.
 
+- 2026-09-04 — A file dropped mid-pull is retried three times instead of abandoned; a 404 still costs one request
 - 2026-09-04 — Load from cloud pages the rows instead of stopping at the server cap; the remote count now asks the server rather than measuring the response
 - 2026-09-04 — A dropped request no longer signs you out and blanks the shelf; `sbAuthState` separates "the server said no" from "could not ask"
 - 2026-09-04 — A trait set (a layer) can be turned off, so nothing in it is drawn; persisted, and the cards stay on screen dimmed
@@ -91,6 +92,11 @@ Measured, with the date. Delete one the moment the code contradicts it.
   required layer; a rule against an optional layer is just skipped, so
   `ruleMisses` stays 0 and a fixture built to exercise it measures nothing.
   Setting `emptyChance = 0` is what forces the corner. *(09-04)*
+- **Do not write test code through a shell string.** A regex written via
+  `node -e` inside bash lost its backslash - `(d+)` became `(d+)` - so a stub
+  could not read the offset out of the request it was answering, paged forever,
+  and asked for 25,000 downloads of 50 files. Three tests failed and none of it
+  was the app. Use the Write tool for code. *(09-04)*
 - **PostgREST caps rows per response and says so in `Content-Range`.** Any
   `select` that can return many rows must page, ordered, stopping on an EMPTY
   batch - not a short one, because the server cap can be lower than the page

@@ -7937,21 +7937,38 @@ async function cloudCollection(u){
    Listed and diffed rather than tracked: a delete log would have to be right
    about every past delete, whereas the bucket contents and the row set are
    both observable right now. */
+/* 100 a page as before, but 500 pages rather than 20 - fifty thousand files,
+   where the old ceiling was two thousand and was reached in silence. */
+const SWEEP_PAGE=100, SWEEP_MAX_PAGES=500;
 async function cloudSweep(team,c,keepPaths){
   const h=await sbHeaders({"Content-Type":"application/json"});
   if(!h) return 0;
   const prefix=team+"/"+c.id;
   let found=[], offset=0;
-  for(let page=0; page<20; page++){
+  /* STOPS ON AN EMPTY BATCH, never a short one - the same rule cloudRows was
+     given this morning, and this is the sibling that did not get it. The
+     server has its own cap and it can be lower than the limit asked for:
+     measured, a bucket of 300 behind a server capping at 50 made every page
+     look short, so the loop stopped after ONE and found 50 of them.
+
+     The page bound is high enough that reaching it means something is wrong
+     rather than something is large - 20 pages of 100 was a silent ceiling at
+     2,000 files, and a bucket of 2,500 quietly kept 500 orphans. */
+  let truncated=false;
+  for(let page=0;;page++){
+    if(page>=SWEEP_MAX_PAGES){ truncated=true; break; }
     const r=await fetch(SB_URL+"/storage/v1/object/list/traits",{method:"POST",headers:h,
-      body:JSON.stringify({prefix:prefix, limit:100, offset:offset})});
+      body:JSON.stringify({prefix:prefix, limit:SWEEP_PAGE, offset:offset})});
     if(!r.ok) return 0;
     const batch=await r.json();
     if(!Array.isArray(batch)||!batch.length) break;
     for(const o of batch) if(o&&o.name) found.push(prefix+"/"+o.name);
-    if(batch.length<100) break;
     offset+=batch.length;
   }
+  /* A sweep that ran out of pages has seen only part of the bucket, so what it
+     did NOT find is not evidence of anything. Deleting on a partial picture is
+     how the push used to destroy the server copy; refusing is the safe half. */
+  if(truncated) return 0;
   const keep=new Set(keepPaths);
   const dead=found.filter(p=>!keep.has(p));
   if(!dead.length) return 0;

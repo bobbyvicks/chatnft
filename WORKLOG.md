@@ -54,13 +54,18 @@ something. Good places to look, in order:
    the tests REACH the code through, and whether a person reaches it the same way.
    ⚠ Observe an EFFECT, never a binding: reassigning a global to a recorder cannot
    see an `onclick=fn` that captured the value at wiring time, and reads as "dead".
-4. **`git log` for a fix that names a class.** If a fix was applied at one call
-   site, grep for the other call sites. `paintTrait` had three.
+4. **`git log` for a fix that names a class.** The most reliable lens in this
+   file: four times now a fix landed at one call site while its sibling kept the
+   old behaviour — `paintTrait` had three, the retry went to the download and not
+   the upload, and the short-batch paging bug was fixed in `cloudRows` while
+   `cloudSweep` thirty lines away still had it. **After any fix, grep the file for
+   the same SHAPE, not the same name.**
 
 ## Done recently
 
 Newest first. Delete the oldest when this passes 12.
 
+- 2026-09-04 — The storage sweep pages like its sibling: it stopped on a SHORT batch and capped at 2,000 files, leaving orphans nothing would ever list
 - 2026-09-04 — The cloud buttons are pinned to their functions; every cloud test called the function, so an unwired button would have gone unnoticed
 - 2026-09-04 — A forbidden pair reached the collection about once in 40,000 draws on a SATISFIABLE set; the retry bound was too low, now 64
 - 2026-09-04 — Two tooltips corrected: "Skins is always drawn" was false once a set could be turned off, and snap also uses divisors, not only multiples
@@ -72,7 +77,6 @@ Newest first. Delete the oldest when this passes 12.
 - 2026-09-04 — A file dropped mid-pull is retried three times instead of abandoned; a 404 still costs one request
 - 2026-09-04 — Load from cloud pages the rows instead of stopping at the server cap; the remote count now asks the server rather than measuring the response
 - 2026-09-04 — A dropped request no longer signs you out and blanks the shelf; `sbAuthState` separates "the server said no" from "could not ask"
-- 2026-09-04 — A trait set (a layer) can be turned off, so nothing in it is drawn; persisted, and the cards stay on screen dimmed
 
 ## Facts worth keeping
 

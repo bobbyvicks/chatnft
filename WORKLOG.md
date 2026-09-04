@@ -65,6 +65,7 @@ something. Good places to look, in order:
 
 Newest first. Delete the oldest when this passes 12.
 
+- 2026-09-04 — The base character had NO tests at all; it shipped in every metadata file as trait_type "unsorted", the internal bucket name
 - 2026-09-04 — The storage sweep pages like its sibling: it stopped on a SHORT batch and capped at 2,000 files, leaving orphans nothing would ever list
 - 2026-09-04 — The cloud buttons are pinned to their functions; every cloud test called the function, so an unwired button would have gone unnoticed
 - 2026-09-04 — A forbidden pair reached the collection about once in 40,000 draws on a SATISFIABLE set; the retry bound was too low, now 64
@@ -76,12 +77,15 @@ Newest first. Delete the oldest when this passes 12.
 - 2026-09-04 — Save/Load to cloud no longer tell a signed-in person to sign in when the network hiccups
 - 2026-09-04 — A file dropped mid-pull is retried three times instead of abandoned; a 404 still costs one request
 - 2026-09-04 — Load from cloud pages the rows instead of stopping at the server cap; the remote count now asks the server rather than measuring the response
-- 2026-09-04 — A dropped request no longer signs you out and blanks the shelf; `sbAuthState` separates "the server said no" from "could not ask"
 
 ## Facts worth keeping
 
 Measured, with the date. Delete one the moment the code contradicts it.
 
+- **The base character (`kind:"ref"`) is drawn into every generated character**
+  and written into its metadata, but had zero test coverage until 09-04 — which
+  is how it shipped labelled `"unsorted"`. When adding a fixture, ask whether it
+  covers the BASE as well as the traits. *(09-04)*
 - **The default grid makes most sizes unreachable.** `projectGrid` is 160, so
   snap allows only its whole divisors and multiples — 1 2 4 5 8 10 16 20 32 40
   80 160 320. Between 41 and 140 there is exactly one legal size, 80. *(09-04)*

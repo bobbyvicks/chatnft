@@ -6913,7 +6913,12 @@ async function buildCollection(n,onProgress){
     files.push({name:"metadata/"+id+".json", data:enc.encode(JSON.stringify({
       name:"#"+id,
       image:id+".png",
-      attributes:combos[i].map(r=>({trait_type:r.layer||"unsorted", value:r.name}))
+      /* A base has no layer, so the old fallback shipped trait_type "unsorted"
+         on every item in the collection - this file's internal name for the
+         bucket nothing claims, shown to whoever is looking at the collection.
+         The compose panel calls this row "base"; so does this. */
+      attributes:combos[i].map(r=>({
+        trait_type: r.kind==="ref"?"base":(r.layer||"unsorted"), value:r.name}))
     },null,2))});
     if(onProgress && i%20===0){ onProgress(i+1,combos.length); await new Promise(r=>setTimeout(r,0)); }
   }

@@ -32,7 +32,7 @@ const N = 60;
 /* Installs a fake server and returns a handle. `dieAfter` drops every upload
    past that many, the way a connection does. */
 const withServer = (page, opts) => page.evaluate(async (o) => {
-  const { count, dieAfter, group, preload } = o;
+  const { count, dieAfter, group, preload, dropEvery, refuse } = o;
   try { authed = true; } catch (_) {}
   gateShow(false);
   await dbClear();
@@ -62,6 +62,10 @@ const withServer = (page, opts) => page.evaluate(async (o) => {
     if (s.indexOf('/storage/v1/object/traits/') >= 0) {
       state.uploads++; bump('storage/upload');
       if (dieAfter && state.uploads > dieAfter) return Promise.reject(new TypeError('Failed to fetch'));
+      // A flaky connection: deterministic, so the counts are repeatable.
+      if (dropEvery && state.uploads % dropEvery === 0) return Promise.reject(new TypeError('Failed to fetch'));
+      // A refusal, which is an ANSWER and must not be retried.
+      if (refuse) return new Response('', { status: 403 });
       return json({});
     }
     if (s.indexOf('/rest/v1/traits') >= 0 && m === 'POST') {
@@ -234,6 +238,59 @@ test.describe('what Save to cloud costs', () => {
     await restore(page);
     expect(swept.uploads, 'nothing was uploaded this time').toBe(0);
     expect(swept.given, 'yet all sixty paths are still protected from the sweep').toBe(N);
+  });
+
+  test('a dropped upload is retried rather than counted as failed', async ({ page }) => {
+    // The pull was given three attempts this morning; the push still had one,
+    // so a connection dropping one request in ten lost that many traits and
+    // reported them failed.
+    await withServer(page, { count: N, dropEvery: 10 });
+    const r = await push(page);
+    await restore(page);
+    expect(r.uploads, 'more attempts than traits, because some were retried').toBeGreaterThan(N);
+    expect(r.said, 'and nothing is reported failed').not.toContain('failed');
+  });
+
+  test('but a refusal is not retried', async ({ page }) => {
+    // THE CONTROL. A 403 says this session may not write here; asking twice
+    // more turns a clear failure into a slow one. Exactly one attempt each,
+    // and the failure is still reported.
+    await withServer(page, { count: N, refuse: true });
+    const r = await push(page);
+    await restore(page);
+    expect(r.uploads, 'one attempt per trait, not three').toBe(N);
+    expect(r.said).toContain('failed');
+  });
+
+  test('the stale check does not download columns it ignores', async ({ page }) => {
+    // It compares ids and paths. It was calling the same reader the pull uses,
+    // which selects every column - so on a large collection the biggest
+    // response in the whole push was fetched for a comparison that reads two
+    // fields of it.
+    await withServer(page, { count: 12 });
+    const selects = await page.evaluate(async () => {
+      const seen = [];
+      const real = window.fetch;
+      window.fetch = async (u, o) => {
+        const s = String(u);
+        if (s.indexOf('/rest/v1/traits?select=') >= 0) {
+          seen.push({ select: decodeURIComponent((s.match(/select=([^&]+)/) || [])[1] || ''),
+                      paged: /[?&]offset=/.test(s) });
+        }
+        return real(u, o);
+      };
+      try { await cloudPush(); } finally { window.fetch = real; }
+      return seen;
+    });
+    await restore(page);
+    // The PAGED selects are the stale check. The unpaged one is cloudStatus's
+    // count, which legitimately asks for a single column - an earlier probe
+    // recorded only the last select and read that count as the stale check's.
+    const staleChecks = selects.filter(s => s.paged).map(s => s.select);
+    expect(staleChecks.length, 'the stale check ran').toBeGreaterThan(0);
+    for (const sel of staleChecks) {
+      expect(sel, 'two columns, not all of them').toBe('id,path');
+    }
   });
 
   test('the uploads actually overlap', async ({ page }) => {

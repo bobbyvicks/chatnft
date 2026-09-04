@@ -7970,9 +7970,23 @@ async function cloudSyncOne(rec,ctx){
   try{
     const hb=ctx.hb||await sbHeaders({"Content-Type":"image/png","x-upsert":"true"});
     if(!hb) return null;
-    const up=await fetch(SB_URL+"/storage/v1/object/traits/"+p,
-      {method:"POST",headers:hb,body:rec.blob});
-    if(!up.ok) return null;
+    /* THREE ATTEMPTS, the same as pullBlob gives a download. One dropped
+       upload used to mean the trait was reported failed and was simply not on
+       the server - the defect fixed on the pull this morning, which was still
+       here on the push. A definitive answer is not retried: a 401 or 403 means
+       this session may not write here, and asking twice more turns a clear
+       failure into a slow one. */
+    let up=null;
+    for(let attempt=0; attempt<PULL_TRIES; attempt++){
+      try{
+        up=await fetch(SB_URL+"/storage/v1/object/traits/"+p,
+          {method:"POST",headers:hb,body:rec.blob});
+        if(up.ok) break;
+        if(up.status===401||up.status===403) return null;
+      }catch(_){ up=null; }
+      if(attempt<PULL_TRIES-1) await new Promise(r=>setTimeout(r,250*(attempt+1)));
+    }
+    if(!up||!up.ok) return null;
     const h=ctx.h||await sbHeaders({"Content-Type":"application/json"});
     if(!h) return null;
     /* Identified the same way the local store identifies it - name, layer and
@@ -8198,7 +8212,7 @@ async function cloudPush(){
   if(!activeWs && !failed){
     try{
       const here=new Set(items.map(i=>cloudPath(team,c,i)));
-      const got=await cloudRows(c,h);
+      const got=await cloudRows(c,h,"id,path");
       if(got.ok && !got.truncated){
         const dead=got.rows.filter(r=>r.path && !here.has(r.path));
         for(const d of dead){
@@ -8277,11 +8291,14 @@ async function pullBlob(path,h){
   }
   return null;
 }
-async function cloudRows(c,h){
+async function cloudRows(c,h,select){
   let out=[], from=0, truncated=false;
   for(let page=0;;page++){
     if(page>=PULL_MAX_PAGES){ truncated=true; break; }
-    const r=await fetch(SB_URL+"/rest/v1/traits?select=*&collection_id=eq."+c.id
+    /* The caller says what it needs. The pull wants every column; the stale
+       check wants an id and a path and was pulling name, layer, status,
+       rarity, shelf_order, w and h to ignore them. */
+    const r=await fetch(SB_URL+"/rest/v1/traits?select="+(select||"*")+"&collection_id=eq."+c.id
       +"&order=id.asc&limit="+PULL_PAGE+"&offset="+from,{headers:h});
     if(!r.ok) return {rows:out, ok:false, truncated:false};
     const batch=await r.json();

@@ -322,8 +322,17 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
 .item.shelf-drop-before{box-shadow:-4px 0 0 var(--accent);}
 .item.shelf-drop-after{box-shadow:4px 0 0 var(--accent);}
 .items.shelf-drag-over{outline:1px dashed var(--accent); outline-offset:5px; border-radius:7px;}
-.shelftools{display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:4px; margin-top:5px;}
+/* Five now: drag, hide, only, dup, pick. */
+.shelftools{display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:4px; margin-top:5px;}
 .shelftools button{min-width:0; padding:4px 2px; border-radius:5px; border:1px solid var(--line);
+/* A picked card, readable against any artwork - the accent ring alone is lost
+   on a trait that happens to be the accent colour. */
+.item.picked{border-color:var(--accent); box-shadow:0 0 0 2px var(--accent-soft);}
+.shelftools button[aria-pressed="true"]{background:var(--accent); color:#241a05; border-color:var(--accent);}
+.shelfpick{display:flex; align-items:center; flex-wrap:wrap; gap:8px; width:100%;
+  margin-top:7px; font-size:12px; color:var(--muted);}
+.shelfpick select{padding:5px 8px; border-radius:7px; background:var(--ground);
+  border:1px solid var(--line); color:var(--ink); font:inherit; font-size:12px;}
   background:var(--panel-2); color:var(--muted); font-size:9px; line-height:1.1;}
 .shelftools button:hover{border-color:var(--accent); color:var(--ink);}
 .shelftools .draghandle{cursor:grab; touch-action:none; user-select:none; color:var(--accent);}
@@ -897,6 +906,16 @@ footer .mono{color:var(--ink);}
         <button class="mini" id="shelfhidden" aria-pressed="false" hidden>Show hidden</button>
         <button class="mini" id="shelfshowall" hidden>Show all</button>
         <span class="sr-only" id="shelfstatus" role="status" aria-live="polite"></span>
+      </div>
+      <!-- Bulk sorting. A batch import lands everything in "unsorted", and
+           moving it a card at a time is the only thing that was on offer. -->
+      <div class="shelfpick" id="shelfpick" hidden>
+        <span id="shelfpickcount">Nothing picked</span>
+        <button class="mini" id="shelfpickall">Pick all shown</button>
+        <label for="shelfpicklayer" class="sr-only">Move the picked traits to</label>
+        <select id="shelfpicklayer" aria-label="Move the picked traits to"></select>
+        <button class="mini go" id="shelfpickmove" disabled>Move</button>
+        <button class="mini" id="shelfpicknone" disabled>Clear</button>
       </div>
     </div>
     <div id="projbody"></div>
@@ -1860,6 +1879,109 @@ async function keyboardShelfMove(recordKey,direction,betweenLayers){
   await commitShelfMove({recordKey,toLayer:source.layer,beforeKey});
 }
 
+/* Which traits are picked, by shelf record key - the same identity the drag,
+   the visibility filter and the planner all use, so nothing has to translate
+   between two notions of "which trait is this". */
+let shelfPick=new Set();
+/* Applies a plan to an in-memory record list, so the NEXT plan sees the result.
+   planShelfMove is pure, which is what makes chaining it safe: every move in a
+   batch is planned against the state the moves before it produced, exactly as
+   if they had been done one at a time. */
+function applyPlanTo(list,updates){
+  const byKey=new Map(list.map(r=>[shelfCore.recordKey(r),r]));
+  for(const u of updates){ byKey.delete(u.oldKey); byKey.set(shelfCore.recordKey(u.record),u.record); }
+  return [...byKey.values()];
+}
+/* Move every picked trait to one layer.
+
+   Chains planShelfMove rather than reimplementing it - drag, the keyboard move
+   and this then cannot disagree about what a layer change does to an id, about
+   a name colliding in the destination, or about ordering.
+
+   Calling commitShelfMove per trait would also be correct and would do forty
+   database reads, forty shelf renders with thumbnail decoding and forty cloud
+   round-trips for forty traits. This plans them all, writes once, renders once
+   and syncs once.
+
+   A trait the planner refuses is COUNTED AND NAMED. Moving thirty and quietly
+   keeping four is how a collection ships four traits short. */
+async function bulkMoveToLayer(toLayer){
+  if(!toLayer) return;
+  if(shelfMoveBusy){ toast("Still moving the last batch"); return; }
+  const keys=[...shelfPick];
+  if(!keys.length){ toast("Pick some traits first"); return; }
+  shelfMoveBusy=true;
+  try{
+    let items=[];
+    try{ items=await dbAll(); }catch(_){ toast("Could not read the project"); return; }
+    /* Unsynced traits cannot be rearranged while a workspace is attached - the
+       same guard commitShelfMove applies, checked once for the whole batch
+       rather than failing partway through it. */
+    if(activeWs && keys.some(k=>{ const r=items.find(i=>shelfCore.recordKey(i)===k); return r&&!r.rowId; })){
+      toast("Send the unsynced traits to the group before moving them"); return;
+    }
+    /* The FINAL list is the authority, not an accumulation of updates.
+
+       planShelfMove returns an update for every record in the affected layers,
+       because it renormalises their order - not only for the trait that moved.
+       Accumulating those into a map keyed by id therefore kept records from
+       EARLIER plans whose ids a LATER plan had already replaced, and writing
+       that map back recreated them. Measured: moving tan, pale and olive out of
+       unsorted left pale and olive present in BOTH layers.
+
+       Diffing the chained result against what was read cannot do that: whatever
+       is in the working list at the end is exactly what belongs in the database,
+       and whatever is not, does not. */
+    let working=items.slice();
+    const refused=[];
+    let moved=0;
+    for(const key of keys){
+      const rec=working.find(i=>shelfCore.recordKey(i)===key);
+      if(!rec){ continue; }
+      if(rec.layer===toLayer){ continue; }
+      const plan=shelfCore.planShelfMove(working,{recordKey:key,toLayer,beforeKey:null});
+      if(!plan.ok){ refused.push({name:rec.name,reason:plan.reason}); continue; }
+      working=applyPlanTo(working,plan.updates);
+      moved++;
+    }
+    if(!moved){
+      toast(refused.length ? refusalLine(refused) : "Nothing to move - they are already there");
+      return;
+    }
+    /* Deletions are ids that existed and no longer do; writes are records whose
+       layer or order actually changed. Anything that came through untouched is
+       not rewritten. */
+    const before=new Map(items.filter(i=>i.kind==="trait").map(i=>[i.id,i]));
+    const after=working.filter(i=>i.kind==="trait");
+    const afterIds=new Set(after.map(i=>i.id));
+    const gone=[...before.keys()].filter(id=>!afterIds.has(id));
+    const updates=after.filter(r=>{ const o=before.get(r.id);
+      return !o || o.layer!==r.layer || o.shelfOrder!==r.shelfOrder; });
+    const state=currentShelfVisibility();
+    try{
+      await dbApplyShelfRecords(gone,updates);
+    }catch(_){ toast("Could not save the move"); return; }
+    shelfPick.clear();
+    await renderShelf();
+    /* The same shape commitShelfMove hands the cloud, so one trait and forty
+       take the same path out. */
+    const shared=await cloudSaveShelfPlan(updates.map(r=>({record:r})));
+    const tail = refused.length ? "  "+refusalLine(refused) : "";
+    toast("Moved "+moved+" trait"+(moved===1?"":"s")+" to "+toLayer
+      +(shared&&shared.ok===false ? " here only - the group did not get it" : "")+tail);
+  } finally { shelfMoveBusy=false; }
+}
+/* Named, not counted. "4 could not move" sends someone hunting; naming them
+   is the difference between a warning and an instruction. */
+function refusalLine(refused){
+  const dup=refused.filter(r=>r.reason==="duplicate").map(r=>r.name);
+  const other=refused.filter(r=>r.reason!=="duplicate").map(r=>r.name);
+  const bits=[];
+  if(dup.length) bits.push(dup.join(", ")+(dup.length===1?" is":" are")+" already there with the same status");
+  if(other.length) bits.push(other.join(", ")+" could not be moved");
+  return bits.join("; ");
+}
+
 let shelfDrag=null;
 function clearShelfDragTarget(){
   document.querySelectorAll('.shelf-drag-over,.shelf-drop-before,.shelf-drop-after')
@@ -2049,6 +2171,29 @@ async function renderShelf(){
     ? census.detail+"  \u2014 every trait in a collection has to share one canvas size."
     : "";
   $('dlzip').disabled=!traits.length;
+  /* Keys that no longer name a trait go - a removed or renamed trait must not
+     sit in the selection making the count lie about what Move will do. */
+  {
+    const live=new Set(traits.map(shelfCore.recordKey));
+    for(const k of [...shelfPick]) if(!live.has(k)) shelfPick.delete(k);
+  }
+  {
+    const bar=$("shelfpick");
+    if(bar){
+      bar.hidden=!traits.length;
+      const n=shelfPick.size;
+      $("shelfpickcount").textContent = n ? n+" picked" : "Nothing picked";
+      $("shelfpickmove").disabled=!n;
+      $("shelfpicknone").disabled=!n;
+      const sel=$("shelfpicklayer"), keep=sel.value;
+      sel.innerHTML="";
+      for(const name of LAYERS){
+        const o=document.createElement("option"); o.value=name; o.textContent=name;
+        sel.appendChild(o);
+      }
+      if(LAYERS.indexOf(keep)>=0) sel.value=keep;
+    }
+  }
   const body=$('projbody'); body.innerHTML='';
   if(savedRefs.length){
     const rw=document.createElement('div'); rw.className='layer';
@@ -2193,7 +2338,21 @@ async function renderShelf(){
         visibility.isolate(traits.map(shelfCore.recordKey),key);
         renderShelf(); announceShelf('Showing only '+t.name+'.');
       };
-      tools.appendChild(only); tools.appendChild(dup); el.appendChild(tools);
+      tools.appendChild(only); tools.appendChild(dup);
+      /* Picking is a per-card action, so it lives with the other per-card
+         actions rather than becoming a mode the whole shelf is in. */
+      const pick=document.createElement("button"); pick.type="button";
+      const isPicked=shelfPick.has(key);
+      pick.textContent=isPicked?"picked":"pick";
+      pick.setAttribute("aria-pressed",String(isPicked));
+      pick.title=(isPicked?"Unpick ":"Pick ")+t.name+" to move it with others";
+      pick.onclick=ev=>{ ev.stopPropagation();
+        if(shelfPick.has(key)) shelfPick.delete(key); else shelfPick.add(key);
+        renderShelf();
+      };
+      tools.appendChild(pick);
+      if(isPicked) el.classList.add("picked");
+      el.appendChild(tools);
       const x=document.createElement('button'); x.className='x'; x.textContent='×';
       x.title='Remove'; x.setAttribute('aria-label','Remove '+t.name);
       x.onclick=async ev=>{ ev.stopPropagation(); const gone=await dbDelShared(t); visibility.show(key); renderShelf(); toast(gone ? ('Removed '+t.name) : ('Removed '+t.name+' here, but the group still has it - it will come back')); };
@@ -2473,6 +2632,17 @@ function zip(files){
   end.setUint16(10,files.length,true); end.setUint32(12,cs,true); end.setUint32(16,off,true);
   return new Blob([...parts,...central,new Uint8Array(end.buffer)],{type:'application/zip'});
 }
+$('shelfpickmove').onclick=()=>bulkMoveToLayer($('shelfpicklayer').value);
+$('shelfpicknone').onclick=()=>{ shelfPick.clear(); renderShelf(); };
+/* SHOWN, not all. The shelf filters by search and by status, and picking
+   traits a person cannot see - then moving them - is the kind of surprise that
+   costs an afternoon. What is on screen is what gets picked. */
+$('shelfpickall').onclick=()=>{
+  for(const el of document.querySelectorAll("[data-shelf-card-key]"))
+    shelfPick.add(el.dataset.shelfCardKey);
+  renderShelf();
+};
+
 $('dlzip').onclick=async()=>{
   const items=(await dbAll()).filter(i=>i.kind==='trait');
   if(!items.length) return;

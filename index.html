@@ -3661,13 +3661,22 @@ function applyZoom(){
   f.style.setProperty('--z',cellPx+'px');
   f.style.setProperty('--fine', cellPx<4 ? 'transparent' : '#ffffff30');
   f.style.setProperty('--coarse', cellPx*8<4 ? 'transparent' : 'color-mix(in srgb, var(--accent) 73%, transparent)');
-  $('zlab').textContent = zoom>=1 ? zoom+'\u00d7' : Math.round(zoom*100)+'%';
+  /* At most one decimal, and no trailing .0 - `zoom+"x"` would have printed
+     3.4000000000000004 the moment zoom stopped being a whole number. */
+  $('zlab').textContent = zoom>=1
+    ? (Math.round(zoom*10)/10).toFixed(1).replace(/\.0$/,'')+'\u00d7'
+    : Math.round(zoom*100)+'%';
   paintCursor();
 }
-function setZoom(z,anchor){
+function setZoom(z,anchor,fine){
   /* Whole numbers at 1x and above, so pixel art stays crisp; below 1 there is
      no crisp option and two decimals is finer than anyone can perceive. */
-  const want = z>=1 ? Math.round(z) : Math.round(z*100)/100;
+  /* Whole numbers at 1x and above keep pixel art crisp - at 1.5x a pixel is
+     one screen pixel on one row and two on the next. `fine` opts out of that
+     for the wheel and the pinch, where the owner asked for smoothness over
+     crispness; the +/- buttons and the keyboard still snap, so a crisp view
+     is always one click away rather than unreachable. */
+  const want = (z>=1 && !fine) ? Math.round(z) : Math.round(z*100)/100;
   const prev=zoom, next=Math.max(MINZ,Math.min(MAXZ,want));
   if(next===prev) return;
   const st=$('stage'), r=art.getBoundingClientRect();
@@ -7356,7 +7365,7 @@ stage.addEventListener('pointermove',e=>{
   if(pts.has(e.pointerId)) pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
   if(pinch&&pts.size>=2){
     const [a,b]=[...pts.values()]; const d=dist(a,b), m=mid(a,b);
-    if(d) setZoom(pinch.z*(d/pinch.d),m);
+    if(d) setZoom(pinch.z*(d/pinch.d),m,true);
     /* Two fingers moving together is a drag as well as a zoom. Without this
        the canvas scaled under the fingers but never moved, so anything off
        the edge of the screen stayed there. Applied as a step from the last
@@ -7443,8 +7452,11 @@ function zoomNotch(dir,anchor){
      floor. At or above 1x a whole level is the only step that keeps the
      cells square: at 1.5x a pixel is one screen pixel on one row and two on
      the next. 1x to 2x being a doubling is inherent, not a setting. */
-  if(zoom<1 || (zoom===1 && dir<0)) setZoom(dir>0 ? zoom*1.25 : zoom/1.25, anchor);
-  else setZoom(zoom+dir, anchor);
+  /* One ratio at every level now, rather than a ratio below 1x and a whole
+     step above it. 1.12 is about six notches to double, which is fine enough
+     to steer and coarse enough to cross the range without wearing out a
+     finger. */
+  setZoom(dir>0 ? zoom*1.12 : zoom/1.12, anchor, true);
 }
 stage.addEventListener('wheel',e=>{
   e.preventDefault();

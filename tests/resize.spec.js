@@ -15,6 +15,12 @@ test.describe('resize', () => {
   test('shrinking the trait inside a fixed canvas works with snap untouched', async ({ page }) => {
     // A 160 canvas is the collection's own size, and the size the defect hid on:
     // every shrink snapped back to 160 and the app answered "Already 160 by 160".
+    //
+    // This used to ask for 128 and check the trait came out at 0.80 of its width,
+    // because 128/160 was the ratio the CANVAS was being scaled by. The number is
+    // the trait's own size now, so it asks for a size and checks it got that size -
+    // a stronger claim than the band, which passed on anything roughly three
+    // quarters as wide however it got there.
     const errors = await openTrait(page, {
       w: 160, h: 160,
       draw: (set, W, H) => {
@@ -24,44 +30,126 @@ test.describe('resize', () => {
     await openAllSections(page);
 
     const before = await art.bounds(page);
+    expect(before.w, 'the fixture draws a 112-wide trait').toBe(112);
     await setSelect(page, 'rsmode', 'inside');
-    await setField(page, 'rsw', 128);
-    await setField(page, 'rsh', 128);
+    await setField(page, 'rsw', 80);
+    // The height is left alone deliberately: keep-shape is on by default and
+    // derives it, and that derivation is what the aspect test below pins.
     await page.click('#rsgo');
     await page.waitForTimeout(300);
 
     const after = await art.bounds(page);
     expect(await art.size(page), 'the canvas must not move in this mode').toBe('160x160');
-    expect(after.w, 'the trait must actually get smaller').toBeLessThan(before.w);
-    // 128/160 = 0.80, give it a cell of slack either way
-    expect(after.w / before.w).toBeGreaterThan(0.74);
-    expect(after.w / before.w).toBeLessThan(0.86);
+    // Within a pixel: the factor goes through the canvas and back, so the two
+    // roundings can leave it one off. Anything more is a different answer.
+    expect(Math.abs(after.w - 80), 'asked for an 80-wide trait, got ' + after.w).toBeLessThanOrEqual(1);
+    expect(Math.abs(after.h - 40), 'and 40 tall by its own shape, got ' + after.h).toBeLessThanOrEqual(1);
     expect(errors).toEqual([]);
   });
 
   test('shrinking works on a canvas that is not a multiple of the cell count', async ({ page }) => {
     // 120 was the second half of the same defect: 96 snapped UP to 160, so the
     // trait was blown up and cropped when the user asked to shrink it.
+    //
+    // The exact size rules that out, and harder than the old ratio band did. A
+    // centre-crop of a blow-up can have a bounding box SMALLER than the original -
+    // which is how the loose version of this test went green on the very defect it
+    // exists for - but it cannot have the bounding box that was asked for.
     await openTrait(page, {
       w: 120, h: 120,
       draw: (set) => { for (let y = 12; y < 54; y++) for (let x = 18; x < 102; x++) set(x, y, [226, 146, 116]); },
     });
     await openAllSections(page);
     const before = await art.bounds(page);
+    expect(before.w, 'the fixture draws an 84-wide trait').toBe(84);
     await setSelect(page, 'rsmode', 'inside');
-    await setField(page, 'rsw', 96);
-    await setField(page, 'rsh', 96);
+    await setField(page, 'rsw', 42);
     await page.click('#rsgo');
     await page.waitForTimeout(300);
     const after = await art.bounds(page);
     expect(await art.size(page)).toBe('120x120');
-    /* The RATIO, not merely "smaller". Asking for 96 on a 120 canvas is 0.80,
-       and a mutation test showed why the loose version was not enough: with the
-       old snap rule this became a scale UP to 160 followed by a centre-crop back
-       to 120, and the visible bounding box of a cropped blow-up can be smaller
-       than the original too. The test went green on the defect it exists for. */
-    expect(after.w / before.w, 'asked for 0.80 of the width').toBeGreaterThan(0.72);
-    expect(after.w / before.w, 'and it must not have been blown up and cropped').toBeLessThan(0.88);
+    expect(Math.abs(after.w - 42), 'asked for a 42-wide trait, got ' + after.w).toBeLessThanOrEqual(1);
+    expect(Math.abs(after.h - 21), 'and 21 tall by its own shape, got ' + after.h).toBeLessThanOrEqual(1);
+  });
+
+  /* The three below are each a thing that broke when the number in Trait mode
+     stopped meaning the canvas and started meaning the trait. None was found by
+     reading the code - all three were measured in the browser, and the first two
+     were invisible to the check that came before them, which used a square trait
+     on a square canvas. There the canvas and the trait have the same shape, so
+     nothing can tell which of the two a factor was taken from. */
+
+  test("keep-shape keeps the TRAIT's shape, not the canvas's", async ({ page }) => {
+    // Measured before the fix: a 112x56 trait on a 160x160 canvas, asked for a
+    // width of 56, came back 56x56. A 2:1 trait squashed square, because the
+    // height was derived from nw*H/W and H/W is the canvas.
+    await openTrait(page, {
+      w: 160, h: 160,
+      draw: (set) => { for (let y = 16; y < 72; y++) for (let x = 24; x < 136; x++) set(x, y, [226, 146, 116]); },
+    });
+    await openAllSections(page);
+    const before = await art.bounds(page);
+    expect(before.w / before.h, 'the fixture is 2:1 - a square trait cannot detect this').toBeCloseTo(2, 1);
+    expect(await page.evaluate(() => pressed('rslock')), 'keep-shape is on by default').toBe(true);
+    await setSelect(page, 'rsmode', 'inside');
+    await setField(page, 'rsw', 56);
+    await page.click('#rsgo');
+    await page.waitForTimeout(300);
+    const after = await art.bounds(page);
+    expect(Math.abs(after.h - 28), 'the canvas aspect would give 56 tall; got ' + after.h).toBeLessThanOrEqual(1);
+    expect(after.w / after.h, 'the shape is what keep-shape keeps').toBeCloseTo(2, 1);
+  });
+
+  test('"already that size" is about the trait, not the canvas', async ({ page }) => {
+    // Wrong in both directions at once before the fix: typing the CANVAS size was
+    // refused as a no-op though the trait was smaller and the request was real,
+    // and typing the trait's own size was NOT refused, so it rescaled it to itself.
+    await openTrait(page, {
+      w: 160, h: 160,
+      draw: (set) => { for (let y = 16; y < 72; y++) for (let x = 24; x < 136; x++) set(x, y, [226, 146, 116]); },
+    });
+    await openAllSections(page);
+    await setSelect(page, 'rsmode', 'inside');
+
+    // Typing the trait's own size IS a no-op, and must be refused as one.
+    await setField(page, 'rsw', 112);
+    await page.click('#rsgo');
+    await page.waitForTimeout(250);
+    expect((await page.evaluate(() => (($('toast') || {}).textContent) || '')).toLowerCase(),
+      'asking for the size it already is must say so').toContain('already');
+
+    // Typing the canvas size is a real request - grow the trait to fill it.
+    await setField(page, 'rsw', 160);
+    await page.click('#rsgo');
+    await page.waitForTimeout(300);
+    const after = await art.bounds(page);
+    expect(Math.abs(after.w - 160), 'the canvas size is a legitimate trait size; got ' + after.w).toBeLessThanOrEqual(1);
+    expect(await art.size(page), 'and the canvas still must not move').toBe('160x160');
+  });
+
+  test('a trait grows to a size that is not a whole multiple', async ({ page }) => {
+    // scaleArt enlarged only at whole multiples and sent everything else to
+    // resample, a DOWNSCALER - so the art kept its old pixel size inside a bigger
+    // canvas and walked off the edge once recanvas centred it. Measured on a 40x40
+    // opaque canvas: 80 (exact 2x) gave 6400 opaque and was right; 60 (x1.5) gave
+    // 1600 and 100 (x2.5) gave 1600, both the ORIGINAL count. 45 from 30 is x1.5,
+    // the first ratio that was wrong.
+    await openTrait(page, {
+      w: 160, h: 160,
+      draw: (set) => { for (let y = 60; y < 90; y++) for (let x = 60; x < 90; x++) set(x, y, [226, 146, 116]); },
+    });
+    await openAllSections(page);
+    const before = await art.bounds(page);
+    expect(before.w, 'the fixture draws a 30-wide trait').toBe(30);
+    await setSelect(page, 'rsmode', 'inside');
+    await setField(page, 'rsw', 45);
+    await page.click('#rsgo');
+    await page.waitForTimeout(300);
+    const after = await art.bounds(page);
+    // The defect left it at 30 - the size it started - not merely short of 45.
+    expect(after.w, 'x1.5 used to leave the trait at its original size').toBeGreaterThan(30);
+    expect(Math.abs(after.w - 45), 'asked for 45, got ' + after.w).toBeLessThanOrEqual(1);
+    expect(await art.size(page)).toBe('160x160');
   });
 
   test('the canvas rule is unchanged - "the art" still snaps to whole cell counts', async ({ page }) => {

@@ -1110,7 +1110,7 @@ footer .mono{color:var(--ink);}
           <button type="button" data-v="canvas" aria-pressed="false"
             title="Pad or crop the canvas - the art is untouched">Canvas</button>
           <button type="button" data-v="inside" aria-pressed="false"
-            title="Resize the trait within the canvas - the canvas size stays">Inside</button>
+            title="Resize the trait itself. Type the size you want the trait to be; the canvas does not change.">Trait</button>
         </div></div>
       <div class="olrow"><label for="rspreset">Jump to</label>
         <select id="rspreset" style="flex:1"></select></div>
@@ -3996,14 +3996,29 @@ function resample(src,W,H,nw,nh){
 }
 
 function scaleArt(src,W,H,nw,nh){
-  /* A whole-number enlargement copies each cell exactly, which no resampler
-     can improve on. Everything else goes through resample. */
-  if(nw>=W && nh>=H && nw%W===0 && nh%H===0){
+  /* ANY enlargement is nearest-neighbour, not only a whole-number one.
+
+     The guard here used to also require nw%W===0 && nh%H===0, and everything
+     else fell through to resample - which is a DOWNSCALER. Measured on a
+     40x40 fully opaque canvas: 80 (exact 2x) gave 6400 opaque and was right;
+     60 (x1.5) gave 1600, the ORIGINAL count, and 100 (x2.5) also 1600. The
+     art kept its old size inside a bigger canvas, and once recanvas centred
+     that, it walked off the edge - which is how a trait vanished when asked
+     to grow. Art mode had the same hole: 160 to 250 did nothing but blank it.
+
+     Nearest-neighbour is right for pixel art at any ratio. At a whole
+     multiple it reduces to exactly the cell copying this branch already did,
+     so that case is bit-for-bit unchanged. Between multiples it repeats rows
+     unevenly, which is what enlarging pixel art to a non-multiple size means;
+     interpolating would invent colours that are not in the palette. */
+  if(nw>=W && nh>=H){
     const out=new Uint8ClampedArray(nw*nh*4);
-    const kx=nw/W, ky=nh/H;
-    for(let y=0;y<nh;y++) for(let x=0;x<nw;x++){
-      const s=(((y/ky)|0)*W+((x/kx)|0))*4, d=(y*nw+x)*4;
-      out[d]=src[s]; out[d+1]=src[s+1]; out[d+2]=src[s+2]; out[d+3]=src[s+3];
+    for(let y=0;y<nh;y++){
+      const sy=Math.min(H-1,(y*H/nh)|0);
+      for(let x=0;x<nw;x++){
+        const s=(sy*W+Math.min(W-1,(x*W/nw)|0))*4, d=(y*nw+x)*4;
+        out[d]=src[s]; out[d+1]=src[s+1]; out[d+2]=src[s+2]; out[d+3]=src[s+3];
+      }
     }
     return out;
   }
@@ -4158,8 +4173,23 @@ function tboxShow(){
    recanvas centres and crops, so asking for a size LARGER than the canvas
    needs no second branch: the art is scaled up and then cropped to the
    canvas, which is what growing a trait past its own frame means. */
+/* nw and nh are the size of the TRAIT here, not of the canvas.
+
+   This used to scale the whole canvas to nw x nh and place it back on the
+   original frame, so a 60x60 trait on a 160 canvas asked for 30 came out
+   12x12 - the canvas ratio applied to the trait. The toast apologised for
+   it rather than the mode meaning what its name says.
+
+   The factor comes from the content box, so the trait lands on the size
+   asked for and the canvas is untouched. An empty canvas has no box and no
+   trait to size, so that falls back to the old meaning instead of dividing
+   by zero. */
 function scaleInside(src,W,H,nw,nh){
-  return recanvas(scaleArt(src,W,H,nw,nh),nw,nh,W,H);
+  const box=contentBox();
+  if(!box||!box.w||!box.h) return recanvas(scaleArt(src,W,H,nw,nh),nw,nh,W,H);
+  const cw=Math.max(1,Math.min(4096,Math.round(W*(nw/box.w))));
+  const ch=Math.max(1,Math.min(4096,Math.round(H*(nh/box.h))));
+  return recanvas(scaleArt(src,W,H,cw,ch),cw,ch,W,H);
 }
 
 /* One place that picks the operation, so the fields and the drag cannot
@@ -4177,6 +4207,12 @@ function applyResize(){
   const snap=snapOn();
   /* Read before the snapping, not after: which rule applies depends on it. */
   const mode=chipVal("rsmode");
+  /* One call, read once, used by keep-shape AND by the no-op guard below.
+     contentBox walks every pixel on the canvas, and both of them need the
+     same answer - taking it twice invites them to disagree as well as
+     costing a second pass. */
+  const cbox = mode==="inside" ? contentBox() : null;
+  const curW = cbox ? cbox.w : W, curH = cbox ? cbox.h : H;
   /* Snapped before clamping, so a snap can never push a size out of range. */
   let nw=Math.max(1,Math.min(4096,parseInt($("rsw").value,10)||0));
   if(snap) nw=Math.min(4096,snapFor(mode,nw));
@@ -4188,13 +4224,26 @@ function applyResize(){
      typing, so it holds the height for the pre-snap width - 4:3 art at grid 160,
      type 1254, and the width snaps to 1280 while the height stays at 941: on the
      grid in one direction, off it in the other, and not even the right shape. */
-  else if(snap && pressed("rslock")) nh=Math.max(1,Math.round(nw*H/W));
-  if(nw===W && nh===H){
+  /* curH/curW, not H/W: in Trait mode the shape being kept is the TRAIT's.
+     Measured before this - a 112x56 trait asked for a width of 56 came back
+     56x56, a 2:1 trait squashed square, because H/W is the canvas. A square
+     trait on a square canvas cannot tell the two apart, which is why the
+     first check of this mode missed it. Outside Trait mode curW/curH ARE W/H,
+     so those modes are unchanged. */
+  else if(snap && pressed("rslock")) nh=Math.max(1,Math.round(nw*curH/curW));
+  /* Against the TRAIT in Trait mode, because that is what the number means
+     there now. Against the canvas it was wrong both ways at once: typing the
+     canvas size refused a real request ("already that size" for a 112 trait on
+     a 160 canvas), and typing the trait's own size sailed past the guard and
+     rescaled it to what it already was. An empty canvas has no content box and
+     falls back to the canvas, matching what scaleInside does with the same
+     case, so the guard and the operation never disagree about the subject. */
+  if(nw===curW && nh===curH){
     /* In "inside" mode the canvas is not what was asked about, so answering
        with the canvas size reads as a refusal of something the user did not
        request. Scaling the art to the canvas size really is a no-op - the art
        already fills exactly that - so say what to type instead. */
-    toast(mode==="inside" ? "That is the canvas size - type smaller to shrink the trait"
+    toast(mode==="inside" ? "The trait is already that size"
                           : "Already "+W+" by "+H);
     return;
   }
@@ -4217,7 +4266,12 @@ function applyResize(){
    disagree with the artwork after an undo or a reset. */
 function resizeBoxes(){
   if(!art||!$("rsw")) return;
-  $("rsw").value=art.width; $("rsh").value=art.height;
+  /* In Trait mode the number is the trait, so show the trait. Editing a
+     field pre-filled with the canvas size while the mode resizes the trait
+     is how "type 30, get 12" happened. */
+  const tb = (typeof chipVal==="function" && chipVal("rsmode")==="inside") ? contentBox() : null;
+  $("rsw").value = tb ? tb.w : art.width;
+  $("rsh").value = tb ? tb.h : art.height;
   const n=$("rsnow"); if(n) n.textContent=art.width+" \u00d7 "+art.height;
 }
 function cellFrom(e){
@@ -4405,7 +4459,7 @@ function setChip(id,v){
 }
 for(const id of ["rsmode","tstatus"]){
   const g=document.getElementById(id);
-  if(g) g.onclick=e=>{ const b=e.target.closest("button[data-v]"); if(b) setChip(id,b.dataset.v); };
+  if(g) g.onclick=e=>{ const b=e.target.closest("button[data-v]"); if(b){ setChip(id,b.dataset.v); if(id==="rsmode") resizeBoxes(); } };
 }
 
 function selectTool(t){

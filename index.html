@@ -7691,6 +7691,34 @@ function sbCaptureFromHash(){
   return true;
 }
 
+/* Signed in, signed out, or could not tell - THREE answers, because the
+   difference between the last two is the difference between putting the
+   sign-in wall up over somebody's work and leaving it alone.
+
+   sbUser collapses them into one null and is left that way on purpose: five
+   other callers read that null as "signed out", which makes a cloud action a
+   silent no-op. That is a real defect and a different one, and changing it
+   here would alter five paths at once to fix a sixth.
+
+   The trick that separates "could not ask" from "no" costs nothing: sbToken
+   clears the session ONLY on a definitive 400, 401 or 403, so a session that
+   is still in storage after sbToken came back empty means the question never
+   got an answer. */
+async function sbAuthState(){
+  const s=sbLoadSession();
+  if(!s||!s.access_token) return {state:"out"};
+  const t=await sbToken();
+  if(!t) return sbLoadSession() ? {state:"unknown"} : {state:"out"};
+  try{
+    const r=await fetch(SB_URL+"/auth/v1/user",{headers:{apikey:SB_KEY,Authorization:"Bearer "+t}});
+    /* The server saying no is the only thing that signs anyone out here. */
+    if(r.status===401||r.status===403){ sbSaveSession(null); return {state:"out"}; }
+    /* A 500, a 429, a gateway page: the server did not answer the question. */
+    if(!r.ok) return {state:"unknown"};
+    const u=await r.json();
+    return (u&&u.id) ? {state:"in",user:u} : {state:"unknown"};
+  }catch(_){ return {state:"unknown"}; }
+}
 async function sbUser(){
   const h=await sbHeaders();
   if(!h) return null;
@@ -7706,6 +7734,10 @@ async function sbUser(){
    called on every sign-in, every workspace switch and every account-panel
    toggle, and rebuilding the shelf on each of those would be wasted work
    and a flicker. */
+/* Compared by value to decide whether to take the message down, so the two
+   live side by side rather than being retyped at each site. */
+const CLOUD_UNREACHABLE="Cannot reach the server just now, so this still shows what it last said. Your collection is on this device and nothing has been lost.";
+const CLOUD_DEFAULT_NOTE="Nothing uploads until you press Save to cloud.";
 let localBooted=false;
 function bootLocal(){
   if(localBooted) return;
@@ -7716,8 +7748,23 @@ function bootLocal(){
 }
 
 async function cloudRender(){
-  const u=await sbUser();
-  const inn=!!(u&&u.id);
+  const a=await sbAuthState();
+  /* NEVER DOWNGRADE ON A FAILED QUESTION. Measured before this: one dropped
+     request to /auth/v1/user set authed=false and raised the gate, and
+     gateShow(true) calls forgetLocalView - so six shelf cards, the project
+     panel and the compose panel all went away while the session sat valid in
+     storage. Everything is left exactly as it was and the note says why. */
+  if(a.state==="unknown"){
+    $("cloudnote").textContent=CLOUD_UNREACHABLE;
+    return null;
+  }
+  /* And when it comes back, take the message down again - a stale "cannot
+     reach the server" sitting under a working connection is its own small
+     lie, and the one that teaches people to ignore the line. */
+  if($("cloudnote").textContent===CLOUD_UNREACHABLE)
+    $("cloudnote").textContent=CLOUD_DEFAULT_NOTE;
+  const u=a.user||null;
+  const inn=a.state==="in";
   $("cloudwho").textContent = inn ? (displayName(u)||"signed in") : "not signed in";
   $("cloudpush").hidden=!inn; $("cloudpull").hidden=!inn; $("cloudout").hidden=!inn;
   /* Set BEFORE gateShow, because gateShow(false) reveals a page whose

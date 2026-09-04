@@ -57,6 +57,7 @@ something. Good places to look, in order:
 
 Newest first. Delete the oldest when this passes 12.
 
+- 2026-09-04 — A dropped request no longer signs you out and blanks the shelf; `sbAuthState` separates "the server said no" from "could not ask"
 - 2026-09-04 — A trait set (a layer) can be turned off, so nothing in it is drawn; persisted, and the cards stay on screen dimmed
 - 2026-09-04 — A rule holds any number of traits and each row can be widened; `ruleId` read only the first two members, so `{a,b,c}` and `{a,b,d}` were one rule
 - 2026-09-04 — `ruleMisses` no longer counts the rarity estimator's 20,000 draws as the collection's failures (was reporting 20,200 for a 1-character set)
@@ -89,6 +90,15 @@ Measured, with the date. Delete one the moment the code contradicts it.
   required layer; a rule against an optional layer is just skipped, so
   `ruleMisses` stays 0 and a fixture built to exercise it measures nothing.
   Setting `emptyChance = 0` is what forces the corner. *(09-04)*
+- **`sbUser()` returns null for two different facts** — "the server says no" and
+  "could not ask it". Five callers still read that null as signed-out, so a cloud
+  action becomes a silent no-op on a hiccup. `cloudRender` uses `sbAuthState()`
+  instead; the other five are unmeasured. *(09-04)*
+- **Subagents will write into this repo.** A verifier fan-out left 13 throwaway
+  spec files in `tests/` and repointed the port in `playwright.config.js`, which
+  made a full run report 182 passed instead of 247. `tests/zz*.spec.js` and
+  `pw.*.config.js` are gitignored now, but check `git status` after any fan-out.
+  *(09-04)*
 - **`index.html` is CRLF throughout.** A multi-line search built with `\n`
   matches nothing, writes the file back unchanged, and reports success. Use
   `tools/patchkit.cjs`. *(09-04)*

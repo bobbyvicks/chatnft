@@ -15,3 +15,8 @@ probe.config.js
 
 # The scheduled run's lock. Machine-local, never travels, never committed.
 .runlock
+
+# Agent-written probe specs. Verifier subagents write throwaway specs while
+# checking a claim; they are not tests and must never join the suite.
+tests/zz*.spec.js
+pw.*.config.js

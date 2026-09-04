@@ -184,4 +184,100 @@ test.describe('moving several traits at once', () => {
     expect(where.pale[0]).toBe('skins');
     expect(where.draft[0], 'the one filtered away was never picked').toBe('unsorted');
   });
+
+  test('the picked state is actually visible on the card', async ({ page }) => {
+    // The first version of this feature inserted its rules INTO the still-open
+    // declaration list of ".shelftools button", so Chromium discarded
+    // .item.picked, .shelfpick and the aria-pressed rule outright AND dropped
+    // the last four declarations of .shelftools button - a regression to the
+    // four tool buttons that predate this feature. Nothing on screen said what
+    // was picked, and every test above still passed, because they assert on
+    // state and never on whether a person can see it.
+    await ready(page, FOUR);
+    await pickByName(page, ['tan']);
+    await page.waitForTimeout(300);
+
+    const seen = await page.evaluate(() => {
+      // Resolve --accent through the page rather than pinning a literal, so a
+      // theme change does not read as a defect.
+      const probe = document.createElement('span');
+      probe.style.color = 'var(--accent)';
+      document.body.appendChild(probe);
+      const accent = getComputedStyle(probe).color;
+      probe.remove();
+
+      const picked = document.querySelector('.item.picked');
+      const plain = [...document.querySelectorAll('[data-shelf-card-key]')]
+        .find(el => !el.classList.contains('picked'));
+      const btn = picked && [...picked.querySelectorAll('.shelftools button')].pop();
+      const cs = picked && getComputedStyle(picked);
+      return {
+        accent,
+        pickedBorder: cs && cs.borderColor,
+        plainBorder: plain && getComputedStyle(plain).borderColor,
+        pickedShadow: cs && cs.boxShadow,
+        pressedBg: btn && getComputedStyle(btn).backgroundColor,
+        toolFont: btn && parseFloat(getComputedStyle(btn).fontSize),
+        cardFont: picked && parseFloat(cs.fontSize),
+        barDisplay: getComputedStyle(document.getElementById('shelfpick')).display,
+      };
+    });
+
+    expect(seen.pickedBorder, 'a picked card is ringed in the accent colour').toBe(seen.accent);
+    expect(seen.pickedBorder, 'and that is not just what every card looks like')
+      .not.toBe(seen.plainBorder);
+    expect(seen.pickedShadow, 'the ring is drawn').not.toBe('none');
+    expect(seen.pressedBg, 'the pick button reads as pressed').toBe(seen.accent);
+    // Not a pinned 9px: the reset gives buttons font:inherit and background:none,
+    // so a truncated .shelftools button rule shows up as tool type matching the
+    // card's and a transparent background. Both are what was measured broken.
+    expect(seen.toolFont, 'the tool buttons keep their own smaller type')
+      .toBeLessThan(seen.cardFont);
+    expect(seen.pressedBg, 'and their own background').not.toBe('rgba(0, 0, 0, 0)');
+    expect(seen.barDisplay, 'the pick bar lays out as a row').toBe('flex');
+  });
+
+  test('a hidden trait is still hidden after it is moved', async ({ page }) => {
+    // Moving a trait between layers rewrites its local id, and the hidden set
+    // is keyed by that id. commitShelfMove - the drag and keyboard path - has
+    // always called state.transfer to carry the key across. The bulk path read
+    // the visibility state into a variable and never used it, so bulk-moving a
+    // hidden trait quietly un-hid it while dragging the same trait did not.
+    await ready(page, FOUR);
+    const hide = (names) => page.evaluate((want) => {
+      for (const el of document.querySelectorAll('[data-shelf-card-key]')) {
+        const name = (el.querySelector('b') || {}).textContent;
+        if (want.indexOf(name) < 0) continue;
+        [...el.querySelectorAll('.shelftools button')][1].click();
+      }
+    }, names);
+
+    await hide(['tan', 'pale']);
+    await page.waitForTimeout(350);
+    expect(await page.evaluate(() => currentShelfVisibility().count),
+      'two are hidden to begin with').toBe(2);
+
+    // Reveal so they can be picked, then move them.
+    await page.evaluate(() => { $('shelfhidden').click(); });
+    await page.waitForTimeout(300);
+    expect(await pickByName(page, ['tan', 'pale'])).toHaveLength(2);
+    await moveTo(page, 'skins');
+
+    const after = await page.evaluate(async () => {
+      const items = (await dbAll()).filter(i => i.kind === 'trait');
+      const vis = currentShelfVisibility();
+      return {
+        count: vis.count,
+        hidden: items.filter(t => vis.isHidden(shelfCore.recordKey(t))).map(t => t.name).sort(),
+        layers: items.reduce((a, t) => (a[t.name] = t.layer, a), {}),
+      };
+    });
+    expect(after.layers.tan, 'they did move').toBe('skins');
+    expect(after.layers.pale).toBe('skins');
+    // The assertion that matters: hidden BY NAME, not just a count of 2. A
+    // count alone passes if the keys got shuffled onto the wrong traits.
+    expect(after.hidden, 'the same two are still hidden, under their new ids')
+      .toEqual(['pale', 'tan']);
+    expect(after.count, 'and nothing stale is left in the set').toBe(2);
+  });
 });

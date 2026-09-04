@@ -325,6 +325,7 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
 /* Five now: drag, hide, only, dup, pick. */
 .shelftools{display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:4px; margin-top:5px;}
 .shelftools button{min-width:0; padding:4px 2px; border-radius:5px; border:1px solid var(--line);
+  background:var(--panel-2); color:var(--muted); font-size:9px; line-height:1.1;}
 /* A picked card, readable against any artwork - the accent ring alone is lost
    on a trait that happens to be the accent colour. */
 .item.picked{border-color:var(--accent); box-shadow:0 0 0 2px var(--accent-soft);}
@@ -333,7 +334,6 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
   margin-top:7px; font-size:12px; color:var(--muted);}
 .shelfpick select{padding:5px 8px; border-radius:7px; background:var(--ground);
   border:1px solid var(--line); color:var(--ink); font:inherit; font-size:12px;}
-  background:var(--panel-2); color:var(--muted); font-size:9px; line-height:1.1;}
 .shelftools button:hover{border-color:var(--accent); color:var(--ink);}
 .shelftools .draghandle{cursor:grab; touch-action:none; user-select:none; color:var(--accent);}
 .shelftools .draghandle:active{cursor:grabbing;}
@@ -1934,6 +1934,9 @@ async function bulkMoveToLayer(toLayer){
        and whatever is not, does not. */
     let working=items.slice();
     const refused=[];
+    /* Every id a plan retires, paired with the id that replaces it, so the
+       hidden set can follow the traits across the move. */
+    const transfers=[];
     let moved=0;
     for(const key of keys){
       const rec=working.find(i=>shelfCore.recordKey(i)===key);
@@ -1941,6 +1944,7 @@ async function bulkMoveToLayer(toLayer){
       if(rec.layer===toLayer){ continue; }
       const plan=shelfCore.planShelfMove(working,{recordKey:key,toLayer,beforeKey:null});
       if(!plan.ok){ refused.push({name:rec.name,reason:plan.reason}); continue; }
+      for(const u of plan.updates) transfers.push({from:u.oldKey,to:shelfCore.recordKey(u.record)});
       working=applyPlanTo(working,plan.updates);
       moved++;
     }
@@ -1961,6 +1965,13 @@ async function bulkMoveToLayer(toLayer){
     try{
       await dbApplyShelfRecords(gone,updates);
     }catch(_){ toast("Could not save the move"); return; }
+    /* A hidden trait stays hidden. Moving a trait between layers rewrites its
+       local id and the hidden set is keyed by that id, so without this the
+       trait quietly reappears - which dragging it one at a time does not do,
+       because commitShelfMove has always transferred the key. Applied in the
+       order the plans were made, so a record two plans touched ends on the key
+       the last of them gave it. */
+    for(const t of transfers) state.transfer(t.from,t.to);
     shelfPick.clear();
     await renderShelf();
     /* The same shape commitShelfMove hands the cloud, so one trait and forty

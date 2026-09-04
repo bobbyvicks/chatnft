@@ -57,6 +57,8 @@ something. Good places to look, in order:
 
 Newest first. Delete the oldest when this passes 12.
 
+- 2026-09-04 — A trait set (a layer) can be turned off, so nothing in it is drawn; persisted, and the cards stay on screen dimmed
+- 2026-09-04 — A rule holds any number of traits and each row can be widened; `ruleId` read only the first two members, so `{a,b,c}` and `{a,b,d}` were one rule
 - 2026-09-04 — `ruleMisses` no longer counts the rarity estimator's 20,000 draws as the collection's failures (was reporting 20,200 for a 1-character set)
 - 2026-09-04 — Resize says what it will do before you press it; keep-shape fixed to keep the trait's shape rather than the canvas's with snap off
 - 2026-09-04 — Mixed-size traits scale by whole numbers and are centred, instead of stretching to a fractional scale (48px into 160px gave pixels 3 and 4 wide)

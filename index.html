@@ -268,6 +268,18 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
 .layer{margin-bottom:14px;}
 .layer h3{font-size:10.5px; text-transform:uppercase; letter-spacing:.11em; color:var(--muted);
   margin-bottom:7px; display:flex; align-items:center; gap:8px;}
+/* text-transform and letter-spacing are RESET, not omitted: .layer h3 sets
+   both and a button inherits them, so without this the label renders as
+   "T U R N   O F F". margin-left:auto puts it at the end of the heading. */
+.layer h3 .setbtn{margin-left:auto; text-transform:none; letter-spacing:normal;
+  font-size:11px; padding:3px 9px; border-radius:7px; background:var(--panel-2);
+  border:1px solid var(--line); color:var(--muted);}
+.layer h3 .setbtn:hover{color:var(--ink);}
+.layer h3 .setoff{text-transform:none; letter-spacing:normal; font-size:10px;
+  padding:1px 7px; border-radius:6px; background:var(--bad); color:#fff;}
+/* Dimmed, never hidden. The traits are still the owner's work and this is
+   still where they edit them. */
+.layer.off .items{opacity:.42;}
 .layer h3::after{content:""; flex:1; height:1px; background:var(--line);}
 .items{display:grid; grid-template-columns:repeat(auto-fill,minmax(108px,1fr)); gap:9px;}
 .item{position:relative; border-radius:9px; border:1px solid var(--line); background:var(--ground);
@@ -905,6 +917,7 @@ footer .mono{color:var(--ink);}
         <p class="note">Drag a card by its handle to reorder it or move it to another layer.</p>
         <button class="mini" id="shelfhidden" aria-pressed="false" hidden>Show hidden</button>
         <button class="mini" id="shelfshowall" hidden>Show all</button>
+        <button class="mini" id="shelfsets" hidden>Sets off</button>
         <span class="sr-only" id="shelfstatus" role="status" aria-live="polite"></span>
       </div>
       <!-- Bulk sorting. A batch import lands everything in "unsorted", and
@@ -1699,6 +1712,17 @@ const DEFAULT_LAYERS=['backgrounds','skins','clothing','costumes','chains','acce
   'extras','ears','mouth','eyes','hair-headwear','masks','unsorted'];
 let LAYERS=DEFAULT_LAYERS.slice();
 const LAYERS_ID='settings.layers';
+/* Layers that are turned off: nothing in them is drawn onto a character, and
+   nothing in them counts towards what the set can make.
+
+   Kept by NAME rather than by record, and PERSISTED - unlike the per-trait
+   hide on the shelf, which is about what is on screen and is deliberately
+   forgotten on reload. A set being off is a fact about the collection: if it
+   reset, the next Generate set would quietly mint the set that was turned off.
+
+   Keying by name has exactly two staleness sites, renameLayer and removeLayer,
+   and both carry it. */
+const HIDDEN_LAYERS=new Set();
 const GRID_ID='settings.grid';
 const RULES_ID='settings.rules';
 /* Pairs of traits that must never share a character, each side keyed by
@@ -1801,6 +1825,14 @@ function syncShelfVisibilityControls(){
   if(!reveal||!all) return;
   reveal.hidden=!state.count; all.hidden=!state.count;
   reveal.textContent=(state.reveal?'Hide hidden':'Show hidden')+' ('+state.count+')';
+  /* The one case a heading cannot cover: a search that filters every card out
+     of an off layer leaves no heading to click. */
+  const sets=$('shelfsets');
+  if(sets){
+    sets.hidden=!HIDDEN_LAYERS.size;
+    sets.textContent='Sets off ('+HIDDEN_LAYERS.size+')';
+    sets.title='Turn every set back on';
+  }
   reveal.setAttribute('aria-pressed',String(state.reveal));
 }
 
@@ -2262,7 +2294,41 @@ async function renderShelf(){
     const wrap=document.createElement('div'); wrap.className='layer';
     const mine=traits.filter(t=>t.layer===layer&&cardShows(t)).sort(shelfCore.compareShelfRecords);
     if(!mine.length) continue;
-    wrap.innerHTML='<h3>'+layer+' <span style="color:var(--dim)">'+mine.length+'</span></h3>';
+    /* Built rather than interpolated. The old line put a layer NAME straight
+       into innerHTML; names are slugged on the way in, so nothing could get
+       through today, but the markup no longer depends on that being true. */
+    const off=HIDDEN_LAYERS.has(layer);
+    if(off) wrap.classList.add("off");
+    const h=document.createElement("h3");
+    h.appendChild(document.createTextNode(layer));
+    const n=document.createElement("span");
+    n.style.color="var(--dim)"; n.textContent=String(mine.length);
+    h.appendChild(n);
+    if(off){
+      const badge=document.createElement("span");
+      badge.className="setoff"; badge.textContent="off";
+      h.appendChild(badge);
+    }
+    const sb=document.createElement("button");
+    sb.type="button"; sb.className="setbtn";
+    sb.textContent = off ? "turn on" : "turn off";
+    sb.setAttribute("aria-pressed", String(off));
+    sb.setAttribute("aria-label", (off?"Turn the ":"Turn off the ")+layer+" set");
+    sb.title = off
+      ? "Draw from this set again"
+      : "Stop drawing from this set. The traits stay here and nothing is deleted.";
+    sb.onclick=async()=>{
+      if(HIDDEN_LAYERS.has(layer)) HIDDEN_LAYERS.delete(layer);
+      else HIDDEN_LAYERS.add(layer);
+      /* saveLayers re-renders, so the heading, the compose rows and every
+         count follow from the one write. */
+      try{ await saveLayers(); }catch(_){ toast("Could not save that"); return; }
+      toast(HIDDEN_LAYERS.has(layer)
+        ? layer+" is off - nothing in it will be drawn"
+        : layer+" is on again");
+    };
+    h.appendChild(sb);
+    wrap.appendChild(h);
     const grid=document.createElement('div'); grid.className='items'; grid.dataset.shelfLayer=layer;
     for(const t of mine){
       const key=shelfCore.recordKey(t), hidden=visibility.isHidden(key);
@@ -2581,6 +2647,13 @@ document.querySelectorAll('.mini.filt').forEach(btn=>{
 $('shelfhidden').onclick=()=>{
   const state=currentShelfVisibility(); state.setReveal(!state.reveal);
   renderShelf(); announceShelf(state.reveal?'Temporarily hidden traits are visible.':'Hidden traits are concealed.');
+};
+$('shelfsets').onclick=async()=>{
+  if(!HIDDEN_LAYERS.size) return;
+  const n=HIDDEN_LAYERS.size;
+  HIDDEN_LAYERS.clear();
+  try{ await saveLayers(); }catch(_){ toast("Could not save that"); return; }
+  toast(n+' set'+(n===1?'':'s')+' turned back on');
 };
 $('shelfshowall').onclick=()=>{
   currentShelfVisibility().showAll(); renderShelf(); announceShelf('All traits are visible.');
@@ -5970,6 +6043,12 @@ async function buildCompose(items){
   for(const layer of LAYERS){
     const mine=traits.filter(t=>t.layer===layer).sort((a,b)=>a.name.localeCompare(b.name));
     if(!mine.length) continue;
+    /* THE enforcement point. cPools builds its pools from these rows, and
+       cChosen, drawCompose, composeRandom, drawSheet and the zip all go through
+       cPools - so no row means no pool, and buildCombo already skips a layer
+       with no pool. Filtering inside cPools instead would leave the row on
+       screen painting a trait the collection leaves out. */
+    if(HIDDEN_LAYERS.has(layer)) continue;
     mkRow(layer,mine,layer);
   }
   drawCompose();
@@ -6328,9 +6407,12 @@ function traitEligible(t,wipIncluded){
 const DIST_DRAWS=20000, DIST_SEED=0x9E3779B9;
 let distCache=null, distKey="";
 function distributionOf(items,wipIncluded){
-  const elig=(items||[]).filter(t=>traitEligible(t,wipIncluded))
+  const elig=(items||[]).filter(t=>traitEligible(t,wipIncluded)&&!HIDDEN_LAYERS.has(t.layer||"unsorted"))
     .map(t=>traitKey(t)+":"+traitWeight(t)).sort();
-  const key=JSON.stringify([elig,RULES,emptyChance,!!wipIncluded,LAYERS]);
+  /* HIDDEN_LAYERS is named in the key as well as filtered out of elig. The
+     filter alone would be exact, but the key's whole contract is that every
+     input which changes the answer appears in it. */
+  const key=JSON.stringify([elig,RULES,emptyChance,!!wipIncluded,LAYERS,[...HIDDEN_LAYERS].sort()]);
   if(distCache && distKey===key) return distCache;
   const pools=cPools();
   const count=new Map();
@@ -6362,6 +6444,10 @@ function traitChance(rec,items,wipIncluded){
       ? "Rejected traits are never drawn onto a character"
       : "Only approved traits are drawn - tick include wip to include this one" };
   const layer=rec.layer||"unsorted";
+  /* After the eligibility check, so a rejected trait still says rejected - that
+     is the more specific fact about it and the one worth showing. */
+  if(HIDDEN_LAYERS.has(layer))
+    return { pct:null, why:"The "+layer+" set is turned off, so nothing in it is drawn" };
   let total=0;
   for(const t of (items||[]))
     if(traitEligible(t,wipIncluded) && (t.layer||"unsorted")===layer) total+=traitWeight(t);
@@ -6493,6 +6579,8 @@ function comboStats(items,wipIncluded){
   for(const t of (items||[])){
     if(!traitEligible(t,wipIncluded)) continue;
     const l=t.layer||"unsorted";
+    /* "N possible characters" has to count the set that is actually drawn. */
+    if(HIDDEN_LAYERS.has(l)) continue;
     if(!by.has(l)) by.set(l,[]);
     by.get(l).push(t);
   }
@@ -7030,6 +7118,11 @@ function applyLayers(items){
   /* unsorted is where anything unrecognised lands, on import and on removal,
      so it has to exist whatever the saved list says. */
   if(LAYERS.indexOf("unsorted")<0) LAYERS.push("unsorted");
+  /* Only names that are still layers. A record written before this existed has
+     no hidden field and loads as nothing off, which is the right default. */
+  HIDDEN_LAYERS.clear();
+  if(rec&&Array.isArray(rec.hidden))
+    for(const l of rec.hidden){ const s=String(l); if(LAYERS.indexOf(s)>=0) HIDDEN_LAYERS.add(s); }
   buildLayerSelect();
 }
 function buildLayerSelect(){
@@ -7042,7 +7135,10 @@ function buildLayerSelect(){
   sel.value = LAYERS.indexOf(keep)>=0 ? keep : "unsorted";
 }
 async function saveLayers(){
-  await dbPut({id:LAYERS_ID, kind:"settings", layers:LAYERS.slice(), at:Date.now()});
+  /* In the layers record rather than a fourth settings row: a set being off is
+     a property of the layer list, and one record cannot half-save. */
+  await dbPut({id:LAYERS_ID, kind:"settings", layers:LAYERS.slice(),
+    hidden:[...HIDDEN_LAYERS].sort(), at:Date.now()});
   await renderShelf();
 }
 
@@ -7099,6 +7195,10 @@ async function removeLayer(name){
       n+" trait"+(n===1?"":"s")+" will move to unsorted. Nothing is deleted.")) return;
   const r=n?await retagLayer(items,name,"unsorted"):{moved:0,renamed:0};
   LAYERS=LAYERS.filter(l=>l!==name);
+  /* Its traits went to unsorted, which is a different set and is on - so they
+     become drawable again. That is correct and visible, and leaving the name
+     behind would turn off a layer created with the same name later. */
+  HIDDEN_LAYERS.delete(name);
   await saveLayers();
   toast("Removed "+name+(r.moved?", "+r.moved+" moved to unsorted":""));
 }
@@ -7109,6 +7209,9 @@ async function renameLayer(oldName,raw){
   const items=await dbAll();
   const r=await retagLayer(items,oldName,nw);
   LAYERS[LAYERS.indexOf(oldName)]=nw;
+  /* The set is off by NAME, so a rename has to move it or the layer comes back
+     on under its new name with nothing having said so. */
+  if(HIDDEN_LAYERS.delete(oldName)) HIDDEN_LAYERS.add(nw);
   await saveLayers();
   toast("Renamed to "+nw+(r.moved?", "+r.moved+" trait"+(r.moved===1?"":"s")+" moved":"")+
         (r.renamed?" ("+r.renamed+" renamed to avoid a clash)":""));

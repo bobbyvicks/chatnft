@@ -374,6 +374,72 @@ test.describe('never together', () => {
     expect(await page.evaluate(() => RULES.length), 'the same rule twice is one rule').toBe(1);
   });
 
+  /* THE CORNER. backgrounds is drawn BEFORE skins and may be left empty; skins is
+     ALWAYS_PRESENT and here holds exactly one trait. A rule between them corners
+     every draw that keeps the background - the required layer has no legal
+     candidate left.
+
+     The old code emitted that character anyway and counted a miss, so a forbidden
+     pair reached the sheet and the exported metadata while the Add button promised
+     it never would. A cornered draw is thrown away and redrawn now. */
+  const CORNER = [{ n: 'sky', l: 'backgrounds' }, { n: 'tan', l: 'skins' },
+                  { n: 'tee', l: 'clothing' }];
+  const pairIn = (page, a, b, n) => page.evaluate(({ a, b, n }) => {
+    ruleMisses = 0;
+    const pools = cPools();
+    let both = 0;
+    for (let i = 0; i < n; i++) {
+      const keys = randomCombo(pools).map(traitKey);
+      if (keys.indexOf(a) >= 0 && keys.indexOf(b) >= 0) both++;
+    }
+    return { both, misses: ruleMisses };
+  }, { a, b, n });
+
+  test('a draw that would break a rule is redrawn, not emitted', async ({ page }) => {
+    await openTrait(page, { w: 160, h: 160, draw: BLOCK });
+    await openAllSections(page);
+    await put(page, CORNER);
+    await page.waitForTimeout(300);
+
+    // THE CONTROL: without the rule this pair is the common case, so a later
+    // count of zero means the rule did it and not the fixture.
+    const before = await pairIn(page, 'backgrounds/sky', 'skins/tan', 1500);
+    expect(before.both, 'the pair happens constantly on its own').toBeGreaterThan(500);
+
+    await addRule(page, 'backgrounds/sky', 'skins/tan');
+    const after = await pairIn(page, 'backgrounds/sky', 'skins/tan', 1500);
+    expect(after.both, 'and never once the rule exists').toBe(0);
+    expect(after.misses, 'and nothing had to be given up on').toBe(0);
+  });
+
+  test('rules that cannot all be met are counted and said, not hidden', async ({ page }) => {
+    // With the background never skipped, EVERY draw corners: there is no legal
+    // character at all. Retrying forever would hang, so it gives up at a bound
+    // and reports - a silently broken rule would be worse than a reported one.
+    await openTrait(page, { w: 160, h: 160, draw: BLOCK });
+    await openAllSections(page);
+    await put(page, CORNER);
+    await page.waitForTimeout(300);
+    await addRule(page, 'backgrounds/sky', 'skins/tan');
+    await page.evaluate(() => {
+      $('cempty').value = '0';
+      $('cempty').dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await page.waitForTimeout(300);
+
+    const r = await pairIn(page, 'backgrounds/sky', 'skins/tan', 100);
+    expect(r.misses, 'every draw was impossible and every one was counted').toBe(100);
+
+    await page.evaluate(() => drawSheet(4));
+    await page.waitForTimeout(800);
+    const note = await page.evaluate(() => $('cnote').textContent);
+    expect(note, 'and the sheet says so').toMatch(/over-constrained/);
+    // DRAWS, not characters: uniqueCombos redraws to find distinct ones, so the
+    // count is far larger than the number of characters shown. Calling them
+    // characters read as nonsense, because it was.
+    expect(note, 'counted as draws').toMatch(/draws?/);
+  });
+
   test('a rule survives the trait being approved', async ({ page }) => {
     // THE CASE THE DESIGN EXISTS FOR, and the one my other tests all missed.
     // A trait id is built from name, layer AND status - t_crown_hair-headwear_wip

@@ -953,7 +953,7 @@ footer .mono{color:var(--ink);}
       <select id="rulea" aria-label="First trait" style="flex:1;min-width:0"></select>
       <select id="ruleb" aria-label="Second trait" style="flex:1;min-width:0"></select>
       <button class="mini" id="ruleadd"
-        title="These two will never appear on the same character">Add</button>
+        title="These two will not appear on the same character. If the rules cannot all be met at once, the sheet and the collection say how many draws could not honour them.">Add</button>
     </div>
     <div id="rulelist"></div>
   </section>
@@ -6313,8 +6313,15 @@ function cPools(){
 }
 /* Returns records already in draw order: base, then LAYERS order. Building the
    list in the order it will be painted keeps the ordering in one place. */
-function randomCombo(pools){
-  const out=[];
+/* ONE ATTEMPT at a character, and whether it had to break a rule to finish.
+
+   Layers are walked in order and each pick is committed, so an early choice
+   can leave a later layer that cannot be skipped with nothing legal in it.
+   That is a fact about this draw, not about the set - another draw of the same
+   set usually has no such problem - so this reports it rather than deciding
+   what to do about it. */
+function buildCombo(pools){
+  const out=[]; let violated=false;
   const base=pools.__base;
   if(base&&base.length) out.push(weightedPick(base));
   for(const layer of LAYERS){
@@ -6323,23 +6330,52 @@ function randomCombo(pools){
     /* An empty layer is what makes characters differ, but not every layer can
        be empty - see ALWAYS_PRESENT. */
     if(ALWAYS_PRESENT.indexOf(layer)<0 && rnd()<emptyChance) continue;
-    /* Only what goes with the character so far. Filtering here rather than
-       drawing a whole character and rejecting it means this cannot loop, and
-       cannot emit a conflict at all. */
+    /* Only what goes with the character so far. */
     const ok = RULES.length ? p.filter(r=>!conflictsWith(r,out)) : p;
     if(!ok.length){
-      /* Everything in this layer clashes with something already chosen. Leaving
-         it out is the honest answer where a layer may be empty. Where it may
-         not, the set is over-constrained: one is picked anyway and the miss is
-         counted, because a silently broken rule is worse than a reported one. */
+      /* Everything here clashes with something already chosen. Leaving the layer
+         out is the honest answer where a layer may be empty. Where it may not,
+         this draw is cornered - say so and let the caller decide. */
       if(ALWAYS_PRESENT.indexOf(layer)<0) continue;
-      ruleMisses++;
+      violated=true;
       out.push(weightedPick(p));
       continue;
     }
     out.push(weightedPick(ok));
   }
-  return out;
+  return { combo:out, violated };
+}
+/* How many times to try before accepting that the rules cannot be met. Each
+   attempt re-rolls every layer independently, so a set with any legal character
+   at all escapes a corner quickly; the bound only matters when the rules are
+   genuinely unsatisfiable, which is the case worth reporting rather than
+   retrying forever. */
+const COMBO_TRIES=24;
+/* A character that does not break a rule, if this set has one.
+
+   The old version emitted the cornered draw and counted it, so a forbidden pair
+   reached the sheet and the exported metadata while the Add-rule button
+   promised it never would. A cornered draw is thrown away and made again
+   instead; only when every attempt corners is a miss counted and the last one
+   returned, because rules CAN be unsatisfiable and pretending otherwise would
+   hang.
+
+   Discarding illegal draws is rejection sampling, so what comes out is the
+   distribution of characters that satisfy the rules - which is what a rule
+   means. The shelf percentages follow, because they measure this function
+   rather than reasoning about it.
+
+   With no rules there is nothing to violate and no loop is entered. */
+function randomCombo(pools){
+  if(!RULES.length) return buildCombo(pools).combo;
+  let last=null;
+  for(let i=0;i<COMBO_TRIES;i++){
+    const r=buildCombo(pools);
+    if(!r.violated) return r.combo;
+    last=r.combo;
+  }
+  ruleMisses++;
+  return last;
 }
 /* A character's identity: the traits it carries, in draw order.
 
@@ -6455,6 +6491,15 @@ async function drawSheet(count){
      warned about mixed sizes and the twelve-character sheet did not, though it
      is the screen you look at to decide the set works. */
   const scen=sizeCensus([].concat(...combos));
+  /* ruleMisses was declared, incremented, reset and never displayed. It counts
+     characters the rules could not be met for at all, which is the one case
+     where what was drawn disagrees with the Never-together list. */
+  /* DRAWS, not characters. uniqueCombos rejects duplicates by drawing again, so
+     a small set makes hundreds of draws for a handful of characters and every
+     cornered one counts. Measured: a sheet of 6 on a 4-combination set reported
+     240 against 1 character shown, which read as nonsense because it was. */
+  const missed = ruleMisses ? "  The Never-together rules could not be met on "
+    +ruleMisses+" draw"+(ruleMisses===1?"":"s")+" - the set is over-constrained." : "";
   /* Asking for more than the set holds is a fact about the set, not a
      failure - and "only 8 exist" and "586 exist but the weights make repeats
      likely" are different problems with the same symptom. Both are said. */
@@ -6468,7 +6513,7 @@ async function drawSheet(count){
   $("cnote").textContent=got+" different characters drawn from what is saved"+
     ($("cwip").checked?"":" and approved")+". Look for traits that collide rather than stack"+
     (empties?", and note "+empties+" came out with nothing but a base":"")+
-    ". Change any dropdown to go back to one character."+shortBy+
+    ". Change any dropdown to go back to one character."+shortBy+missed+
     (scen.oddCount ? "  Not all the same size: "+scen.detail
       +". Traits that layer have to share one canvas size." : "");
   $("cdl").disabled=false;
@@ -8931,6 +8976,10 @@ $('cgenzip').onclick=async()=>{
     /* The same shortfall the sheet reports, for the same reason: asking for
        more than the set holds is a fact about the set. Finding that out from
        a zip of 340 files when 1,000 were asked for is worse than being told. */
+    /* Same counter, same reason: a collection that could not honour a rule must
+       say so before the zip is opened somewhere else. */
+    const missed = ruleMisses ? " The Never-together rules could not be met on "
+      +ruleMisses+" draw"+(ruleMisses===1?"":"s")+" - the set is over-constrained." : "";
     const cstat=comboStats(cItems,$("cwip").checked);
     const short = r.made<r.asked
       ? " Asked for "+r.asked+" - "+bigLabel(cstat.distinct)+" combinations exist"
@@ -8938,7 +8987,7 @@ $('cgenzip').onclick=async()=>{
           ? ", and the weights make it behave like "+bigLabel(cstat.effective)+"." : ".")
       : "";
     $("cnote").textContent="Built "+r.made+" different character"+(r.made===1?"":"s")
-      +" with metadata."+short;
+      +" with metadata."+short+missed;
     toast("Downloaded "+r.made+" character"+(r.made===1?"":"s"));
   }catch(e){
     toast("Could not build the set: "+((e&&e.message)||"error"));

@@ -5874,7 +5874,7 @@ async function drawCompose(){
     const k=p.rec.w+String.fromCharCode(215)+p.rec.h;
     if(!sizes.has(k)) sizes.set(k,[]);
     sizes.get(k).push(p.rec.name);
-    g.drawImage(bm,0,0,W,H);
+    paintTrait(g,bm,0,0,W,H);
   }
   const odd = sizes.size>1
     ? [...sizes.entries()].sort((a,b)=>b[1].length-a[1].length)
@@ -6416,6 +6416,30 @@ function weightedPick(recs){
   /* Only reachable through floating-point drift, never through the weights. */
   return recs[recs.length-1];
 }
+/* Paint one trait into a box, keeping its pixels square.
+
+   Traits share a canvas sized to the largest of them. Stretching a smaller
+   one to fill it gives a fractional scale, and nearest-neighbour then makes
+   some source pixels wider than others - measured on a 48px trait composed
+   to 160px, stripes came out 3 and 4 wide from a source where every stripe
+   was 1. That is the one thing pixel art cannot survive, and it is why the
+   editor zooms in whole steps.
+
+   So: the largest WHOLE scale that fits, centred in the remainder. At a
+   ratio that already is a whole number this is exactly what stretching did,
+   so nothing that looked right changes.
+
+   Centring is a guess - nothing records where a smaller trait was meant to
+   sit. Stretching was also a guess and destroyed the art making it. */
+function paintTrait(g,bm,ox,oy,W,H){
+  const w=bm.width||W, h=bm.height||H;
+  /* Never below 1: a trait larger than the box would scale to 0 and vanish.
+     W and H are the max over the traits being painted, so this is a guard
+     against a caller passing a smaller box, not a case that happens here. */
+  const k=Math.max(1,Math.min(Math.floor(W/w),Math.floor(H/h)));
+  const dw=w*k, dh=h*k;
+  g.drawImage(bm,ox+Math.round((W-dw)/2),oy+Math.round((H-dh)/2),dw,dh);
+}
 function cPools(){
   const pools={};
   $("crows").querySelectorAll("select").forEach(s=>{
@@ -6559,7 +6583,7 @@ async function buildCollection(n,onProgress){
   const files=[];
   for(let i=0;i<combos.length;i++){
     g.clearRect(0,0,W,H);
-    for(const r of combos[i]){ const bm=await cBitmap(r); g.drawImage(bm,0,0,W,H); }
+    for(const r of combos[i]){ const bm=await cBitmap(r); paintTrait(g,bm,0,0,W,H); }
     const blob=await blobOf(cv);
     const id=String(i+1).padStart(pad,"0");
     files.push({name:"images/"+id+".png", data:new Uint8Array(await blob.arrayBuffer())});
@@ -6599,7 +6623,7 @@ async function drawSheet(count){
     const ox=(i%cols)*(W+GAP), oy=Math.floor(i/cols)*(H+GAP);
     for(const r of combos[i]){
       const bm=await cBitmap(r);
-      g.drawImage(bm,ox,oy,W,H);
+      paintTrait(g,bm,ox,oy,W,H);
     }
   }
   sheetMode=true;

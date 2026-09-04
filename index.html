@@ -911,6 +911,13 @@ footer .mono{color:var(--ink);}
           <input id="cempty" type="number" min="0" max="90" step="5" value="35" style="width:52px">%</label>
         <button class="mini" id="crand">Randomise</button>
         <button class="mini" id="csheet">Sheet of 12</button>
+        <!-- The set itself. Everything above previews it; this is the only way
+             to get the images AND the metadata a mint actually consumes. -->
+        <label class="olchk" style="margin-right:4px"
+          title="How many characters to generate. Each one is different from the others.">make
+          <input id="cgen" type="number" min="1" max="10000" step="1" value="100" style="width:64px"></label>
+        <button class="mini" id="cgenzip"
+          title="Generate that many different characters and download them as a zip of images and metadata">Generate set</button>
         <button class="mini" id="cclear">Clear</button>
         <button class="mini go" id="cdl">Download</button>
       </div>
@@ -5958,6 +5965,54 @@ function uniqueCombos(pools,n){
   }
   return out;
 }
+/* The collection: distinct characters, their images, and the metadata that
+   says what each one is.
+
+   The metadata is the half a picture cannot carry. A folder of PNGs is a
+   folder of PNGs - nothing in it knows which character has the gold crown, so
+   every rarity figure in this app stops at the screen without it. Each file
+   lists the traits as trait_type and value, the shape marketplaces read.
+
+   Images and metadata share one zero-padded index, padded to the width of the
+   largest number so a directory listing sorts in generation order rather than
+   1, 10, 100.
+
+   Sized to the largest trait, matching the preview and the sheet, so what is
+   exported is what was on screen. Mixed sizes are already reported in three
+   places by the census.
+
+   It yields every twenty characters. Ten thousand composites and PNG encodes
+   without handing back the event loop is a frozen tab with nothing on screen
+   to say it is working, which nobody can tell from a crash. */
+async function buildCollection(n,onProgress){
+  const pools=cPools();
+  const combos=uniqueCombos(pools,n);
+  let W=0,H=0;
+  for(const c of combos) for(const r of c){ if(r.w>W) W=r.w; if(r.h>H) H=r.h; }
+  if(!combos.length||!W||!H) return { files:[], made:0, asked:n };
+  const cv=document.createElement("canvas"); cv.width=W; cv.height=H;
+  const g=cv.getContext("2d"); g.imageSmoothingEnabled=false;
+  const enc=new TextEncoder();
+  const pad=String(combos.length).length;
+  const files=[];
+  for(let i=0;i<combos.length;i++){
+    g.clearRect(0,0,W,H);
+    for(const r of combos[i]){ const bm=await cBitmap(r); g.drawImage(bm,0,0,W,H); }
+    const blob=await blobOf(cv);
+    const id=String(i+1).padStart(pad,"0");
+    files.push({name:"images/"+id+".png", data:new Uint8Array(await blob.arrayBuffer())});
+    /* image names the file beside it rather than a URL: the host is not known
+       until these are uploaded, and writing a guess there is how a collection
+       ships pointing at nothing. */
+    files.push({name:"metadata/"+id+".json", data:enc.encode(JSON.stringify({
+      name:"#"+id,
+      image:id+".png",
+      attributes:combos[i].map(r=>({trait_type:r.layer||"unsorted", value:r.name}))
+    },null,2))});
+    if(onProgress && i%20===0){ onProgress(i+1,combos.length); await new Promise(r=>setTimeout(r,0)); }
+  }
+  return { files, made:combos.length, asked:n };
+}
 async function drawSheet(count){
   const pools=cPools();
   /* DIFFERENT characters, not just that many draws. */
@@ -8403,6 +8458,41 @@ $('rsh').addEventListener('input',()=>{
 });
 $('crand').onclick=composeRandom;
 $('csheet').onclick=()=>drawSheet(12);
+$('cgenzip').onclick=async()=>{
+  const btn=$("cgenzip");
+  if(btn.disabled) return;
+  const n=Math.max(1,Math.min(10000,parseInt($("cgen").value,10)||0));
+  /* Disabled for the duration. Two runs at once would interleave their
+     progress messages and hand back two zips with the same name. */
+  btn.disabled=true;
+  const was=btn.textContent;
+  btn.textContent="Working";
+  try{
+    const r=await buildCollection(n,(done,total)=>{
+      $("cnote").textContent="Building "+done+" of "+total+"...";
+    });
+    if(!r.made){ toast("Nothing saved to build from"); $("cnote").textContent=""; return; }
+    const b=zip(r.files), u=URL.createObjectURL(b), a=document.createElement("a");
+    a.href=u; a.download="chatnft-collection-"+r.made+".zip";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(u),4000);
+    /* The same shortfall the sheet reports, for the same reason: asking for
+       more than the set holds is a fact about the set. Finding that out from
+       a zip of 340 files when 1,000 were asked for is worse than being told. */
+    const cstat=comboStats(cItems,$("cwip").checked);
+    const short = r.made<r.asked
+      ? " Asked for "+r.asked+" - "+bigLabel(cstat.distinct)+" combinations exist"
+        +(cstat.effective < cstat.distinct*0.9
+          ? ", and the weights make it behave like "+bigLabel(cstat.effective)+"." : ".")
+      : "";
+    $("cnote").textContent="Built "+r.made+" different character"+(r.made===1?"":"s")
+      +" with metadata."+short;
+    toast("Downloaded "+r.made+" character"+(r.made===1?"":"s"));
+  }catch(e){
+    toast("Could not build the set: "+((e&&e.message)||"error"));
+    $("cnote").textContent="";
+  }finally{ btn.disabled=false; btn.textContent=was; }
+};
 $('cclear').onclick=()=>{ $('crows').querySelectorAll('select').forEach(s=>s.value=''); drawCompose(); };
 $('cwip').onchange=()=>{ renderShelf(); };
 $('cdl').onclick=()=>{

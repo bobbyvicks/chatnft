@@ -69,6 +69,7 @@ something. Good places to look, in order:
 
 Newest first. Delete the oldest when this passes 12.
 
+- 2026-09-04 — Approving a wip trait destroyed the finished one of the same name, with a success toast; both write paths now refuse a collision and name it
 - 2026-09-04 — Every rarity percentage read 0.00% after a reload once a rule was saved: an EMPTY distribution was cached because the tiles run before the compose rows are built
 - 2026-09-04 — The base character had NO tests at all; it shipped in every metadata file as trait_type "unsorted", the internal bucket name
 - 2026-09-04 — The storage sweep pages like its sibling: it stopped on a SHORT batch and capped at 2,000 files, leaving orphans nothing would ever list
@@ -80,7 +81,6 @@ Newest first. Delete the oldest when this passes 12.
 - 2026-09-04 — The upload retries a dropped file three times like the download does, and the stale check stops selecting every column
 - 2026-09-04 — Save to cloud: 308 requests to 189 on a first push and 8 on a repeat; stopped emptying the server before re-uploading
 - 2026-09-04 — Save/Load to cloud no longer tell a signed-in person to sign in when the network hiccups
-- 2026-09-04 — A file dropped mid-pull is retried three times instead of abandoned; a 404 still costs one request
 
 ## Facts worth keeping
 
@@ -90,6 +90,16 @@ Measured, with the date. Delete one the moment the code contradicts it.
   and written into its metadata, but had zero test coverage until 09-04 — which
   is how it shipped labelled `"unsorted"`. When adding a fixture, ask whether it
   covers the BASE as well as the traits. *(09-04)*
+- **A trait id is name + layer + status, and `dbPut` overwrites.** Changing any
+  of the three moves the record to a new id; if something is already there it is
+  destroyed. The file has two conventions for this — RENAME (duplicateTrait,
+  importProject, retagLayer, cloudPull) or REFUSE (planShelfMove) — and any new
+  write path must pick one deliberately. *(09-04)*
+- **Two guards that cover each other cannot be mutation-tested one at a time.**
+  `idHolder` checked the self case twice; each single-line mutation SURVIVED
+  because the other still caught it, which reads as missing coverage and is not.
+  Remove both to see what the pair is worth — and then check which CALLER the
+  behaviour actually matters to, because that is where the test belongs. *(09-04)*
 - **The default grid makes most sizes unreachable.** `projectGrid` is 160, so
   snap allows only its whole divisors and multiples — 1 2 4 5 8 10 16 20 32 40
   80 160 320. Between 41 and 140 there is exactly one legal size, 80. *(09-04)*

@@ -597,7 +597,11 @@ input[type=range]{width:100%; accent-color:var(--accent); cursor:pointer;}
 /* The recolour swatches can now have several chosen at once, and the outline
    above is drawn in the accent colour - which disappears on a swatch that IS
    roughly the accent colour. The inset pair reads against any fill. */
-.rsw[aria-pressed="true"]{box-shadow:inset 0 0 0 2px #000000aa, inset 0 0 0 4px #ffffffcc;}
+/* The replace mark, on its OWN attribute. It shared aria-pressed with the
+   drawing colour while there were two grids, on buttons that were both class
+   "sw" - so setColor's sweep wiped it and rcSummary had to keep restoring it.
+   Two states on two attributes cannot overwrite each other. */
+.sw[data-rc="1"]{box-shadow:inset 0 0 0 2px #000000aa, inset 0 0 0 4px #ffffffcc;}
 .cur{display:flex; align-items:center; gap:9px; padding:8px; border-radius:9px;
   background:var(--panel-2); border:1px solid var(--line);}
 .cur input[type=color]{width:34px; height:34px; padding:0; border:1px solid #ffffff24;
@@ -1048,6 +1052,17 @@ footer .mono{color:var(--ink);}
         <input id="filltol" type="number" min="0" max="120" value="8" style="width:72px"></div>
       </div>
       <div class="rule"></div>
+      <!-- What a click on a swatch DOES. The palette used to be drawn twice,
+           once here and once in Recolour, because the two interactions differ:
+           drawing takes one colour, replacing takes several. One grid and a
+           labelled mode costs one click in the recolour flow and gives back
+           about 243px of sidebar. Both states stay visible in both modes. -->
+      <div class="chips" id="palmode" role="group" aria-label="What clicking a colour does">
+        <button type="button" data-v="draw" aria-pressed="true"
+          title="Click a colour to draw with it">Draw</button>
+        <button type="button" data-v="replace" aria-pressed="false"
+          title="Click colours to mark them for replacing - pick as many as you like">Replace</button>
+      </div>
       <div class="swatches" id="pal"></div>
     </section>
     <section>
@@ -1125,8 +1140,7 @@ footer .mono{color:var(--ink);}
     <section>
       <h2>Recolour</h2>
       <div class="stack">
-        <div class="swatches" id="rcpal"></div>
-        <p class="note" id="rcfrom">Pick one or more colours above to replace.</p>
+        <p class="note" id="rcfrom">Set the palette to Replace, then pick colours.</p>
         <button class="btn ghost" id="rcnear" aria-pressed="false"
           style="width:auto;padding:6px 10px;font-size:12px"
           title="Also replace shades within the distance below">Include near shades</button>
@@ -3720,7 +3734,18 @@ function buildPalette(list){
     const b=document.createElement('button');
     b.className='sw'; b.dataset.hex=h; b.style.background=h; b.title=h+' · '+c.n.toLocaleString()+' px';
     b.setAttribute('aria-pressed','false'); b.setAttribute('aria-label','Colour '+h);
-    b.onclick=()=>{ setColor(h); selectTool('pencil'); };
+    /* What the click MEANS is the mode; what the swatch SHOWS is both states at
+       once. aria-pressed is the drawing colour, data-rc is marked-for-replace,
+       so switching mode hides nothing and setColor cannot wipe a mark. */
+    if(rcPick.has(h)) b.dataset.rc="1";
+    b.onclick=()=>{
+      if(chipVal("palmode")==="replace"){
+        /* Toggle. Clicking a chosen swatch again takes it out, which is the only
+           way to correct a misclick without starting the selection over. */
+        if(rcPick.has(h)) rcPick.delete(h); else rcPick.add(h);
+        rcSummary();
+      } else { setColor(h); selectTool("pencil"); }
+    };
     wrap.appendChild(b);
   });
 }
@@ -4620,9 +4645,9 @@ function setChip(id,v){
      "no choice" and send chipVal to the first one anyway. */
   if(!hit&&all.length) all[0].setAttribute("aria-pressed","true");
 }
-for(const id of ["rsmode","tstatus"]){
+for(const id of ["rsmode","tstatus","palmode"]){
   const g=document.getElementById(id);
-  if(g) g.onclick=e=>{ const b=e.target.closest("button[data-v]"); if(b){ setChip(id,b.dataset.v); if(id==="rsmode") resizeBoxes(); } };
+  if(g) g.onclick=e=>{ const b=e.target.closest("button[data-v]"); if(b){ setChip(id,b.dataset.v); if(id==="rsmode") resizeBoxes(); if(id==="palmode") rcSummary(); } };
 }
 
 function selectTool(t){
@@ -5183,7 +5208,9 @@ async function offerRestore(){
 
 /* ================= recolour ======================================= */
 function buildRecolour(list, keep){
-  const wrap=$("rcpal"); wrap.innerHTML="";
+  /* No grid of its own any more - the one palette above carries both states.
+     What is left is the part that was never about the DOM: reconciling the
+     selection against a changed colour list. */
   /* Rebuilding after the COLOURS changed starts a fresh selection, which is
      what recolour() depends on. Rebuilding because the pixels went back to
      how they were - undo and redo - must not: undoing a pencil stroke was
@@ -5193,26 +5220,9 @@ function buildRecolour(list, keep){
     const have=new Set(list.map(c=>hex(c.r,c.g,c.b)));
     [...rcPick].forEach(h=>{ if(!have.has(h)) rcPick.delete(h); });
   } else rcPick.clear();
-  list.forEach(c=>{
-    const hx=hex(c.r,c.g,c.b);
-    const b=document.createElement("button");
-    /* These ARE class "sw" as well as "rsw", so setColor's sweep does reach
-       them - an earlier comment here claimed the opposite and it was wrong.
-       rcSummary puts the marks back; see the note on it. The "rsw" half is
-       what tells the two selections apart. */
-    b.className="sw rsw"; b.dataset.hex=hx; b.style.background=hx;
-    b.title=hx+" \u00b7 "+c.n.toLocaleString()+" px";
-    b.setAttribute("aria-pressed","false");
-    b.setAttribute("aria-label","Replace colour "+hx);
-    b.onclick=()=>{
-      /* Toggle. Clicking a chosen swatch again takes it out, which is the only
-         way to correct a misclick without starting the selection over. */
-      if(rcPick.has(hx)) rcPick.delete(hx); else rcPick.add(hx);
-
-      rcSummary();
-    };
-    wrap.appendChild(b);
-  });
+  /* The swatch loop that used to live here is gone with the second grid. Its
+     toggle behaviour moved into buildPalette, unchanged: clicking a chosen
+     colour again takes it out. */
   /* AFTER the swatches exist. This used to run before the loop, so it swept
      an empty set and marked nothing - harmless only while every rebuild
      cleared the selection anyway. Now that undo keeps one, this ordering is
@@ -5224,20 +5234,44 @@ function buildRecolour(list, keep){
    clearing, rebuilding the palette after a change, and setColor - because Y
    is the CURRENT colour and goes stale the moment the user picks a new one. */
 function rcSummary(){
-  /* The marks are re-applied from rcPick every time rather than toggled in
-     place, because something else moves them. setColor sweeps EVERY .sw to
-     show the active drawing colour, and these swatches are class "sw rsw" -
-     so changing the colour you are replacing WITH wiped the marks off the
-     colours you had chosen, while the selection itself stayed live. Measured
-     in the browser: two colours chosen, setColor called, marks 2 -> 0 and the
-     panel still reading "Replacing #00ff00, #fa0505". Since setColor calls
-     this, restoring them here puts the display back within the same click. */
-  document.querySelectorAll(".rsw").forEach(s=>
-    s.setAttribute("aria-pressed",String(rcPick.has(s.dataset.hex))));
+  /* SUPERSEDED. Kept because the measurement is the reason the two states are
+     on different attributes, and a reader who found only "re-apply the marks
+     here" would be free to tidy them back onto one.
+
+     WHILE THE PALETTE WAS DRAWN TWICE, the recolour swatches were class
+     "sw rsw" and both selections used aria-pressed - so setColor sweeping every
+     .sw to show the drawing colour wiped the recolour marks off. Measured in the
+     browser: two colours chosen, setColor called, marks 2 -> 0 while the panel
+     still read "Replacing #00ff00, #fa0505". This function re-applied them on every
+     call to compensate, and since setColor calls it the display recovered within
+     the same click.
+
+     THERE IS ONE GRID NOW and the two states are on different attributes -
+     aria-pressed for the drawing colour, data-rc for the mark - so setColor
+     sweeping aria-pressed cannot reach a mark. Do not put them back on one.
+
+     THE RE-APPLY BELOW IS STILL LOAD-BEARING, and an earlier version of this
+     comment said it was not. Measured: restoring the old collision, by making
+     setColor's sweep delete data-rc the way it used to clobber aria-pressed,
+     broke NO test at all - because setColor ends by calling this function, and
+     this function re-applies every mark from rcPick, so the wipe is repaired
+     inside the same call before anything can observe it.
+
+     So the marks are protected twice over, and neither protection alone has a
+     test that fails when it is removed. Keep both. */
+  document.querySelectorAll("#pal .sw").forEach(s=>{
+    if(rcPick.has(s.dataset.hex)) s.dataset.rc="1"; else delete s.dataset.rc;
+  });
   const n=rcPick.size;
   $("rcgo").disabled=!n;
   $("rcnone").disabled=!n; $("rcerase").disabled=!n;
-  if(!n){ $("rcfrom").textContent="Pick colours above"; return; }
+  /* Which of the two things to do next depends on the mode, and saying the
+     wrong one is worse than saying nothing: "pick colours above" to someone
+     whose clicks are currently setting the drawing colour describes an action
+     that will not work. */
+  if(!n){ $("rcfrom").textContent = chipVal("palmode")==="replace"
+    ? "Pick colours in the palette to replace"
+    : "Set the palette to Replace, then pick colours"; return; }
   const names=[...rcPick];
   /* Named in full up to three, counted past that - a dozen hex codes in a row
      is not something anyone reads, and the swatches already show which. */

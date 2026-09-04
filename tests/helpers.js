@@ -181,16 +181,32 @@ export const base = {
 };
 
 /** Which recolour swatches are marked. */
+/** Which colours are marked for replacing, read off the DOM.
+
+    Reads data-rc, not aria-pressed. The two selections shared aria-pressed
+    while there were two swatch grids, which is the collision that made
+    changing the drawing colour wipe the recolour marks; they are separate
+    attributes now, and reading the wrong one here would report an empty
+    selection while the app held a full one. */
 export const picked = page => page.evaluate(() =>
-  [...document.querySelectorAll('#rcpal .rsw')]
-    .filter(s => s.getAttribute('aria-pressed') === 'true')
+  [...document.querySelectorAll('#pal .sw')]
+    .filter(s => s.dataset.rc === '1')
     .map(s => s.dataset.hex));
 
-/** Click the nth recolour swatch. */
+/** Mark the nth palette colour for replacing.
+
+    There used to be two swatch grids - #pal to draw with and #rcpal to
+    replace - showing the same 64 colours. They are one grid now, and what a
+    click MEANS is a mode chip above it, so this sets the mode first, exactly
+    as a person would. Picking without switching would set the drawing colour
+    and mark nothing, which is a silent no-op rather than an error. */
 export const pickSwatch = (page, n) => page.evaluate(i => {
-  const s = [...document.querySelectorAll('#rcpal .rsw')][i];
+  setChip('palmode', 'replace');
+  const s = [...document.querySelectorAll('#pal .sw')][i];
   if (!s) throw new Error('no swatch at index ' + i);
   s.click();
+  if (!rcPick.has(s.dataset.hex))
+    throw new Error('clicking swatch ' + i + ' did not mark it - is the palette in Replace mode?');
   return s.dataset.hex;
 }, n);
 

@@ -953,7 +953,7 @@ footer .mono{color:var(--ink);}
       <select id="rulea" aria-label="First trait" style="flex:1;min-width:0"></select>
       <select id="ruleb" aria-label="Second trait" style="flex:1;min-width:0"></select>
       <button class="mini" id="ruleadd"
-        title="These two will not appear on the same character. If the rules cannot all be met at once, the sheet and the collection say how many draws could not honour them.">Add</button>
+        title="These two will not appear on the same character. Add more traits to a rule from its own row, and a character carries at most one of them. If the rules cannot all be met at once, the sheet and the collection say how many draws could not honour them.">Add</button>
     </div>
     <div id="rulelist"></div>
   </section>
@@ -1711,8 +1711,21 @@ const RULES_ID='settings.rules';
 let RULES=[];
 function traitKey(rec){ return rec ? (rec.layer||"unsorted")+"/"+(rec.name||"") : ""; }
 /* Sorted, so a rule added as A-then-B matches a character carrying B-then-A. */
-function rulePair(a,b){ return a<b ? [a,b] : [b,a]; }
-function ruleId(p){ return p[0]+"\u0000"+p[1]; }
+/* The members of a rule: sorted, so one added as A-then-B matches a character
+   carrying B-then-A, and de-duplicated, so the same trait named twice is one
+   member. Supersedes rulePair(a,b){ return a<b ? [a,b] : [b,a]; }, which gave
+   the same answer for two and no answer at all for three. */
+function ruleGroup(list){
+  return [...new Set((list||[]).map(k=>String(k)).filter(Boolean))].sort();
+}
+/* The WHOLE group. WAS ruleId(p){ return p[0]+"\u0000"+p[1]; }, which read the
+   first two elements and nothing else - measured on the shipped file,
+   ruleId(["a","b","c"]) === ruleId(["a","b","d"]) came back TRUE. Every id
+   comparison in the app therefore treated any two rules sharing a first pair
+   as one rule: refused as a duplicate when added, removed together by one
+   button, collapsed into one on load. At two members join is byte-identical to
+   what it replaces. */
+function ruleId(g){ return (g||[]).join("\u0000"); }
 /* How many cells across the collection's art is. A size is only safe when it
    is a whole multiple of this: at any other size a cell is a fractional number
    of pixels and comes out alternately n and n+1 wide. The collection this was
@@ -5813,20 +5826,75 @@ function buildRules(traits){
   }
   const have=new Set(keys);
   L.innerHTML="";
-  for(const p of RULES){
+  for(const g of RULES){
+    /* Captured once. Every handler below matches on this rather than on g, so
+       an applyRules between the click and the await cannot make them miss. */
+    const gid=ruleId(g);
     const row=document.createElement("div");
     row.className="olrow";
-    const gone = !have.has(p[0]) || !have.has(p[1]);
-    const t=document.createElement("span");
-    t.textContent=p[0]+"  and  "+p[1]+(gone?"  (no longer in the set)":"");
-    if(gone) t.style.color="var(--bad)";
-    row.appendChild(t);
+    /* One button per member, so a flag can say WHICH trait is missing and a
+       third member is not invisible. The old row tested p[0] and p[1] and
+       printed a single flag for the pair. */
+    for(const k of g){
+      const m=document.createElement("button");
+      m.className="mini";
+      m.type="button";
+      const gone=!have.has(k);
+      m.textContent=k+(gone?"  (no longer in the set)":"");
+      if(gone) m.style.color="var(--bad)";
+      /* What a click does depends on how many are left, so the label has to
+         say which - taking a member out of a rule and deleting the rule are
+         different enough that guessing wrong is destructive. */
+      m.setAttribute("aria-label", g.length>2
+        ? "Take "+k+" out of this rule"
+        : "Remove this rule - a rule needs at least two traits");
+      m.title = g.length>2 ? "Take "+k+" out of this rule"
+        : "A rule needs two traits, so this removes the rule";
+      m.onclick=async()=>{
+        const left=g.filter(x=>x!==k);
+        RULES = left.length>=2
+          ? RULES.map(q=>ruleId(q)===gid?left:q)
+          : RULES.filter(q=>ruleId(q)!==gid);
+        try{ await saveRules(); }catch(_){ toast("Could not save the rule"); return; }
+        renderShelf();
+        toast(left.length>=2 ? k+" is no longer in that rule" : "Rule removed");
+      };
+      row.appendChild(m);
+    }
+    /* The new gesture. Only traits not already in this rule. */
+    const add=document.createElement("select");
+    /* .olrow select carries margin-left:auto, which would shove this to the
+       right and fight the remove button for the same space. */
+    add.style.marginLeft="0";
+    add.setAttribute("aria-label","Add a trait to the rule keeping "+g.join(", ")+" apart");
+    const first=document.createElement("option");
+    first.value=""; first.textContent="add a trait";
+    add.appendChild(first);
+    for(const k of keys){
+      if(g.indexOf(k)>=0) continue;
+      const o=document.createElement("option");
+      o.value=k; o.textContent=k;
+      add.appendChild(o);
+    }
+    /* Nothing left to offer means nothing to click. */
+    add.disabled = add.options.length<2;
+    add.onchange=async()=>{
+      const v=add.value;
+      if(!v) return;
+      const wider=ruleGroup(g.concat([v]));
+      if(RULES.some(q=>ruleId(q)===ruleId(wider))){ toast("That rule already exists"); return; }
+      RULES=RULES.map(q=>ruleId(q)===gid?wider:q);
+      try{ await saveRules(); }catch(_){ toast("Could not save the rule"); return; }
+      renderShelf();
+      toast("Only one of "+wider.join(", ")+" will appear on a character");
+    };
+    row.appendChild(add);
     const x=document.createElement("button");
     x.className="mini"; x.textContent="remove";
     x.style.marginLeft="auto";
-    x.setAttribute("aria-label","Remove the rule keeping "+p[0]+" and "+p[1]+" apart");
+    x.setAttribute("aria-label","Remove the rule keeping "+g.join(", ")+" apart");
     x.onclick=async()=>{
-      RULES=RULES.filter(q=>ruleId(q)!==ruleId(p));
+      RULES=RULES.filter(q=>ruleId(q)!==gid);
       try{ await saveRules(); }catch(_){}
       renderShelf();
     };
@@ -6758,24 +6826,55 @@ function applyGrid(items){
    throw away an instruction the owner gave. */
 function applyRules(items){
   const rec=items.find(i=>i.id===RULES_ID);
-  RULES = (rec&&Array.isArray(rec.pairs) ? rec.pairs : [])
-    .filter(p=>Array.isArray(p)&&p.length===2&&p[0]&&p[1]&&p[0]!==p[1])
-    .map(p=>rulePair(String(p[0]),String(p[1])));
+  /* groups wins where it exists; pairs is the fallback for a project saved
+     before groups existed. Never merged - a group and its own pair expansion
+     are the same rule, and reading both would show it several times over. */
+  const raw = rec&&Array.isArray(rec.groups) ? rec.groups
+            : (rec&&Array.isArray(rec.pairs) ? rec.pairs : []);
+  /* The floor is load-bearing and is NOT the old length===2 in disguise:
+     ruleGroup can SHRINK a list, and a one-member rule would ban a trait
+     outright, which is what deleting it is for. What has gone is the ceiling -
+     the old filter dropped everything longer than two, so a three-trait rule
+     could be written to storage and never read back. */
+  RULES = raw.filter(g=>Array.isArray(g)).map(g=>ruleGroup(g)).filter(g=>g.length>=2);
   /* Two of the same rule would double every conflict check for nothing. */
   const seen=new Set();
   RULES=RULES.filter(p=>{ const k=ruleId(p); if(seen.has(k)) return false; seen.add(k); return true; });
 }
 async function saveRules(){
-  await dbPut({id:RULES_ID, kind:"settings", pairs:RULES.map(p=>p.slice()), at:Date.now()});
+  /* Both fields, in one statement, so they cannot drift apart.
+
+     pairs is a WRITE-ONLY mirror for a copy of this page that predates groups.
+     "At most one of G" is exactly the conjunction of every pair inside G, so
+     the expansion is the SAME rule rather than an approximation of it: an
+     older tab enforces what it cannot display, instead of dropping it.
+     Nothing in this file ever reads pairs. */
+  await dbPut({id:RULES_ID, kind:"settings", at:Date.now(),
+    groups:RULES.map(g=>g.slice()),
+    pairs:RULES.reduce((acc,g)=>{
+      for(let i=0;i<g.length;i++) for(let j=i+1;j<g.length;j++) acc.push([g[i],g[j]]);
+      return acc; },[])});
 }
 /* Does this trait clash with anything already on the character? */
 function conflictsWith(rec,chosen){
   if(!RULES.length) return false;
   const k=traitKey(rec);
-  for(const other of chosen){
-    const o=traitKey(other);
-    const id=ruleId(rulePair(k,o));
-    for(const p of RULES) if(ruleId(p)===id) return true;
+  /* At most one member of a group. The old version built a pair key for every
+     (candidate, chosen) couple and looked it up; this asks whether the
+     candidate and something already chosen sit in the same group, which is the
+     same question at two members and the right one at any size.
+
+     o!==k is load-bearing: two records can share a traitKey, and a group never
+     contains the same member twice, so a trait must not be found to clash with
+     itself. The old code was safe here for a different reason - a self-pair
+     could never be in RULES - so this keeps the property rather than
+     inheriting it. */
+  for(const g of RULES){
+    if(g.indexOf(k)<0) continue;
+    for(const other of chosen){
+      const o=traitKey(other);
+      if(o!==k && g.indexOf(o)>=0) return true;
+    }
   }
   return false;
 }
@@ -9182,10 +9281,12 @@ $('ruleadd').onclick=async()=>{
   /* A trait cannot clash with itself, and saying so is more use than a rule
      that would empty its own layer on every draw. */
   if(a===b){ toast("Pick two different traits"); return; }
-  const p=rulePair(a,b);
+  const p=ruleGroup([a,b]);
   if(RULES.some(q=>ruleId(q)===ruleId(p))){ toast("Already never together"); return; }
   RULES.push(p);
-  try{ await saveRules(); }catch(_){ toast("Could not save the rule"); }
+  /* Returning, not falling through: the failure toast was overwritten by the
+     success toast two lines down, so a rule that did not save said it had. */
+  try{ await saveRules(); }catch(_){ toast("Could not save the rule"); return; }
   renderShelf();
   toast(a+" and "+b+" will not appear together");
 };

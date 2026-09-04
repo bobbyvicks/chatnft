@@ -3895,6 +3895,60 @@ function contentBox(){
 /* Fit the ART, not the canvas. Filling the view with empty space around a small
    trait is technically "fitting" and practically useless. The canvas is never
    changed, only what the view is pointed at. */
+/* Give the panel the width the artwork cannot use.
+
+   A 160-cell trait on a landscape screen is limited by HEIGHT - 6x needs 960px
+   and a 1000px window leaves 904 - so it sits at 5x, 800 across, in a stage
+   1029 wide. The 229px left over can never become artwork, and it grows with
+   the screen: 195 a side at 1920x1080, 355 at 2560x1440.
+
+   The two-column rule at 1520px already spends that width on the panel and says
+   why. It cannot go further because a media query knows only the WIDTH, while
+   the artwork comes from the HEIGHT: three columns at 1800px would be right on
+   a 1080-tall screen and would squeeze the artwork on a 1440-tall one.
+
+   THE CONDITION IS READ OUT OF fitZoom BELOW, not guessed at. It sizes the
+   artwork by
+
+     Math.min(st.clientWidth-pad, st.clientHeight-pad) / Math.max(w,h)
+
+   so the binding dimension is whichever is SMALLER. Keep the stage at least as
+   wide as it is tall and the height stays binding, which means the zoom - and
+   therefore the artwork - cannot change however much the panel takes.
+
+   An earlier version reserved art.width times the height-bound zoom. Same answer
+   for a square trait, wrong for every other, because fitZoom scales by max(w,h)
+   and may fit the CONTENT box rather than the canvas. This needs none of that -
+   not the shape, not whether a base is loaded, not how much is drawn on.
+
+   Whole 250px columns, because 250 is where the label-plus-control rows stop
+   wrapping; a panel 1.4 columns wide is worse than one column. Below two, the
+   inline width is REMOVED rather than set, so the stylesheet keeps charge of
+   the screens its breakpoints were written for. */
+const PANEL_COL=250, PANEL_GAP=12, PANEL_MAX_COLS=4;
+function fitPanel(){
+  /* nav.tools, not ".rail" - there is no .rail in this document. A probe of mine
+     used the first with a fallback to the second, the fallback answered 71px, and
+     I read that as ".rail is 71 wide". fitPanel then returned 0 on every call and
+     changed nothing at all while looking entirely correct. */
+  const side=document.querySelector(".side"), st=$("stage");
+  const rail=document.querySelector("nav.tools"), app=document.getElementById("app");
+  if(!side||!st||!rail||!app||!ctx) return 0;
+  /* Reserve the stage HEIGHT as its minimum width. Height does not depend on the
+     panel, so this cannot feed back into itself. */
+  const free=app.clientWidth - rail.offsetWidth - st.clientHeight;
+  const cols=Math.max(1,Math.min(PANEL_MAX_COLS,
+    Math.floor((free+PANEL_GAP)/(PANEL_COL+PANEL_GAP))));
+  if(cols<2){
+    side.style.width=""; side.style.gridTemplateColumns="";
+    return 0;
+  }
+  side.style.width=(cols*PANEL_COL+(cols-1)*PANEL_GAP)+"px";
+  side.style.display="grid";
+  side.style.gridTemplateColumns="repeat("+cols+",minmax(0,1fr))";
+  side.style.alignContent="start";
+  return cols;
+}
 function fitZoom(){
   /* Was a hardcoded 32 while the stage's own padding was 20 a side, and it is
      6 a side now - so this reserved 32px of room that no longer exists on top
@@ -3905,6 +3959,9 @@ function fitZoom(){
      Measured: reclaiming 46px of chrome padding alone changed NOTHING, because
      fitZoom never read that padding. This is the number that was actually
      binding. */
+  /* BEFORE measuring the stage. The panel is about to change width, and a zoom
+     computed against the old stage would be one step out until the next resize. */
+  fitPanel();
   const st=$('stage'), pad=12;
   const box=contentBox();
   /* Fitting the CONTENT rather than the canvas is right for a lone trait on a

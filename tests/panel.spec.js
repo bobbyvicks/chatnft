@@ -202,3 +202,82 @@ test.describe('fill interior holes', () => {
     expect(notchStillOpen, 'the notch is untouched').toBe(7);
   });
 });
+
+/* THE PANEL TAKES THE WIDTH THE ARTWORK CANNOT USE.
+
+   Measured at 1600x1000: rail 71, panel 500, stage 1029, and 800x800 of artwork
+   in the middle - 115px of dead stage either side. The art cannot grow into it,
+   because a 160-cell trait is limited by HEIGHT and 6x needs 960px in the 904
+   available. On wider screens it is worse: 195px a side at 1920x1080, 355 at
+   2560x1440.
+
+   THE INVARIANT IS WHAT IS TESTED, not a pixel width. fitZoom sizes the artwork
+   by Math.min(stageWidth-pad, stageHeight-pad) / Math.max(w,h), so while the
+   stage is at least as wide as it is tall the HEIGHT is binding and the zoom
+   cannot move however much the panel takes. That holds for any trait shape, any
+   content box, and with or without a base.
+
+   My first version of these tests computed the expected artwork from art.height
+   and failed at 960 against 7680 - and the code was right. fitZoom fits the
+   CONTENT box when the art covers under half the canvas, and the fixture draws
+   one pixel, so the 48x ceiling is correct. The invariant needs none of that. */
+test.describe('the panel fills the width the art cannot', () => {
+  const shape = (page) => page.evaluate(() => {
+    const st = document.getElementById('stage'), side = document.querySelector('.side');
+    return {
+      stageW: st.clientWidth, stageH: st.clientHeight,
+      side: Math.round(side.getBoundingClientRect().width),
+      cols: getComputedStyle(side).gridTemplateColumns.split(' ').length,
+      zoom,
+    };
+  });
+  const open = (page) => openTrait(page, { w: 160, h: 160, draw: (set, W, H) => {
+    for (let y = 10; y < H - 10; y++) for (let x = 10; x < W - 10; x++) set(x, y, [226, 146, 116]);
+  } });
+
+  test.describe('on a 1080p screen', () => {
+    test.use({ viewport: { width: 1920, height: 1080 } });
+    test('a third column appears, and the stage stays wider than it is tall', async ({ page }) => {
+      await open(page);
+      const s = await shape(page);
+      expect(s.cols, 'two columns left 195px a side doing nothing').toBeGreaterThanOrEqual(3);
+      expect(s.stageW, 'the height must stay the binding dimension').toBeGreaterThanOrEqual(s.stageH);
+    });
+  });
+
+  test.describe('on a 1440p screen', () => {
+    test.use({ viewport: { width: 2560, height: 1440 } });
+    test('a fourth appears, and the invariant still holds', async ({ page }) => {
+      await open(page);
+      const s = await shape(page);
+      expect(s.cols, 'the dead space here was 355px a side').toBeGreaterThanOrEqual(4);
+      expect(s.stageW).toBeGreaterThanOrEqual(s.stageH);
+    });
+  });
+
+  test.describe('on a tall narrow window', () => {
+    /* The assumption inverted: here the artwork is the WIDE one, and there is
+       nothing spare to take. The panel must not take any of it. */
+    test.use({ viewport: { width: 1100, height: 1400 } });
+    test('the panel takes nothing when the art is the wide one', async ({ page }) => {
+      await open(page);
+      const s = await shape(page);
+      expect(s.side, 'the stylesheet stays in charge here').toBeLessThan(600);
+    });
+  });
+
+  test.describe('a wide short trait', () => {
+    test.use({ viewport: { width: 1920, height: 1080 } });
+    test('the invariant holds for a trait that is not square', async ({ page }) => {
+      // fitZoom scales by max(w,h), so a 320x64 trait is driven by its WIDTH. An
+      // earlier version of this feature reserved art.width times the height-bound
+      // zoom and got this case wrong; the invariant does not depend on shape.
+      await openTrait(page, { w: 320, h: 64, draw: (set, W, H) => {
+        for (let y = 4; y < H - 4; y++) for (let x = 4; x < W - 4; x++) set(x, y, [226, 146, 116]);
+      } });
+      const s = await shape(page);
+      expect(s.stageW, 'still at least as wide as it is tall').toBeGreaterThanOrEqual(s.stageH);
+      expect(s.zoom, 'and the artwork is still drawn').toBeGreaterThan(0);
+    });
+  });
+});

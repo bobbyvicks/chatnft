@@ -183,3 +183,71 @@ test.describe('folder import keeps out what is not a trait', () => {
       expect(statuses, 'and they are distinguished by status').toEqual(['approved', 'wip']);
     });
 });
+
+/* WHAT THE REPORT SAYS ABOUT A RE-IMPORT.
+
+   Each trait is written under an id built from its name, layer and status, so
+   re-importing a folder REPLACES what is there rather than duplicating it -
+   which is how an edit made on disk reaches the project. The report counted
+   files read, though, so importing the same folder twice said "Imported 3
+   files" both times. The moment a person most wants to know what happened was
+   the moment it said least. */
+test.describe('the import report', () => {
+  const three = [
+    { path: 'set/skins/tan.png', w: 160, h: 160 },
+    { path: 'set/skins/pale.png', w: 160, h: 160 },
+    { path: 'set/skins/olive.png', w: 160, h: 160 },
+  ];
+
+  test('a first import is all new, and says nothing about updates', async ({ page }) => {
+    await landing(page);
+    const r = await importFiles(page, three);
+    expect(r.count).toBe(3);
+    expect(r.note, 'nothing was replaced, so nothing to qualify').not.toMatch(/updated|all updates/);
+  });
+
+  test('re-importing the same folder replaces, and says so', async ({ page }) => {
+    await landing(page);
+    await importFiles(page, three);
+    const again = await importFiles(page, three);
+    expect(again.count, 'nothing was duplicated').toBe(3);
+    expect(again.note, 'and the report says they were all replacements').toMatch(/all updates/);
+  });
+
+  test('one file added to a folder already imported is counted apart', async ({ page }) => {
+    // The number someone actually wants: did my new file land, and did I add
+    // anything by accident.
+    await landing(page);
+    await importFiles(page, three);
+    const r = await importFiles(page, three.concat([{ path: 'set/skins/ash.png', w: 160, h: 160 }]));
+    expect(r.count).toBe(4);
+    expect(r.note, 'one new').toMatch(/1 new/);
+    expect(r.note, 'and three replaced').toMatch(/3 updated/);
+  });
+
+  test('a file the folder no longer has is named, and left alone', async ({ page }) => {
+    // Usually a file deleted or renamed on disk. Nothing said so, and the next
+    // thing that happens is a collection generated with a trait the artist
+    // believes they removed. Reported, never deleted - guessing that a missing
+    // file means a deliberate deletion would throw away work every time someone
+    // imports a subfolder.
+    await landing(page);
+    await importFiles(page, three);
+    const r = await importFiles(page, three.slice(0, 2));   // olive is gone from the folder
+    expect(r.count, 'it was NOT deleted').toBe(3);
+    expect(r.names, 'all three are still there').toEqual(['olive', 'pale', 'tan']);
+    expect(r.note, 'and it is named').toContain('olive');
+    expect(r.note, 'and said to be untouched').toMatch(/left alone/);
+  });
+
+  test('a layer the folder never mentioned is never called missing', async ({ page }) => {
+    // Otherwise importing one subfolder would report the whole rest of the
+    // project as absent, which is how a real warning becomes noise.
+    await landing(page);
+    await importFiles(page, three.concat([{ path: 'set/masks/veil.png', w: 160, h: 160 }]));
+    const r = await importFiles(page, three);   // only skins this time
+    expect(r.count).toBe(4);
+    expect(r.note, 'the mask is in a layer this import never touched').not.toContain('veil');
+    expect(r.note, 'so nothing is reported missing at all').not.toMatch(/left alone/);
+  });
+});

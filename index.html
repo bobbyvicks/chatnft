@@ -5968,13 +5968,24 @@ async function bulkImport(files){
   /* What this batch actually contained, so the reconcile below can tell a
      file that MOVED from one the import never mentioned. */
   const supplied=[];
+  /* Both describe the same records - one counts them, one names them - and the
+     set is read by the absent-check further down, which is a different block.
+     const does not cross a block, and putting it in the inner one cost a test. */
   let moved=0;
+  const movedIds=new Set();
   /* Numbered per layer, so a folder of nine unnamed backgrounds becomes
      background-1 .. background-9 rather than nine UUIDs. */
   const nextNum={};
   const perLayer={}, noLayer=[];
   let shelfItems=[];
   try{ shelfItems=await dbAll(); }catch(_){}
+  /* What was in the project BEFORE this import, so the report can say which of
+     the files it read were new and which replaced something. shelfItems is
+     appended to as the loop runs, so it cannot answer that question later. */
+  const beforeIds=new Set(shelfItems.filter(i=>i.kind==="trait").map(i=>i.id));
+  const beforeTraits=shelfItems.filter(i=>i.kind==="trait");
+  const writtenIds=new Set();
+  let fresh=0, replaced=0;
   for(let i=0;i<list.length;i++){
     const f=list[i];
     if(i%12===0){
@@ -6022,6 +6033,13 @@ async function bulkImport(files){
         const trec={id:"t_"+info.name+"_"+layer+"_"+status, kind:"trait", name:info.name,
                     layer:layer, status:status, w:w, h:h2, blob:f, at:Date.now(),
                     shelfOrder:shelfCore.nextShelfOrder(shelfItems,layer)};
+        /* A file re-imported under the same name, layer and status has the same
+           id and REPLACES its trait - which is how an edit on disk reaches the
+           project. Counted separately so the report can say so. The
+           written-this-run set matters when one folder holds two files that
+           resolve to the same trait: the second is a replacement, not a new one. */
+        if(beforeIds.has(trec.id)||writtenIds.has(trec.id)) replaced++; else fresh++;
+        writtenIds.add(trec.id);
         await dbPut(trec);
         supplied.push({name:info.name, layer:layer, status:status, id:trec.id});
         shelfItems.push(trec);
@@ -6050,7 +6068,29 @@ async function bulkImport(files){
       try{ await dbDel(rec.id); }catch(_){ continue; }
       /* The server copy too, or the next pull brings it back. */
       try{ await cloudDropOne(rec); }catch(_){}
-      moved++;
+      moved++; movedIds.add(rec.id);
+    }
+  }
+  /* Traits the project has and this folder did not bring. Usually a file
+     deleted or renamed on disk, which means the folder and the collection have
+     drifted - and the next thing that happens is a collection generated with a
+     trait the artist believes they removed.
+
+     REPORTED, NOT DELETED. The move-detection above deletes and says it is
+     "narrow on purpose, because this deletes"; this is far wider, so guessing
+     that a missing file means a deliberate deletion would throw away work every
+     time someone imports a subfolder. Being told costs nothing.
+
+     Only layers this import supplied, on the same reasoning: a layer the folder
+     never mentioned is not evidence of anything. */
+  const absent=[];
+  if(supplied.length){
+    const touched=new Set(supplied.map(s=>s.layer));
+    const here=new Set(supplied.map(s=>s.id));
+    for(const rec of beforeTraits){
+      if(!touched.has(rec.layer)) continue;
+      if(here.has(rec.id)||movedIds.has(rec.id)) continue;
+      absent.push(rec.name);
     }
   }
   await renderShelf();
@@ -6058,7 +6098,14 @@ async function bulkImport(files){
      unsorted are the ones the folder names did not explain, and silently
      filing them reads as if they were understood. */
   const bits=[];
-  bits.push("Imported "+ok+" file"+(ok===1?"":"s"));
+  /* New against replaced. Counting FILES READ while the reader is asking "did
+     my edit land, and did I add anything by accident" answers a question nobody
+     asked - and a re-import of a folder you changed one file in reads exactly
+     like the first import did. */
+  bits.push("Imported "+ok+" file"+(ok===1?"":"s")
+    +(fresh&&replaced ? " ("+fresh+" new, "+replaced+" updated)"
+      : replaced&&!fresh ? " (all updates)"
+      : ""));
   /* Named, not folded into "failed": a file skipped for its size has a
      different fix from one that would not decode. */
   if(oversized) bits.push(oversized+" skipped as over "+MAX_SIDE+"px");
@@ -6070,6 +6117,10 @@ async function bulkImport(files){
      nine records is not a report. */
   if(moved) bits.push(moved+" moved, not duplicated");
   if(refs) bits.push(refs+" kept as a base");
+  /* Nothing was removed - said plainly, because every other line here that
+     names a count of existing records describes something that was changed. */
+  if(absent.length) bits.push(absent.length+" already in the project "+(absent.length===1?"was":"were")+" not in this folder and "+(absent.length===1?"was":"were")+" left alone"
+    +(absent.length<=4?" ("+absent.join(", ")+")":""));
   if(noLayer.length) bits.push(noLayer.length+" had no layer in the path and went to unsorted"+
     (noLayer.length<=4?" ("+noLayer.join(", ")+")":""));
   if(failed) bits.push(failed+" could not be read");

@@ -286,6 +286,12 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
   font-size:10px; border-radius:5px; background:var(--panel-2);
   border:1px solid var(--line); color:var(--muted); text-align:center;}
 .item .rar:hover,.item .rar:focus{border-color:var(--accent); color:var(--ink); outline:none;}
+/* The share the weight beside it actually produces. Sits next to the number
+   it explains, and never takes a click - the tile itself opens the trait, and
+   a label that swallowed that would be a dead patch of a live control. */
+.item .pct{position:absolute; left:43px; top:4px; font-size:10px; line-height:1.5;
+  color:var(--dim); pointer-events:none; font-variant-numeric:tabular-nums;}
+.item .pct.never{color:var(--bad);}
 .item .dup{position:absolute; right:3px; bottom:26px; width:19px; height:19px;
   border-radius:5px; background:var(--panel-2); border:1px solid var(--line);
   color:var(--muted); font-size:11px; line-height:1;}
@@ -2106,6 +2112,25 @@ async function renderShelf(){
         renderShelf();
       };
       el.appendChild(rar);
+      /* What that weight comes to, right beside it. */
+      const pct=document.createElement("span");
+      pct.className="pct";
+      {
+        const ch=traitChance(t,items,$("cwip").checked);
+        if(ch.pct===null){
+          pct.classList.add("never");
+          pct.textContent="never";
+          pct.title=ch.why;
+        } else {
+          pct.textContent=pctLabel(ch.pct);
+          pct.title="About "+pctLabel(ch.pct)+" of generated characters would carry "+t.name
+            +". Worked out from this weight against the others in "+(t.layer||"unsorted")
+            +(ALWAYS_PRESENT.indexOf(t.layer||"unsorted")>=0
+              ? ", a layer every character has."
+              : ", and the "+Math.round(emptyChance*100)+"% chance that layer is left empty.");
+        }
+      }
+      el.appendChild(pct);
       const tools=document.createElement('div'); tools.className='shelftools';
       const drag=document.createElement('button'); drag.type='button'; drag.className='draghandle';
       drag.textContent='drag'; drag.title='Drag to reorder or move '+t.name;
@@ -5732,6 +5757,55 @@ function traitWeight(rec){
      corrupt the running total and could walk off the end of the list. */
   return (isFinite(w) && w>0) ? w : 1;
 }
+/* What a weight actually MEANS: the share of generated characters carrying
+   this trait.
+
+   Three numbers decide it and only one of them is on the tile. The weight, the
+   other weights in the same layer, and whether the layer appears at all - so a
+   weight of 5 among siblings weighted 5, 1, 1, 1 is 5/8 of its layer, and at a
+   35% empty chance that is 40.6% of characters. Nobody can do that in their
+   head from a box reading 5.
+
+   THE ELIGIBILITY RULE IS buildCompose's, restated here only because it has to
+   run over a different list. A rejected trait is never a candidate and a wip one
+   is only a candidate when "include wip" is ticked; computing a share over a
+   population the generator would not draw from is a confident wrong answer, and
+   it would be wrong by exactly the traits a person is most likely to be looking
+   at. If that rule ever moves, this moves with it.
+
+   A trait that cannot be drawn returns no percentage and a reason, which is its
+   own answer - it is how you discover the trait you have been weighting for ten
+   minutes is rejected. */
+function traitEligible(t,wipIncluded){
+  if(!t||t.kind!=="trait") return false;
+  const st=t.status||"wip";
+  if(st==="rejected") return false;
+  return !!wipIncluded || st==="approved";
+}
+function traitChance(rec,items,wipIncluded){
+  const st=(rec&&rec.status)||"wip";
+  if(!traitEligible(rec,wipIncluded))
+    return { pct:null, why: st==="rejected"
+      ? "Rejected traits are never drawn onto a character"
+      : "Only approved traits are drawn - tick include wip to include this one" };
+  const layer=rec.layer||"unsorted";
+  let total=0;
+  for(const t of (items||[]))
+    if(traitEligible(t,wipIncluded) && (t.layer||"unsorted")===layer) total+=traitWeight(t);
+  /* rec is eligible and in this layer, so the total includes it and cannot be
+     zero - but a caller passing a list rec is not in would divide by it. */
+  if(!(total>0)) return { pct:null, why:"" };
+  const present = ALWAYS_PRESENT.indexOf(layer)>=0 ? 1 : Math.max(0,1-emptyChance);
+  return { pct: traitWeight(rec)/total*present, why:"" };
+}
+/* Two decimals below 1%, one below 10%, none above - a trait on 0.4% of a
+   collection is a different thing from one on 0%, and rounding them together
+   hides exactly the rare traits a rarity system exists to make. */
+function pctLabel(p){
+  const v=p*100;
+  if(v>0 && v<0.01) return "<0.01%";
+  return (v<1 ? v.toFixed(2) : v<10 ? v.toFixed(1) : String(Math.round(v)))+"%";
+}
 function weightedPick(recs){
   if(!recs||!recs.length) return null;
   let total=0;
@@ -8072,6 +8146,10 @@ $('cempty').addEventListener('input',()=>{
      accepts anything typed, and a chance above 1 would empty every layer. */
   const v=Math.max(0,Math.min(90,+$('cempty').value||0));
   emptyChance=v/100;
+  /* Every percentage on the shelf is computed from this, and none of them was
+     redrawn when it changed - the number that decides how often a layer appears
+     at all silently invalidated every figure explaining how often a trait does. */
+  renderShelf();
 });
 $('filltol').addEventListener('input',()=>{
   fillTol=Math.max(0,Math.min(120,+$('filltol').value||0));

@@ -7885,7 +7885,15 @@ async function cloudStatus(u){
      than the shelf's: the shelf counts traits alone. Both are right, and
      the word "files" below is what makes the difference readable instead of
      leaving someone to subtract 47 from 49 and guess. */
-  try{ localN=(await dbAll()).filter(i=>i.kind==="trait"||i.kind==="ref").length; }catch(_){}
+  /* Kept as paths, so the two sides are compared on the identity the rest of
+     this file already uses - cloudPath is what the push writes, what the sweep
+     keeps, and what the stale check diffs on. */
+  let localPaths=null, remotePaths=null, remoteFloor=false;
+  try{
+    const mine=(await dbAll()).filter(i=>i.kind==="trait"||i.kind==="ref");
+    localN=mine.length;
+    localPaths=mine;
+  }catch(_){}
   const h=await sbHeaders();
   if(!h) return;
   let remoteN=null, when=null;
@@ -7904,15 +7912,25 @@ async function cloudStatus(u){
 
            count=exact with a one-row range asks for the total in the
            Content-Range header and carries no rows back at all. */
-        const tr=await fetch(SB_URL+"/rest/v1/traits?select=id&collection_id=eq."+rows[0].id,
-          {headers:Object.assign({Prefer:"count=exact",Range:"0-0"},h)});
-        if(tr.ok){
-          const cr=tr.headers.get("content-range")||"";
-          const total=cr.indexOf("/")>=0 ? parseInt(cr.slice(cr.indexOf("/")+1),10) : NaN;
-          /* A server that will not count is a server whose number we do not
-             have. Falling back to the response length would put the capped
-             figure back, which is the bug. */
-          remoteN = isFinite(total) ? total : null;
+        /* THE PATHS, not just how many. Two counts being equal does not make
+           two sets equal - measured, ten here and ten there with three of them
+           different printed "They match." - and their difference is not the
+           size of either one-sided difference: twelve here and ten there with
+           five genuinely new said "the 2 that are only here".
+
+           Paging to exhaustion IS the count, so this replaces the count=exact
+           request rather than joining it. */
+        const got=await cloudRows({id:rows[0].id},h,"id,path");
+        if(got.ok && !got.truncated){
+          remotePaths=new Set(got.rows.map(r=>r.path).filter(Boolean));
+          remoteN=got.rows.length;
+        } else if(got.ok){
+          /* Read, but not all of it. The number is a FLOOR, not the total, and
+             printing a floor as though it were the count is the same kind of
+             lie this whole change is about - so it is labelled, and the sets
+             are left unknown so the sentence claims no difference. */
+          remoteN=got.rows.length;
+          remoteFloor=true;
         }
       } else remoteN=0;
     }
@@ -7928,11 +7946,38 @@ async function cloudStatus(u){
   })();
   /* Name the difference rather than only the numbers. "14 here, 9 there" makes
      the reader do the subtraction and decide which button is safe. */
-  const same=localN===remoteN;
-  $("cloudnote").textContent=localN+" files here, "+remoteN+" on the server"+ago+    (same?". They match."
-      :(localN>remoteN
-        ? ". Save to cloud to upload the "+(localN-remoteN)+" that are only here."
-        : ". Load from cloud to fetch the "+(remoteN-localN)+" that are only there."));
+  /* Worked out from the SETS when both are known, and not claimed at all when
+     they are not. The old version subtracted two counts and named the result
+     as though it were a number of files. */
+  let onlyHere=null, onlyThere=null;
+  if(localPaths && remotePaths){
+    try{
+      const team=await cloudTeam();
+      const c={id:(await cloudCollection(u)||{}).id};
+      if(team && c.id){
+        const here=new Set(localPaths.map(i=>cloudPath(team,c,i)));
+        onlyHere=[...here].filter(p=>!remotePaths.has(p)).length;
+        onlyThere=[...remotePaths].filter(p=>!here.has(p)).length;
+      }
+    }catch(_){ onlyHere=null; onlyThere=null; }
+  }
+  let advice;
+  if(onlyHere===null||onlyThere===null){
+    /* Honest about the counts, silent about the difference. */
+    advice="";
+  } else if(!onlyHere && !onlyThere){
+    advice=". They match.";
+  } else if(onlyHere && !onlyThere){
+    advice=". Save to cloud to upload the "+onlyHere+" that "+(onlyHere===1?"is":"are")+" only here.";
+  } else if(onlyThere && !onlyHere){
+    advice=". Load from cloud to fetch the "+onlyThere+" that "+(onlyThere===1?"is":"are")+" only there.";
+  } else {
+    /* The case the subtraction could never express, and the one where
+       pressing the wrong button first is most costly. */
+    advice=". "+onlyHere+" only here and "+onlyThere+" only there"
+      +" - Save to cloud sends yours up, Load from cloud brings the rest down.";
+  }
+  $("cloudnote").textContent=localN+" file"+(localN===1?"":"s")+" here, "+(remoteFloor?"at least ":"")+remoteN+" on the server"+ago+advice;
 }
 
 const cloudPath=(team,c,it)=>team+"/"+c.id+"/"+

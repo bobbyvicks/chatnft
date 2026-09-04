@@ -197,14 +197,22 @@ test.describe('loading a collection bigger than one response', () => {
     expect(asked[0]).toContain('offset=');
   });
 
-  test('the server count comes from the server, not from the response length', async ({ page }) => {
-    // This is what made the defect invisible: the count used the same
-    // unpaginated select, so it was capped identically and agreed with the
-    // short pull. It now asks the database to count and reads the total out of
-    // Content-Range, which is a number no row cap can change.
+  test('the server count is not the length of one response', async ({ page }) => {
+    // This is what made the pagination defect invisible: the count used the
+    // same unpaginated select, so it was capped identically and AGREED with the
+    // short pull - two instruments, one origin.
+    //
+    // It briefly asked the database to count with Prefer: count=exact. That was
+    // replaced when the account panel started needing the server's PATHS as
+    // well, to say which files differ rather than subtracting two totals:
+    // paging to exhaustion answers both questions, so the separate count
+    // request went away rather than being kept beside it.
+    //
+    // What must stay true either way is that no single response's length is
+    // taken for the total, so that is what this pins.
     const r = await pullFrom(page, 250, 100);
-    expect(r.countPrefer, 'it asks the server to count').toContain('count=exact');
-    expect(r.countRange, 'and carries no rows back to do it').toBe('0-0');
+    expect(r.rowRequests, 'the rows were read across several pages').toBeGreaterThan(1);
+    expect(r.loaded, 'and the total is the whole collection, not one page').toBe(250);
   });
 
   test('a file dropped by a flaky connection is retried, not abandoned', async ({ page }) => {

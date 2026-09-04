@@ -2311,7 +2311,10 @@ async function renderShelf(){
           pct.textContent="never";
           pct.title=ch.why;
         } else {
-          pct.textContent=pctLabel(ch.pct);
+          /* "~" when it came from running the generator rather than from
+             arithmetic. Printing an estimate to the same precision as an exact
+             figure claims a certainty it does not have. */
+          pct.textContent=(ch.estimated?"~":"")+pctLabel(ch.pct);
           pct.title="About "+pctLabel(ch.pct)+" of generated characters would carry "+t.name
             +". Worked out from this weight against the others in "+(t.layer||"unsorted")
             +(ALWAYS_PRESENT.indexOf(t.layer||"unsorted")>=0
@@ -6108,14 +6111,51 @@ function traitWeight(rec){
    it would be wrong by exactly the traits a person is most likely to be looking
    at. If that rule ever moves, this moves with it.
 
-   A trait that cannot be drawn returns no percentage and a reason, which is its
-   own answer - it is how you discover the trait you have been weighting for ten
+   A trait that is not ELIGIBLE - rejected, or wip while wip is excluded -
+   returns no percentage and a reason. A trait excluded by a RULE is different:
+   it is a candidate the generator keeps rejecting, so it gets a measured share,
+   which is 0% when a rule bans it against something every character carries.
+   An earlier version of this comment promised no percentage for anything that
+   "cannot be drawn", which was never true of the second kind.
    minutes is rejected. */
 function traitEligible(t,wipIncluded){
   if(!t||t.kind!=="trait") return false;
   const st=t.status||"wip";
   if(st==="rejected") return false;
   return !!wipIncluded || st==="approved";
+}
+/* What the generator actually produces, measured by running it.
+
+   Used only when a Never-together rule exists. Without one the closed form in
+   traitChance is exact and has no sampling error, which matters for rare
+   traits - a 0.65% trait rendered as 0.59% is worse than arithmetic.
+
+   Cached against everything that can change the answer. The signature is the
+   whole input: which traits are eligible and at what weight, the rules, how
+   often a layer is left empty, and the LAYER ORDER - which matters because the
+   generator walks layers in order and a rule bites whichever of its pair comes
+   later. Leaving the order out would return a stale answer for a project that
+   had only been rearranged, which is the case where the number moves most.
+
+   20,000 draws puts the standard error on a 40% trait near 0.35 points and on
+   a 1% trait near 0.07 - below what the label prints either way. */
+const DIST_DRAWS=20000, DIST_SEED=0x9E3779B9;
+let distCache=null, distKey="";
+function distributionOf(items,wipIncluded){
+  const elig=(items||[]).filter(t=>traitEligible(t,wipIncluded))
+    .map(t=>traitKey(t)+":"+traitWeight(t)).sort();
+  const key=JSON.stringify([elig,RULES,emptyChance,!!wipIncluded,LAYERS]);
+  if(distCache && distKey===key) return distCache;
+  const pools=cPools();
+  const count=new Map();
+  withSeed(DIST_SEED,()=>{
+    for(let i=0;i<DIST_DRAWS;i++)
+      for(const r of randomCombo(pools)){
+        const k=traitKey(r); count.set(k,(count.get(k)||0)+1);
+      }
+  });
+  distCache=count; distKey=key;
+  return count;
 }
 function traitChance(rec,items,wipIncluded){
   const st=(rec&&rec.status)||"wip";
@@ -6130,8 +6170,27 @@ function traitChance(rec,items,wipIncluded){
   /* rec is eligible and in this layer, so the total includes it and cannot be
      zero - but a caller passing a list rec is not in would divide by it. */
   if(!(total>0)) return { pct:null, why:"" };
+  /* WITH A RULE IN PLAY THE ARITHMETIC BELOW IS WRONG, so it is not used.
+
+     randomCombo filters each layer against the rules at pick time, and this
+     line knows nothing about that. Measured before the fix, one rule between
+     crown and mask: this printed 43.3% for a trait the generator emitted on
+     23.3% of characters, and 21.7% for one it emitted on 41.8%. The error in
+     points is exactly the product of the two printed percentages, so a trait
+     banned against a layer every character has loses ALL of its share while
+     this still prints a confident figure.
+
+     Deriving a rule-aware formula would need the joint distribution of every
+     earlier layer, and would drift from randomCombo again the moment the
+     generator changed - which is how this happened. So the estimate runs the
+     generator instead, and is marked as an estimate. */
+  if(RULES.length){
+    const dist=distributionOf(items,wipIncluded);
+    const seen=dist.get(traitKey(rec))||0;
+    return { pct: seen/DIST_DRAWS, why:"", estimated:true };
+  }
   const present = ALWAYS_PRESENT.indexOf(layer)>=0 ? 1 : Math.max(0,1-emptyChance);
-  return { pct: traitWeight(rec)/total*present, why:"" };
+  return { pct: traitWeight(rec)/total*present, why:"", estimated:false };
 }
 /* Two decimals below 1%, one below 10%, none above - a trait on 0.4% of a
    collection is a different thing from one on 0%, and rounding them together
@@ -6208,11 +6267,37 @@ function bigLabel(n){
   if(v<1e9) return (v/1e6).toFixed(v<1e7?1:0)+"M";
   return (v/1e9).toFixed(1)+"B";
 }
+/* The generator's random source, swappable.
+
+   Only so the prediction can run the real generator on a FIXED seed and get
+   the same answer every time. A simulation redrawn per render would print a
+   different percentage each time nothing had changed, which is worse than a
+   wrong number that holds still.
+
+   Mulberry32: small, fast, and good enough for choosing between a dozen
+   traits. Nothing here is cryptographic and nothing should be. */
+let rngSource=null;
+function rnd(){ return rngSource ? rngSource() : Math.random(); }
+function mulberry32(a){
+  return function(){
+    a=(a+0x6D2B79F5)|0;
+    let t=Math.imul(a^(a>>>15),1|a);
+    t=(t+Math.imul(t^(t>>>7),61|t))^t;
+    return ((t^(t>>>14))>>>0)/4294967296;
+  };
+}
+/* Runs fn with a pinned source and always puts the old one back - a throw
+   inside fn must not leave every later draw deterministic. */
+function withSeed(seed,fn){
+  const was=rngSource;
+  rngSource=mulberry32(seed>>>0);
+  try{ return fn(); } finally { rngSource=was; }
+}
 function weightedPick(recs){
   if(!recs||!recs.length) return null;
   let total=0;
   for(const r of recs) total+=traitWeight(r);
-  let n=Math.random()*total;
+  let n=rnd()*total;
   for(const r of recs){ n-=traitWeight(r); if(n<=0) return r; }
   /* Only reachable through floating-point drift, never through the weights. */
   return recs[recs.length-1];
@@ -6237,7 +6322,7 @@ function randomCombo(pools){
     if(!p||!p.length) continue;
     /* An empty layer is what makes characters differ, but not every layer can
        be empty - see ALWAYS_PRESENT. */
-    if(ALWAYS_PRESENT.indexOf(layer)<0 && Math.random()<emptyChance) continue;
+    if(ALWAYS_PRESENT.indexOf(layer)<0 && rnd()<emptyChance) continue;
     /* Only what goes with the character so far. Filtering here rather than
        drawing a whole character and rejecting it means this cannot loop, and
        cannot emit a conflict at all. */

@@ -286,3 +286,178 @@ test.describe('how many characters the set can make', () => {
     expect(after.distinct, 'rejected work is not part of the collection').toBe(before.distinct);
   });
 });
+
+/* THE PREDICTION AND THE GENERATOR, WITH RULES IN PLAY.
+
+   traitChance divided a weight by its layer-mates' weights. randomCombo filters
+   each layer against the Never-together rules at pick time. Neither knew about
+   the other, so from the first rule onward every printed percentage was wrong.
+
+   Measured over 8000 draws with one rule between crown and mask: the tile said
+   43.3% for a trait the generator emitted on 23.3% of characters, and 21.7% for
+   one it emitted on 41.8%. The error in points is exactly the product of the two
+   printed percentages, so a trait banned against a layer every character carries
+   loses ALL of its share while the tile still prints a confident number.
+
+   THE CONTROL IS WHAT MAKES THESE WORTH RUNNING. "The prediction is close to what
+   the generator does" passes trivially when the prediction IS the generator, so
+   each test also pins that the figure is not the weight-only one - otherwise a
+   version that quietly reverted to arithmetic would satisfy every closeness
+   assertion and fail nothing. */
+test.describe('the prediction agrees with the generator', () => {
+  /* The shape shelf() takes: name, layer, status, rarity. I first wrote
+     {n,l,r} and every record went in with name and layer undefined, which
+     surfaced as "cannot read properties of undefined" rather than as anything
+     to do with the question being asked. */
+  const A = 'approved';
+  const SET = [
+    { name: 'tan', layer: 'skins', rarity: 1, status: A },
+    { name: 'pale', layer: 'skins', rarity: 3, status: A },
+    { name: 'crown', layer: 'hair-headwear', rarity: 5, status: A },
+    { name: 'cap', layer: 'hair-headwear', rarity: 1, status: A },
+    { name: 'wig', layer: 'hair-headwear', rarity: 1, status: A },
+    { name: 'mask', layer: 'masks', rarity: 2, status: A },
+    { name: 'veil', layer: 'masks', rarity: 1, status: A },
+  ];
+  const CROWN = 'hair-headwear/crown', MASK = 'masks/mask', VEIL = 'masks/veil';
+
+  /* Predicted share against the share the generator actually produces. */
+  const compare = (page, draws) => page.evaluate(async (n) => {
+    const items = (await dbAll()).filter(i => i.kind === 'trait');
+    const wip = $('cwip').checked;
+    const pred = {};
+    for (const t of items) {
+      const c = traitChance(t, items, wip);
+      if (c.pct !== null) pred[traitKey(t)] = { p: c.pct, est: !!c.estimated };
+    }
+    const pools = cPools();
+    const count = {};
+    for (let i = 0; i < n; i++)
+      for (const r of randomCombo(pools)) { const k = traitKey(r); count[k] = (count[k] || 0) + 1; }
+    const out = {};
+    for (const k of Object.keys(pred))
+      out[k] = { pred: pred[k].p * 100, act: (count[k] || 0) / n * 100, est: pred[k].est };
+    return out;
+  }, draws);
+
+  const addRule = async (page, a, b) => {
+    await page.evaluate(({ a, b }) => {
+      $('rulea').value = a; $('ruleb').value = b;
+      return $('ruleadd').onclick();
+    }, { a, b });
+    await page.waitForTimeout(500);
+  };
+  const ready = async (page, rows) => {
+    await openTrait(page, { w: 160, h: 160, draw: BLOCK });
+    await openAllSections(page);
+    await shelf(page, rows);
+  };
+
+  test('with no rules it is exact, and says it is not an estimate', async ({ page }) => {
+    await ready(page, SET);
+    const c = await compare(page, 6000);
+    // 2 of 3 in masks, on a layer present 65% of the time.
+    expect(c[MASK].pred, 'the arithmetic is exact here').toBeCloseTo(43.33, 1);
+    expect(c[MASK].est, 'and no simulation was needed').toBe(false);
+    expect(Math.abs(c[MASK].act - c[MASK].pred), 'and the generator agrees').toBeLessThan(2.5);
+  });
+
+  test('one rule, and the figure follows the generator instead of the weights', async ({ page }) => {
+    await ready(page, SET);
+    const before = await compare(page, 6000);
+    await addRule(page, CROWN, MASK);
+    const after = await compare(page, 6000);
+
+    // THE CONTROL: the weight-only answer has not changed - the weights did not.
+    // If the prediction still printed it, this would be 43.3 and the test below
+    // would be measuring nothing.
+    expect(before[MASK].pred, 'the weight-only figure').toBeCloseTo(43.33, 1);
+    expect(after[MASK].pred, 'must not still be the weight-only figure')
+      .toBeLessThan(before[MASK].pred - 10);
+
+    // And it must land on what the generator actually does.
+    expect(Math.abs(after[MASK].act - after[MASK].pred), 'mask').toBeLessThan(3);
+    expect(Math.abs(after[VEIL].act - after[VEIL].pred), 'veil').toBeLessThan(3);
+    expect(after[MASK].est, 'and it says it is an estimate').toBe(true);
+  });
+
+  test('the trait that gains is right too, not only the one that loses', async ({ page }) => {
+    // veil is named in no rule at all, and inherits the banned trait's weight
+    // because weightedPick renormalises over whatever list it is handed. A fix
+    // that only corrected the banned trait would leave this one wrong by as much.
+    await ready(page, SET);
+    const before = await compare(page, 4000);
+    await addRule(page, CROWN, MASK);
+    const after = await compare(page, 6000);
+    expect(after[VEIL].pred, 'veil takes the share mask cannot have')
+      .toBeGreaterThan(before[VEIL].pred + 10);
+    expect(Math.abs(after[VEIL].act - after[VEIL].pred)).toBeLessThan(3);
+  });
+
+  test('banned against a layer every character has means zero, and says zero', async ({ page }) => {
+    // skins is always present. With one skin, a rule against it removes the
+    // partner from every character the generator makes. The old arithmetic
+    // printed a confident 33% for a trait that can never appear.
+    await ready(page, [
+      { name: 'tan', layer: 'skins', rarity: 1, status: 'approved' },
+      { name: 'mask', layer: 'masks', rarity: 1, status: 'approved' },
+      { name: 'veil', layer: 'masks', rarity: 1, status: 'approved' },
+    ]);
+    await addRule(page, 'skins/tan', MASK);
+    const c = await compare(page, 4000);
+    expect(c[MASK].act, 'the generator never emits it').toBe(0);
+    expect(c[MASK].pred, 'and the tile agrees').toBeLessThan(0.5);
+  });
+
+  test('the same project gives the same figure twice', async ({ page }) => {
+    // A simulation redrawn per render would print a different percentage each
+    // time nothing changed, which is worse than a wrong number that holds still.
+    await ready(page, SET);
+    await addRule(page, CROWN, MASK);
+    const same = await page.evaluate(async () => {
+      const items = (await dbAll()).filter(i => i.kind === 'trait');
+      const one = items.map(t => traitChance(t, items, false).pct);
+      distCache = null;   // force it to run again rather than read the cache
+      const two = items.map(t => traitChance(t, items, false).pct);
+      return one.every((v, i) => v === two[i]);
+    });
+    expect(same, 'a seeded estimate does not wander between renders').toBe(true);
+  });
+
+  test('reordering the layers changes the figure, because it changes the answer', async ({ page }) => {
+    // randomCombo walks LAYERS in order and a rule bites whichever of its pair
+    // comes LATER, so moving a layer moves the whole error from one trait to the
+    // other. The estimate is cached, and the layer order is part of the cache
+    // key for exactly this reason - without it the shelf would keep showing the
+    // figures for an order that no longer applies, which is the case where the
+    // number moves most and the user is least likely to suspect it.
+    await ready(page, SET);
+    await addRule(page, CROWN, MASK);
+    const before = await compare(page, 2000);
+
+    await page.evaluate(async () => {
+      const i = LAYERS.indexOf('masks'), j = LAYERS.indexOf('hair-headwear');
+      LAYERS.splice(i, 1); LAYERS.splice(j, 0, 'masks');   // masks now drawn first
+      await renderShelf();
+    });
+    await page.waitForTimeout(400);
+    const after = await compare(page, 2000);
+
+    // mask is drawn first now, so it keeps its full share and crown loses instead.
+    expect(after[MASK].pred, 'the trait that used to lose now does not')
+      .toBeGreaterThan(before[MASK].pred + 10);
+    expect(after[CROWN].pred, 'and the one that was exact now pays')
+      .toBeLessThan(before[CROWN].pred - 5);
+  });
+
+  test('an estimate is marked, an exact figure is not', async ({ page }) => {
+    await ready(page, SET);
+    const plain = await page.evaluate(() =>
+      [...document.querySelectorAll('.item .pct')].map(e => e.textContent).join(' '));
+    expect(plain, 'nothing to qualify without a rule').not.toContain('~');
+    await addRule(page, CROWN, MASK);
+    const marked = await page.evaluate(() =>
+      [...document.querySelectorAll('.item .pct')].map(e => e.textContent).join(' '));
+    expect(marked, 'an estimate says so').toContain('~');
+  });
+});

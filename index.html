@@ -7738,6 +7738,11 @@ async function sbUser(){
    live side by side rather than being retyped at each site. */
 const CLOUD_UNREACHABLE="Cannot reach the server just now, so this still shows what it last said. Your collection is on this device and nothing has been lost.";
 const CLOUD_DEFAULT_NOTE="Nothing uploads until you press Save to cloud.";
+/* Said when an action could not even ask whether it was allowed. "Nothing
+   was changed" is the part that matters: the alternative wording sent people
+   to sign out and back in, on a device holding local work, to fix the
+   network. */
+const CLOUD_OFFLINE_TOAST="Cannot reach the server just now - nothing was changed. Try again in a moment.";
 let localBooted=false;
 function bootLocal(){
   if(localBooted) return;
@@ -8087,8 +8092,13 @@ async function cloudSaveShelfPlan(updates){
 }
 
 async function cloudPush(){
-  const u=await sbUser();
-  if(!u){ toast("Sign in first"); return; }
+  /* THREE answers, not two. "Could not ask" is not "you are signed out", and
+     telling a signed-in person to sign in is an instruction to do the one
+     thing that risks losing local work. */
+  const who=await sbAuthState();
+  if(who.state==="unknown"){ toast(CLOUD_OFFLINE_TOAST); return; }
+  if(who.state!=="in"){ toast("Sign in first"); return; }
+  const u=who.user;
   const c=await cloudCollection(u);
   if(!c){ toast("Could not open your collection on the server"); return; }
   const team=await cloudTeam();
@@ -8201,8 +8211,13 @@ async function cloudRows(c,h){
 }
 async function cloudPull(opts){
   opts=opts||{};
-  const u=await sbUser();
-  if(!u){ toast("Sign in first"); return; }
+  /* THREE answers, not two. "Could not ask" is not "you are signed out", and
+     telling a signed-in person to sign in is an instruction to do the one
+     thing that risks losing local work. */
+  const who=await sbAuthState();
+  if(who.state==="unknown"){ toast(CLOUD_OFFLINE_TOAST); return; }
+  if(who.state!=="in"){ toast("Sign in first"); return; }
+  const u=who.user;
   const c=await cloudCollection(u);
   if(!c){ toast("Nothing on the server yet"); return; }
   const h=await sbHeaders();

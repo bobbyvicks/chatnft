@@ -158,4 +158,59 @@ test.describe('what a failed question does to your work', () => {
     });
     expect(r.state, 'no session is a definite no').toBe('out');
   });
+
+  /* Runs a cloud button with the user check answering however we say, and
+     reports what it told the person. The stub goes in BEFORE the session is
+     written: a probe that let the fake token reach the real server earned a
+     genuine 401, which correctly cleared the session, so "Sign in first" was
+     the right answer and the measurement proved nothing. */
+  const buttonSays = (page, mode) => page.evaluate(async (how) => {
+    const said = [];
+    const realToast = window.toast;
+    const real = window.fetch;
+    window.toast = (m) => { said.push(m); };
+    window.fetch = (u, o) => {
+      const s = String(u);
+      if (s.indexOf('/auth/v1/user') < 0) return real(u, o);
+      if (how === 'offline') return Promise.reject(new TypeError('Failed to fetch'));
+      return Promise.resolve(new Response('{}', { status: 401 }));
+    };
+    try {
+      localStorage.setItem('chatnft.session', JSON.stringify({
+        access_token: 'not-a-real-token', refresh_token: 'not-a-real-refresh',
+        expires_at: Math.floor(Date.now() / 1000) + 3600, user: { id: 'u1' } }));
+      const state = (await sbAuthState()).state;
+      said.length = 0;
+      await cloudPush();
+      const push = said.slice();
+      said.length = 0;
+      await cloudPull({});
+      return { state, push, pull: said.slice() };
+    } finally { window.fetch = real; window.toast = realToast; }
+  }, mode);
+
+  test('a cloud button does not tell a signed-in person to sign in', async ({ page }) => {
+    // Measured before this: with a valid session and a dropped request, both
+    // Save to cloud and Load from cloud said "Sign in first" - an instruction
+    // to sign out and back in, on a device holding local work, to fix the
+    // network.
+    await signedInWithWork(page);
+    const r = await buttonSays(page, 'offline');
+    expect(r.state, 'the app knows it cannot tell').toBe('unknown');
+    for (const said of [r.push, r.pull]) {
+      expect(said.join(' '), 'it says what is actually wrong').toContain('Cannot reach the server');
+      expect(said.join(' '), 'and says nothing was changed').toContain('nothing was changed');
+      expect(said.join(' '), 'and does not send anyone to sign in').not.toContain('Sign in first');
+    }
+  });
+
+  test('but it still does when they really are signed out', async ({ page }) => {
+    // THE CONTROL. "Never say sign in" would pass the test above and leave a
+    // signed-out person with no idea what to do.
+    await signedInWithWork(page);
+    const r = await buttonSays(page, 'rejected');
+    expect(r.state, 'a 401 is the server saying no').toBe('out');
+    expect(r.push.join(' ')).toContain('Sign in first');
+    expect(r.pull.join(' ')).toContain('Sign in first');
+  });
 });

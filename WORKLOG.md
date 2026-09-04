@@ -57,6 +57,7 @@ something. Good places to look, in order:
 
 Newest first. Delete the oldest when this passes 12.
 
+- 2026-09-04 — Save/Load to cloud no longer tell a signed-in person to sign in when the network hiccups
 - 2026-09-04 — A file dropped mid-pull is retried three times instead of abandoned; a 404 still costs one request
 - 2026-09-04 — Load from cloud pages the rows instead of stopping at the server cap; the remote count now asks the server rather than measuring the response
 - 2026-09-04 — A dropped request no longer signs you out and blanks the shelf; `sbAuthState` separates "the server said no" from "could not ask"

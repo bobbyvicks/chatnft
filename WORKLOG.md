@@ -70,11 +70,6 @@ Newest first. Delete the oldest when this passes 12.
 - 2026-09-04 — A rule holds any number of traits and each row can be widened; `ruleId` read only the first two members, so `{a,b,c}` and `{a,b,d}` were one rule
 - 2026-09-04 — `ruleMisses` no longer counts the rarity estimator's 20,000 draws as the collection's failures (was reporting 20,200 for a 1-character set)
 - 2026-09-04 — Resize says what it will do before you press it; keep-shape fixed to keep the trait's shape rather than the canvas's with snap off
-- 2026-09-04 — Mixed-size traits scale by whole numbers and are centred, instead of stretching to a fractional scale (48px into 160px gave pixels 3 and 4 wide)
-- 2026-09-04 — The built collection is measured against the tiles and traits that came out far from their stated share are named
-- 2026-09-04 — `tools/patchkit.cjs`: shared anchoring for patch scripts, so a duplicate anchor, a CRLF multi-line no-op, and a check that reads prose are all refused
-- 2026-09-04 — A cornered draw is retried rather than emitted, so a forbidden pair no longer reaches the zip; `ruleMisses` is finally displayed
-- 2026-09-04 — `traitChance` simulates when a rule exists, instead of printing a closed form that ignores `RULES`
 
 ## Facts worth keeping
 

@@ -48,9 +48,12 @@ something. Good places to look, in order:
    asked?** A count answers "how many", never "which".
 2. **A promise in a tooltip or button title.** They are written once and outlive
    the behaviour. Check each against what the function actually does.
-3. **A control the tests always bypass.** `openAllSections` force-unfolds every
-   panel, so nothing pins that a panel can be reached by clicking. The resize
-   complaint of 2026-09-04 lived exactly there.
+3. **A control the tests always bypass.** `openAllSections` force-unfolds
+   every panel, and every cloud test calls `cloudPush()` rather than clicking the
+   button — so an unwired button leaves a dead feature and a green suite. Ask what
+   the tests REACH the code through, and whether a person reaches it the same way.
+   ⚠ Observe an EFFECT, never a binding: reassigning a global to a recorder cannot
+   see an `onclick=fn` that captured the value at wiring time, and reads as "dead".
 4. **`git log` for a fix that names a class.** If a fix was applied at one call
    site, grep for the other call sites. `paintTrait` had three.
 
@@ -58,6 +61,7 @@ something. Good places to look, in order:
 
 Newest first. Delete the oldest when this passes 12.
 
+- 2026-09-04 — The cloud buttons are pinned to their functions; every cloud test called the function, so an unwired button would have gone unnoticed
 - 2026-09-04 — A forbidden pair reached the collection about once in 40,000 draws on a SATISFIABLE set; the retry bound was too low, now 64
 - 2026-09-04 — Two tooltips corrected: "Skins is always drawn" was false once a set could be turned off, and snap also uses divisors, not only multiples
 - 2026-09-04 — "N possible characters" counts the rules now; it was a product of pool sizes that said 4 where the generator could make 3
@@ -69,7 +73,6 @@ Newest first. Delete the oldest when this passes 12.
 - 2026-09-04 — Load from cloud pages the rows instead of stopping at the server cap; the remote count now asks the server rather than measuring the response
 - 2026-09-04 — A dropped request no longer signs you out and blanks the shelf; `sbAuthState` separates "the server said no" from "could not ask"
 - 2026-09-04 — A trait set (a layer) can be turned off, so nothing in it is drawn; persisted, and the cards stay on screen dimmed
-- 2026-09-04 — A rule holds any number of traits and each row can be widened; `ruleId` read only the first two members, so `{a,b,c}` and `{a,b,d}` were one rule
 
 ## Facts worth keeping
 

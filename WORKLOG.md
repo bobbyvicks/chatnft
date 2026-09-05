@@ -35,13 +35,13 @@ Nothing.
 
 ## Queue, worst first
 
-- **A trait filed under a layer this browser does not have is invisible on the
-  shelf.** Measured 09-04: one trait on layer `hats` with the default
-  `LAYERS` → `#projbody` shows "No traits saved yet". A pull that brings a
-  trait from a group whose layer list is wider, or an import of a project with
-  custom layers, would land work that cannot be seen or deleted. Confirm which
-  of those paths can actually produce it before writing anything.
-  *(found 09-04)*
+- **`collections.layers` on the server goes stale and only a push repairs it.**
+  `saveLayers` writes locally; the PATCH lives in `cloudPush` alone. So after a
+  rename or a reorder the group's declared layer list is the old one until
+  somebody presses Save to cloud. Measured 09-05 as the cause of the
+  invisible-layer defect fixed the same day; adopting the layers records are
+  actually on covers the traits, but a new member still inherits the stale
+  ORDER, which is how characters composite. Not yet worked.
 - **Images orphaned inside a group are never cleaned up.** Deliberate, decided
   09-04 and written into the comment on the guard: the sweep cannot tell a
   teammate's live file from an orphan, and taking the keep-list from the rows
@@ -80,6 +80,7 @@ something. Good places to look, in order:
 
 Newest first. Delete the oldest when this passes 12.
 
+- 2026-09-05 — A trait on a layer this browser had never heard of was pulled, counted and then shown nowhere and drawable by nothing; the layer list adopts the layers the records are actually on
 - 2026-09-05 — One failed request for the project list threw you out of your group project and reset the layer order; wsList reports whether it could ask, and only an answer moves you
 - 2026-09-04 — Save to cloud deleted a teammate's artwork out of the bucket, and the previous good copy of any trait whose upload had just failed; the sweep now has the same two guards as the row delete one line above it
 - 2026-09-04 — Renaming or removing a layer said "3 traits moved" when the group had received none of them; retagLayer counts what did not reach the group and both messages name Save to cloud
@@ -91,7 +92,6 @@ Newest first. Delete the oldest when this passes 12.
 - 2026-09-04 — The storage sweep pages like its sibling: it stopped on a SHORT batch and capped at 2,000 files, leaving orphans nothing would ever list
 - 2026-09-04 — The cloud buttons are pinned to their functions; every cloud test called the function, so an unwired button would have gone unnoticed
 - 2026-09-04 — A forbidden pair reached the collection about once in 40,000 draws on a SATISFIABLE set; the retry bound was too low, now 64
-- 2026-09-04 — Two tooltips corrected: "Skins is always drawn" was false once a set could be turned off, and snap also uses divisors, not only multiples
 
 ## Facts worth keeping
 

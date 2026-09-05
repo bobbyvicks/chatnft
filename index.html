@@ -7310,6 +7310,32 @@ function applyLayers(items){
   /* unsorted is where anything unrecognised lands, on import and on removal,
      so it has to exist whatever the saved list says. */
   if(LAYERS.indexOf("unsorted")<0) LAYERS.push("unsorted");
+  /* ANY LAYER A SAVED TRAIT IS ACTUALLY ON, whether or not the saved list
+     knows about it. The shelf draws layers, not records, so a trait on a layer
+     this browser has never heard of used to appear on no card at all - and
+     with no card there is nothing to open, move or delete. cPools reads LAYERS
+     too, so it could not be drawn into a character either.
+
+     Measured before this: a group where somebody renamed a layer. retagLayer
+     moves the rows to the new name at once and collections.layers is only
+     rewritten by a push, so a pull in between said "Loaded 2 items" and put
+     one card on the shelf.
+
+     Here rather than in cloudPull because this runs on every render with
+     every record in hand, so it covers the import and anything written later
+     as well. Not written back to the store: a render that saves is how this
+     and saveLayers would call each other, and it does not need to - the next
+     render adopts it again from the same records.
+
+     Before "unsorted", which is where loose traits land and is last by
+     convention; after it the catch-all would draw underneath a real layer. */
+  for(const it of items){
+    if(!it||it.kind!=="trait") continue;
+    const l=it.layer;
+    if(typeof l!=="string"||!l||LAYERS.indexOf(l)>=0) continue;
+    const u=LAYERS.indexOf("unsorted");
+    if(u>=0) LAYERS.splice(u,0,l); else LAYERS.push(l);
+  }
   /* Only names that are still layers. A record written before this existed has
      no hidden field and loads as nothing off, which is the right default. */
   HIDDEN_LAYERS.clear();

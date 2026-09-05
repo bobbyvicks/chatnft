@@ -166,6 +166,17 @@ Measured, with the date. Delete one the moment the code contradicts it.
 - **`traitEligible` requires status `"approved"`** when wip is not included.
   A fixture written with `status:'ok'` is invisible to every rarity function
   and every count comes back 0. *(09-04)*
+- **A test written against behaviour that is already correct proves nothing
+  until a mutant shows it can fail.** "The base is never part of the artwork"
+  held by construction on 09-05 and had no coverage; the test for it was worth
+  writing, and its mutation run — compositing the base into `traitCanvas` —
+  was the whole point rather than a formality. **A green run on an unchanged
+  product is indistinguishable from a test asserting nothing.** *(09-05)*
+- **A mutant can be a no-op dressed as a mutation.** Sizing `traitCanvas` to
+  the `#base` CANVAS survived, because `drawBase` already sizes that canvas to
+  the art's own footprint. It had to read the base BITMAP to change anything.
+  **When a mutant survives, check it changed something before concluding the
+  test is weak.** *(09-05)*
 - **A canvas round trip ZEROES the colour of a fully transparent pixel.** A
   fixture that paints RGB everywhere and varies only alpha does NOT distinguish
   an alpha count from a red count in the transparent region — they agree there.

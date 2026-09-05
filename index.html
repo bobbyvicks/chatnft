@@ -8762,17 +8762,32 @@ async function cloudPull(opts){
    handle has to be dropped or the next read still answers from the previous
    project, which looks exactly like the new one inheriting its traits. */
 const WS_KEY="chatnft.ws";
+/* The NAME as well as the id, so a render that could not reach the server can
+   still say which project you are in. Without it the only honest options are
+   showing you a project with no name or showing you a page you are not on. */
+const WS_NAME_KEY="chatnft.wsname";
+function wsNameLoad(){ try{ return localStorage.getItem(WS_NAME_KEY)||null; }catch(_){ return null; } }
+function wsNameSave(v){ try{ v?localStorage.setItem(WS_NAME_KEY,v):localStorage.removeItem(WS_NAME_KEY); }catch(_){} }
 function wsLoad(){ try{ return localStorage.getItem(WS_KEY)||null; }catch(_){ return null; } }
 function wsSave(v){ try{ v?localStorage.setItem(WS_KEY,v):localStorage.removeItem(WS_KEY); }catch(_){} }
 
+/* {ok, teams} rather than a bare array. It used to answer [] for four
+   different facts - not signed in, the server refused, the request never got
+   out, and you genuinely are in no groups - and its one caller read the
+   absence of your project as having been removed from it.
+
+   Measured: with a group open, an unreachable server and a 500 both moved the
+   page to your own project and reset the layer order to the defaults, exactly
+   as being removed does. This is the same distinction sbAuthState exists to
+   make, and it belongs here for the same reason. */
 async function wsList(){
   const h=await sbHeaders();
-  if(!h) return [];
+  if(!h) return {ok:false,teams:[]};
   try{
     const r=await fetch(SB_URL+"/rest/v1/teams?select=id,name,personal&order=personal.desc,name.asc",{headers:h});
-    if(!r.ok) return [];
-    return await r.json();
-  }catch(_){ return []; }
+    if(!r.ok) return {ok:false,teams:[]};
+    return {ok:true,teams:await r.json()};
+  }catch(_){ return {ok:false,teams:[]}; }
 }
 
 async function wsSwitch(id){
@@ -8819,7 +8834,12 @@ async function wsSwitch(id){
 
 async function wsRender(){
   const sel=$("wssel");
-  const teams=await wsList();
+  const got=await wsList();
+  const teams=got.teams;
+  /* Remembered whenever the list IS read, so the branch below can name the
+     project when it is not. */
+  const mine=teams.find(t=>t.id===activeWs);
+  if(mine) wsNameSave(mine.name);
   const personal=teams.find(t=>t.personal);
   /* The personal page is always the first entry and is never identified by a
      team id in the UI, so a signed-out or half-loaded state still has
@@ -8834,9 +8854,27 @@ async function wsRender(){
     o.value=t.id; o.textContent=t.name;
     sel.appendChild(o);
   }
-  /* A project you have left, or were removed from, is no longer in the list:
-     fall back to the personal page rather than staying pointed at nothing. */
-  if(activeWs && !teams.some(t=>t.id===activeWs)) await wsSwitch(null);
+  if(!got.ok){
+    /* COULD NOT ASK. Not being able to see the list is not evidence that you
+       are not in it, and this used to treat the two identically: measured, an
+       unreachable server moved the page off the group and reset the draw order
+       to the 13 defaults, saying only "Back on your page".
+
+       You stay where you are. The project is put back in the dropdown under
+       the name last read, marked so, because a select showing "My page" while
+       activeWs is a group would be the same lie pointing the other way. */
+    if(activeWs && !teams.some(t=>t.id===activeWs)){
+      const o=document.createElement("option");
+      o.value=activeWs;
+      o.textContent=(wsNameLoad()||"Group project")+" (offline)";
+      sel.appendChild(o);
+    }
+    sel.value=activeWs||"";
+  }
+  /* A project you have left, or were removed from, is no longer in a list the
+     server actually sent: fall back to your own page rather than staying
+     pointed at nothing. */
+  else if(activeWs && !teams.some(t=>t.id===activeWs)) await wsSwitch(null);
   else sel.value=activeWs||"";
   $("wsleave").hidden=!activeWs;
   /* Leaving a group has to take its invite link off the screen with it. */

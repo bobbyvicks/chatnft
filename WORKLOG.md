@@ -42,16 +42,12 @@ Nothing.
   custom layers, would land work that cannot be seen or deleted. Confirm which
   of those paths can actually produce it before writing anything.
   *(found 09-04)*
-- **`wsList` returns `[]` for "no teams", "the server refused" and "could not
-  ask" alike**, so one failed request would read as being thrown out of your
-  group. Read, not yet measured — the same shape `sbAuthState` was written for.
-  *(found 09-04)*
 - **Images orphaned inside a group are never cleaned up.** Deliberate, decided
   09-04 and written into the comment on the guard: the sweep cannot tell a
   teammate's live file from an orphan, and taking the keep-list from the rows
   instead still races the upload-then-insert order inside `cloudSyncOne`. Costs
   storage. Reopen only with a way to date a bucket file that can be checked.
-- Ten leads from the 09-04 shape sweep are still unverified.
+- Nine leads from the 09-04 shape sweep are still unverified.
 
 When the queue is empty the run's job is to **find** something, not to invent
 something. Good places to look, in order:
@@ -84,6 +80,7 @@ something. Good places to look, in order:
 
 Newest first. Delete the oldest when this passes 12.
 
+- 2026-09-05 — One failed request for the project list threw you out of your group project and reset the layer order; wsList reports whether it could ask, and only an answer moves you
 - 2026-09-04 — Save to cloud deleted a teammate's artwork out of the bucket, and the previous good copy of any trait whose upload had just failed; the sweep now has the same two guards as the row delete one line above it
 - 2026-09-04 — Renaming or removing a layer said "3 traits moved" when the group had received none of them; retagLayer counts what did not reach the group and both messages name Save to cloud
 - 2026-09-04 — A trait move inside a group removed the old server copy BEFORE uploading the new one, directly under a comment promising the opposite; a dropped connection left the group with neither
@@ -95,7 +92,6 @@ Newest first. Delete the oldest when this passes 12.
 - 2026-09-04 — The cloud buttons are pinned to their functions; every cloud test called the function, so an unwired button would have gone unnoticed
 - 2026-09-04 — A forbidden pair reached the collection about once in 40,000 draws on a SATISFIABLE set; the retry bound was too low, now 64
 - 2026-09-04 — Two tooltips corrected: "Skins is always drawn" was false once a set could be turned off, and snap also uses divisors, not only multiples
-- 2026-09-04 — "N possible characters" counts the rules now; it was a product of pool sizes that said 4 where the generator could make 3
 
 ## Facts worth keeping
 

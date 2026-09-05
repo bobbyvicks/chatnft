@@ -35,8 +35,18 @@ Nothing.
 
 ## Queue, worst first
 
-Nothing measured and open right now. The four items that stood here through
-early September were all shipped on 2026-09-04 and are listed under Done.
+- **A trait filed under a layer this browser does not have is invisible on the
+  shelf.** Measured 09-04: one trait on layer `hats` with the default
+  `LAYERS` → `#projbody` shows "No traits saved yet". A pull that brings a
+  trait from a group whose layer list is wider, or an import of a project with
+  custom layers, would land work that cannot be seen or deleted. Confirm which
+  of those paths can actually produce it before writing anything.
+  *(found 09-04)*
+- Eleven leads from the 09-04 shape sweep are still unverified. The two worth
+  reading first: `cloudSweep` deletes bucket files it has no row evidence for,
+  while the stale-row delete one line above it is guarded twice; and `wsList`
+  returns `[]` for "no teams", "the server refused" and "could not ask" alike,
+  so one failed request reads as being thrown out of your group.
 
 When the queue is empty the run's job is to **find** something, not to invent
 something. Good places to look, in order:
@@ -69,6 +79,8 @@ something. Good places to look, in order:
 
 Newest first. Delete the oldest when this passes 12.
 
+- 2026-09-04 — Renaming or removing a layer said "3 traits moved" when the group had received none of them; retagLayer counts what did not reach the group and both messages name Save to cloud
+- 2026-09-04 — A trait move inside a group removed the old server copy BEFORE uploading the new one, directly under a comment promising the opposite; a dropped connection left the group with neither
 - 2026-09-04 — Clear asked about "traits and the reference" and also deleted the rules, the layer list and the grid; it now removes only what it names
 - 2026-09-04 — Approving a wip trait destroyed the finished one of the same name, with a success toast; both write paths now refuse a collision and name it
 - 2026-09-04 — Every rarity percentage read 0.00% after a reload once a rule was saved: an EMPTY distribution was cached because the tiles run before the compose rows are built
@@ -79,8 +91,6 @@ Newest first. Delete the oldest when this passes 12.
 - 2026-09-04 — Two tooltips corrected: "Skins is always drawn" was false once a set could be turned off, and snap also uses divisors, not only multiples
 - 2026-09-04 — "N possible characters" counts the rules now; it was a product of pool sizes that said 4 where the generator could make 3
 - 2026-09-04 — The account panel compares the two collections instead of subtracting their sizes; "they match" was true of ten-vs-ten with three different
-- 2026-09-04 — The upload retries a dropped file three times like the download does, and the stale check stops selecting every column
-- 2026-09-04 — Save to cloud: 308 requests to 189 on a first push and 8 on a repeat; stopped emptying the server before re-uploading
 
 ## Facts worth keeping
 
@@ -117,6 +127,12 @@ Measured, with the date. Delete one the moment the code contradicts it.
   distribution and every tile read 0.00%. `distributionOf` now falls back to the
   records. **A fact you record about a test hazard is worth re-asking about the
   app.** *(09-04)*
+- **The shelf only draws traits whose `layer` is in `LAYERS`.** Measured 09-04:
+  a single trait on layer `hats` with the default layer list rendered
+  "No traits saved yet". A fixture on a non-default layer measures nothing, and
+  every chip test in the first draft of `cloudmove.spec.js` was silently
+  pressing a button that did not exist. Seed on a default layer, and ASSERT the
+  card is there before pressing it. *(09-04)*
 - **`traitEligible` requires status `"approved"`** when wip is not included.
   A fixture written with `status:'ok'` is invisible to every rarity function
   and every count comes back 0. *(09-04)*

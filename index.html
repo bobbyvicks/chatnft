@@ -7340,7 +7340,12 @@ async function saveLayers(){
 async function retagLayer(items,from,to){
   const mine=items.filter(i=>i.kind==="trait"&&i.layer===from);
   const taken=new Set(items.map(i=>i.id));
-  let moved=0, renamed=0;
+  /* stranded: moves this browser made that the group never received. It was
+     being counted as done - measured, three traits with the connection down
+     said "Renamed to helmets, 3 traits moved" while all three server rows
+     stayed on the old layer. Nothing is lost, but the one action that would
+     put it right is Save to cloud and nobody was told to press it. */
+  let moved=0, renamed=0, stranded=0;
   for(const t of mine){
     const status=t.status||"wip";
     let name=t.name, id="t_"+name+"_"+to+"_"+status, k=2;
@@ -7350,10 +7355,14 @@ async function retagLayer(items,from,to){
     const rec=Object.assign({},t,{id:id,name:name,layer:to});
     await dbDel(t.id);
     await dbPut(rec);
-    await cloudMoveOne(t,rec);
+    /* activeWs, because cloudMoveOne returns null when there is no group at
+       all - nothing left the browser and nothing was meant to. Without this
+       every rename on a personal page would warn about a group. */
+    const shared=await cloudMoveOne(t,rec);
+    if(activeWs && !shared) stranded++;
     moved++;
   }
-  return {moved:moved,renamed:renamed};
+  return {moved:moved,renamed:renamed,stranded:stranded};
 }
 
 async function moveLayer(name,delta){
@@ -7392,7 +7401,8 @@ async function removeLayer(name){
      behind would turn off a layer created with the same name later. */
   HIDDEN_LAYERS.delete(name);
   await saveLayers();
-  toast("Removed "+name+(r.moved?", "+r.moved+" moved to unsorted":""));
+  toast("Removed "+name+(r.moved?", "+r.moved+" moved to unsorted":"")
+    +(r.stranded?" - "+r.stranded+" not shared yet, press Save to cloud":""));
 }
 async function renameLayer(oldName,raw){
   const nw=slugLayer(raw);
@@ -7406,7 +7416,8 @@ async function renameLayer(oldName,raw){
   if(HIDDEN_LAYERS.delete(oldName)) HIDDEN_LAYERS.add(nw);
   await saveLayers();
   toast("Renamed to "+nw+(r.moved?", "+r.moved+" trait"+(r.moved===1?"":"s")+" moved":"")+
-        (r.renamed?" ("+r.renamed+" renamed to avoid a clash)":""));
+        (r.renamed?" ("+r.renamed+" renamed to avoid a clash)":"")
+        +(r.stranded?" - "+r.stranded+" not shared yet, press Save to cloud":""));
 }
 
 function buildLayerPanel(items){

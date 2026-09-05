@@ -35,13 +35,6 @@ Nothing.
 
 ## Queue, worst first
 
-- **`collections.layers` on the server goes stale and only a push repairs it.**
-  `saveLayers` writes locally; the PATCH lives in `cloudPush` alone. So after a
-  rename or a reorder the group's declared layer list is the old one until
-  somebody presses Save to cloud. Measured 09-05 as the cause of the
-  invisible-layer defect fixed the same day; adopting the layers records are
-  actually on covers the traits, but a new member still inherits the stale
-  ORDER, which is how characters composite. Not yet worked.
 - **Images orphaned inside a group are never cleaned up.** Deliberate, decided
   09-04 and written into the comment on the guard: the sweep cannot tell a
   teammate's live file from an orphan, and taking the keep-list from the rows
@@ -80,6 +73,7 @@ something. Good places to look, in order:
 
 Newest first. Delete the oldest when this passes 12.
 
+- 2026-09-05 — The group heard about a layer rename, reorder, addition or removal only when somebody pressed Save to cloud; saveLayers sends the list when it actually changes and every layer message says when it did not go
 - 2026-09-05 — A trait on a layer this browser had never heard of was pulled, counted and then shown nowhere and drawable by nothing; the layer list adopts the layers the records are actually on
 - 2026-09-05 — One failed request for the project list threw you out of your group project and reset the layer order; wsList reports whether it could ask, and only an answer moves you
 - 2026-09-04 — Save to cloud deleted a teammate's artwork out of the bucket, and the previous good copy of any trait whose upload had just failed; the sweep now has the same two guards as the row delete one line above it
@@ -91,7 +85,6 @@ Newest first. Delete the oldest when this passes 12.
 - 2026-09-04 — The base character had NO tests at all; it shipped in every metadata file as trait_type "unsorted", the internal bucket name
 - 2026-09-04 — The storage sweep pages like its sibling: it stopped on a SHORT batch and capped at 2,000 files, leaving orphans nothing would ever list
 - 2026-09-04 — The cloud buttons are pinned to their functions; every cloud test called the function, so an unwired button would have gone unnoticed
-- 2026-09-04 — A forbidden pair reached the collection about once in 40,000 draws on a SATISFIABLE set; the retry bound was too low, now 64
 
 ## Facts worth keeping
 
@@ -134,6 +127,13 @@ Measured, with the date. Delete one the moment the code contradicts it.
   every chip test in the first draft of `cloudmove.spec.js` was silently
   pressing a button that did not exist. Seed on a default layer, and ASSERT the
   card is there before pressing it. *(09-04)*
+- **A test can pass against the very mutant it was written to kill.** The
+  retry-a-failed-send test renamed a layer and then ADDED one, so the list
+  differed from the failed one and would have been re-sent by code that
+  wrongly remembered the failure too. It measured nothing and the suite could
+  not tell. **When pinning "this is retried", the second action must leave the
+  input IDENTICAL** — otherwise the retry is indistinguishable from an ordinary
+  first send. Found by mutation, 09-05. *(09-05)*
 - **`traitEligible` requires status `"approved"`** when wip is not included.
   A fixture written with `status:'ok'` is invisible to every rarity function
   and every count comes back 0. *(09-04)*

@@ -1723,6 +1723,14 @@ const LAYERS_ID='settings.layers';
    Keying by name has exactly two staleness sites, renameLayer and removeLayer,
    and both carry it. */
 const HIDDEN_LAYERS=new Set();
+/* What the group was last told the layer list is, so an unchanged list does
+   not spend a request. Turning a set off calls saveLayers too, and that is a
+   personal view choice that leaves the list identical. Cleared when the
+   project changes - the next collection has been told nothing. */
+let sharedLayerSig=null;
+/* One sentence, used by every layer message, because it is one event: the
+   change happened here and the group has not got it. */
+const LAYERS_NOT_SHARED=" - the group has not got the layer list yet, press Save to cloud";
 const GRID_ID='settings.grid';
 const RULES_ID='settings.rules';
 /* Pairs of traits that must never share a character, each side keyed by
@@ -7357,7 +7365,35 @@ async function saveLayers(){
      a property of the layer list, and one record cannot half-save. */
   await dbPut({id:LAYERS_ID, kind:"settings", layers:LAYERS.slice(),
     hidden:[...HIDDEN_LAYERS].sort(), at:Date.now()});
+  /* AND THE GROUP, which used to hear about it only when somebody pressed Save
+     to cloud - the one PATCH lived in cloudPush. Measured: renaming a layer
+     inside a group made two GETs and no PATCH, so the server went on declaring
+     the old list while retagLayer had already moved the rows to the new one.
+
+     The declaration carries the draw ORDER, and order is what composites a
+     character, so a new member inheriting a stale one is not cosmetic.
+
+     hidden is deliberately NOT sent: a set turned off is how one person is
+     working today, not a property of the project. */
+  const sig=LAYERS.join("\u0000");
+  if(!activeWs){ sharedLayerSig=null; await renderShelf(); return true; }
+  if(sig===sharedLayerSig){ await renderShelf(); return true; }
+  let shared=false;
+  try{
+    const u=await sbUser();
+    const c=u?await cloudCollection(u):null;
+    const h=c?await sbHeaders({"Content-Type":"application/json"}):null;
+    if(c&&h){
+      const r=await fetch(SB_URL+"/rest/v1/collections?id=eq."+c.id,{method:"PATCH",
+        headers:h, body:JSON.stringify({layers:LAYERS})});
+      shared=r.ok;
+    }
+  }catch(_){ shared=false; }
+  /* Remembered only when it actually arrived, so a failed send is retried by
+     the next change rather than being assumed done. */
+  sharedLayerSig = shared ? sig : null;
   await renderShelf();
+  return shared;
 }
 
 /* A trait's id encodes its layer, so changing the layer means a NEW record.
@@ -7398,7 +7434,10 @@ async function moveLayer(name,delta){
   if(j<0||j>=LAYERS.length) return;
   LAYERS.splice(i,1);
   LAYERS.splice(j,0,name);
-  await saveLayers();
+  /* The only one of these with no message of its own. Reordering is a rapid,
+     repeated gesture and a toast per click would be noise - but a reorder the
+     group never got is worth one, because order is what composites. */
+  if(!await saveLayers()) toast("Order changed here"+LAYERS_NOT_SHARED);
 }
 async function addLayer(){
   const raw=$("newlayer").value;
@@ -7409,8 +7448,8 @@ async function addLayer(){
      list, where it is visible, rather than buried at the bottom. */
   LAYERS.push(name);
   $("newlayer").value="";
-  await saveLayers();
-  toast("Added "+name);
+  const listShared=await saveLayers();
+  toast("Added "+name+(listShared?"":LAYERS_NOT_SHARED));
 }
 async function removeLayer(name){
   if(name==="unsorted"){ toast("unsorted is where loose traits land, so it stays"); return; }
@@ -7426,8 +7465,9 @@ async function removeLayer(name){
      become drawable again. That is correct and visible, and leaving the name
      behind would turn off a layer created with the same name later. */
   HIDDEN_LAYERS.delete(name);
-  await saveLayers();
+  const listShared=await saveLayers();
   toast("Removed "+name+(r.moved?", "+r.moved+" moved to unsorted":"")
+    +(!r.stranded&&!listShared?LAYERS_NOT_SHARED:"")
     +(r.stranded?" - "+r.stranded+" not shared yet, press Save to cloud":""));
 }
 async function renameLayer(oldName,raw){
@@ -7440,9 +7480,10 @@ async function renameLayer(oldName,raw){
   /* The set is off by NAME, so a rename has to move it or the layer comes back
      on under its new name with nothing having said so. */
   if(HIDDEN_LAYERS.delete(oldName)) HIDDEN_LAYERS.add(nw);
-  await saveLayers();
+  const listShared=await saveLayers();
   toast("Renamed to "+nw+(r.moved?", "+r.moved+" trait"+(r.moved===1?"":"s")+" moved":"")+
         (r.renamed?" ("+r.renamed+" renamed to avoid a clash)":"")
+        +(!r.stranded&&!listShared?LAYERS_NOT_SHARED:"")
         +(r.stranded?" - "+r.stranded+" not shared yet, press Save to cloud":""));
 }
 
@@ -8022,7 +8063,7 @@ async function cloudRender(){
 function cloudSignOut(){
   sbSaveSession(null);
   gateShow(true);
-  activeWs=null; wsSave(null); cloudTeamId=null;
+  activeWs=null; wsSave(null); cloudTeamId=null; sharedLayerSig=null;
   /* The invite leaves with the person who signed out. Without this, the
      ordinary shared-device case still hands their pending invite to
      whoever sits down next - only now with a question rather than in
@@ -8821,6 +8862,8 @@ async function wsSwitch(id){
   activeWs = id||null;
   wsSave(activeWs);
   cloudTeamId=null;              /* the cloud target moved too */
+  /* And the next collection has been told nothing about any layer list. */
+  sharedLayerSig=null;
   try{ if(dbp){ (await dbp).close(); } }catch(_){}
   dbp=null; dbpName=null;
   /* Layers belong to the project, so they are re-read rather than carried

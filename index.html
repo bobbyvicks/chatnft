@@ -2266,7 +2266,9 @@ async function renderShelf(){
   pc.title = census.oddCount
     ? census.detail+"  \u2014 every trait in a collection has to share one canvas size."
     : "";
-  $('dlzip').disabled=!traits.length;
+  /* A project holding only a base character has something to download now,
+     so the button is no longer dead in that state. */
+  $('dlzip').disabled=!traits.length&&!items.some(i=>i.kind==='ref');
   /* Keys that no longer name a trait go - a removed or renamed trait must not
      sit in the selection making the count lie about what Move will do. */
   {
@@ -2853,16 +2855,35 @@ $('shelfpickall').onclick=()=>{
 };
 
 $('dlzip').onclick=async()=>{
-  const items=(await dbAll()).filter(i=>i.kind==='trait');
-  if(!items.length) return;
+  /* Traits AND base characters. This filtered to traits alone, so a project
+     downloaded as a folder and re-imported came back without the base - which
+     is drawn under every generated character and named in every metadata file
+     as trait_type "base". Export project already keeps both. */
+  const all=(await dbAll()).filter(i=>i.kind==='trait'||i.kind==='ref');
+  const items=all.filter(i=>i.kind==='trait');
+  const refs=all.filter(i=>i.kind==='ref');
+  if(!all.length) return;
+  const safe=s=>String(s||'').replace(/[^a-z0-9._-]+/gi,'-');
   const files=[], seen=new Set();
-  for(const t of items){
-    const st=t.status||'wip';
-    let nm=t.layer+'/'+st+'/'+t.name.replace(/[^a-z0-9._-]+/gi,'-')+'.png', k=2;
-    while(seen.has(nm)){ nm=t.layer+'/'+t.name.replace(/[^a-z0-9._-]+/gi,'-')+'-'+(k++)+'.png'; }
+  /* ONE NAMER FOR BOTH. The suffix goes on the NAME, inside the folder the
+     file already belongs in. It used to rebuild the whole path without the
+     status segment, so a renamed trait landed in layer/ rather than
+     layer/status/ - and readPath reads status out of a whole segment, finds
+     none and makes it wip. Measured: "gold star" and "gold-star", both
+     skins/approved, came out as skins/approved/gold-star.png and
+     skins/gold-star-2.png, so the second one came back a different status. */
+  const put=async(dir,name,blob)=>{
+    let nm=dir+safe(name)+'.png', k=2;
+    while(seen.has(nm)) nm=dir+safe(name)+'-'+(k++)+'.png';
     seen.add(nm);
-    files.push({name:nm, data:new Uint8Array(await t.blob.arrayBuffer())});
-  }
+    files.push({name:nm, data:new Uint8Array(await blob.arrayBuffer())});
+  };
+  for(const t of items) await put((t.layer||'unsorted')+'/'+(t.status||'wip')+'/', t.name, t.blob);
+  /* base/ because that is one of the three whole folder names readPath
+     already reads back as a base character rather than a trait - bases and
+     references are the others. Writing it here is a round trip, not a new
+     convention someone has to learn. */
+  for(const r of refs) await put('base/', r.name, r.blob);
   const b=zip(files), u=URL.createObjectURL(b), a=document.createElement('a');
   a.href=u; a.download='chatnft-project.zip';
   document.body.appendChild(a); a.click(); a.remove();
@@ -2872,7 +2893,12 @@ $('dlzip').onclick=async()=>{
      the download would strand anyone with a deliberate reason, and silently
      resizing their art on the way out would be worse than shipping it wrong. */
   const zcen=sizeCensus(items);
-  toast('Downloaded '+files.length+' traits'+(zcen.oddCount
+  /* Named separately, because they are different things and the census
+     below counts only the traits. "Downloaded 48 traits" over a zip holding
+     47 traits and a base was true of nothing in it. */
+  toast('Downloaded '+items.length+' trait'+(items.length===1?'':'s')
+    +(refs.length?' and '+refs.length+' base character'+(refs.length===1?'':'s'):'')
+    +(zcen.oddCount
     ? " \u2014 "+zcen.oddCount+" not "+zcen.want+" ("+zcen.detail+"). A mint needs one size."
     : ""));
 };

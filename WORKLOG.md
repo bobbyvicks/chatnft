@@ -73,6 +73,7 @@ something. Good places to look, in order:
 
 Newest first. Delete the oldest when this passes 12.
 
+- 2026-09-05 — "Download all" left the base character out of the zip, and dropped the status folder off any file it had to rename, so that trait came back wip
 - 2026-09-05 — Renaming a trait in the editor lost its hidden state and the card came back; three of the four sites that change a trait's record key already transferred it
 - 2026-09-05 — Moving a trait silently disarmed every rule that named it: a layer rename, a layer removal, a drag, a bulk move and an editor rename all changed the layer/name a rule keys on and none told the rules
 - 2026-09-05 — The group heard about a layer rename, reorder, addition or removal only when somebody pressed Save to cloud; saveLayers sends the list when it actually changes and every layer message says when it did not go
@@ -84,7 +85,6 @@ Newest first. Delete the oldest when this passes 12.
 - 2026-09-04 — Clear asked about "traits and the reference" and also deleted the rules, the layer list and the grid; it now removes only what it names
 - 2026-09-04 — Approving a wip trait destroyed the finished one of the same name, with a success toast; both write paths now refuse a collision and name it
 - 2026-09-04 — Every rarity percentage read 0.00% after a reload once a rule was saved: an EMPTY distribution was cached because the tiles run before the compose rows are built
-- 2026-09-04 — The base character had NO tests at all; it shipped in every metadata file as trait_type "unsorted", the internal bucket name
 
 ## Facts worth keeping
 
@@ -127,6 +127,11 @@ Measured, with the date. Delete one the moment the code contradicts it.
   every chip test in the first draft of `cloudmove.spec.js` was silently
   pressing a button that did not exist. Seed on a default layer, and ASSERT the
   card is there before pressing it. *(09-04)*
+- **`sizeCensus` skips anything that is not `kind:"trait"`, internally.** The
+  base character is drawn under every generated character and has to share the
+  canvas size, and no size message counts it. Three callers each pass a list
+  they already scoped, so widening it changes two other numbers — worth doing
+  deliberately, not as a side effect. Not yet worked. *(09-05)*
 - **A record key is `rowId || id`, so the SAME gesture moves it or does not,
   depending on whether the trait has been to a server.** A rename moves the key
   of a local trait and leaves a synced one's alone. Any test about a key moving

@@ -179,9 +179,9 @@ Measured, with the date. Delete one the moment the code contradicts it.
   the six characters, not the character. An anchor typed as the character
   matches nothing. Four attempts went into one of them on 09-05, each losing a
   backslash to a different layer. **Build such a string by concatenation
-  (`'\\' + 'u00d7'`) and check it with `scratchpad/checkanchors.cjs` before
+  (`'\\' + 'u00d7'`) and check it with `tools/checkanchors.cjs` before
   spending a mutation run.** *(09-05)*
-- **`scratchpad/checkanchors.cjs <mutateNNN.cjs>`** proves every mutant anchor
+- **`node tools/checkanchors.cjs <mutateNNN.cjs>`** proves every mutant anchor
   matches the tree exactly once, in a second, by stubbing the runner and
   reading the real `find` expressions. The runner only finds a bad anchor
   after the baseline and the earlier mutants have run — minutes per attempt.
@@ -258,6 +258,15 @@ Measured, with the date. Delete one the moment the code contradicts it.
 ## The tools
 
 - `node tools/patchkit.cjs` — self-tests for the patch anchoring kit
+- `tools/mutrun.cjs` — the mutation runner. A mutate script declares its
+  PREDICTIONS and calls `runMutants({file, spec, ntests, mutants})`; the runner
+  refuses an ambiguous or unchanged anchor, requires a green baseline of the
+  right size, restores by tree-hash identity, and reports an UNPREDICTED red as
+  loudly as a survivor. It defaults to the repo it lives in.
+- `node tools/checkanchors.cjs <mutate script>` — proves every anchor in one
+  matches exactly once, in about a second, before any of them costs a suite run.
+  **Run it first, every time.** Both were in a session scratchpad until 09-05,
+  which is a path nobody else has.
 - `node tools/mutate-patchkit.cjs` — proves that kit's tests can fail
 - `npx playwright test` — the suite, about 4 minutes
 - Throwaway browser probes go in `probe.spec.js` + `probe.config.js` on port

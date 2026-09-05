@@ -2384,8 +2384,15 @@ async function renderShelf(){
         await dbDel(t.id);
         await dbPut(moved);
         visibility.transfer(key,shelfCore.recordKey(moved));
-        await cloudMoveOne(t,moved);
-        renderShelf(); toast(t.name+' -> '+next); };
+        /* The result was discarded, so a move the group never received still
+           said "hat -> approved". saveTrait already tells the truth in this
+           situation - "Saved X here only, could not reach the group" - and this
+           says the same kind of thing rather than a different one. */
+        const shared=await cloudMoveOne(t,moved);
+        renderShelf();
+        toast(activeWs && !shared
+          ? t.name+' -> '+next+' here only - the group still has the old one'
+          : t.name+' -> '+next); };
       el.appendChild(cyc);
       const dup=document.createElement('button');
       dup.className='dup'; dup.textContent='copy';
@@ -8325,16 +8332,28 @@ async function dbDelShared(rec){
 }
 
 /* Renaming, restatusing or moving a trait between layers all change the very
-   thing that identifies it on the server, so they are a removal of the old
-   one and an arrival of the new - not an edit. Doing it in that order means a
-   failure halfway leaves the old copy rather than nothing at all. */
+   thing that identifies it on the server, so they are an arrival of the new
+   copy and a removal of the old one - not an edit. Doing it in THAT order
+   means a failure halfway leaves the old copy rather than nothing at all.
+   The pair used to be written the other way round here, and the code did what
+   this sentence said instead of what it meant. */
 async function cloudMoveOne(oldRec,newRec){
   if(!activeWs) return null;
-  await cloudDropOne(oldRec);
-  /* The old row is gone, so its id must not travel with the new record or the
-     replace above would aim at nothing. */
+  /* THE ORDER THE COMMENT ABOVE DESCRIBES. It used to drop first and sync
+     second, so "a failure halfway leaves the old copy rather than nothing at
+     all" was exactly backwards - measured, a failed upload left the group with
+     no row for the trait at all.
+
+     The new copy goes up first. Its rowId is dropped because it is about to be
+     a different row, and the old row is removed only once the new one exists.
+     A failure now leaves BOTH copies, which is recoverable; the previous order
+     left neither, which is not. */
   const fresh=Object.assign({},newRec); delete fresh.rowId;
-  return await cloudSyncOne(fresh);
+  const arrived=await cloudSyncOne(fresh);
+  if(!arrived) return null;
+  /* Only now, once the new copy has landed. */
+  await cloudDropOne(oldRec);
+  return arrived;
 }
 
 /* Shelf reordering is metadata-only. The PNG path deliberately does not

@@ -8500,7 +8500,28 @@ async function cloudPush(){
       }
     }catch(_){ }
   }
-  const swept=await cloudSweep(team,c,rows.map(r=>r.path));
+  /* THE SAME TWO GUARDS AS THE DELETE ABOVE, because it is the same question:
+     is what this browser can see the whole picture. It was unguarded, and the
+     answer is no in exactly the two situations that block replaced.
+
+     Measured before this, with a teammate's file in the bucket: a push inside
+     a group deleted ws1/c1/trait-theirs-skins-approved.png and said "removed 1
+     old image". The teammate's ROW survived - the delete above refused, being
+     guarded - so the group kept a row pointing at nothing. And on a personal
+     page with one upload failing it deleted that trait's previous good copy,
+     which at that moment was the only copy there was.
+
+     activeWs: the keep-list is built from THIS browser's items, and in a group
+     the bucket holds everybody's. Rebuilding it from the collection's rows
+     instead would still race - cloudSyncOne uploads the image and only then
+     inserts the row, so a file somebody uploaded a moment ago has no row yet.
+     Images orphaned inside a group are left alone: that costs storage, and
+     the measurement above costs somebody their work.
+
+     failed: an item that did not upload contributes no path, so its picture
+     reads as unwanted. */
+  let swept=0;
+  if(!activeWs && !failed) swept=await cloudSweep(team,c,rows.map(r=>r.path));
   await fetch(SB_URL+"/rest/v1/collections?id=eq."+c.id,{method:"PATCH",headers:h,
     body:JSON.stringify({layers:LAYERS})});
   $("cloudpush").disabled=false;

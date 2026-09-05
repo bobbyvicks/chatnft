@@ -2701,12 +2701,34 @@ $('shelfshowall').onclick=()=>{
 };
 $('clearproj').onclick=async()=>{
   if(!confirm('Remove every saved trait and the reference from this browser?')) return;
-  await dbClear();
+  /* NOT dbClear(). That empties the whole store, and four settings records
+     live in it - the rules, the layer list, the grid and the autosave. None of
+     them is "a saved trait or the reference", which is all this asked about.
+
+     Measured before this: one rule, a custom layer, a turned-off set and Cells
+     64 all went, and after a reload the layer list was back to the 13 defaults
+     with Cells at 160. The rules are the part that cannot come back - traits
+     re-import from the folder, a Never-together rule exists nowhere else.
+
+     The rules kept here will name traits that are gone. That is deliberate and
+     is what this file does everywhere else: a stranded rule is SHOWN as
+     stranded rather than dropped, because dropping it throws away an
+     instruction somebody gave. */
+  let removed=0, kept=0;
+  try{
+    for(const rec of await dbAll()){
+      if(rec.kind==="trait"||rec.kind==="ref"){ await dbDel(rec.id); removed++; }
+      else kept++;
+    }
+  }catch(_){}
   currentShelfVisibility().showAll();
   try{ localStorage.removeItem('pb.ref'); }catch(_){}
   refData=null; $('refslot').classList.remove('filled'); $('refthumb').hidden=true;
   $('doextract').disabled=true;
-  renderShelf(); toast('Project cleared');
+  renderShelf();
+  /* Naming what was KEPT, because the surprise here was never what went. */
+  toast(removed+" trait"+(removed===1?"":"s")+" and references removed"
+    +(kept?" - your rules, layers and grid are still here":""));
 };
 
 /* store-only ZIP: PNGs are already compressed, so deflating again buys

@@ -69,6 +69,7 @@ something. Good places to look, in order:
 
 Newest first. Delete the oldest when this passes 12.
 
+- 2026-09-04 — Clear asked about "traits and the reference" and also deleted the rules, the layer list and the grid; it now removes only what it names
 - 2026-09-04 — Approving a wip trait destroyed the finished one of the same name, with a success toast; both write paths now refuse a collision and name it
 - 2026-09-04 — Every rarity percentage read 0.00% after a reload once a rule was saved: an EMPTY distribution was cached because the tiles run before the compose rows are built
 - 2026-09-04 — The base character had NO tests at all; it shipped in every metadata file as trait_type "unsorted", the internal bucket name
@@ -80,7 +81,6 @@ Newest first. Delete the oldest when this passes 12.
 - 2026-09-04 — The account panel compares the two collections instead of subtracting their sizes; "they match" was true of ten-vs-ten with three different
 - 2026-09-04 — The upload retries a dropped file three times like the download does, and the stale check stops selecting every column
 - 2026-09-04 — Save to cloud: 308 requests to 189 on a first push and 8 on a repeat; stopped emptying the server before re-uploading
-- 2026-09-04 — Save/Load to cloud no longer tell a signed-in person to sign in when the network hiccups
 
 ## Facts worth keeping
 
@@ -90,6 +90,11 @@ Measured, with the date. Delete one the moment the code contradicts it.
   and written into its metadata, but had zero test coverage until 09-04 — which
   is how it shipped labelled `"unsorted"`. When adding a fixture, ask whether it
   covers the BASE as well as the traits. *(09-04)*
+- **Settings live in the same IndexedDB store as the traits** —
+  `settings.rules`, `settings.layers`, `settings.grid` and `autosave.working`.
+  Anything reaching for `dbClear()` takes all four with it. The rules are the
+  irrecoverable ones: traits re-import from a folder, a Never-together rule
+  exists nowhere else. *(09-04)*
 - **A trait id is name + layer + status, and `dbPut` overwrites.** Changing any
   of the three moves the record to a new id; if something is already there it is
   destroyed. The file has two conventions for this — RENAME (duplicateTrait,

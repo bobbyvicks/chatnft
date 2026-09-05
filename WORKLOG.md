@@ -77,6 +77,7 @@ something. Good places to look, in order:
 
 Newest first. Delete the oldest when this passes 12.
 
+- 2026-09-05 — Canvas resize said "the art is untouched" and could crop three quarters of a drawing away in silence, at both the button and the drag handles
 - 2026-09-05 — The Grid download button promised "the grid size" and gave the trait's own; a 48x48 trait in a 160 collection downloaded 48x48 under that title
 - 2026-09-05 — The rarity tooltip credited the weights for a number that came from running the generator; two equal-weight traits read 49% and 51% under a sentence saying each was worked out from its weight
 - 2026-09-05 — "N possible characters" left the base characters out of the multiplication: three bases and two skins said 2 where the generator makes 6
@@ -88,7 +89,6 @@ Newest first. Delete the oldest when this passes 12.
 - 2026-09-05 — A trait on a layer this browser had never heard of was pulled, counted and then shown nowhere and drawable by nothing; the layer list adopts the layers the records are actually on
 - 2026-09-05 — One failed request for the project list threw you out of your group project and reset the layer order; wsList reports whether it could ask, and only an answer moves you
 - 2026-09-04 — Save to cloud deleted a teammate's artwork out of the bucket, and the previous good copy of any trait whose upload had just failed; the sweep now has the same two guards as the row delete one line above it
-- 2026-09-04 — Renaming or removing a layer said "3 traits moved" when the group had received none of them; retagLayer counts what did not reach the group and both messages name Save to cloud
 
 ## Facts worth keeping
 
@@ -166,6 +166,15 @@ Measured, with the date. Delete one the moment the code contradicts it.
 - **`traitEligible` requires status `"approved"`** when wip is not included.
   A fixture written with `status:'ok'` is invisible to every rarity function
   and every count comes back 0. *(09-04)*
+- **A canvas round trip ZEROES the colour of a fully transparent pixel.** A
+  fixture that paints RGB everywhere and varies only alpha does NOT distinguish
+  an alpha count from a red count in the transparent region — they agree there.
+  Measured 09-05 while predicting the wrong test would catch a red-channel
+  mutant. *(09-05)*
+- **A mutant must move a call past the thing it protects, not just past a few
+  lines.** Moving `snapshot()` below `resizeOp` was EQUIVALENT — resizeOp is
+  pure and never touches the canvas — so the snapshot still happened before
+  anything changed. It had to go below `restoreImage`. *(09-05)*
 - **index.html writes `—` and `×` as ESCAPE SEQUENCES in its own source** —
   the six characters, not the character. An anchor typed as the character
   matches nothing. Four attempts went into one of them on 09-05, each losing a

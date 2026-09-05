@@ -1200,7 +1200,7 @@ footer .mono{color:var(--ink);}
           <button type="button" data-v="art" aria-pressed="true"
             title="Scale the artwork to the new size">Art</button>
           <button type="button" data-v="canvas" aria-pressed="false"
-            title="Pad or crop the canvas - the art is untouched">Canvas</button>
+            title="Pad or crop the canvas. The art is never rescaled - that is what makes this different from Art - but anything outside the new size is cropped away. Undo puts it back.">Canvas</button>
           <button type="button" data-v="inside" aria-pressed="false"
             title="Resize the trait itself. Type the size you want the trait to be; the canvas does not change.">Trait</button>
         </div></div>
@@ -4859,12 +4859,36 @@ function rotateFree(deg){
 }
 
 /* Resize to an exact size, shared by the Resize button and the drag handles. */
+/* How much opaque artwork the result no longer holds.
+
+   Counted on ALPHA, so a crop through empty margin - the ordinary way to tidy
+   a canvas - comes back zero and says nothing. Counting on a colour channel
+   would see a fully-painted transparent background as artwork.
+
+   Never negative: padding adds canvas and cannot add artwork, and "-768
+   pixels fell outside" would be a worse message than none. */
+function croppedAway(src,out){
+  let was=0, now=0;
+  for(let i=3;i<src.length;i+=4) if(src[i]>0) was++;
+  for(let i=3;i<out.length;i+=4) if(out[i]>0) now++;
+  return Math.max(0,was-now);
+}
+/* One sentence for both resize paths. The button and the drag handles are two
+   ways of asking for the same thing, and two wordings for one event is how
+   somebody ends up believing they are two events. */
+function cropLine(cut){
+  return cut ? " \u2014 "+cut+" pixel"+(cut===1?"":"s")
+    +" of artwork fell outside it. Undo puts them back." : "";
+}
 function resizeTo(nw,nh,mode){
   if(!ctx) return false;
   const W=art.width, H=art.height;
   nw=Math.max(1,Math.min(4096,Math.round(nw)));
   nh=Math.max(1,Math.min(4096,Math.round(nh)));
-  if(nw===W && nh===H) return false;
+  /* null rather than false, and an object rather than true: the caller is the
+     only thing that can say what happened - it has its own wording for the
+     three modes and always did - so it needs the count, not a yes. */
+  if(nw===W && nh===H) return null;
   const src=ctx.getImageData(0,0,W,H).data;
   snapshot();
   const r=resizeOp(mode,src,W,H,nw,nh);
@@ -4873,7 +4897,7 @@ function resizeTo(nw,nh,mode){
   const p=palette(ctx.getImageData(0,0,r.w,r.h).data,r.w*r.h,24,64);
   buildPalette(p.list); buildRecolour(p.list);
   resizeBoxes();
-  return true;
+  return { cut: mode==="canvas" ? croppedAway(src,r.data) : 0 };
 }
 
 /* Show the box only while the transform tool is active and a canvas is open. */
@@ -5036,7 +5060,25 @@ function applyResize(){
   buildPalette(p.list); buildRecolour(p.list);
   fitZoom();
   resizeBoxes();
-  toast(mode==="canvas" ? "Canvas is now "+nw+" by "+nh
+  /* What the new canvas no longer covers. Cropping is half of what this mode
+     is for, so it is not refused and not asked about - snapshot() above means
+     Undo puts the whole thing back, and a dialog on a reversible action
+     somebody asked for would be worse than the silence it replaced.
+
+     Measured before this: a 32x32 canvas filled with artwork, cropped to
+     16x16, kept 256 of 1024 opaque pixels and said "Canvas is now 16 by 16"
+     under a tooltip promising the art was untouched.
+
+     Counted on the ALPHA, so a crop through empty margin - which is what
+     tidying a canvas usually is - stays silent. */
+  /* Canvas mode only, to save two passes over the pixels on every Art resize.
+     It is NOT what stops Art reporting its own resampling as a loss - the
+     message below appends cropLine on the canvas branch alone, so this guard
+     is cheapness rather than correctness. Measured: removing it changes
+     nothing observable, which is how the first comment here came to claim
+     something the line does not do. */
+  const cut = mode==="canvas" ? croppedAway(src,out) : 0;
+  toast(mode==="canvas" ? "Canvas is now "+nw+" by "+nh+cropLine(cut)
       : mode==="inside" ? "Trait scaled to "+nw+" by "+nh+" on a "+W+" by "+H+" canvas"
       : "Resized to "+nw+" by "+nh);
 }
@@ -10150,9 +10192,14 @@ $('filltol').addEventListener('input',()=>{
     /* The drag preview scales the art on screen; committing in "inside" mode
        puts the canvas back and scales the pixels instead, which lands on the
        same picture. */
-    if(resizeTo(nw,nh,chipVal("rsmode"))){ fitZoom();
-      toast(chipVal("rsmode")==="inside" ? "Trait scaled on a "+art.width+" by "+art.height+" canvas"
-                                         : "Resized to "+art.width+" by "+art.height); }
+    /* The same sentence the button uses. Dragging a canvas smaller cropped
+       artwork away and said only "Resized to 16 by 16" - the defect fixed on
+       the button this morning, still here at its sibling. */
+    const done=resizeTo(nw,nh,chipVal("rsmode"));
+    if(done){ fitZoom();
+      toast(chipVal("rsmode")==="inside"
+        ? "Trait scaled on a "+art.width+" by "+art.height+" canvas"
+        : "Resized to "+art.width+" by "+art.height+cropLine(done.cut)); }
   };
   box.addEventListener("pointerup",finish);
   box.addEventListener("pointercancel",()=>{ if(drag){ drag=null; $("tang").style.display="none";

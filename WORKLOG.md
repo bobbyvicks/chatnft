@@ -73,6 +73,7 @@ something. Good places to look, in order:
 
 Newest first. Delete the oldest when this passes 12.
 
+- 2026-09-05 — Moving a trait silently disarmed every rule that named it: a layer rename, a layer removal, a drag, a bulk move and an editor rename all changed the layer/name a rule keys on and none told the rules
 - 2026-09-05 — The group heard about a layer rename, reorder, addition or removal only when somebody pressed Save to cloud; saveLayers sends the list when it actually changes and every layer message says when it did not go
 - 2026-09-05 — A trait on a layer this browser had never heard of was pulled, counted and then shown nowhere and drawable by nothing; the layer list adopts the layers the records are actually on
 - 2026-09-05 — One failed request for the project list threw you out of your group project and reset the layer order; wsList reports whether it could ask, and only an answer moves you
@@ -84,7 +85,6 @@ Newest first. Delete the oldest when this passes 12.
 - 2026-09-04 — Every rarity percentage read 0.00% after a reload once a rule was saved: an EMPTY distribution was cached because the tiles run before the compose rows are built
 - 2026-09-04 — The base character had NO tests at all; it shipped in every metadata file as trait_type "unsorted", the internal bucket name
 - 2026-09-04 — The storage sweep pages like its sibling: it stopped on a SHORT batch and capped at 2,000 files, leaving orphans nothing would ever list
-- 2026-09-04 — The cloud buttons are pinned to their functions; every cloud test called the function, so an unwired button would have gone unnoticed
 
 ## Facts worth keeping
 
@@ -127,6 +127,21 @@ Measured, with the date. Delete one the moment the code contradicts it.
   every chip test in the first draft of `cloudmove.spec.js` was silently
   pressing a button that did not exist. Seed on a default layer, and ASSERT the
   card is there before pressing it. *(09-04)*
+- **Two guards that cover each other hide one another from mutation, again.**
+  `retargetRules` keeps a rule that a rename would leave naming one trait; a
+  mutant dropping that branch SURVIVED, because with only that rule in the set
+  nothing was touched and the `!touched` early return kept the whole set
+  anyway. The case needs a SECOND rule that genuinely moves. Same shape as the
+  `idHolder` pair on 09-04 — **when a mutant survives, ask which OTHER guard
+  is standing in front of it.** *(09-05)*
+- **`applyRules` re-dedupes RULES on every render, so an in-memory assertion
+  cannot see a duplicate that was written to the record.** A mutant keeping two
+  identical rules survived a test that read `RULES` 350ms later. **Assert the
+  settings record for anything about what was PERSISTED.** *(09-05)*
+- **The shelf's status chip is not saveTrait.** It writes the records directly.
+  A test meaning to exercise saveTrait's status path through the chip runs none
+  of saveTrait at all — and passes, because nothing ran. It needs no rule
+  retarget of its own: a rule key is layer/name and carries no status. *(09-05)*
 - **A test can pass against the very mutant it was written to kill.** The
   retry-a-failed-send test renamed a layer and then ADDED one, so the list
   differed from the failed one and would have been re-sent by code that

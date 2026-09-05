@@ -1904,6 +1904,10 @@ async function commitShelfMove(spec){
     return false;
   }
 
+  /* Only here, past the rollback above: a move that did not stick must not
+     take the rules with it. */
+  await retargetRules(plan.updates.map(u=>
+    ({from:traitKey(items.find(i=>i.id===u.oldId)), to:traitKey(u.record)})));
   announceShelf('Moved trait to '+plan.destinationLayer+'.');
   toast(activeWs?'Order saved for the group':'Order saved');
   return true;
@@ -1990,6 +1994,7 @@ async function bulkMoveToLayer(toLayer){
     /* Every id a plan retires, paired with the id that replaces it, so the
        hidden set can follow the traits across the move. */
     const transfers=[];
+    const ruleMoves=[];
     let moved=0;
     for(const key of keys){
       const rec=working.find(i=>shelfCore.recordKey(i)===key);
@@ -1998,6 +2003,11 @@ async function bulkMoveToLayer(toLayer){
       const plan=shelfCore.planShelfMove(working,{recordKey:key,toLayer,beforeKey:null});
       if(!plan.ok){ refused.push({name:rec.name,reason:plan.reason}); continue; }
       for(const u of plan.updates) transfers.push({from:u.oldKey,to:shelfCore.recordKey(u.record)});
+      /* traitKeys, not record keys: a rule names a trait by layer/name and a
+         record key is its row or local id. Read from `working` BEFORE the plan
+         is applied to it just below, or every from would already be the to. */
+      for(const u of plan.updates)
+        ruleMoves.push({from:traitKey(working.find(i=>i.id===u.oldId)), to:traitKey(u.record)});
       working=applyPlanTo(working,plan.updates);
       moved++;
     }
@@ -2025,6 +2035,7 @@ async function bulkMoveToLayer(toLayer){
        order the plans were made, so a record two plans touched ends on the key
        the last of them gave it. */
     for(const t of transfers) state.transfer(t.from,t.to);
+    await retargetRules(ruleMoves);
     shelfPick.clear();
     await renderShelf();
     /* The same shape commitShelfMove hands the cloud, so one trait and forty
@@ -2638,6 +2649,9 @@ async function saveTrait(){
        t_bugtest_eyes_wip and t_bugtest_eyes_approved in the shelf. The shelf's
        own status and layer buttons already do this properly; the editor did not. */
     if(moved){ try{ await dbDel(openWas.id); }catch(_){} cBitmaps.delete(openWas.id); }
+    /* `moved` is also true for a status-only change, where the traitKey does
+       not move at all - retargetRules ignores a pair whose ends are equal. */
+    if(moved) await retargetRules([{from:traitKey(openWas), to:traitKey(rec)}]);
     /* The character preview decodes each trait once and keeps it forever, so
        without this it goes on compositing the version from before the edit. */
     cBitmaps.delete(id);
@@ -7129,6 +7143,55 @@ function applyRules(items){
   const seen=new Set();
   RULES=RULES.filter(p=>{ const k=ruleId(p); if(seen.has(k)) return false; seen.add(k); return true; });
 }
+/* Follows the rules when a trait moves.
+
+   A rule names its traits by layer/name, so renaming a trait, renaming its
+   layer, removing that layer or dragging the card somewhere else all move the
+   trait out from under every rule that names it. Measured before this: one
+   rule, "skins/tan never with hats/cap", and renaming the layer hats to
+   headwear left RULES saying hats/cap while the trait was at headwear/cap -
+   conflictsWith came back FALSE and the generator was free to put the two
+   together. Nothing said so.
+
+   Rules are the part of a project that cannot come back: traits re-import
+   from the folder they came from, a Never-together rule exists nowhere else.
+
+   Takes {from,to} traitKeys so one trait and forty take the same path, and
+   so the store is written once rather than once per trait. */
+async function retargetRules(pairs){
+  if(!RULES.length) return 0;
+  const map=new Map();
+  for(const p of (pairs||[])){
+    if(!p||!p.from||!p.to||p.from===p.to) continue;
+    map.set(p.from,p.to);
+  }
+  if(!map.size) return 0;
+  let touched=0;
+  const next=[], seen=new Set();
+  for(const g of RULES){
+    let changed=false;
+    const moved=g.map(k=>{ const t=map.get(k); if(t===undefined) return k; changed=true; return t; });
+    const grp=ruleGroup(moved);
+    /* A rename that leaves a rule naming ONE trait has merged two of its
+       members, so the rule no longer says anything. It is LEFT AS IT WAS
+       rather than dropped: dropping it throws away an instruction somebody
+       gave, and the panel already shows a member that is not there as
+       "(no longer in the set)". Same choice Clear makes about stranded rules. */
+    if(grp.length<2){ next.push(g); continue; }
+    if(changed) touched++;
+    const id=ruleId(grp);
+    /* Two rules that became the same rule are one rule. Nothing is lost by
+       saying it once, and a duplicate would be refused if it were added by
+       hand. */
+    if(seen.has(id)) continue;
+    seen.add(id);
+    next.push(grp);
+  }
+  if(!touched) return 0;
+  RULES=next;
+  await saveRules();
+  return touched;
+}
 async function saveRules(){
   /* Both fields, in one statement, so they cannot drift apart.
 
@@ -7408,6 +7471,9 @@ async function retagLayer(items,from,to){
      stayed on the old layer. Nothing is lost, but the one action that would
      put it right is Save to cloud and nobody was told to press it. */
   let moved=0, renamed=0, stranded=0;
+  /* Collected, then applied once at the end - the rules are one record and
+     writing it per trait would be forty writes for forty traits. */
+  const ruleMoves=[];
   for(const t of mine){
     const status=t.status||"wip";
     let name=t.name, id="t_"+name+"_"+to+"_"+status, k=2;
@@ -7417,6 +7483,7 @@ async function retagLayer(items,from,to){
     const rec=Object.assign({},t,{id:id,name:name,layer:to});
     await dbDel(t.id);
     await dbPut(rec);
+    ruleMoves.push({from:traitKey(t), to:traitKey(rec)});
     /* activeWs, because cloudMoveOne returns null when there is no group at
        all - nothing left the browser and nothing was meant to. Without this
        every rename on a personal page would warn about a group. */
@@ -7424,6 +7491,7 @@ async function retagLayer(items,from,to){
     if(activeWs && !shared) stranded++;
     moved++;
   }
+  await retargetRules(ruleMoves);
   return {moved:moved,renamed:renamed,stranded:stranded};
 }
 

@@ -2459,11 +2459,25 @@ async function renderShelf(){
              arithmetic. Printing an estimate to the same precision as an exact
              figure claims a certainty it does not have. */
           pct.textContent=(ch.estimated?"~":"")+pctLabel(ch.pct);
-          pct.title="About "+pctLabel(ch.pct)+" of generated characters would carry "+t.name
-            +". Worked out from this weight against the others in "+(t.layer||"unsorted")
-            +(ALWAYS_PRESENT.indexOf(t.layer||"unsorted")>=0
-              ? ", a layer every character has."
-              : ", and the "+Math.round(emptyChance*100)+"% chance that layer is left empty.");
+          /* WHICH PATH IT CAME FROM. This said "worked out from this weight
+             against the others" whatever traitChance had actually done, and
+             once a rule exists traitChance does not do that at all - it runs
+             the generator. Measured: two skins of identical weight read 49%
+             and 51% under a sentence crediting their weights.
+
+             The weights-alone figure is shown beside it, because "my weights
+             are wrong" and "the rules moved this" are the two things somebody
+             reading a surprising number is choosing between. */
+          pct.title = ch.estimated
+            ? "About "+pctLabel(ch.pct)+" of generated characters would carry "+t.name
+              +". Estimated by drawing "+DIST_DRAWS.toLocaleString()+" characters with the"
+              +" Never-together rules applied, so the last point or so is sampling noise."
+              +" The weights alone would say "+pctLabel(ch.plain)+"."
+            : "About "+pctLabel(ch.pct)+" of generated characters would carry "+t.name
+              +". Worked out from this weight against the others in "+(t.layer||"unsorted")
+              +(ALWAYS_PRESENT.indexOf(t.layer||"unsorted")>=0
+                ? ", a layer every character has."
+                : ", and the "+Math.round(emptyChance*100)+"% chance that layer is left empty.");
         }
       }
       el.appendChild(pct);
@@ -6674,13 +6688,19 @@ function traitChance(rec,items,wipIncluded){
      earlier layer, and would drift from randomCombo again the moment the
      generator changed - which is how this happened. So the estimate runs the
      generator instead, and is marked as an estimate. */
+  /* Computed BEFORE the branch, because both paths want it now: one returns
+     it as the answer, and the other carries it so the tooltip can say what
+     the weights alone would have given. Two equal-weight traits reading 49%
+     and 51% is the rules and the sampling, not the weights, and until this
+     there was no way to tell that from the screen. */
+  const present = ALWAYS_PRESENT.indexOf(layer)>=0 ? 1 : Math.max(0,1-emptyChance);
+  const plain = traitWeight(rec)/total*present;
   if(RULES.length){
     const dist=distributionOf(items,wipIncluded);
     const seen=dist.get(traitKey(rec))||0;
-    return { pct: seen/DIST_DRAWS, why:"", estimated:true };
+    return { pct: seen/DIST_DRAWS, why:"", estimated:true, plain:plain };
   }
-  const present = ALWAYS_PRESENT.indexOf(layer)>=0 ? 1 : Math.max(0,1-emptyChance);
-  return { pct: traitWeight(rec)/total*present, why:"", estimated:false };
+  return { pct: plain, why:"", estimated:false, plain:plain };
 }
 /* Two decimals below 1%, one below 10%, none above - a trait on 0.4% of a
    collection is a different thing from one on 0%, and rounding them together

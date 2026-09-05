@@ -73,6 +73,7 @@ something. Good places to look, in order:
 
 Newest first. Delete the oldest when this passes 12.
 
+- 2026-09-05 — The rarity tooltip credited the weights for a number that came from running the generator; two equal-weight traits read 49% and 51% under a sentence saying each was worked out from its weight
 - 2026-09-05 — "N possible characters" left the base characters out of the multiplication: three bases and two skins said 2 where the generator makes 6
 - 2026-09-05 — Every size check skipped the base character, so a 200x200 base under 160x160 traits exported the whole collection at 200 with nothing said anywhere
 - 2026-09-05 — "Download all" left the base character out of the zip, and dropped the status folder off any file it had to rename, so that trait came back wip
@@ -84,7 +85,6 @@ Newest first. Delete the oldest when this passes 12.
 - 2026-09-04 — Save to cloud deleted a teammate's artwork out of the bucket, and the previous good copy of any trait whose upload had just failed; the sweep now has the same two guards as the row delete one line above it
 - 2026-09-04 — Renaming or removing a layer said "3 traits moved" when the group had received none of them; retagLayer counts what did not reach the group and both messages name Save to cloud
 - 2026-09-04 — A trait move inside a group removed the old server copy BEFORE uploading the new one, directly under a comment promising the opposite; a dropped connection left the group with neither
-- 2026-09-04 — Clear asked about "traits and the reference" and also deleted the rules, the layer list and the grid; it now removes only what it names
 
 ## Facts worth keeping
 
@@ -162,6 +162,16 @@ Measured, with the date. Delete one the moment the code contradicts it.
 - **`traitEligible` requires status `"approved"`** when wip is not included.
   A fixture written with `status:'ok'` is invisible to every rarity function
   and every count comes back 0. *(09-04)*
+- **`distributionOf` runs on a FIXED seed**, so a sampled rarity figure is the
+  same wrong-by-a-point number every time rather than a wobble somebody might
+  notice. Measured 09-05: two equal-weight skins showed 49% and 51% on every
+  load, against 50.2/49.8 from 40,000 fresh draws. Estimates are marked with a
+  "~" and now say so in the tooltip. *(09-05)*
+- **The in-app browser pane's screenshot came back blank over a shelf that was
+  demonstrably painting** (8 card canvases, every pixel opaque). Playwright's
+  `locator.screenshot()` captured it correctly. **When a screenshot disagrees
+  with the DOM, get a capture from a different runner before believing either.**
+  *(09-05)*
 - **`traitEligible` opens with `if(!t||t.kind!=="trait") return false;`**, so
   every walk that goes through it is blind to base characters — which is how
   the possible-character count missed a whole factor of the draw. **Ask of any

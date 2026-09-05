@@ -40,7 +40,11 @@ Nothing.
   teammate's live file from an orphan, and taking the keep-list from the rows
   instead still races the upload-then-insert order inside `cloudSyncOne`. Costs
   storage. Reopen only with a way to date a bucket file that can be checked.
-- Nine leads from the 09-04 shape sweep are still unverified.
+> The "nine unverified leads from the 09-04 shape sweep" line that stood here
+> has been removed. The list itself lived in a session that has ended, so the
+> line pointed at nothing anybody could read — which is exactly the rot the
+> rules at the top of this file are about. The four lenses below found twelve
+> defects on 09-05 without it; they are the durable half.
 
 When the queue is empty the run's job is to **find** something, not to invent
 something. Good places to look, in order:
@@ -73,6 +77,7 @@ something. Good places to look, in order:
 
 Newest first. Delete the oldest when this passes 12.
 
+- 2026-09-05 — The Grid download button promised "the grid size" and gave the trait's own; a 48x48 trait in a 160 collection downloaded 48x48 under that title
 - 2026-09-05 — The rarity tooltip credited the weights for a number that came from running the generator; two equal-weight traits read 49% and 51% under a sentence saying each was worked out from its weight
 - 2026-09-05 — "N possible characters" left the base characters out of the multiplication: three bases and two skins said 2 where the generator makes 6
 - 2026-09-05 — Every size check skipped the base character, so a 200x200 base under 160x160 traits exported the whole collection at 200 with nothing said anywhere
@@ -84,7 +89,6 @@ Newest first. Delete the oldest when this passes 12.
 - 2026-09-05 — One failed request for the project list threw you out of your group project and reset the layer order; wsList reports whether it could ask, and only an answer moves you
 - 2026-09-04 — Save to cloud deleted a teammate's artwork out of the bucket, and the previous good copy of any trait whose upload had just failed; the sweep now has the same two guards as the row delete one line above it
 - 2026-09-04 — Renaming or removing a layer said "3 traits moved" when the group had received none of them; retagLayer counts what did not reach the group and both messages name Save to cloud
-- 2026-09-04 — A trait move inside a group removed the old server copy BEFORE uploading the new one, directly under a comment promising the opposite; a dropped connection left the group with neither
 
 ## Facts worth keeping
 
@@ -162,6 +166,17 @@ Measured, with the date. Delete one the moment the code contradicts it.
 - **`traitEligible` requires status `"approved"`** when wip is not included.
   A fixture written with `status:'ok'` is invisible to every rarity function
   and every count comes back 0. *(09-04)*
+- **index.html writes `—` and `×` as ESCAPE SEQUENCES in its own source** —
+  the six characters, not the character. An anchor typed as the character
+  matches nothing. Four attempts went into one of them on 09-05, each losing a
+  backslash to a different layer. **Build such a string by concatenation
+  (`'\\' + 'u00d7'`) and check it with `scratchpad/checkanchors.cjs` before
+  spending a mutation run.** *(09-05)*
+- **`scratchpad/checkanchors.cjs <mutateNNN.cjs>`** proves every mutant anchor
+  matches the tree exactly once, in a second, by stubbing the runner and
+  reading the real `find` expressions. The runner only finds a bad anchor
+  after the baseline and the earlier mutants have run — minutes per attempt.
+  *(09-05)*
 - **`distributionOf` runs on a FIXED seed**, so a sampled rarity figure is the
   same wrong-by-a-point number every time rather than a wobble somebody might
   notice. Measured 09-05: two equal-weight skins showed 49% and 51% on every

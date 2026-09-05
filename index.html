@@ -1252,7 +1252,7 @@ footer .mono{color:var(--ink);}
         <div class="olrow"><span>Download</span>
           <div class="savebar" style="flex:1" role="group" aria-label="Download">
             <button class="btn ghost" id="dlNative" style="flex:1"
-              title="Download at the grid size - the size every trait has to be to line up">Grid</button>
+              title="Download this trait at its own size, unscaled. Every trait has to match the collection's grid to line up - this button reports the size rather than changing it.">Grid</button>
             <button class="btn ghost" id="dlBig" style="flex:1"
               title="Download at eight times the size, for previews and posts">8×</button>
             <button class="btn ghost" id="dlTrim" style="flex:1"
@@ -9873,7 +9873,18 @@ function download(scale){
     a.href=u; a.download=scale===1?fileName:fileName.replace(/\.png$/,'@'+scale+'x.png');
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(()=>URL.revokeObjectURL(u),1000);
-    toast('Downloaded '+W+'×'+H);
+    /* Named when it differs, in the words saveTrait already uses for this
+       exact fact - one mismatch described two ways across two screens is how
+       somebody ends up believing they are two problems. Said, not blocked:
+       refusing the download would strand anyone with a deliberate reason. */
+    /* The trait's size is already in the sentence, so this adds only what is
+       missing: the size it was supposed to be. Saying "Downloaded 48x48 - this
+       trait is 48x48" was the first draft, and printing one number twice reads
+       as a bug in the message rather than a fact about the trait. */
+    const off = (art.width!==projectGrid || art.height!==projectGrid)
+      ? " \u2014 not the collection's "+projectGrid+"\u00d7"+projectGrid
+        +". A mint needs one size." : "";
+    toast('Downloaded '+W+'\u00d7'+H+off);
   },'image/png');
 }
 $('dlNative').onclick=()=>download(1);

@@ -73,6 +73,7 @@ something. Good places to look, in order:
 
 Newest first. Delete the oldest when this passes 12.
 
+- 2026-09-05 — Every size check skipped the base character, so a 200x200 base under 160x160 traits exported the whole collection at 200 with nothing said anywhere
 - 2026-09-05 — "Download all" left the base character out of the zip, and dropped the status folder off any file it had to rename, so that trait came back wip
 - 2026-09-05 — Renaming a trait in the editor lost its hidden state and the card came back; three of the four sites that change a trait's record key already transferred it
 - 2026-09-05 — Moving a trait silently disarmed every rule that named it: a layer rename, a layer removal, a drag, a bulk move and an editor rename all changed the layer/name a rule keys on and none told the rules
@@ -84,7 +85,6 @@ Newest first. Delete the oldest when this passes 12.
 - 2026-09-04 — A trait move inside a group removed the old server copy BEFORE uploading the new one, directly under a comment promising the opposite; a dropped connection left the group with neither
 - 2026-09-04 — Clear asked about "traits and the reference" and also deleted the rules, the layer list and the grid; it now removes only what it names
 - 2026-09-04 — Approving a wip trait destroyed the finished one of the same name, with a success toast; both write paths now refuse a collision and name it
-- 2026-09-04 — Every rarity percentage read 0.00% after a reload once a rule was saved: an EMPTY distribution was cached because the tiles run before the compose rows are built
 
 ## Facts worth keeping
 
@@ -127,11 +127,6 @@ Measured, with the date. Delete one the moment the code contradicts it.
   every chip test in the first draft of `cloudmove.spec.js` was silently
   pressing a button that did not exist. Seed on a default layer, and ASSERT the
   card is there before pressing it. *(09-04)*
-- **`sizeCensus` skips anything that is not `kind:"trait"`, internally.** The
-  base character is drawn under every generated character and has to share the
-  canvas size, and no size message counts it. Three callers each pass a list
-  they already scoped, so widening it changes two other numbers — worth doing
-  deliberately, not as a side effect. Not yet worked. *(09-05)*
 - **A record key is `rowId || id`, so the SAME gesture moves it or does not,
   depending on whether the trait has been to a server.** A rename moves the key
   of a local trait and leaves a synced one's alone. Any test about a key moving
@@ -167,6 +162,16 @@ Measured, with the date. Delete one the moment the code contradicts it.
 - **`traitEligible` requires status `"approved"`** when wip is not included.
   A fixture written with `status:'ok'` is invisible to every rarity function
   and every count comes back 0. *(09-04)*
+- **`cPools()` builds a `__base` pool and `buildCombo` puts a base record
+  FIRST in every combo**, so anything walking combos is walking `kind:"ref"`
+  records as well as traits. `cChosen` includes the base row the same way.
+  Measured 09-05, which is how the size census turned out to be receiving the
+  base at two of its three call sites and dropping it internally. *(09-05)*
+- **A guard the callers already make redundant can only be tested directly.**
+  All three `sizeCensus` call sites filter to traits and refs before calling,
+  so removing the census's own kind check changes nothing on any screen — only
+  the unit test can red it. That is where a defensive check belongs, and it
+  needs a test of its own or it is invisible. *(09-05)*
 - **`comboStats` and `cPools` enumerate different populations.** `comboStats`
   groups by whatever `layer` string a trait carries; `cPools` only builds pools
   for layers in `LAYERS`. They agree today because every UI path keeps traits in

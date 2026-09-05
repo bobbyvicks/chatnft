@@ -2256,7 +2256,10 @@ async function renderShelf(){
      Over ALL traits, not the filtered view: a search narrowing 300 down to 10
      does not make the other 290 the right size, and the count beside this has
      already been fixed once for exactly that confusion. */
-  const census=sizeCensus(traits);
+  /* Traits AND the base. The count beside this stays a count of TRAITS - the
+     shelf lists traits - but the size question is about everything that gets
+     painted into a character, and the base is painted into all of them. */
+  const census=sizeCensus(items.filter(i=>i.kind==="trait"||i.kind==="ref"));
   const base = shownCount===traits.length
     ? noun(traits.length)
     : shownCount+' of '+noun(traits.length);
@@ -2264,7 +2267,9 @@ async function renderShelf(){
   pc.textContent = base + (census.oddCount
     ? "  \u00b7  "+census.oddCount+" not "+census.want : "");
   pc.title = census.oddCount
-    ? census.detail+"  \u2014 every trait in a collection has to share one canvas size."
+    /* "every trait" was true of what this LOOKED at and false of what it is
+       for: the base is not a trait and is in every picture. */
+    ? census.detail+"  \u2014 everything drawn into a character has to share one canvas size."
     : "";
   /* A project holding only a base character has something to download now,
      so the button is no longer dead in that state. */
@@ -2805,7 +2810,15 @@ function sizeCensus(items){
   const want=key(projectGrid,projectGrid);
   const by=new Map();
   for(const t of (items||[])){
-    if(!t||t.kind!=="trait") continue;
+    /* Base characters TOO. A base is painted under every generated character,
+       so a collection whose base is a different size is exported at the base's
+       size with every trait scaled to fit. Measured: grid 160, traits 160x160,
+       base 200x200 - oddCount 0, the shelf said "2 traits" with no warning,
+       and the PNGs came out 200x200.
+
+       Anything else - the settings records, the autosave - is still skipped:
+       it has no canvas and is not drawn into anything. */
+    if(!t||(t.kind!=="trait"&&t.kind!=="ref")) continue;
     const k=key(t.w,t.h);
     if(!by.has(k)) by.set(k,[]);
     by.get(k).push(t.name||t.id||"unnamed");
@@ -2892,7 +2905,9 @@ $('dlzip').onclick=async()=>{
      where being wrong actually costs something. Named, not blocked: refusing
      the download would strand anyone with a deliberate reason, and silently
      resizing their art on the way out would be worse than shipping it wrong. */
-  const zcen=sizeCensus(items);
+  /* `all`, not `items`: the base is in this zip now, and a base at the wrong
+     size is the one that changes every picture rather than one of them. */
+  const zcen=sizeCensus(all);
   /* Named separately, because they are different things and the census
      below counts only the traits. "Downloaded 48 traits" over a zip holding
      47 traits and a base was true of nothing in it. */
@@ -6254,7 +6269,7 @@ async function drawCompose(){
         .map(e=>e[0]+" ("+e[1].join(", ")+")")
     : [];
   $("cnote").textContent = odd.length
-    ? "Not all the same size: "+odd.join(" and ")+". Traits that layer have to share one canvas size."
+    ? "Not all the same size: "+odd.join(" and ")+". Everything drawn into a character has to share one canvas size."
     : "Stacks one trait per layer over a base, in draw order, to check the set works together.";
   $("cdl").disabled=!picked.length;
 }
@@ -7149,7 +7164,7 @@ async function drawSheet(count){
     (empties?", and note "+empties+" came out with nothing but a base":"")+
     ". Change any dropdown to go back to one character."+shortBy+missed+
     (scen.oddCount ? "  Not all the same size: "+scen.detail
-      +". Traits that layer have to share one canvas size." : "");
+      +". Everything drawn into a character has to share one canvas size." : "");
   $("cdl").disabled=false;
 }
 

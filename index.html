@@ -2643,15 +2643,32 @@ async function saveTrait(){
       return false;
     }
     await dbPut(rec);
-    /* Changing the name, layer or status changes the id, and the id IS the
-       record - so without this the old one stays and you have two. Measured:
-       switching a trait from wip to approved in the editor left both
-       t_bugtest_eyes_wip and t_bugtest_eyes_approved in the shelf. The shelf's
-       own status and layer buttons already do this properly; the editor did not. */
-    if(moved){ try{ await dbDel(openWas.id); }catch(_){} cBitmaps.delete(openWas.id); }
-    /* `moved` is also true for a status-only change, where the traitKey does
-       not move at all - retargetRules ignores a pair whose ends are equal. */
-    if(moved) await retargetRules([{from:traitKey(openWas), to:traitKey(rec)}]);
+    /* Everything a move has to carry with it, in one place. */
+    if(moved){
+      /* Changing the name, layer or status changes the id, and the id IS the
+         record - so without this the old one stays and you have two. Measured:
+         switching a trait from wip to approved in the editor left both
+         t_bugtest_eyes_wip and t_bugtest_eyes_approved in the shelf. The shelf's
+         own status and layer buttons already do this properly; the editor did not. */
+      try{ await dbDel(openWas.id); }catch(_){}
+      cBitmaps.delete(openWas.id);
+      /* A hidden trait stays hidden through a rename. The visibility set is
+         keyed by record key - rowId || id - and the id carries the name, layer
+         and status, so all three of those give the trait a new key. The status
+         chip, the drag and the bulk move all transfer it; this did not.
+
+         Measured, with cap hidden: the chip moved the key to the new id, and
+         the editor left the set empty and the card back on the shelf.
+
+         BEFORE renderShelf below, which drops any hidden key with no live
+         trait behind it - after it the entry is already gone. */
+      try{ currentShelfVisibility().transfer(
+        shelfCore.recordKey(openWas), shelfCore.recordKey(rec)); }catch(_){}
+      /* And the rules, which name a trait by layer/name. `moved` is also true
+         for a status-only change, where the traitKey does not move at all -
+         retargetRules ignores a pair whose ends are equal. */
+      await retargetRules([{from:traitKey(openWas), to:traitKey(rec)}]);
+    }
     /* The character preview decodes each trait once and keeps it forever, so
        without this it goes on compositing the version from before the edit. */
     cBitmaps.delete(id);

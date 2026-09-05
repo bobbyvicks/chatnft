@@ -73,6 +73,7 @@ something. Good places to look, in order:
 
 Newest first. Delete the oldest when this passes 12.
 
+- 2026-09-05 — Renaming a trait in the editor lost its hidden state and the card came back; three of the four sites that change a trait's record key already transferred it
 - 2026-09-05 — Moving a trait silently disarmed every rule that named it: a layer rename, a layer removal, a drag, a bulk move and an editor rename all changed the layer/name a rule keys on and none told the rules
 - 2026-09-05 — The group heard about a layer rename, reorder, addition or removal only when somebody pressed Save to cloud; saveLayers sends the list when it actually changes and every layer message says when it did not go
 - 2026-09-05 — A trait on a layer this browser had never heard of was pulled, counted and then shown nowhere and drawable by nothing; the layer list adopts the layers the records are actually on
@@ -84,7 +85,6 @@ Newest first. Delete the oldest when this passes 12.
 - 2026-09-04 — Approving a wip trait destroyed the finished one of the same name, with a success toast; both write paths now refuse a collision and name it
 - 2026-09-04 — Every rarity percentage read 0.00% after a reload once a rule was saved: an EMPTY distribution was cached because the tiles run before the compose rows are built
 - 2026-09-04 — The base character had NO tests at all; it shipped in every metadata file as trait_type "unsorted", the internal bucket name
-- 2026-09-04 — The storage sweep pages like its sibling: it stopped on a SHORT batch and capped at 2,000 files, leaving orphans nothing would ever list
 
 ## Facts worth keeping
 
@@ -127,6 +127,16 @@ Measured, with the date. Delete one the moment the code contradicts it.
   every chip test in the first draft of `cloudmove.spec.js` was silently
   pressing a button that did not exist. Seed on a default layer, and ASSERT the
   card is there before pressing it. *(09-04)*
+- **A record key is `rowId || id`, so the SAME gesture moves it or does not,
+  depending on whether the trait has been to a server.** A rename moves the key
+  of a local trait and leaves a synced one's alone. Any test about a key moving
+  needs both, and any fix has to be a no-op in the second case rather than a
+  delete. *(09-05)*
+- **Predicting a mutant will SURVIVE is worth writing down and is easy to get
+  wrong.** Three predicted survivors on 09-05 all died, because the reasoning
+  was about the one seeded case rather than about every save the mutant
+  touches. **Ask what the mutant does on the OTHER rows in the fixture**, not
+  only on the one the test is named after. *(09-05)*
 - **Two guards that cover each other hide one another from mutation, again.**
   `retargetRules` keeps a rule that a rename would leave naming one trait; a
   mutant dropping that branch SURVIVED, because with only that rule in the set

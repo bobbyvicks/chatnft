@@ -73,6 +73,7 @@ something. Good places to look, in order:
 
 Newest first. Delete the oldest when this passes 12.
 
+- 2026-09-05 — "N possible characters" left the base characters out of the multiplication: three bases and two skins said 2 where the generator makes 6
 - 2026-09-05 — Every size check skipped the base character, so a 200x200 base under 160x160 traits exported the whole collection at 200 with nothing said anywhere
 - 2026-09-05 — "Download all" left the base character out of the zip, and dropped the status folder off any file it had to rename, so that trait came back wip
 - 2026-09-05 — Renaming a trait in the editor lost its hidden state and the card came back; three of the four sites that change a trait's record key already transferred it
@@ -84,7 +85,6 @@ Newest first. Delete the oldest when this passes 12.
 - 2026-09-04 — Renaming or removing a layer said "3 traits moved" when the group had received none of them; retagLayer counts what did not reach the group and both messages name Save to cloud
 - 2026-09-04 — A trait move inside a group removed the old server copy BEFORE uploading the new one, directly under a comment promising the opposite; a dropped connection left the group with neither
 - 2026-09-04 — Clear asked about "traits and the reference" and also deleted the rules, the layer list and the grid; it now removes only what it names
-- 2026-09-04 — Approving a wip trait destroyed the finished one of the same name, with a success toast; both write paths now refuse a collision and name it
 
 ## Facts worth keeping
 
@@ -162,6 +162,11 @@ Measured, with the date. Delete one the moment the code contradicts it.
 - **`traitEligible` requires status `"approved"`** when wip is not included.
   A fixture written with `status:'ok'` is invisible to every rarity function
   and every count comes back 0. *(09-04)*
+- **`traitEligible` opens with `if(!t||t.kind!=="trait") return false;`**, so
+  every walk that goes through it is blind to base characters — which is how
+  the possible-character count missed a whole factor of the draw. **Ask of any
+  function that filters by kind whether the base belongs in its population.**
+  Three defects from that one question on 09-05. *(09-05)*
 - **`cPools()` builds a `__base` pool and `buildCombo` puts a base record
   FIRST in every combo**, so anything walking combos is walking `kind:"ref"`
   records as well as traits. `cChosen` includes the base row the same way.

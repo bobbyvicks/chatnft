@@ -6178,10 +6178,10 @@ async function buildCompose(items){
            not say so reads as the exact one it used to be. */
         +(cs.estimated ? " (estimated, with the rules applied)" : "");
       el.title = (cs.estimated
-        ? "Every combination of one trait per layer, minus the ones a"
+        ? "Every combination of one base character and one trait per layer, minus the ones a"
           +" Never-together rule forbids. That share is estimated by sampling,"
           +" because counting them exactly is not practical once a set is large."
-        : "Every combination of one trait per layer, counting the chance a")
+        : "Every combination of one base character and one trait per layer, counting the chance a")
         +" layer is left empty. \"Behaving like\" is how many EVENLY likely"
         +" characters would repeat as often as these weights do - if it is far"
         +" below, a few traits are taking most of the collection.";
@@ -6831,7 +6831,25 @@ function comboStats(items,wipIncluded){
     if(!by.has(l)) by.set(l,[]);
     by.get(l).push(t);
   }
+  /* THE BASE CHARACTERS. buildCombo puts one at the front of every character,
+     so they multiply the count - and traitEligible rejects anything that is
+     not kind "trait", so this walk never reached them. Measured: three bases
+     and two skins made six different characters and the screen said two. */
+  const bases=(items||[]).filter(i=>i&&i.kind==="ref");
   let distinct=1, collide=1, layers=0;
+  if(bases.length){
+    /* Counted as a layer for the "is there anything to draw" guard below: a
+       project holding only base characters still generates one character per
+       base, and returning zero for it reads as an empty set. */
+    layers++;
+    /* No "+1 for empty": a character always gets a base. */
+    distinct *= bases.length;
+    let total=0;
+    for(const b of bases) total+=traitWeight(b);
+    let s=0;
+    for(const b of bases){ const p=traitWeight(b)/total; s+=p*p; }
+    collide *= s;
+  }
   for(const pair of by){
     const layer=pair[0], pool=pair[1];
     if(!pool.length) continue;

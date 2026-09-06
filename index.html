@@ -552,7 +552,12 @@ input[type=range]{width:100%; accent-color:var(--accent); cursor:pointer;}
 .side select,.side input[type=number],.side input[type=text]{
   appearance:none; -webkit-appearance:none;
   background:var(--panel-2); border:1px solid var(--line); color:var(--ink);
-  border-radius:6px; padding:4px 7px; font:inherit; font-size:11.5px; min-height:26px;}
+  /* line-height is the lever here: with none set these inherit body 1.5, so
+     the line box alone is 17.25px and the 26px floor never binds. Both move
+     together or neither does anything. The chevron padding on the line below
+     is a separate declaration and survives. */
+  border-radius:6px; padding:2px 7px; font:inherit; font-size:11.5px;
+  line-height:1.4; min-height:22px;}
 .side select{padding-right:22px;
   background-image:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><path d="M2.5 4.5L6 8l3.5-3.5" fill="none" stroke="%23a09aab" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>');
   background-repeat:no-repeat; background-position:right 6px center; background-size:11px;}
@@ -568,7 +573,7 @@ input[type=range]{width:100%; accent-color:var(--accent); cursor:pointer;}
 #bcur.tiny::after{content:""; position:absolute; inset:-4px; border-radius:3px;
   border:1px solid color-mix(in srgb, var(--accent) 80%, transparent);}
 .side{grid-area:side; width:244px; padding:10px; border-right:1px solid var(--line); overflow-x:hidden;
-  background:var(--panel); overflow-y:auto; display:flex; flex-direction:column; gap:11px;}
+  background:var(--panel); overflow-y:auto; display:flex; flex-direction:column; gap:8px;}
 /* The handle is a phone thing. On a wide screen the panel is a column beside
    the art and is not in the way of anything. */
 .grip{display:none;}
@@ -618,8 +623,13 @@ input[type=range]{width:100%; accent-color:var(--accent); cursor:pointer;}
 .chips button:hover{color:var(--ink);}
 .chips button[aria-pressed="true"]{background:var(--accent); color:#241a05; font-weight:600;}
 .chips button:focus-visible{outline:2px solid var(--accent); outline-offset:-2px;}
-.swatches{display:grid; grid-template-columns:repeat(8,1fr); gap:5px;}
-.sw{aspect-ratio:1; min-height:26px; border-radius:5px; border:1px solid #ffffff1a; padding:0;}
+/* Gap only. Eight columns stay: nine is 21.2px at the 244px base width, and
+   at the 64-swatch cap nine columns is still eight rows, so the extra column
+   would have cost a smaller target for no fewer rows. */
+.swatches{display:grid; grid-template-columns:repeat(8,1fr); gap:4px;}
+/* Moves WITH the column count above, never on its own: at 26px the floor
+   binds at nine columns and swallows the change. */
+.sw{aspect-ratio:1; min-height:22px; border-radius:4px; border:1px solid #ffffff1a; padding:0;}
 .sw[aria-pressed="true"]{outline:2px solid var(--accent); outline-offset:1px;}
 /* The recolour swatches can now have several chosen at once, and the outline
    above is drawn in the accent colour - which disappears on a swatch that IS
@@ -629,11 +639,15 @@ input[type=range]{width:100%; accent-color:var(--accent); cursor:pointer;}
    "sw" - so setColor's sweep wiped it and rcSummary had to keep restoring it.
    Two states on two attributes cannot overwrite each other. */
 .sw[data-rc="1"]{box-shadow:inset 0 0 0 2px #000000aa, inset 0 0 0 4px #ffffffcc;}
-.cur{display:flex; align-items:center; gap:9px; padding:8px; border-radius:9px;
+.cur{display:flex; align-items:center; gap:9px; padding:5px; border-radius:8px;
   background:var(--panel-2); border:1px solid var(--line);}
-.cur input[type=color]{width:34px; height:34px; padding:0; border:1px solid #ffffff24;
+.cur input[type=color]{width:28px; height:28px; padding:0; border:1px solid #ffffff24;
   border-radius:7px; background:none; cursor:pointer; flex:none;}
-.cur small{display:block; color:var(--dim); font-size:10px; text-transform:uppercase; letter-spacing:.09em;}
+.cur small{display:block; color:var(--dim); font-size:10px; text-transform:uppercase;
+  letter-spacing:.09em; line-height:1.25;}
+/* #curhex is otherwise unstyled and takes body's 14px/1.5, which is what
+   made the text column taller than the colour well it sits beside. */
+.cur .mono{font-size:12.5px; line-height:1.25;}
 /* The transparent border is what makes .btn and .btn.ghost the same height.
    Ghost adds a 1px border; without this the two stood 42px and 44px tall in
    the same column, which reads as sloppiness rather than as two kinds. */
@@ -644,10 +658,85 @@ input[type=range]{width:100%; accent-color:var(--accent); cursor:pointer;}
 .btn.ghost{background:var(--panel-2); border:1px solid var(--line); color:var(--ink); font-weight:500;}
 .btn.ghost:hover{background:var(--line);}
 .btn.ghost.on{background:var(--accent-soft); border-color:var(--accent); color:var(--accent);}
-.stack{display:flex; flex-direction:column; gap:8px;}
+/* 8 -> 5 across 16 gaps in the panel. All five .stack elements are inside it,
+   so this needs no scoping. */
+.stack{display:flex; flex-direction:column; gap:5px;}
 /* A caption under a control, not a paragraph. Smaller, quieter and given room
    above so it belongs to the thing before it rather than floating between. */
 .note{font-size:11.5px; color:var(--dim); line-height:1.5; margin-top:2px;}
+
+/* ================= DENSITY PASS =================================
+   Everything below is scoped to .side, because each of these selectors also
+   styles something outside the editor panel - .btn and .mini are used across
+   the whole page, .tool is the vertical tool rail, .rule is a divider in
+   both, and .olrow appears in four rows outside the panel.
+
+   Measured before: 1621px of content at a 244px panel, 1580 at 274,
+   1549 at 286. Every one of these was checked against the recorded
+   measurements in this file first; none of them undoes one. */
+
+/* The single biggest line in the panel: twelve full-width buttons, each set
+   by a line box of 12px x the inherited 1.5 plus 14px of padding. */
+.side .btn{padding:4px 10px; line-height:1.3;}
+/* A <p> keeps the UA margin-block-end of 1em - 11.5px - on four visible
+   notes, under a rule that only ever set margin-top. */
+.side .note{margin-bottom:0;}
+/* Matched to .side .btn on purpose, so a row holding one of each lands on a
+   single line rather than being set by the taller of the two. */
+.side .mini{padding:4px 10px; font-size:12px; line-height:1.3;}
+/* Four hairlines, each 11px tall of which 10 is margin. */
+.side .rule{margin:3px 2px;}
+/* The four flip and turn buttons, which are the only .tool inside the panel -
+   the rail keeps its 46px squares. 20px icons leave 9px of clearance. */
+.side .tool{width:38px; height:38px;}
+/* flex-wrap stays. A smaller gap lowers the pressure to wrap rather than
+   turning a wrap into an overflow, which is what the note on .olrow is about. */
+.side .olrow{gap:5px; line-height:1.3;}
+
+/* THE STATUS CHIPS GET THEIR OWN LINE.
+
+   .savebar is flex-wrap:wrap, but #tname is `flex:1; min-width:0` and .chips
+   is the same, so the row's hypothetical width is near zero and it never
+   wraps. Measured at every width: "approved" needed 58px and had 18, and
+   `.chips button{text-overflow:ellipsis}` quietly clipped it - so the control
+   that decides whether a trait is finished could not be read.
+
+   flex-basis:100% rather than a min-width, because this should not depend on
+   arithmetic that has already been wrong once. Name and layer on one line,
+   the three states full width underneath. */
+#tstatus{flex:1 1 100%;}
+
+/* The save bar's own fields are 36.75px while the same select outside one is
+   27.25px. Longhand padding, NOT the shorthand: `.side select` sets
+   padding-right:22px to keep option text off the inline chevron, and a
+   shorthand here is more specific and would reset it to 8px - the chevron sits
+   6px to 17px in from the right edge, and #basepick and #tlayer both carry
+   runtime text long enough to reach it. */
+.side .savebar input,.side .savebar select{
+  padding-block:2px; padding-left:8px; font-size:11.5px; line-height:1.4;}
+.side .savebar input{padding-right:8px;}
+
+/* A slider now sits in the row that labels it, so it has to take the slack
+   rather than the whole line. min-width:0 because a flex item will not
+   shrink below its intrinsic size without it, and a range input's is wide. */
+/* flex-basis 0, NOT auto. With auto the range keeps its intrinsic width as its
+   hypothetical size, which is wide enough to push the label and the readout off
+   the line: measured, the row came out THREE lines and 56px tall - taller than
+   the two rows it replaced. At basis 0 it takes only what is left over and the
+   row cannot be forced to wrap by it. */
+.side .olrow input[type=range]{flex:1 1 0; min-width:60px; margin:0;}
+/* The readout after it keeps its own width instead of being pushed to the
+   far edge - the inline margin-left:auto that used to do that is gone with
+   the row it lived on. */
+.side .olrow input[type=range]+.mono{flex:none; text-align:right; min-width:44px;}
+
+/* The two number boxes on the Transform Size row carried an inline 72px,
+   which pushed that row to about 262px against 253px of content and dropped
+   the Shape toggle onto a line by itself. 66px holds five digits at the
+   density pass's padding - checked in a browser against #holemax, whose max
+   is 99999, rather than worked out on paper. */
+.side .olrow input[type=number]{width:66px;}
+/* ================= end density pass ============================= */
 footer{grid-area:foot; display:flex; align-items:center; gap:15px; padding:4px 16px;
   border-top:1px solid var(--line); background:var(--panel); font-size:11.5px; color:var(--muted);}
 footer .mono{color:var(--ink);}
@@ -677,6 +766,26 @@ footer .mono{color:var(--ink);}
   .tools{flex-direction:row; flex-wrap:wrap; justify-content:center; overflow-x:visible;
     padding:8px 10px; border-right:none; border-bottom:1px solid var(--line);}
   .tool{width:42px; height:42px;}
+  /* THE DENSITY PASS IS A DESKTOP PASS. Here the panel is a bottom sheet
+     somebody draws on with a thumb, so every target the pass shrinks goes
+     back. Each selector carries .side because the rules it is undoing do,
+     and a bare one would lose on specificity. */
+  .side .btn{padding:8px 11px; line-height:1.5;}
+  .side .mini{padding:7px 12px; font-size:12.5px; line-height:1.5;}
+  .side .tool{width:42px; height:42px;}
+  .side .olrow{gap:6px; line-height:1.5;}
+  .side .rule{margin:5px 2px;}
+  .side select,.side input[type=number],.side input[type=text]{
+    padding:6px 7px; line-height:1.5; min-height:30px;}
+  .side select{padding-right:22px;}
+  .side .savebar input,.side .savebar select{
+    padding-block:6px; padding-left:9px; font-size:12.5px; line-height:1.5;}
+  .side .savebar input{padding-right:9px;}
+  .side .chips button{padding:7px 6px;}
+  .side h2{line-height:1.5;}
+  .side input[type=color]{height:30px;}
+  .sw{min-height:30px;}
+  .stack{gap:8px;}
   .rule{width:1px; height:26px; margin:2px 4px; align-self:center;}
   .stage{padding:12px;}
   /* On a phone the panel is a bottom sheet across nearly half the screen, and
@@ -1056,8 +1165,8 @@ footer .mono{color:var(--ink);}
     <button class="tool" data-tool="eraser" aria-pressed="false" title="Eraser (E)"><svg viewBox="0 0 24 24"><path d="M6 18h12"/><path d="M9 18 4 13a2 2 0 0 1 0-3l7-7a2 2 0 0 1 3 0l5 5a2 2 0 0 1 0 3l-7 7Z"/></svg><span class="k">E</span></button>
     <button class="tool" data-tool="fill" aria-pressed="false" title="Fill (G)"><svg viewBox="0 0 24 24"><path d="M5 12 12 5l7 7-7 7-7-7Z"/><path d="M19 15c1.2 1.6 1.6 2.5 1.6 3.2a1.6 1.6 0 0 1-3.2 0c0-.7.4-1.6 1.6-3.2Z"/></svg><span class="k">G</span></button>
     <button class="tool" data-tool="move" aria-pressed="false" title="Move the art (M)"><svg viewBox="0 0 24 24"><path d="M12 3v18M3 12h18"/><path d="m9 6 3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"/></svg><span class="k">M</span></button>
+    <button class="tool" data-tool="transform" aria-pressed="false" title="Resize and rotate by dragging the box on the art (R)"><svg viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/><path d="M4 4h4v4H4zM16 4h4v4h-4zM4 16h4v4H4zM16 16h4v4h-4z"/></svg><span class="k">R</span></button>
     <button class="tool" data-tool="pick" aria-pressed="false" title="Eyedropper (I)"><svg viewBox="0 0 24 24"><path d="m4 20 1-4 9-9 3 3-9 9-4 1Z"/><path d="m15 5 2-2a2 2 0 0 1 3 3l-2 2"/></svg><span class="k">I</span></button>
-    <button class="tool" data-tool="transform" aria-pressed="false" title="Resize and rotate by dragging"><svg viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/><path d="M4 4h4v4H4zM16 4h4v4h-4zM4 16h4v4H4zM16 16h4v4h-4z"/></svg></button>
     <div class="rule"></div>
     <button class="tool" id="undo" title="Undo (Ctrl+Z)"><svg viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg></button>
     <button class="tool" id="redo" title="Redo (Ctrl+Shift+Z)"><svg viewBox="0 0 24 24"><path d="m15 14 5-5-5-5"/><path d="M20 9H10a6 6 0 0 0 0 12h3"/></svg></button>
@@ -1091,12 +1200,12 @@ footer .mono{color:var(--ink);}
            section would take the palette with it the moment you picked the
            fill or the move tool. -->
       <div id="brushrows">
-      <div class="olrow"><label for="bslider">Size</label>
-        <span class="mono" id="bslab" style="margin-left:auto">1 × 1</span></div>
       <!-- max is set from the canvas by setBrush; 128 here is the ceiling it
            can ever reach, not a limit of its own. It read 8 - the old button
            maximum - which never applied and only misled. -->
-      <input id="bslider" type="range" min="1" max="128" step="1" value="1" aria-label="Brush size">
+      <div class="olrow"><label for="bslider">Size</label>
+        <input id="bslider" type="range" min="1" max="128" step="1" value="1" aria-label="Brush size">
+        <span class="mono" id="bslab">1 × 1</span></div>
       </div>
       <!-- Its own container, with the mirror condition. It lived inside
            #brushrows, which selectTool hides unless the tool is pencil or
@@ -1157,8 +1266,8 @@ footer .mono{color:var(--ink);}
       <div class="rule"></div>
       <div class="stack">
         <div class="olrow"><label for="olthick">Thickness</label>
-          <span class="mono" id="olthicklab" style="margin-left:auto">1 cell</span></div>
-        <input id="olthick" type="range" min="0" max="6" step="1" value="1" aria-label="Outline thickness">
+          <input id="olthick" type="range" min="0" max="6" step="1" value="1" aria-label="Outline thickness">
+          <span class="mono" id="olthicklab">1 cell</span></div>
         <div class="olrow"><label for="olcol">Colour</label>
           <input type="color" id="olcol" value="#000000" aria-label="Outline colour"
             style="margin-left:auto; width:54px">
@@ -1188,12 +1297,12 @@ footer .mono{color:var(--ink);}
         <button class="tool" id="rotl" title="Turn a quarter to the left"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg></button>
         <button class="tool" id="rotr" title="Turn a quarter to the right"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/></svg></button>
       </div>
-      <div class="olrow" style="margin-top:10px"><label for="rsw">Size</label>
-        <input id="rsw" type="number" min="1" max="4096" style="width:72px">
+      <div class="olrow" style="margin-top:8px"><label for="rsw">Size</label>
+        <input id="rsw" type="number" min="1" max="4096">
         <span class="mono">x</span>
-        <input id="rsh" type="number" min="1" max="4096" style="width:72px">
+        <input id="rsh" type="number" min="1" max="4096">
         <button class="btn ghost" id="rslock" aria-pressed="true"
-          style="width:auto;padding:6px 10px;font-size:12px;margin-left:4px"
+          style="width:auto;padding:4px 9px;font-size:12px"
           title="Keep the width and height in proportion">Shape</button></div>
       <div class="olrow"><label for="rsmode">Change</label>
         <div class="chips" id="rsmode" role="group" aria-label="What to change">
@@ -1222,8 +1331,8 @@ footer .mono{color:var(--ink);}
           <button class="mini" id="basedrop" title="Remove the base">Remove</button>
         </div>
         <div class="olrow"><label for="baseop">Strength</label>
-          <span class="mono" id="baseoplab" style="margin-left:auto">55%</span></div>
-        <input id="baseop" type="range" min="10" max="100" step="5" value="55" aria-label="Base opacity">
+          <input id="baseop" type="range" min="10" max="100" step="5" value="55" aria-label="Base opacity">
+          <span class="mono" id="baseoplab">55%</span></div>
         <input id="basefile" type="file" accept="image/*" hidden>
         <button class="btn ghost" id="baseoutline" aria-pressed="false">Show base outline</button>
       </div>
@@ -9753,6 +9862,13 @@ function beginStroke(e){
        directions of the same staleness on one click. */
     refreshStats(); repalette(); return;
   }
+  /* The transform tool draws nothing. Falling through to here pushed a
+     full-canvas ImageData onto the undo stack and cleared the redo stack for
+     every click that missed a handle - stroke() only dabs for the pencil and
+     the eraser, so the step it left behind did nothing when it was used.
+     Worth fixing on its own, and worth fixing before the tool moves to the
+     position directly under Move where it will be clicked far more. */
+  if(tool==="transform") return;
   snapshot();
   painting=true; lastCell=null;
   stroke(e);
@@ -10177,6 +10293,26 @@ $('filltol').addEventListener('input',()=>{
     /* The base deliberately does NOT follow. It used to be resized here with
        the art, which is why dragging a corner showed nothing: both grew
        together and the trait never changed size against the character. */
+    /* AND THE PANEL KEEPS UP WITH THE DRAG. Nothing between pointerdown and
+       pointerup used to touch these, so the Size fields and the note under
+       them read the old size until the pointer came up - the numbers you
+       were dragging towards were the only thing on screen not moving.
+
+       Costs nothing: resizePreview only writes textContent and a title.
+       The pixels are still left alone until the drag ends, which is the
+       choice the comment above records and the reason a drag is free
+       however large the trait is.
+
+       Not in Trait mode. There the number means the size of the TRAIT and
+       the drag is computing a CANVAS size, so writing one into the other
+       would put a confidently wrong figure on screen sixty times a second.
+       resizeBoxes() puts the right value back when the drag commits. */
+    if(chipVal("rsmode")!=="inside"){
+      const z=zoom||1;
+      $("rsw").value=Math.max(1,Math.round(w/z));
+      $("rsh").value=Math.max(1,Math.round(h/z));
+      resizePreview();
+    }
   };
   box.addEventListener("pointerdown",ev=>{
     const h=ev.target.closest(".th"); if(!h||!ctx) return;
@@ -10512,6 +10648,10 @@ const SHORTCUTS=[
   {show:'G', desc:'Fill', keys:['g'], run:()=>selectTool('fill')},
   {show:'I', desc:'Eyedropper', keys:['i'], run:()=>selectTool('pick')},
   {show:'M', desc:'Move the art', keys:['m'], run:()=>selectTool('move')},
+  /* Directly after Move here as well as in the rail. The help panel and the
+     keydown handler both read this table, so a tool with no row is a tool
+     with no key AND no mention in the shortcuts list. */
+  {show:'R', desc:'Resize and rotate', keys:['r'], run:()=>selectTool('transform')},
   {show:'H', desc:'Pan', keys:['h'], run:()=>selectTool(panMode?'pencil':'pan')},
   {show:'Space', desc:'Hold to drag the canvas around',
     match:e=>e.code==='Space', prevent:true,

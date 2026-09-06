@@ -1,0 +1,193 @@
+/* The editing panel: much shorter, with every control still in it.
+
+   Asked for: "im still not happy with how spaced out the pixel editing section
+   is and i think it could be A LOT more concise while not removing any traits"
+   - traits meaning features.
+
+   MEASURED THROUGH A REAL BROWSER, every section open, before and after:
+
+     viewport   panel    before   after   saved
+     900px      244px     1621     1243    378   (23%)
+     1150px     286px     1549     1187    362   (23%)
+     1400px     274px     1580     1186    394   (25%)
+     1700px     512px     1012      916     96    (9%)
+
+   The last row is smaller because fitPanel writes an inline width and
+   display:grid above 1520, so the panel is TWO columns there and a content
+   saving divides by the column count before it becomes screen height. It still
+   pays: foldDefaults opens as many sections as fit, so a shorter column means
+   arriving with more of them already open.
+
+   AND A ROW THAT COULD NOT BE READ. The same measurement found the status
+   chips clipped at every width - "approved" needed 58px and had 18 - because
+   .savebar is flex-wrap:wrap but both #tname and .chips are `flex:1;
+   min-width:0`, so the row's hypothetical width is near zero and it never
+   wrapped. The three buttons shared what was left after #tlayer's 118px cap
+   and ellipsised. You could not read which status you were saving a trait as.
+
+   THIS FILE IS THE GUARANTEE, not the saving: every control still present,
+   nothing clipped, nothing under a usable size, and the phone - where the
+   panel is a bottom sheet people draw on - gets every shrink back.
+*/
+import { test, expect } from '@playwright/test';
+
+/* Every id in the panel when this pass was written. A density change that
+   drops one fails here rather than in somebody's project. */
+const CONTROLS = ['sidegrip', 'picker', 'curhex', 'brushsec', 'brushrows', 'bslider',
+  'bslab', 'fillrows', 'filltol', 'palmode', 'pal', 'rcfrom', 'rcnear', 'rctol',
+  'rcgo', 'rcerase', 'rcnone', 'rcclean', 'debg', 'bgtol', 'fillholes', 'holemax',
+  'olthick', 'olthicklab', 'olcol', 'olcurrent', 'olsnap', 'oltidy', 'olpatch',
+  'oladd', 'olnote', 'fliph', 'flipv', 'rotl', 'rotr', 'rsw', 'rsh', 'rslock',
+  'rsmode', 'rspreset', 'rsgrid', 'rssnap', 'rsgo', 'rsnow', 'basepick', 'basedrop',
+  'baseop', 'baseoplab', 'basefile', 'baseoutline', 'tname', 'tlayer', 'tstatus',
+  'saveproj', 'dlNative', 'dlBig', 'dlTrim', 'reset', 'saveclose', 'closeed'];
+
+/* The three range inputs are 16px and always were - the UA default. They are
+   the deliberate exception: shrinking a drag target further to save a few
+   pixels of a height nobody has measured is the wrong trade. */
+const KNOWN_SHORT = ['bslider', 'olthick', 'baseop'];
+
+const openPanel = (page) => page.evaluate(async () => {
+  try { authed = true; } catch (_) {}
+  gateShow(false);
+  await dbClear();
+  const S = 48;
+  const d = new Uint8ClampedArray(S * S * 4);
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    const i = (y * S + x) * 4, k = (x * 3 + y * 5) % 6;
+    const p = [[200,60,60],[60,170,90],[70,90,210],[230,190,40],[150,80,200],[40,200,200]][k];
+    d[i] = p[0]; d[i + 1] = p[1]; d[i + 2] = p[2]; d[i + 3] = 255;
+  }
+  fileName = 'dense';
+  startEditor(d, S, S, S, S, palette(d, S * S, 24, 64), false);
+  await new Promise(x => setTimeout(x, 800));
+  document.querySelectorAll('.side section').forEach(s => s.classList.remove('folded'));
+  await new Promise(x => setTimeout(x, 400));
+  const side = document.getElementById('sidepanel');
+  return {
+    panelWidth: Math.round(side.getBoundingClientRect().width),
+    scrollHeight: side.scrollHeight,
+    missing: null,
+  };
+});
+
+const inspect = (page) => page.evaluate((known) => {
+  const side = document.getElementById('sidepanel');
+  const shortOnes = [...side.querySelectorAll('button,input,select')]
+    .filter(e => e.offsetParent !== null && e.type !== 'file')
+    .map(e => ({ id: e.id || e.className, h: Math.round(e.getBoundingClientRect().height) }))
+    .filter(e => e.h > 0 && e.h < 22 && known.indexOf(e.id) < 0);
+  /* Real clipping only: a sub-pixel rounding difference is not a defect. */
+  const clipped = [...side.querySelectorAll('button,select,input,label,span')]
+    .filter(e => e.offsetParent !== null && e.scrollWidth > e.clientWidth + 4)
+    .map(e => (e.id || e.tagName) + ' "' + (e.textContent || '').trim().slice(0, 16)
+      + '" ' + e.scrollWidth + '>' + e.clientWidth);
+  return { shortOnes, clipped, scrollHeight: side.scrollHeight,
+    panelWidth: Math.round(side.getBoundingClientRect().width) };
+}, KNOWN_SHORT);
+
+test.describe('the editing panel', () => {
+  test('still holds every control it did', async ({ page }) => {
+    await page.setViewportSize({ width: 1400, height: 1100 });
+    await page.goto('/index.html');
+    await page.waitForFunction(() => typeof startEditor === 'function');
+    await openPanel(page);
+    const missing = await page.evaluate((ids) =>
+      ids.filter(id => !document.getElementById(id)), CONTROLS);
+    expect(missing, 'no control was dropped by the density pass').toEqual([]);
+  });
+
+  test('and reaches all of them without an extra click', async ({ page }) => {
+    /* "Not removing any traits" also means not hiding one behind a reveal.
+       With its section open, every control must actually be on screen. */
+    await page.setViewportSize({ width: 1400, height: 1100 });
+    await page.goto('/index.html');
+    await page.waitForFunction(() => typeof startEditor === 'function');
+    await openPanel(page);
+    const hidden = await page.evaluate((ids) => ids.filter(id => {
+      const e = document.getElementById(id);
+      if (!e) return true;
+      if (e.type === 'file') return false;               // #basefile is hidden by design
+      if (e.id === 'sidegrip') return false;             // phone-only
+      if (e.closest('#fillrows,#brushrows')) return false; // shown per tool
+      return e.offsetParent === null;
+    }), CONTROLS);
+    expect(hidden, 'every control is on screen with its section open').toEqual([]);
+  });
+
+  test('nothing in it is clipped', async ({ page }) => {
+    /* The status chips were, at every width: "approved" needed 58px and had
+       18, silently ellipsised by .chips button{text-overflow:ellipsis}. */
+    await page.setViewportSize({ width: 1400, height: 1100 });
+    await page.goto('/index.html');
+    await page.waitForFunction(() => typeof startEditor === 'function');
+    await openPanel(page);
+    const r = await inspect(page);
+    expect(r.clipped, 'no control is showing less text than it has').toEqual([]);
+  });
+
+  test('and the status chips in particular are readable', async ({ page }) => {
+    // Named separately from the sweep above, because this is the one that was
+    // actually broken and a sweep passing tells you less than this passing.
+    await page.setViewportSize({ width: 1400, height: 1100 });
+    await page.goto('/index.html');
+    await page.waitForFunction(() => typeof startEditor === 'function');
+    await openPanel(page);
+    const chips = await page.evaluate(() =>
+      [...document.querySelectorAll('#tstatus button')].map(b => ({
+        text: b.textContent,
+        w: Math.round(b.getBoundingClientRect().width),
+        needs: b.scrollWidth,
+      })));
+    expect(chips.length, 'all three states are there').toBe(3);
+    for (const c of chips)
+      expect(c.w, c.text + ' is wide enough to read').toBeGreaterThanOrEqual(c.needs);
+  });
+
+  test('no control is too small to hit', async ({ page }) => {
+    await page.setViewportSize({ width: 1400, height: 1100 });
+    await page.goto('/index.html');
+    await page.waitForFunction(() => typeof startEditor === 'function');
+    await openPanel(page);
+    const r = await inspect(page);
+    expect(r.shortOnes, 'everything except the three sliders clears 22px').toEqual([]);
+  });
+
+  test('and it is a lot shorter than it was', async ({ page }) => {
+    /* A regression guard on the number, not a claim that this exact figure is
+       meaningful: measured at 1580 before the pass and 1186 after, at the
+       274px panel a 1400px window gives. The bar is set loose enough that
+       ordinary content changes do not trip it. */
+    await page.setViewportSize({ width: 1400, height: 1100 });
+    await page.goto('/index.html');
+    await page.waitForFunction(() => typeof startEditor === 'function');
+    await openPanel(page);
+    const r = await inspect(page);
+    expect(r.panelWidth, 'the width this was measured at').toBe(274);
+    expect(r.scrollHeight, 'was 1580 before the pass').toBeLessThan(1350);
+  });
+
+  test('and a phone gets every shrunken target back', async ({ page }) => {
+    /* THE CONTROL THAT MATTERS MOST. On a phone the panel is a bottom sheet
+       somebody draws on with a thumb, and a desktop density pass that reached
+       it would leave seventeen controls under a usable size. */
+    await page.setViewportSize({ width: 380, height: 800 });
+    await page.goto('/index.html');
+    await page.waitForFunction(() => typeof startEditor === 'function');
+    await openPanel(page);
+    const r = await page.evaluate(() => {
+      const side = document.getElementById('sidepanel');
+      side.classList.remove('down');
+      const pick = (sel) => {
+        const e = side.querySelector(sel);
+        return e ? Math.round(e.getBoundingClientRect().height) : null;
+      };
+      return { btn: pick('.btn'), mini: pick('.mini'), tool: pick('.tool'),
+        select: pick('select'), chip: pick('.chips button') };
+    });
+    for (const [what, h] of Object.entries(r)) {
+      expect(h, what + ' exists on the phone layout').not.toBeNull();
+      expect(h, what + ' is back to a touch size on a phone').toBeGreaterThanOrEqual(26);
+    }
+  });
+});

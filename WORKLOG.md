@@ -312,6 +312,13 @@ Measured, with the date. Delete one the moment the code contradicts it.
   **Run it first, every time.** Both were in a session scratchpad until 09-05,
   which is a path nobody else has.
 - `node tools/mutate-patchkit.cjs` — proves that kit's tests can fail
+- `tools/mutate-<spec>.cjs` — the PREDICTIONS for one spec, named after it:
+  `cleanpalette`, `paneldensity`, `resizetool`. They live in the repo and not
+  in a scratchpad for the reason the top of this file gives: a pointer into a
+  session nobody else has is a pointer at nothing. Each carries what the
+  mutants should red AND what they must not, plus a note added after the run
+  saying which predictions were wrong — the predictions themselves are never
+  rewritten to match their result.
 - `npx playwright test` — the suite, about 4 minutes
 - Throwaway browser probes go in `probe.spec.js` + `probe.config.js` on port
   5773; both are gitignored. Delete them when done.

@@ -119,7 +119,13 @@ const pullWithBadFiles = (page, total, dropEvery, mode) => page.evaluate(async (
     if (s.indexOf('/storage/v1/object/traits/') >= 0) {
       attempts++;
       if (MODE === 'missing') return Promise.resolve(new Response('', { status: 404 }));
-      // Deterministic, so the numbers are repeatable rather than flaky.
+      // Every DROPth REQUEST fails - which is not the same as every DROPth
+      // FILE, and this comment used to claim "the numbers are repeatable
+      // rather than flaky" on the strength of that. Measured 09-06 across four
+      // runs of the 1-in-3 test: 1, 2, 3 and 5 files lost. Downloads run
+      // concurrently, so which file each request belongs to varies, and so
+      // does which files exhaust their three tries. The DROP RATE is fixed;
+      // the outcome is not, and no assertion may depend on a particular count.
       if (attempts % DROP === 0) return Promise.reject(new TypeError('Failed to fetch'));
       return Promise.resolve(new Response(new Blob([new Uint8Array([0])]), { status: 200 }));
     }
@@ -243,6 +249,24 @@ test.describe('loading a collection bigger than one response', () => {
     // counted rather than quietly left out.
     const r = await pullWithBadFiles(page, 200, 3, 'flaky');
     expect(r.loaded, 'nearly all of them').toBeGreaterThan(190);
-    if (r.missing) expect(r.note).toContain('could not be read');
+    /* This was `if (r.missing) expect(r.note).toContain('could not be read')`,
+       and the count it depends on is not fixed - measured at 1, 2, 3 and 5
+       across four runs. A conditional around the only assertion about the
+       message means that on a run that happened to lose nothing, the claim in
+       this test's name went unchecked and nothing said so. The same shape had
+       just been found in cleanpalette.spec.js, where a mutation run proved the
+       guard was carrying the whole test.
+
+       Both branches assert now, so no outcome passes silently, and the number
+       is cross-checked rather than assumed: `missing` is counted from the
+       database and the note is read off the screen. */
+    expect(r.loaded + r.missing, 'every trait is accounted for one way or the other')
+      .toBe(200);
+    if (r.missing)
+      expect(r.note, 'what it could not get is counted, by name, on screen')
+        .toContain(r.missing + ' could not be read');
+    else
+      expect(r.note, 'and a run that lost nothing must not claim it did')
+        .not.toContain('could not be read');
   });
 });

@@ -64,6 +64,47 @@ const gradient = (page, size) => page.evaluate(async (S) => {
   return true;
 }, size);
 
+/* A SECOND FIXTURE, for the one test the gradient cannot serve.
+
+   MEASURED, and this is why it exists: the surviving-pick test below used to
+   run on the gradient behind `if (kept.survives)`, and a mutation run proved
+   that guard was carrying it. Turning repalette's keep flag off - which IS the
+   defect it exists to catch, rcPick.clear() on every rebuild - left the test
+   green. On a gradient the tol-24 swatch the test clicks is a cluster
+   representative that a tol-30 clean-up need not keep, so `survives` came back
+   false and the assertion was skipped rather than run.
+
+   Four solid blocks, each far outside CLEAN_TOL of the others, with a jitter
+   of a few points sprayed over them. palette() sorts by count and takes the
+   most common member of a cluster as its representative, so each block's pure
+   colour is its own representative at both tolerances: the jitter is what the
+   clean-up has to merge, and the four blocks are what it must leave alone.
+   Survival is therefore a property of the fixture, and the test asserts it
+   instead of branching on it. */
+const blocks = (page, S) => page.evaluate(async (size) => {
+  try { authed = true; } catch (_) {}
+  gateShow(false);
+  await dbClear();
+  await new Promise(r => setTimeout(r, 300));
+  const base = [[200, 60, 60], [60, 170, 90], [70, 90, 210], [230, 190, 40]];
+  const d = new Uint8ClampedArray(size * size * 4);
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    const i = (y * size + x) * 4;
+    const c = base[(x < size / 2 ? 0 : 1) + (y < size / 2 ? 0 : 2)];
+    /* Every fifth pixel is nudged. Far enough to be a distinct colour, well
+       inside the tolerance that has to merge it back. */
+    const j = ((x * 7 + y * 3) % 5 === 0) ? (((x + y) % 7) - 3) * 3 : 0;
+    d[i] = c[0] + j; d[i + 1] = c[1] + j; d[i + 2] = c[2] + j; d[i + 3] = 255;
+  }
+  fileName = 'blocks';
+  startEditor(d, size, size, size, size, palette(d, size * size, 24, 64), false);
+  await new Promise(r => setTimeout(r, 600));
+  document.querySelectorAll('.side section').forEach(s => s.classList.remove('folded'));
+  const label = document.getElementById('rcclean').textContent;
+  if (!/\d/.test(label)) throw new Error('nothing to clean up here: ' + label);
+  return true;
+}, S);
+
 const state = (page) => page.evaluate(() => {
   const c = document.createElement('canvas');
   c.width = art.width; c.height = art.height;
@@ -358,7 +399,13 @@ test.describe('Clean up colours leaves the swatches describing the new image', (
   test('a colour picked before the clean-up and still present stays picked', async ({ page }) => {
     /* THE CONTROL. Rebuilding by clearing the selection would pass every test
        above and silently unpick colours chosen by hand - which is the defect
-       undo and redo were fixed for, and why repalette keeps what survives. */
+       undo and redo were fixed for, and why repalette keeps what survives.
+
+       On the four-block fixture, not the gradient: a mutation run flipping
+       repalette's keep flag to false - rcPick.clear(), the exact defect - left
+       this test green, because on a gradient the colour it picks does not
+       reliably survive the merge and the assertion was skipped. */
+    await blocks(page, 48);
     const kept = await page.evaluate(async () => {
       setChip('palmode', 'replace');
       await new Promise(x => setTimeout(x, 200));
@@ -379,11 +426,14 @@ test.describe('Clean up colours leaves the swatches describing the new image', (
         .some(b => b.dataset.hex === before);
       return { before, survives, stillPicked };
     });
-    /* Only meaningful if that colour survived the merge - if it did not, the
-       right behaviour is to drop it, which the next test covers. */
-    if (kept.survives) {
-      expect(kept.stillPicked, 'a surviving pick is not thrown away').toBe(true);
-    }
+    /* ASSERTED, not branched on. This is the line the mutation run bought:
+       `if (kept.survives)` let the whole test pass on a colour that was never
+       there to keep, so the assertion below could not fail however the rebuild
+       behaved. If a future change makes the pick stop surviving the merge, the
+       right answer is a red here and a look at the fixture - not a silent
+       skip. */
+    expect(kept.survives, 'the fixture keeps this colour through the merge').toBe(true);
+    expect(kept.stillPicked, 'a surviving pick is not thrown away').toBe(true);
   });
 
   test('and one the clean-up merged away is dropped from the selection', async ({ page }) => {

@@ -77,6 +77,9 @@ something. Good places to look, in order:
 
 Newest first. Delete the oldest when this passes 12.
 
+- 2026-09-06 — Eight operations changed the pixels and left the swatch row describing the old artwork; after Clean up colours 59 of the 64 swatches named a colour the image no longer had and clicking one answered "No cells matched"
+- 2026-09-06 — The editing panel ran a quarter taller than it needed to, and the same measurement found the save bar's status chips clipped at every width: "approved" needed 58px and had 18
+- 2026-09-06 — Resize sat two below Move with no keyboard shortcut, its Size fields read the old size until the drag ended, and a stray click with it active leaked an undo step that did nothing when used
 - 2026-09-05 — Canvas resize said "the art is untouched" and could crop three quarters of a drawing away in silence, at both the button and the drag handles
 - 2026-09-05 — The Grid download button promised "the grid size" and gave the trait's own; a 48x48 trait in a 160 collection downloaded 48x48 under that title
 - 2026-09-05 — The rarity tooltip credited the weights for a number that came from running the generator; two equal-weight traits read 49% and 51% under a sentence saying each was worked out from its weight
@@ -86,13 +89,43 @@ Newest first. Delete the oldest when this passes 12.
 - 2026-09-05 — Renaming a trait in the editor lost its hidden state and the card came back; three of the four sites that change a trait's record key already transferred it
 - 2026-09-05 — Moving a trait silently disarmed every rule that named it: a layer rename, a layer removal, a drag, a bulk move and an editor rename all changed the layer/name a rule keys on and none told the rules
 - 2026-09-05 — The group heard about a layer rename, reorder, addition or removal only when somebody pressed Save to cloud; saveLayers sends the list when it actually changes and every layer message says when it did not go
-- 2026-09-05 — A trait on a layer this browser had never heard of was pulled, counted and then shown nowhere and drawable by nothing; the layer list adopts the layers the records are actually on
-- 2026-09-05 — One failed request for the project list threw you out of your group project and reset the layer order; wsList reports whether it could ask, and only an answer moves you
-- 2026-09-04 — Save to cloud deleted a teammate's artwork out of the bucket, and the previous good copy of any trait whose upload had just failed; the sweep now has the same two guards as the row delete one line above it
 
 ## Facts worth keeping
 
 Measured, with the date. Delete one the moment the code contradicts it.
+
+- **A conditional around the only assertion in a test is a test that can
+  assert nothing.** `if (kept.survives)` carried the whole surviving-pick test
+  in `cleanpalette.spec.js`: a mutant flipping repalette's keep flag to
+  `rcPick.clear()` — the exact defect it exists to catch — SURVIVED, because on
+  that fixture the picked colour did not survive the merge and the assertion
+  was skipped. The same shape sat in `cloudpull.spec.js`. **Assert the
+  precondition, or make BOTH branches assert.** *(09-06)*
+- **A rounded height compared with `>=` can be satisfied by the very value the
+  test exists to reject.** The phone test asked for `Math.round(h) >= 26`; the
+  density pass leaves a button at 25.6px, which rounds to 26. Deleting both
+  phone restore rules left it green. **Compare the raw number, and take the bar
+  from a measurement of BOTH sides** — here 25.6 without the restore against 28
+  with it. And `querySelector` is the FIRST control, not the smallest: the
+  first button was 32px and the smallest 28. *(09-06)*
+- **`repalette()` costs follow the DISTINCT COLOUR count, not the pixel
+  count.** 0.6ms on a 160x160 of 8 colours, 1.2ms at 40 colours, 1.7ms at
+  320x320, and 52.7ms on a 48x48 gradient of 2,304. I measured the gradient
+  first, concluded it was too expensive per stroke, and began designing a
+  debounce for a case pixel art does not have. **Measure on the artwork the
+  feature is for.** *(09-06)*
+- **`fitPanel` writes an inline width and `display:grid` onto `.side`** from
+  inside `fitZoom`, so above 1520px the panel is two columns and a saving in
+  CONTENT height divides by the column count before it becomes screen height:
+  394px off the content was 96px off the screen at 1700px wide. Paper
+  arithmetic about panel height overstates what anyone sees. It still pays,
+  because `foldDefaults` opens as many sections as fit. *(09-06)*
+- **`flex-basis:auto` on a range input makes its row TALLER.** A range keeps its
+  intrinsic width as its hypothetical size, so pairing a slider into its label
+  row came out THREE lines and 56px — taller than the two rows and 36px it
+  replaced. `flex:1 1 0; min-width:60px` gives a 16px single-line row. Found by
+  measuring the rows after the panel got taller, not by reading the rule.
+  *(09-06)*
 
 - **The base character (`kind:"ref"`) is drawn into every generated character**
   and written into its metadata, but had zero test coverage until 09-04 — which

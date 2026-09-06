@@ -170,7 +170,20 @@ test.describe('the editing panel', () => {
   test('and a phone gets every shrunken target back', async ({ page }) => {
     /* THE CONTROL THAT MATTERS MOST. On a phone the panel is a bottom sheet
        somebody draws on with a thumb, and a desktop density pass that reached
-       it would leave seventeen controls under a usable size. */
+       it would leave seventeen controls under a usable size.
+
+       TWO THINGS ABOUT THIS TEST WERE WRONG AND A MUTATION RUN FOUND THEM.
+
+       It took querySelector - the FIRST control of each kind - and called that
+       "every shrunken target". It now takes the smallest of each kind, which
+       is what the name claims and is 28px against the first button's 32.
+
+       And the bar was 26 against a rounded height. The density pass leaves a
+       button at 25.6px, Math.round makes that 26, and 26 >= 26 passes: the
+       test was satisfied by the exact values it exists to undo. Deleting both
+       phone restore rules left it GREEN. The bar is now 27 - between the 25.6
+       the pass produces and the 28 the restore actually delivers - and the
+       height is no longer rounded before it is compared. */
     await page.setViewportSize({ width: 380, height: 800 });
     await page.goto('/index.html');
     await page.waitForFunction(() => typeof startEditor === 'function');
@@ -178,16 +191,21 @@ test.describe('the editing panel', () => {
     const r = await page.evaluate(() => {
       const side = document.getElementById('sidepanel');
       side.classList.remove('down');
-      const pick = (sel) => {
-        const e = side.querySelector(sel);
-        return e ? Math.round(e.getBoundingClientRect().height) : null;
+      const smallest = (sel) => {
+        const hs = [...side.querySelectorAll(sel)]
+          .filter(e => e.offsetParent !== null)
+          .map(e => e.getBoundingClientRect().height);
+        return hs.length ? Math.min(...hs) : null;
       };
-      return { btn: pick('.btn'), mini: pick('.mini'), tool: pick('.tool'),
-        select: pick('select'), chip: pick('.chips button') };
+      return { btn: smallest('.btn'), mini: smallest('.mini'), tool: smallest('.tool'),
+        select: smallest('select'), chip: smallest('.chips button') };
     });
     for (const [what, h] of Object.entries(r)) {
       expect(h, what + ' exists on the phone layout').not.toBeNull();
-      expect(h, what + ' is back to a touch size on a phone').toBeGreaterThanOrEqual(26);
+      /* Measured with the restore in place: btn 28, mini 34.75, tool 42,
+         select 31.25, chip 30.5. Without it the tallest is 25.6. */
+      expect(h, 'the smallest ' + what + ' is back to a touch size on a phone')
+        .toBeGreaterThan(27);
     }
   });
 });

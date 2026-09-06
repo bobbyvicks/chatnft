@@ -4855,6 +4855,16 @@ function rotateFree(deg){
   snapshot();
   restoreImage(new ImageData(out,nw,nh));
   refreshStats(); fitZoom(); resizeBoxes();
+  /* No colour is averaged into existence here - the comment above says so and
+     it is true - but a turn CLIPS, so a colour living only in a corner can
+     leave the canvas. Included on that structural ground rather than on a
+     measurement: a 3x3 yellow corner survived a 37 degree turn in testing,
+     which shows the fixture was too kind, not that the clipping is not real.
+
+     The quarter turns are deliberately NOT given this. They are a pure
+     permutation onto a swapped canvas - every pixel lands somewhere and the
+     set out is exactly the set in, which rotateQuarter already states. */
+  repalette();
   toast("Turned "+d.toFixed(1)+String.fromCharCode(176)+" - now "+nw+" by "+nh);
 }
 
@@ -5610,6 +5620,10 @@ function applyOutline(){
       d[p*4]=plan.src[s];d[p*4+1]=plan.src[s+1];d[p*4+2]=plan.src[s+2];d[p*4+3]=255; }
   }
   ctx.putImageData(img,0,0); refreshStats(); outlinePreview();
+  /* The other direction: this ADDS the outline colour, and without a rebuild
+     the one colour you just drew with is the one you cannot click. Measured
+     with #ff00ff, which was in the artwork and absent from the row. */
+  repalette();
   toast("Outlined "+plan.n.toLocaleString()+" cells"+(plan.hn?", patched "+plan.hn:""));
 }
 
@@ -5736,6 +5750,12 @@ function nudge(dx,dy,repeating){
   ctx.clearRect(0,0,art.width,art.height);
   ctx.putImageData(b,dx,dy);
   refreshStats();
+  /* Measured: six presses left dropped a column that was the only home of
+     #ffdc00, and the row went on offering it. Called on a repeat too - the
+     snapshot above is deliberately skipped while a key is held so the whole
+     hold is one undo step, but the ROW has to keep up with the picture, and
+     at 0.6ms a repeat frame can afford it. */
+  repalette();
 }
 
 /* ================= folding ======================================= */
@@ -7884,6 +7904,12 @@ function cleanColours(){
   }
   ctx.putImageData(pl.im,0,0);
   refreshStats(); cleanLabel();
+  /* The row describes the artwork, so it is rebuilt whenever the artwork
+     stops matching it. Measured before this: 59 of 64 swatches named a colour
+     the image no longer had, and clicking one answered "No cells matched".
+     repalette() is the helper undo and redo already use - it recomputes from
+     the canvas and keeps a picked colour only if it survived. */
+  repalette();
   toast(pl.before.toLocaleString()+" colours down to "+pl.after);
 }
 
@@ -9722,7 +9748,10 @@ function beginStroke(e){
       toast("Nothing to fill there");
     }
     else if(n===1) toast("Filled 1 cell - raise Fill spread to cover more");
-    refreshStats(); return;
+    /* Measured: filling with #00ddaa left it missing from the row and left
+       the colour it covered, #3c78c8, in the row as a ghost - both
+       directions of the same staleness on one click. */
+    refreshStats(); repalette(); return;
   }
   snapshot();
   painting=true; lastCell=null;
@@ -9830,6 +9859,9 @@ function endPointer(e){
     if(!moveDelta.x&&!moveDelta.y) dropSnapshot(moveRedoWas,moveDropped);
     else toast('Moved '+moveDelta.x+', '+moveDelta.y+' cells');
     moveRedoWas=null; moveDropped=null;
+    /* A move pushes art off the edge, and what leaves is destroyed - the
+       same shape as the arrow keys below. */
+    repalette();
     refreshStats();
   }
   if(pendingTouch&&pendingTouch.pointerId===e.pointerId){
@@ -9837,7 +9869,22 @@ function endPointer(e){
     const first=pendingTouch; pendingTouch=null;
     if(pts.size===0) beginStroke(first);
   }
-  if(pts.size===0){ if(painting) refreshStats(); painting=false; lastCell=null; }
+  if(pts.size===0){
+    /* Once per STROKE rather than per dab: stroke() runs for every cell a
+       line passes through, and rebuilding there would do it hundreds of
+       times for one drag. This is where a stroke is finished.
+
+       Measured before this: drawing with #ff00aa put it in the artwork and
+       left it off the row, so the colour just drawn with was the one that
+       could not be clicked. The eraser is the same defect reversed - it
+       zeroes alpha, and palette() skips a transparent pixel, so the last
+       cell of a colour leaving turns its swatch into a ghost.
+
+       Free on pixel art: 0.6ms on a 160x160 of 8 colours, because the cost
+       follows the colour count rather than the pixel count. */
+    if(painting){ refreshStats(); repalette(); }
+    painting=false; lastCell=null;
+  }
 }
 stage.addEventListener('pointerleave',()=>{ hoverCell=null; paintCursor(); });
 stage.addEventListener('pointerup',endPointer);
@@ -10427,6 +10474,9 @@ $('debg').onclick=()=>{
   }
   if(!n){ toast('No flat border colour found'); return; }
   snapshot(); ctx.putImageData(img,0,0); refreshStats(); fitZoom();
+  /* The flooded colour has left the image entirely - measured, #f0f0fa was
+     still on offer in the row afterwards. */
+  repalette();
   toast('Cleared '+n.toLocaleString()+' background pixels');
 };
 

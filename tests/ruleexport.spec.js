@@ -19,7 +19,11 @@
 import { test, expect } from '@playwright/test';
 import fs from 'fs';
 
-const REAL = 'E:/X content/pixel art_/trait-records/trait-combination-rules-v3-20260906/trait-rules-all-categories-v3.json';
+/* The CURRENT curated file. v3 is dead: 212 of 251 traits were renamed on
+   09-06 and 102 of v3's 119 names no longer exist on disk, so a round trip
+   against it would prove the logic on names nothing has. STRICT FIT V6 -
+   IMPORT GUIDE.txt names this one as the file to import. */
+const REAL = 'E:/X content/pixel art_/trait-records/trait-names-and-layer-order-20260906/trait-rules-strict-fit-v6.json';
 
 const LAYERS = ['skins', 'costumes', 'hats', 'hair', 'glasses', 'unsorted'];
 
@@ -146,7 +150,7 @@ test.describe('writing the rules back out', () => {
        the JSON - the direction and the grouping may legitimately differ - but
        the set of pairs that can never share a character, which is what the
        rules mean. */
-    if (!fs.existsSync(REAL)) test.skip(true, 'the curated file is not on this machine');
+    test.skip(!fs.existsSync(REAL), 'the curated file is not on this machine: ' + REAL);
     const doc = JSON.parse(fs.readFileSync(REAL, 'utf8'));
     const r = await page.evaluate(async (RULEDOC) => {
       try { authed = true; } catch (_) {}

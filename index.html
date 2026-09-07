@@ -1021,6 +1021,11 @@ footer .mono{color:var(--ink);}
 
   </div>
   <input type="file" id="bulkfile" webkitdirectory directory multiple hidden>
+  <!-- The collection carries a record of where every trait belongs. This
+       reads it and offers to put them back. -->
+  <button class="mini" id="sortopen"
+    title="Read a trait inventory and put every trait on the layer and under the name it records. Nothing moves until you say so.">Sort by inventory</button>
+  <input type="file" id="sortfile" accept="application/json,.json" hidden>
   <p class="note" id="bulknote" hidden></p>
   <p class="err" id="err" role="status"></p>
 
@@ -1191,6 +1196,18 @@ footer .mono{color:var(--ink);}
 <!-- ============ editor ============ -->
 <!-- The review sheet. Same overlay shape as the shortcuts panel: a scrim
      that closes on Escape and on a click outside the card. -->
+<div class="scrim" id="sortscrim" hidden>
+  <div class="card" role="dialog" aria-modal="true" aria-labelledby="sorttitle" style="width:min(820px,96vw)">
+    <h2 id="sorttitle">Sort by inventory</h2>
+    <p class="sub" id="sortsub"></p>
+    <div id="sortlist" style="max-height:52dvh; overflow-y:auto"></div>
+    <div class="savebar" style="margin-top:18px">
+      <button class="btn ghost" id="sortcancel" style="flex:1">Cancel</button>
+      <button class="btn" id="sortgo" style="flex:1">Move them</button>
+    </div>
+  </div>
+</div>
+
 <div class="scrim" id="revscrim" hidden>
   <div class="card" role="dialog" aria-modal="true" aria-labelledby="revtitle" style="width:min(980px,96vw)">
     <h2 id="revtitle"></h2>
@@ -6339,6 +6356,83 @@ let cItems=[];
    apart from rules: "nobody has looked" is not "allowed", even though the
    generator treats them the same. Without it the coverage line would be a
    guess and the sheet could not say what is left. */
+let sortPlan=null;
+/* One line per trait, saying exactly what would happen to it. The renames
+   are spelled out because 71 of them are the difference between a rule
+   working and not, and a count would hide which. */
+function sortShow(plan){
+  const box=$("sortlist"); box.innerHTML="";
+  const groups=[
+    ["Moved and renamed", plan.both, r=>r.name+"  \u2192  "+r.toLayer+" / "+r.toName],
+    ["Moved", plan.move, r=>r.name+"  \u2192  "+r.toLayer],
+    ["Renamed", plan.rename, r=>r.name+"  \u2192  "+r.toName],
+    ["Left alone - the inventory does not mention them", plan.unknown, r=>r.name+"  ("+r.layer+")"],
+  ];
+  for(const [title,rows,line] of groups){
+    if(!rows.length) continue;
+    const h=document.createElement("p");
+    h.className="note"; h.style.marginTop="10px";
+    h.textContent=title+" - "+rows.length;
+    box.appendChild(h);
+    const ul=document.createElement("div");
+    ul.className="mono"; ul.style.fontSize="11.5px"; ul.style.lineHeight="1.6";
+    for(const r of rows.slice(0,400)){
+      const d=document.createElement("div"); d.textContent=line(r); ul.appendChild(d);
+    }
+    if(rows.length>400){
+      const d=document.createElement("div");
+      d.textContent="... and "+(rows.length-400)+" more";
+      ul.appendChild(d);
+    }
+    box.appendChild(ul);
+  }
+  const todo=plan.both.length+plan.move.length+plan.rename.length;
+  const bits=[todo+" trait"+(todo===1?"":"s")+" would change"];
+  if(plan.settled.length) bits.push(plan.settled.length+" already where the inventory says");
+  if(plan.unknown.length) bits.push(plan.unknown.length+" not in it and left alone");
+  if(plan.layers.length) bits.push("and "+plan.layers.length+" layer"+(plan.layers.length===1?"":"s")
+    +" would be created ("+plan.layers.join(", ")+") - check the draw order in Layers afterwards");
+  if(plan.collisions.length) bits.push(plan.collisions.length+" name"+(plan.collisions.length===1?"":"s")
+    +" in the inventory point at two different layers and were ignored");
+  $("sortsub").textContent=bits.join(". ")+".";
+  $("sortgo").disabled=!todo;
+}
+/* Applies the plan. One trait at a time, through the same sequence the
+   editor uses when a trait is renamed or moved: write the new record, drop
+   the old, tell the rules the key changed, then move the server copy.
+
+   A destination that already holds this name and status is REFUSED - dbPut
+   overwrites, so moving onto it would destroy the trait already there. */
+async function sortApply(plan){
+  let made=0, moved=0, refused=[], failed=0;
+  for(const l of plan.layers){
+    if(LAYERS.indexOf(l)>=0) continue;
+    const u=LAYERS.indexOf("unsorted");
+    if(u>=0) LAYERS.splice(u,0,l); else LAYERS.push(l);
+    made++;
+  }
+  if(made){ try{ await saveLayers(); }catch(_){ } }
+  let items=[]; try{ items=await dbAll(); }catch(_){ }
+  const taken=new Set(items.filter(i=>i.kind==="trait").map(i=>i.id));
+  const rows=plan.both.concat(plan.move,plan.rename);
+  for(const r of rows){
+    const old=items.find(i=>i.id===r.id);
+    if(!old) continue;
+    const id="t_"+r.toName+"_"+r.toLayer+"_"+(r.status||"wip");
+    if(id===old.id) continue;
+    if(taken.has(id)){ refused.push(r.name+" - "+r.toLayer+" already has one"); continue; }
+    const rec={...old, id:id, name:r.toName, layer:r.toLayer, at:Date.now()};
+    try{
+      await dbPut(rec);
+      await dbDel(old.id);
+      taken.delete(old.id); taken.add(id);
+      await retargetRules([{from:traitKey(old), to:traitKey(rec)}]);
+      if(activeWs) await cloudMoveOne(old,rec);
+      moved++;
+    }catch(_){ failed++; }
+  }
+  return {made, moved, refused, failed};
+}
 function pairState(a,b){
   if(RULES.some(g=>g.indexOf(a)>=0&&g.indexOf(b)>=0)) return "no";
   const id=pairId(a,b);
@@ -7523,13 +7617,85 @@ function weightedPick(recs){
 
    Centring is a guess - nothing records where a smaller trait was meant to
    sit. Stretching was also a guess and destroyed the art making it. */
+/* The biggest block of identical pixels this bitmap is drawn on - 8 for art
+   on an 8px grid, 1 for anything with single-pixel detail.
+
+   Measured once per bitmap and remembered against it, and only ever asked
+   for when a fit comes out fractional. A collection where every trait is one
+   size has a fit of exactly 1 and never reaches this at all.
+
+   A WeakMap so a bitmap that is closed and dropped takes its answer with
+   it. */
+const blockCache=new WeakMap();
+function pixelBlock(bm){
+  const had=blockCache.get(bm);
+  if(had!==undefined) return had;
+  let n=1;
+  try{
+    const w=bm.width, h=bm.height;
+    const c=document.createElement("canvas");
+    c.width=w; c.height=h;
+    const g=c.getContext("2d",{willReadFrequently:true});
+    g.imageSmoothingEnabled=false;
+    g.drawImage(bm,0,0);
+    const d=g.getImageData(0,0,w,h).data;
+    const flat=(s)=>{
+      if(w%s||h%s) return false;
+      for(let by=0;by<h;by+=s) for(let bx=0;bx<w;bx+=s){
+        const i0=(by*w+bx)*4;
+        const r0=d[i0],g0=d[i0+1],b0=d[i0+2],a0=d[i0+3];
+        for(let y=by;y<by+s;y++) for(let x=bx;x<bx+s;x++){
+          const i=(y*w+x)*4;
+          if(d[i]!==r0||d[i+1]!==g0||d[i+2]!==b0||d[i+3]!==a0) return false;
+        }
+      }
+      return true;
+    };
+    /* Biggest first, and the first hit wins - a bitmap flat at 8 is flat at
+       4 and 2 as well, and the largest is the one that permits the most. */
+    for(const s of [64,32,16,10,8,5,4,2]) if(flat(s)){ n=s; break; }
+  }catch(_){ n=1; }
+  blockCache.set(bm,n);
+  return n;
+}
+function gcdOf(a,b){ a=Math.abs(a); b=Math.abs(b); while(b){ const t=a%b; a=b; b=t; } return a||1; }
 function paintTrait(g,bm,ox,oy,W,H){
   const w=bm.width||W, h=bm.height||H;
   /* Never below 1: a trait larger than the box would scale to 0 and vanish.
      W and H are the max over the traits being painted, so this is a guard
      against a caller passing a smaller box, not a case that happens here. */
   const k=Math.max(1,Math.min(Math.floor(W/w),Math.floor(H/h)));
-  const dw=w*k, dh=h*k;
+  /* A FRACTIONAL FIT, BUT ONLY WHERE IT KEEPS EVERY BLOCK WHOLE.
+
+     The whole-number rule above went in for a measured reason, recorded in
+     tests/pixels.spec.js: a 48px source striped every 2px, stretched into a
+     160 box, comes out with stripes 3 and 4 pixels wide. Uneven pixel widths
+     are the one thing pixel art cannot survive.
+
+     What it could not see is the size of the blocks the art is drawn on.
+     Reduce the fit to p/q and a scale by p/q keeps every block whole exactly
+     when q divides the block. The striped source is 1px blocks against a fit
+     of 10/3, so nothing divides by 3 and it falls back here, unchanged. The
+     real case is a 1024 trait on the 1280 canvas a skin sets: 8px blocks
+     against 5/4, and 8 divides by 4, so every 8px cell becomes exactly 10
+     and nothing is split.
+
+     Measured on the collection this came from: 30 skins are 1280 on 8px
+     blocks (160 cells) and the newer traits are 1024 on 8px blocks (128
+     cells). 1280 is the smallest canvas where both land whole, which is why
+     the answer is to let the smaller one grow rather than to force a size
+     that makes 160 cells share 1024 pixels at 6.4 each.
+
+     Only when the fit is bigger than the whole number already found, so this
+     can only ever make a trait larger, never smaller. */
+  const fit=Math.min(W/w,H/h);
+  let use=k;
+  if(fit>k){
+    const num=Math.min(W,H), den=Math.min(w,h);
+    const q=den/gcdOf(num,den);
+    if(q>1 && pixelBlock(bm)%q===0) use=fit;
+  }
+  const dw=Math.round(w*use), dh=Math.round(h*use);
   g.drawImage(bm,ox+Math.round((W-dw)/2),oy+Math.round((H-dh)/2),dw,dh);
 }
 function cPools(){
@@ -7689,12 +7855,46 @@ function uniqueCombos(pools,n){
    It yields every twenty characters. Ten thousand composites and PNG encodes
    without handing back the event loop is a frozen tab with nothing on screen
    to say it is working, which nobody can tell from a crash. */
+/* The distinct canvas sizes across a set of characters, biggest first, with
+   how many traits each covers and a few of their names.
+
+   Traits rather than characters on purpose: "46 at 1280" is a thing you can
+   go and fix, and "8,000 characters affected" is not. */
+function sizesIn(combos){
+  const by=new Map();
+  for(const c of (combos||[])) for(const r of c){
+    if(!r||!r.w||!r.h) continue;
+    const k=r.w+"\u00d7"+r.h;
+    if(!by.has(k)) by.set(k,{n:0,names:new Set(),w:r.w,h:r.h});
+    const e=by.get(k);
+    if(!e.names.has(r.name)){ e.names.add(r.name); e.n++; }
+  }
+  const list=[...by.entries()].map(([k,v])=>({size:k,w:v.w,h:v.h,n:v.n,
+    names:[...v.names].sort().slice(0,3)})).sort((a,b)=>(b.w*b.h)-(a.w*a.h));
+  return list;
+}
+/* One sentence, or nothing at all when every trait agrees - which is the
+   ordinary case and must stay quiet. */
+function sizeLine(list){
+  if(!list||list.length<2) return "";
+  const big=list[0];
+  const rest=list.slice(1).reduce((a,e)=>a+e.n,0);
+  return "  Not all the same size: "+big.n+" trait"+(big.n===1?"":"s")+" at "+big.size
+    +" ("+big.names.join(", ")+") set the canvas, and "+rest+" smaller one"+(rest===1?"":"s")
+    +" "+(rest===1?"is":"are")+" drawn at native size and centred, so they look small on it. Make them one size before minting.";
+}
 async function buildCollection(n,onProgress){
   const pools=cPools();
   const combos=uniqueCombos(pools,n);
   let W=0,H=0;
   for(const c of combos) for(const r of c){ if(r.w>W) W=r.w; if(r.h>H) H=r.h; }
-  if(!combos.length||!W||!H) return { files:[], made:0, asked:n, combos:[] };
+  /* WHAT SIZES WENT IN. The canvas is the largest of them and paintTrait
+     scales by a whole number, so anything smaller is drawn at its native
+     size and centred - a 1024 hat on a 1280 head is a hat that looks too
+     small, in every one of these files. drawCompose and drawSheet both say
+     this; the zip somebody mints from did not. */
+  const sizeSpread=sizesIn(combos);
+  if(!combos.length||!W||!H) return { files:[], made:0, asked:n, combos:[], sizes:[] };
   const cv=document.createElement("canvas"); cv.width=W; cv.height=H;
   const g=cv.getContext("2d"); g.imageSmoothingEnabled=false;
   const enc=new TextEncoder();
@@ -7725,7 +7925,7 @@ async function buildCollection(n,onProgress){
      against what each tile promised, and it can only do that if the thing
      built is handed back - the first version of this returned only the count
      and the whole report was silently inert. */
-  return { files, made:combos.length, asked:n, combos };
+  return { files, made:combos.length, asked:n, combos, sizes:sizeSpread };
 }
 async function drawSheet(count){
   const pools=cPools();
@@ -7928,6 +8128,64 @@ function exportRules(traits){
     if(then.length) out.push({layer:c.layer, operation:"is", trait:[c.name+".png"], thenStatements:then});
   }
   return {rules:out, pairs:crossed, missing:missing};
+}
+/* WHERE EVERY TRAIT BELONGS, from the collection's own record of it.
+
+   The inventory is a list of {layer, trait, previousName, sha256}. Both
+   names are indexed, because 212 of 251 traits were renamed and a project
+   that has not been re-imported since carries the old ones.
+
+   Returns a PLAN and changes nothing. Every entry says what it would do and
+   why, including the ones it refuses, because a trait nothing knows about
+   is the case where guessing does real harm - four of the five it cannot
+   place in this collection are traits that were deliberately deleted, and a
+   keyword guesser would put them back.
+
+   A NAME COLLISION IS REFUSED, NOT RESOLVED. If two inventory rows reduce
+   to one key on different layers there is no answer, and picking one would
+   be a coin toss dressed as a lookup. Measured on the real file: 462 keys,
+   zero collisions. */
+function planSort(traits, inventory){
+  const out={move:[], rename:[], both:[], unknown:[], settled:[], collisions:[], layers:[]};
+  if(!Array.isArray(inventory)) throw new Error("That file is not a trait inventory.");
+  const key=n=>ruleImportName(n);
+  const by=new Map(), clash=new Set();
+  for(const r of inventory){
+    if(!r||!r.layer||!r.trait) continue;
+    const want={layer:String(r.layer), name:String(r.trait).replace(/\.[^.]+$/,"")};
+    for(const n of [r.trait, r.previousName]){
+      if(!n) continue;
+      const k=key(n);
+      const had=by.get(k);
+      if(had && (had.layer!==want.layer||had.name!==want.name)){ clash.add(k); continue; }
+      by.set(k,want);
+    }
+  }
+  for(const k of clash){ by.delete(k); out.collisions.push(k); }
+  const wanted=new Set();
+  for(const t of (traits||[])){
+    if(!t||t.kind!=="trait") continue;
+    const here={layer:t.layer||"unsorted", name:String(t.name||"")};
+    const want=by.get(key(here.name));
+    if(!want){ out.unknown.push({id:t.id, name:here.name, layer:here.layer}); continue; }
+    const movesLayer=want.layer!==here.layer;
+    const movesName=key(want.name)!==key(here.name);
+    const row={id:t.id, name:here.name, layer:here.layer,
+      toLayer:want.layer, toName:want.name, status:t.status||"wip"};
+    if(!movesLayer&&!movesName){ out.settled.push(row); continue; }
+    wanted.add(want.layer);
+    if(movesLayer&&movesName) out.both.push(row);
+    else if(movesLayer) out.move.push(row);
+    else out.rename.push(row);
+  }
+  /* THE DESTINATIONS THAT DO NOT EXIST YET. Moving a trait to a layer the
+     project has never had would create it wherever the app happens to put
+     it, and layer order is paint order - so the traits would stop being
+     painted on top of everything from unsorted and start being painted on
+     top of everything from somewhere else. Named, so they can be made
+     deliberately and put in the right place first. */
+  out.layers=[...wanted].filter(l=>LAYERS.indexOf(l)<0).sort();
+  return out;
 }
 /* A trait name as the rules file writes it, reduced to something that can be
    compared with a name in this project. The file carries filenames
@@ -11273,6 +11531,37 @@ $('ruleexport').onclick=async()=>{
   note.textContent=bits.join(". ")+".";
   toast("Wrote "+r.rules.length+" conditions");
 };
+$('sortopen').onclick=()=>$('sortfile').click();
+$('sortfile').onchange=async(e)=>{
+  const f=e.target.files&&e.target.files[0];
+  e.target.value="";
+  if(!f) return;
+  let items=[]; try{ items=await dbAll(); }catch(_){ }
+  try{ sortPlan=planSort(items.filter(i=>i.kind==="trait"), JSON.parse(await f.text())); }
+  catch(err){ toast("Could not read that file: "+((err&&err.message)||"not valid JSON")); return; }
+  sortShow(sortPlan);
+  $("sortscrim").hidden=false;
+};
+$('sortcancel').onclick=()=>{ $('sortscrim').hidden=true; };
+$('sortgo').onclick=async()=>{
+  if(!sortPlan) return;
+  const btn=$("sortgo");
+  btn.disabled=true; btn.textContent="Moving...";
+  const r=await sortApply(sortPlan);
+  btn.textContent="Move them";
+  $("sortscrim").hidden=true;
+  await renderShelf();
+  const bits=["Moved "+r.moved+" trait"+(r.moved===1?"":"s")];
+  if(r.made) bits.push("made "+r.made+" layer"+(r.made===1?"":"s")+" - check the draw order in Layers");
+  if(r.refused.length) bits.push(r.refused.length+" refused because the destination already had that name"
+    +(r.refused.length<=3?" ("+r.refused.join("; ")+")":""));
+  if(r.failed) bits.push(r.failed+" could not be written");
+  $("bulknote").hidden=false;
+  $("bulknote").textContent=bits.join(". ")+".";
+  toast("Moved "+r.moved+" trait"+(r.moved===1?"":"s"));
+  sortPlan=null;
+};
+$('sortscrim').onclick=e=>{ if(e.target===$('sortscrim')) $('sortscrim').hidden=true; };
 $('revopen').onclick=()=>revOpen(true);
 $('revclose').onclick=()=>revOpen(false);
 $('revyesall').onclick=()=>revAll(true);
@@ -11415,7 +11704,7 @@ $('cgenzip').onclick=async()=>{
           ? ", and the weights make it behave like "+bigLabel(cstat.effective)+"." : ".")
       : "";
     $("cnote").textContent="Built "+r.made+" different character"+(r.made===1?"":"s")
-      +" with metadata."+short+missed+driftLine(shareDrift(r.combos,cItems,$("cwip").checked),r.made);
+      +" with metadata."+short+missed+sizeLine(r.sizes)+driftLine(shareDrift(r.combos,cItems,$("cwip").checked),r.made);
     toast("Downloaded "+r.made+" character"+(r.made===1?"":"s"));
   }catch(e){
     toast("Could not build the set: "+((e&&e.message)||"error"));

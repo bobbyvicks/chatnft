@@ -10,11 +10,29 @@
    collection are 1254x1254 where the other 269 are 1280x1280, and the grid is
    160 cells. 1254 is 7.8375 cells.
 
-   THE TEST THAT MATTERS MOST is the last pair. Padding claims to touch no
-   pixel, and "the canvas is now 1280" is true of a scale as well - so the
-   claim is checked by counting the opaque pixels and reading a marker's exact
-   colour, which a resample changes and a pad cannot. Without that, a Fit that
-   quietly scaled in both modes would pass every other test here. */
+   AND FOR THOSE FIVE THE ANSWER IS SCALE, WHICH IS WORTH RECORDING HERE
+   BECAUSE THE FEATURE WAS PROPOSED AS A PAD. Three measurements settled it,
+   none of them from the trait file's own pixels:
+
+     - every copy of the five anywhere in the tree, 21 files out of 11,547
+       PNGs walked, is 1254. There is no 1280 master, so a pad restores
+       nothing - it invents a canvas that never existed.
+     - the character's head in the source renders those five were extracted
+       from is 956 px wide; the collection's head is 976. 956 = 976 x
+       1254/1280. So the artwork is drawn at 1254 scale, and padding would
+       leave every one of them 2% small on the face.
+     - the collection's own resize receipt shows the one other 1254 file,
+       extras/Moon Fisher, was nearest-neighbour scaled to 1280 in the same
+       pass that skipped these five.
+
+   That does NOT make the pad wrong as a repair - it is right for a canvas
+   cropped by accident, and only the owner knows which happened. It is why the
+   button takes the choice from the Change chips rather than picking.
+
+   THE TEST THAT MATTERS MOST is the pad/scale pair. "The canvas is now 1280"
+   is true of both, so size proves nothing on its own; the pair is separated on
+   the opaque count and the artwork's own bounding box. Without that, a Fit
+   that quietly scaled in both modes would pass every other test here. */
 import { test, expect } from '@playwright/test';
 
 /* Opens a canvas of the given size in a 160-cell project, sets the Change
@@ -83,9 +101,14 @@ const fit = (page, opts) => page.evaluate(async (o) => {
      the pad, where it is a real claim; what separates them is the BOX. */
   const px = ctx.getImageData(0, 0, art.width, art.height).data;
   const colours = new Set();
+  /* Every alpha VALUE on the canvas, not a count of partial ones. A set of
+     exactly {0,255} is the claim; a count of zero says the same thing but
+     cannot show what it found instead when it is wrong. */
+  const alphas = new Set();
   let bx0 = art.width, by0 = art.height, bx1 = -1, by1 = -1;
   for (let y = 0; y < art.height; y++) for (let x = 0; x < art.width; x++) {
     const i = (y * art.width + x) * 4;
+    alphas.add(px[i + 3]);
     if (px[i + 3] === 0) continue;
     colours.add(px[i] + ',' + px[i + 1] + ',' + px[i + 2]);
     if (x < bx0) bx0 = x; if (x > bx1) bx1 = x;
@@ -97,6 +120,7 @@ const fit = (page, opts) => page.evaluate(async (o) => {
     said: said.join(' | '),
     wasOpaque, nowOpaque: opaqueOf(),
     colours: colours.size,
+    alphas: [...alphas].sort((a,b)=>a-b),
     box: bx1 < 0 ? null : { x0: bx0, y0: by0, w: bx1 - bx0 + 1, h: by1 - by0 + 1 },
     note: ($('rsnow') || {}).textContent || '',
     /* What the census, which is the thing complaining, makes of it now. */
@@ -285,6 +309,29 @@ test.describe('fitting a trait to the collection grid', () => {
       expect(r.title).toBe('');
     }
   });
+
+  test('a scale in either direction keeps alpha binary and invents no colour',
+    async ({ page }) => {
+      /* THE PROPERTY THE WHOLE COLLECTION RESTS ON. All 275 files in it are
+         binary-alpha - every pixel is either fully there or fully absent - and
+         a smooth resample would put soft alpha into a collection that has none
+         anywhere, silently, with the canvas size looking correct afterwards.
+
+         Both directions, because they are two different functions: growing
+         goes through scaleArt's nearest-neighbour branch and shrinking falls
+         through to resample, which averages COVERAGE but chooses each output
+         cell's colour from the source palette and writes alpha as 0 or 255
+         only. Reading that is not the same as measuring it, and the second
+         path is the one a Fit reaches when a canvas is just OVER a multiple. */
+      for (const size of [1254, 1290]) {
+        const r = await fit(page, { size, mode: 'art', grid: 160 });
+        expect(r.out, size + ' lands on the grid').toBe('1280x1280');
+        expect(r.alphas, size + ': every pixel fully there or fully absent')
+          .toEqual([0, 255]);
+        expect(r.colours, size + ': the two it was painted with, and no third')
+          .toBe(2);
+      }
+    });
 
   test('Trait mode pads rather than resampling art nobody asked it to touch',
     async ({ page }) => {

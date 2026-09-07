@@ -6638,7 +6638,9 @@ async function revPaint(cv,cond,cand){
   const pieces=[base,cond,cand].filter(Boolean);
   let W=0,H=0;
   /* Fixed, so two pairs are compared at the same size. */
-  W=CANVAS_SIDE; H=CANVAS_SIDE;
+  /* From the collection, not from this draw - see autoCanvas. Sizing to
+     the picks is what made the preview change size between draws. */
+  { const S=await autoCanvas(cItems); W=S; H=S; }
   if(!W||!H){ W=160; H=160; }
   cv.width=W; cv.height=H;
   const g=cv.getContext("2d");
@@ -6979,7 +6981,9 @@ async function drawCompose(){
      selection, where there is no size to take. */
   let W=0,H=0;
   /* Fixed, so the preview does not change size with the picks. */
-  W=CANVAS_SIDE; H=CANVAS_SIDE;
+  /* From the collection, not from this draw - see autoCanvas. Sizing to
+     the picks is what made the preview change size between draws. */
+  { const S=await autoCanvas(cItems); W=S; H=S; }
   if(!W||!H){ W=160; H=160; }
   cv.width=W; cv.height=H;
   const g=cv.getContext("2d");
@@ -7821,6 +7825,62 @@ function gcdOf(a,b){ a=Math.abs(a); b=Math.abs(b); while(b){ const t=a%b; a=b; b
       1024     38              38
       1280     24               1   */
 const CANVAS_SIDE=1280;
+/* THE CANVAS THE COLLECTION WANTS, worked out rather than typed in.
+
+   A trait of side s on blocks of b lands whole on a canvas of side C
+   exactly when C/s reduces to p/q and q divides b. That is the rule the
+   1024/1254/1280/2048 table above was scoring by hand; this scores it from
+   the traits that are actually here, so the answer follows the artwork
+   instead of staying at whatever was true the day it was measured.
+
+   Candidates are the sizes present. A size no trait has is one every trait
+   must be scaled to, and there is no reason to invent one.
+
+   Ties go to fewest shrunk and then to the larger, because shrinking is the
+   only thing here that can lose detail - which is also why 2048 does not win
+   on the real collection despite shrinking nothing: it splits more blocks
+   than it saves. */
+const blockOf=new Map();
+let autoSide=null, autoKey="";
+async function autoCanvas(recs){
+  const list=(recs||[]).filter(r=>r&&r.kind!=="ref"&&(r.w||r.h));
+  if(!list.length) return CANVAS_SIDE;
+  /* Keyed on the traits AND their sizes, so adding one or replacing one with
+     a different size recomputes and nothing else does. */
+  const key=list.map(r=>r.id+":"+(r.w|0)+"x"+(r.h|0)).sort().join("|");
+  if(autoKey===key && autoSide) return autoSide;
+  const seen=[];
+  for(const r of list){
+    const s=Math.max(r.w||0,r.h||0);
+    if(!s) continue;
+    let blk=blockOf.get(r.id);
+    if(blk===undefined){
+      /* Decoding is the expensive part, so it happens once per record and is
+         kept. A bitmap that will not decode counts as block 1, which is the
+         cautious answer - it lands whole on nothing and cannot make a
+         candidate look better than it is. */
+      try{ blk=pixelBlock(await cBitmap(r)); }catch(_){ blk=1; }
+      blockOf.set(r.id,blk);
+    }
+    seen.push({s:s,blk:blk});
+  }
+  if(!seen.length) return CANVAS_SIDE;
+  let best=null;
+  for(const C of [...new Set(seen.map(x=>x.s))]){
+    let whole=0, shrunk=0;
+    for(const it of seen){
+      const q=it.s/gcdOf(C,it.s);
+      if(q===1 || it.blk%q===0) whole++;
+      if(it.s>C) shrunk++;
+    }
+    if(!best || whole>best.whole
+       || (whole===best.whole && shrunk<best.shrunk)
+       || (whole===best.whole && shrunk===best.shrunk && C>best.C))
+      best={C:C,whole:whole,shrunk:shrunk};
+  }
+  autoKey=key; autoSide=best.C;
+  return best.C;
+}
 function paintTrait(g,bm,ox,oy,W,H){
   const w=bm.width||W, h=bm.height||H;
   /* Never below 1: a trait larger than the box would scale to 0 and vanish.
@@ -8070,7 +8130,9 @@ async function buildCollection(n,onProgress){
   /* THE FIXED CANVAS, not the biggest trait in this draw - see CANVAS_SIDE.
      Sizing to the draw meant two runs of Generate could produce collections
      at two different resolutions and say nothing about it. */
-  W=CANVAS_SIDE; H=CANVAS_SIDE;
+  /* From the collection, not from this draw - see autoCanvas. Sizing to
+     the picks is what made the preview change size between draws. */
+  { const S=await autoCanvas(cItems); W=S; H=S; }
   /* WHAT SIZES WENT IN. The canvas is the largest of them and paintTrait
      scales by a whole number, so anything smaller is drawn at its native
      size and centred - a 1024 hat on a 1280 head is a hat that looks too
@@ -8118,7 +8180,9 @@ async function drawSheet(count){
   let W=0,H=0;
   /* Fixed, so every tile on the sheet is the same size whatever
      was picked for it. */
-  W=CANVAS_SIDE; H=CANVAS_SIDE;
+  /* From the collection, not from this draw - see autoCanvas. Sizing to
+     the picks is what made the preview change size between draws. */
+  { const S=await autoCanvas(cItems); W=S; H=S; }
   if(!W||!H){ toast("Nothing saved to build from"); return; }
   /* From what was actually drawn: laying out for `count` when fewer came
      back leaves a band of empty canvas that reads as a rendering fault. */

@@ -5204,7 +5204,6 @@ function scaleArt(src,W,H,nw,nh){
    the character, because the character stays in the middle of the footprint
    and the art does not. The full argument is inside the function. */
 function recanvas(src,W,H,nw,nh){
-  const out=new Uint8ClampedArray(nw*nh*4);
   /* CENTRED, where this used to anchor at the top left.
 
      Padding a trait canvas from the corner leaves the art in a quarter of
@@ -5221,7 +5220,23 @@ function recanvas(src,W,H,nw,nh){
      back: a marker at (7,7) of an 8x8 taken 8 -> 9 -> 8 moved to (8,8) and
      then off the edge entirely. This form telescopes to zero over a round
      trip. */
-  const ox=Math.floor(nw/2)-Math.floor(W/2), oy=Math.floor(nh/2)-Math.floor(H/2);
+  return recanvasAt(src,W,H,nw,nh,
+    Math.floor(nw/2)-Math.floor(W/2), Math.floor(nh/2)-Math.floor(H/2));
+}
+
+/* The same copy at an offset the CALLER chooses.
+
+   Split out of recanvas rather than duplicated, because the two guards below
+   - the ones that turn a negative offset into a crop without a second branch
+   - are the whole of why this is right, and a second copy of them is a second
+   chance to get one wrong. recanvas is now this with the centring offsets,
+   and its comment above records why centring is the right default there.
+
+   Anything landing outside the new canvas is dropped, exactly as before;
+   croppedAway is what counts it and cropLine is what says so. */
+function recanvasAt(src,W,H,nw,nh,ox,oy){
+  const out=new Uint8ClampedArray(nw*nh*4);
+  ox=Math.round(ox)|0; oy=Math.round(oy)|0;
   for(let y=0;y<nh;y++){
     const sy=y-oy; if(sy<0||sy>=H) continue;
     for(let x=0;x<nw;x++){
@@ -5343,7 +5358,10 @@ function resizeTo(nw,nh,mode){
   const p=palette(ctx.getImageData(0,0,r.w,r.h).data,r.w*r.h,24,64);
   buildPalette(p.list); buildRecolour(p.list);
   resizeBoxes();
-  return { cut: mode==="canvas" ? croppedAway(src,r.data) : 0 };
+  /* Trait mode too - see applyResize. A drag that grows an edge trait past
+     the canvas destroys the overflow exactly as the button does, and the two
+     are deliberately one sentence. */
+  return { cut: r.lost===null ? croppedAway(src,r.data) : r.lost };
 }
 
 /* Show the box only while the transform tool is active and a canvas is open. */
@@ -5388,21 +5406,58 @@ function tboxShow(){
    asked for and the canvas is untouched. An empty canvas has no box and no
    trait to size, so that falls back to the old meaning instead of dividing
    by zero. */
+/* Returns {data,lost}: the pixels, and how much scaled artwork ran off the
+   canvas placing them.
+
+   LOST IS MEASURED HERE BECAUSE HERE IS THE ONLY PLACE IT CAN BE. A caller
+   comparing the canvas before and after is comparing two different scales,
+   and croppedAway - which counts opaque pixels - then answers 0 for a grow
+   that destroyed a third of the trait, because scaling up added more pixels
+   than the edge took away. Measured: a 300-wide block at x0=0 grown to 600
+   went 90,000 opaque to 270,000, and the loss of 90,000 read as zero.
+
+   The two buffers below are the SAME artwork at the SAME scale, one placed
+   on the canvas and one not, so their difference is exactly what did not
+   fit. */
 function scaleInside(src,W,H,nw,nh){
   const box=contentBox();
-  if(!box||!box.w||!box.h) return recanvas(scaleArt(src,W,H,nw,nh),nw,nh,W,H);
+  if(!box||!box.w||!box.h)
+    return {data:recanvas(scaleArt(src,W,H,nw,nh),nw,nh,W,H), lost:0};
   const cw=Math.max(1,Math.min(4096,Math.round(W*(nw/box.w))));
   const ch=Math.max(1,Math.min(4096,Math.round(H*(nh/box.h))));
-  return recanvas(scaleArt(src,W,H,cw,ch),cw,ch,W,H);
+  /* WHERE THE ARTWORK WAS, not the middle of the canvas.
+
+     This used to hand the scaled canvas to recanvas, which centres - so a
+     back trait drawn hard against the left edge came back 320px in from it
+     on a 1280 canvas, and getting it home again meant dragging it out past
+     the edge where what leaves is destroyed. Trait mode is the only mode
+     that keeps the collection canvas, so it is the only one an edge trait
+     can use, and it was the one that would not leave art at an edge.
+
+     The artwork centre is the anchor: a piece over the left shoulder stays
+     over the left shoulder and gets smaller, which is what scaling a
+     selection does everywhere else. A point p on the old canvas lands at
+     p*k on the scaled one, so putting the centre back where it was is an
+     offset of c - c*k, and k is read from the ROUNDED cw rather than from
+     the requested ratio - they differ by up to half a pixel and the offset
+     has to agree with the pixels actually produced. */
+  const cx=box.x0+box.w/2, cy=box.y0+box.h/2;
+  const big=scaleArt(src,W,H,cw,ch);
+  const out=recanvasAt(big,cw,ch,W,H,cx-cx*(cw/W), cy-cy*(ch/H));
+  return {data:out, lost:croppedAway(big,out)};
 }
 
 /* One place that picks the operation, so the fields and the drag cannot
    disagree about what a mode means. Returns the pixels AND the canvas size
    they belong on, because "inside" is exactly the mode where those differ. */
 function resizeOp(mode,src,W,H,nw,nh){
-  if(mode==="canvas") return {data:recanvas(src,W,H,nw,nh), w:nw, h:nh};
-  if(mode==="inside") return {data:scaleInside(src,W,H,nw,nh), w:W, h:H};
-  return {data:scaleArt(src,W,H,nw,nh), w:nw, h:nh};
+  if(mode==="canvas") return {data:recanvas(src,W,H,nw,nh), w:nw, h:nh, lost:null};
+  /* lost comes from the operation rather than from a comparison the caller
+     makes afterwards - see scaleInside. null elsewhere means "ask the
+     caller's own count", which for Canvas mode is exact. */
+  if(mode==="inside"){ const s=scaleInside(src,W,H,nw,nh);
+    return {data:s.data, w:W, h:H, lost:s.lost}; }
+  return {data:scaleArt(src,W,H,nw,nh), w:nw, h:nh, lost:0};
 }
 
 /* What the Resize button will actually do, worked out from the panel.
@@ -5517,15 +5572,27 @@ function applyResize(){
 
      Counted on the ALPHA, so a crop through empty margin - which is what
      tidying a canvas usually is - stays silent. */
-  /* Canvas mode only, to save two passes over the pixels on every Art resize.
-     It is NOT what stops Art reporting its own resampling as a loss - the
-     message below appends cropLine on the canvas branch alone, so this guard
-     is cheapness rather than correctness. Measured: removing it changes
-     nothing observable, which is how the first comment here came to claim
-     something the line does not do. */
-  const cut = mode==="canvas" ? croppedAway(src,out) : 0;
+  /* CANVAS AND TRAIT, not Canvas alone.
+
+     SUPERSEDES "Canvas mode only, to save two passes over the pixels on every
+     Art resize... removing it changes nothing observable". That was true of
+     the line and false of the app: Trait mode scales the art inside a canvas
+     it never changes, so a grow pushes artwork off the edge and destroys it,
+     and the message said only the new size. Measured - a 300-wide block at
+     x0=0 grown to a 600-wide trait keeps 22,500 of the 90,000 pixels it asked
+     for, silently.
+
+     ART MODE STAYS AT ZERO on purpose. Its canvas grows with the artwork so
+     nothing falls off an edge, and what croppedAway counts on a downscale
+     there is the resampling doing its job - reporting that as artwork lost
+     would be a false alarm on every shrink, which is the way a real warning
+     stops being read. */
+  /* From the operation when it measured its own loss, and from the canvas
+     comparison when it did not. Canvas mode does not scale, so before and
+     after are the same artwork and the count is exact there. */
+  const cut = r.lost===null ? croppedAway(src,out) : r.lost;
   toast(mode==="canvas" ? "Canvas is now "+nw+" by "+nh+cropLine(cut)
-      : mode==="inside" ? "Trait scaled to "+nw+" by "+nh+" on a "+W+" by "+H+" canvas"
+      : mode==="inside" ? "Trait scaled to "+nw+" by "+nh+" on a "+W+" by "+H+" canvas"+cropLine(cut)
       : "Resized to "+nw+" by "+nh);
 }
 
@@ -7606,6 +7673,43 @@ function distributionOf(items,wipIncluded){
   distCache=count; distKey=key;
   return count;
 }
+/* How often a layer is drawn at all: every character for skins, and
+   1 - emptyChance for anything that can be left empty. Named because three
+   places ask it and a fourth is about to. */
+function layerPresence(layer){
+  return ALWAYS_PRESENT.indexOf(layer)>=0 ? 1 : Math.max(0,1-emptyChance);
+}
+
+/* The share of ITS OWN SET a trait takes: its weight against the weights of
+   every trait the generator would draw from the same layer.
+
+   NOT the same number as traitChance, and deliberately so. One trait per
+   layer is drawn, so the shares within a set always total 100% - which is
+   what somebody planning rarity is choosing between. traitChance multiplies
+   that by how often the layer appears at all, so ITS numbers total 65% for a
+   layer that can be empty. Both are true; a plan that showed the second and
+   claimed the set totalled 100 would not be.
+
+   ONE SUM THOUGH. traitChance is built on this rather than keeping its own
+   copy of the loop, because "which traits count" is the part that has
+   already gone wrong here once - a share computed over a population the
+   generator would not draw from is a confident wrong answer, and it is wrong
+   by exactly the traits somebody is most likely to be staring at.
+
+   Returns null rather than 0 when there is nothing to divide by, so a caller
+   can tell "no answer" from "never drawn". */
+function layerShare(rec,items,wipIncluded){
+  if(!traitEligible(rec,wipIncluded)) return null;
+  const layer=(rec&&rec.layer)||"unsorted";
+  let total=0;
+  for(const t of (items||[]))
+    if(traitEligible(t,wipIncluded) && (t.layer||"unsorted")===layer) total+=traitWeight(t);
+  /* rec is eligible and in this layer, so the total includes it and cannot
+     be zero - but a caller passing a list rec is not in would divide by it. */
+  if(!(total>0)) return null;
+  return traitWeight(rec)/total;
+}
+
 function traitChance(rec,items,wipIncluded){
   const st=(rec&&rec.status)||"wip";
   if(!traitEligible(rec,wipIncluded))
@@ -7617,12 +7721,10 @@ function traitChance(rec,items,wipIncluded){
      is the more specific fact about it and the one worth showing. */
   if(HIDDEN_LAYERS.has(layer))
     return { pct:null, why:"The "+layer+" set is turned off, so nothing in it is drawn" };
-  let total=0;
-  for(const t of (items||[]))
-    if(traitEligible(t,wipIncluded) && (t.layer||"unsorted")===layer) total+=traitWeight(t);
-  /* rec is eligible and in this layer, so the total includes it and cannot be
-     zero - but a caller passing a list rec is not in would divide by it. */
-  if(!(total>0)) return { pct:null, why:"" };
+  /* The sum lives in layerShare now. Same population, same arithmetic - this
+     used to keep its own copy of the loop. */
+  const share=layerShare(rec,items,wipIncluded);
+  if(share===null) return { pct:null, why:"" };
   /* WITH A RULE IN PLAY THE ARITHMETIC BELOW IS WRONG, so it is not used.
 
      randomCombo filters each layer against the rules at pick time, and this
@@ -7642,8 +7744,8 @@ function traitChance(rec,items,wipIncluded){
      the weights alone would have given. Two equal-weight traits reading 49%
      and 51% is the rules and the sampling, not the weights, and until this
      there was no way to tell that from the screen. */
-  const present = ALWAYS_PRESENT.indexOf(layer)>=0 ? 1 : Math.max(0,1-emptyChance);
-  const plain = traitWeight(rec)/total*present;
+  const present = layerPresence(layer);
+  const plain = share*present;
   if(RULES.length){
     const dist=distributionOf(items,wipIncluded);
     const seen=dist.get(traitKey(rec))||0;

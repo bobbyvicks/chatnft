@@ -1055,6 +1055,9 @@ footer .mono{color:var(--ink);}
     <div class="projhead">
       <h2>Your project</h2>
       <p class="note" id="wsbanner" hidden style="width:100%;margin:0 0 6px"></p>
+      <!-- What the group changed since you last looked. Beside the project
+           banner because it is about this project and about these traits. -->
+      <p class="note mail" id="mailnote" hidden style="width:100%;margin:0 0 6px"></p>
       <span class="count" id="projcount"></span>
       <div class="acts">
         <input id="projsearch" type="search" placeholder="find a trait"
@@ -2445,6 +2448,13 @@ async function renderShelf(){
      collection the rules do not describe. */
   applyDecideOrder(items);
   applyBaseColours(items);
+  applyMail(items);
+  /* AFTER applyMail, not before it. The first version called mailShow at the
+     top of renderShelf, twenty lines above this read - so on the render that
+     follows a reload it drew an EMPTY mailbox and nothing ever drew it again.
+     The record was on disk the whole time, which is why it looked like the
+     mailbox was not being saved. */
+  try{ mailShow(); }catch(_){}
   applyDecisions(items);
   const traits=items.filter(i=>i.kind==='trait');
   const visibility=currentShelfVisibility();
@@ -8830,6 +8840,59 @@ async function saveBaseColours(list){
   try{ await dbPut({id:BASE_ID, kind:"settings", at:Date.now(), colours:BASE_KEEP.slice()}); }
   catch(_){ /* remembering is a convenience; failing to is not worth a dialog */ }
 }
+/* WHAT THE GROUP CHANGED SINCE YOU LAST LOOKED.
+
+   A settings record rather than a variable, because the pull that fills it
+   runs on open and runs quiet: the whole point is that it is still there
+   when somebody comes back to the page.
+
+   Capped, and the newest kept. A list that grows without limit becomes a
+   thing nobody opens, and the oldest entry in a long one is the least
+   worth reading. */
+const MAIL_ID='settings.mail';
+const MAIL_MAX=60;
+let MAIL=[];
+function applyMail(items){
+  const rec=items.find(i=>i.id===MAIL_ID);
+  MAIL = (rec&&Array.isArray(rec.mail)) ? rec.mail.filter(m=>m&&m.name) : [];
+}
+async function mailSave(){
+  try{ await dbPut({id:MAIL_ID, kind:"settings", at:Date.now(), mail:MAIL.slice(0,MAIL_MAX)}); }
+  catch(_){ /* a note about a change is not worth failing a pull over */ }
+}
+async function mailAdd(updated, kept){
+  const seen=Date.now();
+  /* Newest first, and one entry per trait: the same trait edited twice
+     before anybody looked is one thing to look at, not two. */
+  const add=[];
+  for(const u of updated) add.push({name:u.name, layer:u.layer||null, at:u.at||null, kind:"updated", seen});
+  for(const n of kept) add.push({name:n, layer:null, at:null, kind:"clash", seen});
+  const by=new Map();
+  for(const m of add.concat(MAIL)) if(!by.has(m.kind+"/"+m.name)) by.set(m.kind+"/"+m.name, m);
+  MAIL=[...by.values()].slice(0,MAIL_MAX);
+  await mailSave();
+}
+async function mailClear(){ MAIL=[]; await mailSave(); mailShow(); }
+/* Shown on the shelf, where the traits it is talking about are. A count is
+   not enough on its own - "3 traits updated" and no names is a thing you
+   have to go looking for - so the names are in the line itself. */
+function mailShow(){
+  const el=$("mailnote"); if(!el) return;
+  if(!MAIL.length){ el.hidden=true; el.textContent=""; return; }
+  const upd=MAIL.filter(m=>m.kind==="updated"), cl=MAIL.filter(m=>m.kind==="clash");
+  const list=a=>a.slice(0,6).map(m=>m.name).join(", ")+(a.length>6?" and "+(a.length-6)+" more":"");
+  const bits=[];
+  if(upd.length) bits.push(upd.length+" trait"+(upd.length===1?"":"s")+" updated by the group: "+list(upd));
+  if(cl.length) bits.push(cl.length+" kept because you have unsaved changes: "+list(cl));
+  el.hidden=false;
+  el.textContent=bits.join(" \u2014 ")+".";
+  el.className="note mail";
+  const b=document.createElement("button");
+  b.className="mini"; b.textContent="Mark as read";
+  b.style.marginLeft="8px";
+  b.onclick=mailClear;
+  el.appendChild(b);
+}
 function applyDecideOrder(items){
   const rec=items.find(i=>i.id===DECIDE_ID);
   DECIDE_ORDER = (rec&&Array.isArray(rec.order)) ? rec.order.map(String).filter(Boolean) : [];
@@ -10554,6 +10617,11 @@ async function cloudPull(opts){
      working, and concluded it was not. */
   const byId=new Map(existing.map(i=>[i.id,i]));
   const held=new Map(existing.filter(i=>i.rowId).map(i=>[i.rowId,i]));
+  /* Traits a teammate changed on this pull, and traits where their change
+     and an unsaved one here disagree. Counted so the pull can SAY so - an
+     edit that arrives silently is indistinguishable from one that did not. */
+  const incoming=[];
+  const clashed=[];
   const wanted=[], repair=[];
   for(const row of rows){
     const layer=row.layer||"unsorted", status=row.status||"wip";
@@ -10571,16 +10639,45 @@ async function cloudPull(opts){
     if(held.has(row.id)){
       const cur=held.get(row.id);
       const refreshed=shelfCore.mergeRemoteShelfRecord(cur,row,taken);
-      repair.push({oldId:cur.id,record:refreshed});
+      repair.push({oldId:cur.id,record:refreshed,rowAt:row.updated_at||null});
       taken.delete(cur.id); taken.add(refreshed.id);
       continue;
     }
-    if(opts.keepMine && taken.has(baseId)){
-      /* Recognised, so not downloaded again - but this is the one moment the
-         local copy and its server row are both in hand. Stamped now, the copy
-         becomes deletable by row id instead of by name. */
+    /* THE SAME TRAIT, ARRIVING AS A DIFFERENT ROW. Saving an edit deletes
+       the row and inserts a new one, so a teammate's edit always has an id
+       nobody here has seen. Matching only on rowId therefore missed every
+       edit anybody ever made: with keepMine it kept the local copy and
+       stamped it with their new rowId, and without it their version arrived
+       renamed to hat-2 beside yours.
+
+       So the trait is identified the way a person identifies it - name,
+       layer, status - and updated_at settles which copy is current. That
+       column is maintained by a database trigger rather than by whichever
+       browser wrote last, which is what makes it worth deciding on. */
+    if(taken.has(baseId)){
       const cur=byId.get(baseId);
-      if(cur) repair.push({oldId:cur.id,record:shelfCore.mergeRemoteShelfRecord(cur,row,taken)});
+      if(!cur){ continue; }
+      const theirs=row.updated_at||null;
+      const ours=cur.rowAt||null;
+      const newer=!!theirs && (!ours || theirs>ours);
+      if(newer && cur.synced){
+        /* Theirs is newer and nothing here is unsaved, so their image is
+           downloaded over this copy. replaces carries the local id so the
+           puller overwrites rather than adding a second one. */
+        taken.add(baseId);
+        wanted.push({row:row, id:cur.id, name:cur.name, layer:layer, status:status,
+          replaces:cur.id, incoming:true});
+        continue;
+      }
+      if(newer && !cur.synced){
+        /* Two people changed the same trait and one of them is sitting here
+           unsaved. Taking theirs would destroy work this device never sent,
+           which is the one thing pulling must not do, so it is counted and
+           named instead of being decided quietly. */
+        clashed.push(cur.name);
+      }
+      repair.push({oldId:cur.id,record:shelfCore.mergeRemoteShelfRecord(cur,row,taken),
+        rowAt:(newer&&!cur.synced)?ours:theirs});
       continue;
     }
     let name=row.name;
@@ -10606,6 +10703,11 @@ async function cloudPull(opts){
   let repaired=0;
   for(const rp of repair){
     try{
+      /* rowAt on the merged record as well. A trait that came back through
+         a metadata merge rather than a download still has to know which
+         version of the row it is, or the next pull cannot tell whether the
+         server has moved on. */
+      if(rp.rowAt!==undefined) rp.record.rowAt=rp.rowAt;
       if(rp.oldId!==rp.record.id) await dbDel(rp.oldId);
       await dbPut(rp.record);
       repaired++;
@@ -10626,13 +10728,20 @@ async function cloudPull(opts){
            that survives a rename: the local name can be changed here (a clash
            with something already on this device gets a -2 suffix) while the
            server row keeps its own name, and from then on the two disagree. */
-        const rec={id:w.id, rowId:w.row.id, path:w.row.path,
+        /* rowAt is the row's updated_at as of this pull, and it is what
+           "somebody else has edited this since" is measured against. Without
+           it every pull would read as an incoming edit, or none would. */
+        const rec={id:w.id, rowId:w.row.id, path:w.row.path, rowAt:w.row.updated_at||null,
           kind:w.row.kind, name:w.name, w:w.row.w, h:w.row.h,
           blob:blob, at:Date.now(), synced:true};
         if(w.row.kind==="trait"){ rec.layer=w.layer; rec.status=w.status;
           if(typeof w.row.rarity==="number") rec.rarity=w.row.rarity;
           if(typeof w.row.shelf_order==="number") rec.shelfOrder=w.row.shelf_order; }
         await dbPut(rec); added++;
+        /* Recorded where the write is known to have happened, rather than
+           where it was decided - a download that failed its three tries is
+           not an update that arrived. */
+        if(w.incoming) incoming.push({name:w.name, layer:w.layer, at:w.row.updated_at||null});
       }catch(_){ failed++; }
       done++;
       say();
@@ -10678,7 +10787,17 @@ async function cloudPull(opts){
   await renderShelf();
   $("cloudpull").disabled=false;
   await cloudStatus(u);
+  /* KEPT, not just announced. This runs on open, quietly, on a page nobody
+     is necessarily watching - a line of toast that lasts 1.7 seconds is not
+     a way to learn that somebody rewrote a trait. */
+  /* Filled AFTER renderShelf has already run, so the note it draws has to be
+     redrawn here. Drawing it only from renderShelf meant the mailbox appeared
+     one render late - on the next shelf redraw, which on a quiet sync might
+     be never. */
+  if(incoming.length||clashed.length){ await mailAdd(incoming, clashed); mailShow(); }
   const bits=["Loaded "+added+" item"+(added===1?"":"s")];
+  if(incoming.length) bits.push(incoming.length+" updated by the group");
+  if(clashed.length) bits.push(clashed.length+" you have unsaved changes to, kept");
   if(renamed) bits.push(renamed+" renamed so nothing here was replaced");
   if(newLayers) bits.push(newLayers+" new layer"+(newLayers===1?"":"s"));
   if(failed) bits.push(failed+" could not be read");

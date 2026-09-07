@@ -144,6 +144,49 @@ test.describe('rules reaching the group', () => {
     expect(r.two[0].ok, 'and the merge does not depend on the order of the lists').toBe(true);
   });
 
+  test('a person answer beats the file, even when the file is newer', async ({ page }) => {
+    /* THE PRECEDENCE THAT PROTECTS A REVIEW, and it had no test until a
+       mutation run said so. Removing the "you beats file" branch left every
+       merge test green, because both fixtures default to "you" and neither
+       branch of the precedence is ever reached.
+
+       It matters because the whole workflow is regenerate-and-reimport: a
+       tighter file arrives with a fresh timestamp on every pair it settles, so
+       newest-wins alone would revert every answer the team gave since the last
+       import, silently, on the press of a button. */
+    const r = await page.evaluate(() => {
+      const you = [{ a: 'hats/cap', b: 'hair/bob', ok: true, at: 10, src: 'you' }];
+      const file = [{ a: 'hats/cap', b: 'hair/bob', ok: false, at: 999, src: 'file' }];
+      return { fileLast: mergeDecisions(you, file), youLast: mergeDecisions(file, you) };
+    });
+    expect(r.fileLast.length, 'one pair either way').toBe(1);
+    expect(r.fileLast[0].ok, 'the person wins although the file is far newer').toBe(true);
+    expect(r.fileLast[0].src, 'and it is still recorded as theirs').toBe('you');
+    expect(r.youLast[0].ok, 'and it does not depend on the order of the lists').toBe(true);
+  });
+
+  test('but a newer file still supersedes an older file', async ({ page }) => {
+    /* THE CONTROL. Without it, "you always wins" would pass the test above
+       while breaking the thing re-importing exists for - a regenerated file
+       taking back what an older version of itself said. */
+    const r = await page.evaluate(() => mergeDecisions(
+      [{ a: 'hats/cap', b: 'hair/bob', ok: false, at: 10, src: 'file' }],
+      [{ a: 'hats/cap', b: 'hair/bob', ok: true, at: 20, src: 'file' }]));
+    expect(r.length).toBe(1);
+    expect(r[0].ok, 'the newer generation wins between two files').toBe(true);
+  });
+
+  test('and an answer with no source recorded counts as a person', async ({ page }) => {
+    /* Everything answered before the source field existed was made by hand in
+       the review sheet. Treating those as the file's would let the next import
+       overwrite the whole history of the review. */
+    const r = await page.evaluate(() => mergeDecisions(
+      [{ a: 'hats/cap', b: 'hair/bob', ok: true, at: 1 }],
+      [{ a: 'hats/cap', b: 'hair/bob', ok: false, at: 999, src: 'file' }]));
+    expect(r[0].ok, 'the old hand-made answer survives').toBe(true);
+    expect(r[0].src).toBe('you');
+  });
+
   test('a yes takes the pair out without dissolving the rule', async ({ page }) => {
     /* An import builds one condition trait plus everything it forbids on one
        layer. Allowing one of them must free THAT pair, not all of them. */

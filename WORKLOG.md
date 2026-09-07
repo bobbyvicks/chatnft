@@ -92,6 +92,7 @@ something. Good places to look, in order:
 
 Newest first. Delete the oldest when this passes 12.
 
+- 2026-09-07 — Mutation testing found the rule that stops a regenerated import reverting the team's review had no test at all; every merge fixture defaulted to one source, so neither side of the precedence was ever reached
 - 2026-09-06 — Pairs can be answered by looking at them: a trait, a target layer, every pairing composited live from the artwork, and Yes or No on each — three states, because "nobody has looked" is not "allowed"
 - 2026-09-06 — Rules, the answers behind them and the decide order reach the group, merged per PAIR so two people reviewing at once keep both halves instead of the second save wiping the first
 - 2026-09-06 — Re-importing a regenerated file left a stale rule the new file explicitly allowed, silently reverted an answer given on the site, and left the rules and the decision log contradicting each other
@@ -103,12 +104,32 @@ Newest first. Delete the oldest when this passes 12.
 - 2026-09-06 — The Randomise button never consulted the rules, so the one button you press to check a rule was the only place it did not apply, and that character was downloadable
 - 2026-09-06 — "Import a folder of traits" could only read a layer it already had, so 63 of 233 files landed in unsorted — one layer, painted over everything — in a collection whose whole point is a hat over hair
 - 2026-09-06 — 103 rules froze the shelf for 5.2s and every later rule edit for 6.7s; conflictsWith asks an index now, 432ms and 448ms, same percentages
-- 2026-09-06 — Eight operations changed the pixels and left the swatch row describing the old artwork; after Clean up colours 59 of the 64 swatches named a colour the image no longer had and clicking one answered "No cells matched"
 
 ## Facts worth keeping
 
 Measured, with the date. Delete one the moment the code contradicts it.
 
+- **A FIXTURE THAT OMITS A FIELD NEVER REACHES THE BRANCH THAT READS IT.**
+  Every decision-merge fixture left `src` unset, which defaults to "you", so
+  the "a person beats the file" branch was never entered and removing it
+  altogether left all eight tests green. The most important rule in the whole
+  import - the one stopping a regenerated file reverting the team's review -
+  was proven only in a patch's RUN block. **When a function branches on a
+  field, some fixture has to SET that field to each value.** *(09-07)*
+- **A ROUND TRIP IS DIRECTION-FREE BY CONSTRUCTION.** The export test compares
+  the set of forbidden PAIRS in and out, so making the export always take side
+  A as the condition does not red it - a pair is a pair whichever way it is
+  written. Direction rests entirely on two small fixtures. Likewise writing a
+  whole-layer rule as an empty allow-list reads back identically and only
+  LaunchMyNFT's own validator would object. **A round trip is strong about
+  what it covers and silent about everything else; say which.** *(09-07)*
+- **A TEST WITH A FAKE DOM CANNOT SEE A DEAD BUTTON.**
+  `test/curated-v6.test.cjs` builds `document={getElementById:id=>els[id]}` and
+  calls `els.rulev6.onclick()` - it attaches a handler to an object it made.
+  Right for the decisions, structurally blind to a renamed id, a 404 on the
+  script, a helper that is not global, or the script running before the
+  element. `tests/curatedv6button.spec.js` presses the real one. **Node tests
+  own the semantics, a browser test owns the wiring.** *(09-07)*
 - **THE COLLECTION LAUNCHES ON LAUNCHMYNFT, so their file format is the
   canonical one and this app is a stop on the way.** Their rules are
   DIRECTIONAL - a condition trait and a target layer, and the TARGET is what

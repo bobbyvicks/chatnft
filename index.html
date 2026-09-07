@@ -3036,6 +3036,28 @@ $('clearproj').onclick=async()=>{
      is what this file does everywhere else: a stranded rule is SHOWN as
      stranded rather than dropped, because dropping it throws away an
      instruction somebody gave. */
+  /* THE SECOND QUESTION, asked only when there is something to answer it
+     about. Cancel is the behaviour above, unchanged: the rules stay and are
+     shown as stranded. OK is what "start fresh" means and there was no way
+     to say it before - the only clean browser was DevTools, which also
+     throws away the sign-in.
+
+     Counted before anything is removed, and named as counts rather than as
+     records: "103 rules and 58 answers" can be weighed and "6 settings
+     records" cannot. */
+  let alsoSettings=false;
+  {
+    const have=[];
+    if(RULES.length) have.push(RULES.length+" rule"+(RULES.length===1?"":"s"));
+    if(DECISIONS.length) have.push(DECISIONS.length+" answer"+(DECISIONS.length===1?"":"s"));
+    if(DECIDE_ORDER.length) have.push("the draw order");
+    if(BASE_KEEP.length) have.push("the base colour");
+    if(projectGrid!==160) have.push("the "+projectGrid+" cell grid");
+    if(have.length)
+      alsoSettings=confirm("Also remove "+have.join(", ")
+        +"?\n\nCancel keeps them. They will name traits that are gone, which is"
+        +" what you want if you are re-importing the same collection.");
+  }
   let removed=0, kept=0;
   try{
     for(const rec of await dbAll()){
@@ -3043,6 +3065,30 @@ $('clearproj').onclick=async()=>{
       else kept++;
     }
   }catch(_){}
+  if(alsoSettings){
+    /* The autosave goes with them. It holds the last image being edited, and
+       leaving it behind reopens a picture from a collection that no longer
+       exists. */
+    for(const id of [RULES_ID,DECISIONS_ID,DECIDE_ID,GRID_ID,BASE_ID,LAYERS_ID,AUTO_ID]){
+      try{ await dbDel(id); kept--; }catch(_){}
+    }
+    RULES=[]; DECISIONS=[]; DECIDE_ORDER=[]; BASE_KEEP=[];
+    projectGrid=160;
+    const box=$("rsgrid"); if(box) box.value=projectGrid;
+    LAYERS=DEFAULT_LAYERS.slice();
+    HIDDEN_LAYERS.clear();
+    /* Not saveLayers(): that would write the record back that was just
+       deleted, AND PATCH the default layer list over whatever the group has
+       on the server. Clearing this browser is not a change to the
+       collection. */
+    /* Called plainly, not in a try/catch. The first version wrapped three
+       calls and one of them did not exist: the catch swallowed it and the
+       rules list would simply not have refreshed. A rename should be loud
+       here. The rules list needs no call at all - renderShelf() at the end of
+       this handler rebuilds it. */
+    buildLayerSelect();
+    baseLabel();
+  }
   currentShelfVisibility().showAll();
   try{ localStorage.removeItem('pb.ref'); }catch(_){}
   refData=null; $('refslot').classList.remove('filled'); $('refthumb').hidden=true;

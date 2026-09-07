@@ -1141,8 +1141,11 @@ footer .mono{color:var(--ink);}
     <p class="note" id="ruleimportnote" hidden></p>
     <input type="file" id="rulefile" accept="application/json,.json" hidden>
     <div class="olrow" style="margin-top:8px">
-      <button class="mini" id="rulev6">Load reviewed v6 collection rules</button>
-      <a class="mini" href="rules/trait-rules-strict-fit-v6.json" download>Download v6 for LaunchMyNFT</a>
+      <!-- The id carries no version. It was rulev6, and chasing that through
+           four files twice is what a version in a name costs; the bundle
+           knows its own revision and the label says it. -->
+      <button class="mini" id="rulesload">Load reviewed v7 collection rules</button>
+      <a class="mini" href="rules/trait-rules-strict-fit-v7.json" download>Download v7 for LaunchMyNFT</a>
     </div>
     <p class="note">For the renamed 249-trait collection. Loads the stricter fit decisions and sets the draw order: eyes, glasses, then hats; masks last. Your team's own Yes/No answers still take priority. Continue editing them in Review pairs above.</p>
   </section>
@@ -12855,6 +12858,6 @@ addEventListener('keydown',e=>{
 addEventListener('keyup',e=>{ if(e.code==='Space'){ spaceHeld=false; if(!pan) stage.style.cursor=panMode?'grab':''; } });
 addEventListener('resize',()=>{ if(!$('app').hidden&&zoom<=1) fitZoom(); });
 </script>
-<script src="curated-rules-v6.js"></script>
+<script src="curated-rules-v7.js"></script>
 </body>
 </html>

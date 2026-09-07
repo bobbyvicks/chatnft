@@ -1,7 +1,8 @@
 {
-  "revision": "strict-fit-v6",
+  "revision": "strict-fit-v7",
   "order": [
     "backgrounds",
+    "back-extras",
     "skins",
     "mouth",
     "hair",
@@ -60,6 +61,9 @@
       "White Dot Grid.png",
       "Wimbledon Centre Court.png"
     ],
+    "back-extras": [
+      "Blue Gorilla.png"
+    ],
     "skins": [
       "Ancient Oak Skin.png",
       "Blue Camo Skin.png",
@@ -104,7 +108,15 @@
       "Smoking Pipe.png",
       "PogChamp Mouth.png",
       "Sleepy Drool.png",
-      "Straight Mouth.png"
+      "Straight Mouth.png",
+      "Mouth 01.png",
+      "Mouth 02.png",
+      "Mouth 03.png",
+      "Mouth 04.png",
+      "Mouth 05.png",
+      "Mouth 06.png",
+      "Mouth 07.png",
+      "Mouth 08.png"
     ],
     "hair": [
       "Balding Hair.png",
@@ -149,7 +161,12 @@
       "Sharingan Eyes.png",
       "Six Eyes.png",
       "Smirking Eyes.png",
-      "Space Invader Pupils.png"
+      "Space Invader Pupils.png",
+      "Basic Blue Eyes.png",
+      "Basic Brown Eyes.png",
+      "Basic Side Glance Eyes.png",
+      "Relaxed Dark Eyes.png",
+      "Sleepy Neutral Eyes.png"
     ],
     "glasses": [
       "Tape-Repaired Glasses.png",
@@ -164,7 +181,11 @@
       "Pit Vipers.png",
       "Poker Pro Blinders.png",
       "Steve Jobs Round Glasses.png",
-      "Wake Me Up Sleep Mask.png"
+      "Wake Me Up Sleep Mask.png",
+      "Diagonal Reflection Glasses.png",
+      "Eight Lines Specs.png",
+      "Noun Glasses Original.png",
+      "Red Noun Glasses.png"
     ],
     "hats": [
       "Binance Bucket Hat.png",
@@ -258,12 +279,12 @@
       "Balaclava Suit.png",
       "Whale Onesie.png",
       "White Assassin Robes.png",
-      "Yellow Hazmat Suit.png"
+      "Yellow Hazmat Suit.png",
+      "Carnival Jester Costume.png"
     ],
     "extras": [
       "Among Us Shoulder Crewmate.png",
       "Balloonsville Balloon.png",
-      "Blue Gorilla.png",
       "Blue Lightsaber.png",
       "Bonk Impact.png",
       "Cross Chain.png",
@@ -277,7 +298,11 @@
       "Grey Handheld Console.png",
       "Secretlab Gaming Chair.png",
       "Shoulder Crow.png",
-      "Floating Twitch Pet.png"
+      "Floating Twitch Pet.png",
+      "Corona Lime Bottle.png",
+      "Gizmo Shoulder Companion.png",
+      "Moon Fisher.png",
+      "Sun Baby.png"
     ],
     "masks": [
       "Anonymous Mask.png",
@@ -320,7 +345,11 @@
             "Pit Vipers.png",
             "Poker Pro Blinders.png",
             "Steve Jobs Round Glasses.png",
-            "Wake Me Up Sleep Mask.png"
+            "Wake Me Up Sleep Mask.png",
+            "Diagonal Reflection Glasses.png",
+            "Eight Lines Specs.png",
+            "Noun Glasses Original.png",
+            "Red Noun Glasses.png"
           ]
         },
         {
@@ -337,7 +366,15 @@
             "Smoking Pipe.png",
             "PogChamp Mouth.png",
             "Sleepy Drool.png",
-            "Straight Mouth.png"
+            "Straight Mouth.png",
+            "Mouth 01.png",
+            "Mouth 02.png",
+            "Mouth 03.png",
+            "Mouth 04.png",
+            "Mouth 05.png",
+            "Mouth 06.png",
+            "Mouth 07.png",
+            "Mouth 08.png"
           ]
         },
         {
@@ -359,7 +396,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         },
         {
@@ -400,7 +442,11 @@
             "Pit Vipers.png",
             "Poker Pro Blinders.png",
             "Steve Jobs Round Glasses.png",
-            "Wake Me Up Sleep Mask.png"
+            "Wake Me Up Sleep Mask.png",
+            "Diagonal Reflection Glasses.png",
+            "Eight Lines Specs.png",
+            "Noun Glasses Original.png",
+            "Red Noun Glasses.png"
           ]
         },
         {
@@ -417,7 +463,15 @@
             "Smoking Pipe.png",
             "PogChamp Mouth.png",
             "Sleepy Drool.png",
-            "Straight Mouth.png"
+            "Straight Mouth.png",
+            "Mouth 01.png",
+            "Mouth 02.png",
+            "Mouth 03.png",
+            "Mouth 04.png",
+            "Mouth 05.png",
+            "Mouth 06.png",
+            "Mouth 07.png",
+            "Mouth 08.png"
           ]
         },
         {
@@ -439,7 +493,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         },
         {
@@ -480,7 +539,11 @@
             "Pit Vipers.png",
             "Poker Pro Blinders.png",
             "Steve Jobs Round Glasses.png",
-            "Wake Me Up Sleep Mask.png"
+            "Wake Me Up Sleep Mask.png",
+            "Diagonal Reflection Glasses.png",
+            "Eight Lines Specs.png",
+            "Noun Glasses Original.png",
+            "Red Noun Glasses.png"
           ]
         },
         {
@@ -497,7 +560,15 @@
             "Smoking Pipe.png",
             "PogChamp Mouth.png",
             "Sleepy Drool.png",
-            "Straight Mouth.png"
+            "Straight Mouth.png",
+            "Mouth 01.png",
+            "Mouth 02.png",
+            "Mouth 03.png",
+            "Mouth 04.png",
+            "Mouth 05.png",
+            "Mouth 06.png",
+            "Mouth 07.png",
+            "Mouth 08.png"
           ]
         },
         {
@@ -519,7 +590,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         },
         {
@@ -560,7 +636,11 @@
             "Pit Vipers.png",
             "Poker Pro Blinders.png",
             "Steve Jobs Round Glasses.png",
-            "Wake Me Up Sleep Mask.png"
+            "Wake Me Up Sleep Mask.png",
+            "Diagonal Reflection Glasses.png",
+            "Eight Lines Specs.png",
+            "Noun Glasses Original.png",
+            "Red Noun Glasses.png"
           ]
         },
         {
@@ -577,7 +657,15 @@
             "Smoking Pipe.png",
             "PogChamp Mouth.png",
             "Sleepy Drool.png",
-            "Straight Mouth.png"
+            "Straight Mouth.png",
+            "Mouth 01.png",
+            "Mouth 02.png",
+            "Mouth 03.png",
+            "Mouth 04.png",
+            "Mouth 05.png",
+            "Mouth 06.png",
+            "Mouth 07.png",
+            "Mouth 08.png"
           ]
         },
         {
@@ -599,7 +687,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         },
         {
@@ -640,7 +733,11 @@
             "Pit Vipers.png",
             "Poker Pro Blinders.png",
             "Steve Jobs Round Glasses.png",
-            "Wake Me Up Sleep Mask.png"
+            "Wake Me Up Sleep Mask.png",
+            "Diagonal Reflection Glasses.png",
+            "Eight Lines Specs.png",
+            "Noun Glasses Original.png",
+            "Red Noun Glasses.png"
           ]
         },
         {
@@ -657,7 +754,15 @@
             "Smoking Pipe.png",
             "PogChamp Mouth.png",
             "Sleepy Drool.png",
-            "Straight Mouth.png"
+            "Straight Mouth.png",
+            "Mouth 01.png",
+            "Mouth 02.png",
+            "Mouth 03.png",
+            "Mouth 04.png",
+            "Mouth 05.png",
+            "Mouth 06.png",
+            "Mouth 07.png",
+            "Mouth 08.png"
           ]
         },
         {
@@ -679,7 +784,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         },
         {
@@ -720,7 +830,11 @@
             "Pit Vipers.png",
             "Poker Pro Blinders.png",
             "Steve Jobs Round Glasses.png",
-            "Wake Me Up Sleep Mask.png"
+            "Wake Me Up Sleep Mask.png",
+            "Diagonal Reflection Glasses.png",
+            "Eight Lines Specs.png",
+            "Noun Glasses Original.png",
+            "Red Noun Glasses.png"
           ]
         },
         {
@@ -737,7 +851,15 @@
             "Smoking Pipe.png",
             "PogChamp Mouth.png",
             "Sleepy Drool.png",
-            "Straight Mouth.png"
+            "Straight Mouth.png",
+            "Mouth 01.png",
+            "Mouth 02.png",
+            "Mouth 03.png",
+            "Mouth 04.png",
+            "Mouth 05.png",
+            "Mouth 06.png",
+            "Mouth 07.png",
+            "Mouth 08.png"
           ]
         },
         {
@@ -759,7 +881,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         },
         {
@@ -804,7 +931,11 @@
             "Pit Vipers.png",
             "Poker Pro Blinders.png",
             "Steve Jobs Round Glasses.png",
-            "Wake Me Up Sleep Mask.png"
+            "Wake Me Up Sleep Mask.png",
+            "Diagonal Reflection Glasses.png",
+            "Eight Lines Specs.png",
+            "Noun Glasses Original.png",
+            "Red Noun Glasses.png"
           ]
         },
         {
@@ -821,7 +952,15 @@
             "Smoking Pipe.png",
             "PogChamp Mouth.png",
             "Sleepy Drool.png",
-            "Straight Mouth.png"
+            "Straight Mouth.png",
+            "Mouth 01.png",
+            "Mouth 02.png",
+            "Mouth 03.png",
+            "Mouth 04.png",
+            "Mouth 05.png",
+            "Mouth 06.png",
+            "Mouth 07.png",
+            "Mouth 08.png"
           ]
         },
         {
@@ -843,7 +982,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         },
         {
@@ -888,7 +1032,11 @@
             "Pit Vipers.png",
             "Poker Pro Blinders.png",
             "Steve Jobs Round Glasses.png",
-            "Wake Me Up Sleep Mask.png"
+            "Wake Me Up Sleep Mask.png",
+            "Diagonal Reflection Glasses.png",
+            "Eight Lines Specs.png",
+            "Noun Glasses Original.png",
+            "Red Noun Glasses.png"
           ]
         },
         {
@@ -905,7 +1053,15 @@
             "Smoking Pipe.png",
             "PogChamp Mouth.png",
             "Sleepy Drool.png",
-            "Straight Mouth.png"
+            "Straight Mouth.png",
+            "Mouth 01.png",
+            "Mouth 02.png",
+            "Mouth 03.png",
+            "Mouth 04.png",
+            "Mouth 05.png",
+            "Mouth 06.png",
+            "Mouth 07.png",
+            "Mouth 08.png"
           ]
         },
         {
@@ -927,7 +1083,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         },
         {
@@ -972,7 +1133,11 @@
             "Pit Vipers.png",
             "Poker Pro Blinders.png",
             "Steve Jobs Round Glasses.png",
-            "Wake Me Up Sleep Mask.png"
+            "Wake Me Up Sleep Mask.png",
+            "Diagonal Reflection Glasses.png",
+            "Eight Lines Specs.png",
+            "Noun Glasses Original.png",
+            "Red Noun Glasses.png"
           ]
         },
         {
@@ -989,7 +1154,15 @@
             "Smoking Pipe.png",
             "PogChamp Mouth.png",
             "Sleepy Drool.png",
-            "Straight Mouth.png"
+            "Straight Mouth.png",
+            "Mouth 01.png",
+            "Mouth 02.png",
+            "Mouth 03.png",
+            "Mouth 04.png",
+            "Mouth 05.png",
+            "Mouth 06.png",
+            "Mouth 07.png",
+            "Mouth 08.png"
           ]
         },
         {
@@ -1011,7 +1184,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         },
         {
@@ -1056,7 +1234,11 @@
             "Pit Vipers.png",
             "Poker Pro Blinders.png",
             "Steve Jobs Round Glasses.png",
-            "Wake Me Up Sleep Mask.png"
+            "Wake Me Up Sleep Mask.png",
+            "Diagonal Reflection Glasses.png",
+            "Eight Lines Specs.png",
+            "Noun Glasses Original.png",
+            "Red Noun Glasses.png"
           ]
         },
         {
@@ -1073,7 +1255,15 @@
             "Smoking Pipe.png",
             "PogChamp Mouth.png",
             "Sleepy Drool.png",
-            "Straight Mouth.png"
+            "Straight Mouth.png",
+            "Mouth 01.png",
+            "Mouth 02.png",
+            "Mouth 03.png",
+            "Mouth 04.png",
+            "Mouth 05.png",
+            "Mouth 06.png",
+            "Mouth 07.png",
+            "Mouth 08.png"
           ]
         },
         {
@@ -1095,7 +1285,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         },
         {
@@ -1140,7 +1335,11 @@
             "Pit Vipers.png",
             "Poker Pro Blinders.png",
             "Steve Jobs Round Glasses.png",
-            "Wake Me Up Sleep Mask.png"
+            "Wake Me Up Sleep Mask.png",
+            "Diagonal Reflection Glasses.png",
+            "Eight Lines Specs.png",
+            "Noun Glasses Original.png",
+            "Red Noun Glasses.png"
           ]
         },
         {
@@ -1157,7 +1356,15 @@
             "Smoking Pipe.png",
             "PogChamp Mouth.png",
             "Sleepy Drool.png",
-            "Straight Mouth.png"
+            "Straight Mouth.png",
+            "Mouth 01.png",
+            "Mouth 02.png",
+            "Mouth 03.png",
+            "Mouth 04.png",
+            "Mouth 05.png",
+            "Mouth 06.png",
+            "Mouth 07.png",
+            "Mouth 08.png"
           ]
         },
         {
@@ -1179,7 +1386,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         },
         {
@@ -1224,7 +1436,11 @@
             "Pit Vipers.png",
             "Poker Pro Blinders.png",
             "Steve Jobs Round Glasses.png",
-            "Wake Me Up Sleep Mask.png"
+            "Wake Me Up Sleep Mask.png",
+            "Diagonal Reflection Glasses.png",
+            "Eight Lines Specs.png",
+            "Noun Glasses Original.png",
+            "Red Noun Glasses.png"
           ]
         },
         {
@@ -1241,7 +1457,15 @@
             "Smoking Pipe.png",
             "PogChamp Mouth.png",
             "Sleepy Drool.png",
-            "Straight Mouth.png"
+            "Straight Mouth.png",
+            "Mouth 01.png",
+            "Mouth 02.png",
+            "Mouth 03.png",
+            "Mouth 04.png",
+            "Mouth 05.png",
+            "Mouth 06.png",
+            "Mouth 07.png",
+            "Mouth 08.png"
           ]
         },
         {
@@ -1263,7 +1487,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         },
         {
@@ -1308,7 +1537,11 @@
             "Pit Vipers.png",
             "Poker Pro Blinders.png",
             "Steve Jobs Round Glasses.png",
-            "Wake Me Up Sleep Mask.png"
+            "Wake Me Up Sleep Mask.png",
+            "Diagonal Reflection Glasses.png",
+            "Eight Lines Specs.png",
+            "Noun Glasses Original.png",
+            "Red Noun Glasses.png"
           ]
         },
         {
@@ -1325,7 +1558,15 @@
             "Smoking Pipe.png",
             "PogChamp Mouth.png",
             "Sleepy Drool.png",
-            "Straight Mouth.png"
+            "Straight Mouth.png",
+            "Mouth 01.png",
+            "Mouth 02.png",
+            "Mouth 03.png",
+            "Mouth 04.png",
+            "Mouth 05.png",
+            "Mouth 06.png",
+            "Mouth 07.png",
+            "Mouth 08.png"
           ]
         },
         {
@@ -1347,7 +1588,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         },
         {
@@ -1392,7 +1638,11 @@
             "Pit Vipers.png",
             "Poker Pro Blinders.png",
             "Steve Jobs Round Glasses.png",
-            "Wake Me Up Sleep Mask.png"
+            "Wake Me Up Sleep Mask.png",
+            "Diagonal Reflection Glasses.png",
+            "Eight Lines Specs.png",
+            "Noun Glasses Original.png",
+            "Red Noun Glasses.png"
           ]
         },
         {
@@ -1409,7 +1659,15 @@
             "Smoking Pipe.png",
             "PogChamp Mouth.png",
             "Sleepy Drool.png",
-            "Straight Mouth.png"
+            "Straight Mouth.png",
+            "Mouth 01.png",
+            "Mouth 02.png",
+            "Mouth 03.png",
+            "Mouth 04.png",
+            "Mouth 05.png",
+            "Mouth 06.png",
+            "Mouth 07.png",
+            "Mouth 08.png"
           ]
         },
         {
@@ -1431,7 +1689,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         },
         {
@@ -1476,7 +1739,11 @@
             "Pit Vipers.png",
             "Poker Pro Blinders.png",
             "Steve Jobs Round Glasses.png",
-            "Wake Me Up Sleep Mask.png"
+            "Wake Me Up Sleep Mask.png",
+            "Diagonal Reflection Glasses.png",
+            "Eight Lines Specs.png",
+            "Noun Glasses Original.png",
+            "Red Noun Glasses.png"
           ]
         },
         {
@@ -1493,7 +1760,15 @@
             "Smoking Pipe.png",
             "PogChamp Mouth.png",
             "Sleepy Drool.png",
-            "Straight Mouth.png"
+            "Straight Mouth.png",
+            "Mouth 01.png",
+            "Mouth 02.png",
+            "Mouth 03.png",
+            "Mouth 04.png",
+            "Mouth 05.png",
+            "Mouth 06.png",
+            "Mouth 07.png",
+            "Mouth 08.png"
           ]
         },
         {
@@ -1515,7 +1790,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         },
         {
@@ -1560,7 +1840,11 @@
             "Pit Vipers.png",
             "Poker Pro Blinders.png",
             "Steve Jobs Round Glasses.png",
-            "Wake Me Up Sleep Mask.png"
+            "Wake Me Up Sleep Mask.png",
+            "Diagonal Reflection Glasses.png",
+            "Eight Lines Specs.png",
+            "Noun Glasses Original.png",
+            "Red Noun Glasses.png"
           ]
         },
         {
@@ -1577,7 +1861,15 @@
             "Smoking Pipe.png",
             "PogChamp Mouth.png",
             "Sleepy Drool.png",
-            "Straight Mouth.png"
+            "Straight Mouth.png",
+            "Mouth 01.png",
+            "Mouth 02.png",
+            "Mouth 03.png",
+            "Mouth 04.png",
+            "Mouth 05.png",
+            "Mouth 06.png",
+            "Mouth 07.png",
+            "Mouth 08.png"
           ]
         },
         {
@@ -1599,7 +1891,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         },
         {
@@ -1644,7 +1941,11 @@
             "Pit Vipers.png",
             "Poker Pro Blinders.png",
             "Steve Jobs Round Glasses.png",
-            "Wake Me Up Sleep Mask.png"
+            "Wake Me Up Sleep Mask.png",
+            "Diagonal Reflection Glasses.png",
+            "Eight Lines Specs.png",
+            "Noun Glasses Original.png",
+            "Red Noun Glasses.png"
           ]
         },
         {
@@ -1661,7 +1962,15 @@
             "Smoking Pipe.png",
             "PogChamp Mouth.png",
             "Sleepy Drool.png",
-            "Straight Mouth.png"
+            "Straight Mouth.png",
+            "Mouth 01.png",
+            "Mouth 02.png",
+            "Mouth 03.png",
+            "Mouth 04.png",
+            "Mouth 05.png",
+            "Mouth 06.png",
+            "Mouth 07.png",
+            "Mouth 08.png"
           ]
         },
         {
@@ -1683,7 +1992,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         },
         {
@@ -1746,7 +2060,11 @@
             "Pit Vipers.png",
             "Poker Pro Blinders.png",
             "Steve Jobs Round Glasses.png",
-            "Wake Me Up Sleep Mask.png"
+            "Wake Me Up Sleep Mask.png",
+            "Diagonal Reflection Glasses.png",
+            "Eight Lines Specs.png",
+            "Noun Glasses Original.png",
+            "Red Noun Glasses.png"
           ]
         },
         {
@@ -1757,7 +2075,15 @@
             "HODLING Mouth.png",
             "Handlebar Moustache.png",
             "Pill on Tongue.png",
-            "Smoking Pipe.png"
+            "Smoking Pipe.png",
+            "Mouth 01.png",
+            "Mouth 02.png",
+            "Mouth 03.png",
+            "Mouth 04.png",
+            "Mouth 05.png",
+            "Mouth 06.png",
+            "Mouth 07.png",
+            "Mouth 08.png"
           ]
         },
         {
@@ -1779,7 +2105,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         },
         {
@@ -1840,7 +2171,11 @@
             "Pit Vipers.png",
             "Poker Pro Blinders.png",
             "Steve Jobs Round Glasses.png",
-            "Wake Me Up Sleep Mask.png"
+            "Wake Me Up Sleep Mask.png",
+            "Diagonal Reflection Glasses.png",
+            "Eight Lines Specs.png",
+            "Noun Glasses Original.png",
+            "Red Noun Glasses.png"
           ]
         },
         {
@@ -1857,7 +2192,15 @@
             "Smoking Pipe.png",
             "PogChamp Mouth.png",
             "Sleepy Drool.png",
-            "Straight Mouth.png"
+            "Straight Mouth.png",
+            "Mouth 01.png",
+            "Mouth 02.png",
+            "Mouth 03.png",
+            "Mouth 04.png",
+            "Mouth 05.png",
+            "Mouth 06.png",
+            "Mouth 07.png",
+            "Mouth 08.png"
           ]
         },
         {
@@ -1879,7 +2222,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         },
         {
@@ -1941,7 +2289,11 @@
             "Pit Vipers.png",
             "Poker Pro Blinders.png",
             "Steve Jobs Round Glasses.png",
-            "Wake Me Up Sleep Mask.png"
+            "Wake Me Up Sleep Mask.png",
+            "Diagonal Reflection Glasses.png",
+            "Eight Lines Specs.png",
+            "Noun Glasses Original.png",
+            "Red Noun Glasses.png"
           ]
         },
         {
@@ -1958,7 +2310,15 @@
             "Smoking Pipe.png",
             "PogChamp Mouth.png",
             "Sleepy Drool.png",
-            "Straight Mouth.png"
+            "Straight Mouth.png",
+            "Mouth 01.png",
+            "Mouth 02.png",
+            "Mouth 03.png",
+            "Mouth 04.png",
+            "Mouth 05.png",
+            "Mouth 06.png",
+            "Mouth 07.png",
+            "Mouth 08.png"
           ]
         },
         {
@@ -1980,7 +2340,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         },
         {
@@ -2047,7 +2412,11 @@
             "Pit Vipers.png",
             "Poker Pro Blinders.png",
             "Steve Jobs Round Glasses.png",
-            "Wake Me Up Sleep Mask.png"
+            "Wake Me Up Sleep Mask.png",
+            "Diagonal Reflection Glasses.png",
+            "Eight Lines Specs.png",
+            "Noun Glasses Original.png",
+            "Red Noun Glasses.png"
           ]
         },
         {
@@ -2064,7 +2433,15 @@
             "Smoking Pipe.png",
             "PogChamp Mouth.png",
             "Sleepy Drool.png",
-            "Straight Mouth.png"
+            "Straight Mouth.png",
+            "Mouth 01.png",
+            "Mouth 02.png",
+            "Mouth 03.png",
+            "Mouth 04.png",
+            "Mouth 05.png",
+            "Mouth 06.png",
+            "Mouth 07.png",
+            "Mouth 08.png"
           ]
         },
         {
@@ -2086,7 +2463,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         },
         {
@@ -2154,7 +2536,11 @@
             "Pit Vipers.png",
             "Poker Pro Blinders.png",
             "Steve Jobs Round Glasses.png",
-            "Wake Me Up Sleep Mask.png"
+            "Wake Me Up Sleep Mask.png",
+            "Diagonal Reflection Glasses.png",
+            "Eight Lines Specs.png",
+            "Noun Glasses Original.png",
+            "Red Noun Glasses.png"
           ]
         },
         {
@@ -2171,7 +2557,15 @@
             "Smoking Pipe.png",
             "PogChamp Mouth.png",
             "Sleepy Drool.png",
-            "Straight Mouth.png"
+            "Straight Mouth.png",
+            "Mouth 01.png",
+            "Mouth 02.png",
+            "Mouth 03.png",
+            "Mouth 04.png",
+            "Mouth 05.png",
+            "Mouth 06.png",
+            "Mouth 07.png",
+            "Mouth 08.png"
           ]
         },
         {
@@ -2193,7 +2587,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         },
         {
@@ -2260,7 +2659,11 @@
             "Pit Vipers.png",
             "Poker Pro Blinders.png",
             "Steve Jobs Round Glasses.png",
-            "Wake Me Up Sleep Mask.png"
+            "Wake Me Up Sleep Mask.png",
+            "Diagonal Reflection Glasses.png",
+            "Eight Lines Specs.png",
+            "Noun Glasses Original.png",
+            "Red Noun Glasses.png"
           ]
         },
         {
@@ -2277,7 +2680,15 @@
             "Smoking Pipe.png",
             "PogChamp Mouth.png",
             "Sleepy Drool.png",
-            "Straight Mouth.png"
+            "Straight Mouth.png",
+            "Mouth 01.png",
+            "Mouth 02.png",
+            "Mouth 03.png",
+            "Mouth 04.png",
+            "Mouth 05.png",
+            "Mouth 06.png",
+            "Mouth 07.png",
+            "Mouth 08.png"
           ]
         },
         {
@@ -2299,7 +2710,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         },
         {
@@ -2366,7 +2782,11 @@
             "Pit Vipers.png",
             "Poker Pro Blinders.png",
             "Steve Jobs Round Glasses.png",
-            "Wake Me Up Sleep Mask.png"
+            "Wake Me Up Sleep Mask.png",
+            "Diagonal Reflection Glasses.png",
+            "Eight Lines Specs.png",
+            "Noun Glasses Original.png",
+            "Red Noun Glasses.png"
           ]
         },
         {
@@ -2383,7 +2803,15 @@
             "Smoking Pipe.png",
             "PogChamp Mouth.png",
             "Sleepy Drool.png",
-            "Straight Mouth.png"
+            "Straight Mouth.png",
+            "Mouth 01.png",
+            "Mouth 02.png",
+            "Mouth 03.png",
+            "Mouth 04.png",
+            "Mouth 05.png",
+            "Mouth 06.png",
+            "Mouth 07.png",
+            "Mouth 08.png"
           ]
         },
         {
@@ -2405,7 +2833,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         },
         {
@@ -2453,7 +2886,11 @@
             "Pit Vipers.png",
             "Poker Pro Blinders.png",
             "Steve Jobs Round Glasses.png",
-            "Wake Me Up Sleep Mask.png"
+            "Wake Me Up Sleep Mask.png",
+            "Diagonal Reflection Glasses.png",
+            "Eight Lines Specs.png",
+            "Noun Glasses Original.png",
+            "Red Noun Glasses.png"
           ]
         },
         {
@@ -2470,7 +2907,15 @@
             "Smoking Pipe.png",
             "PogChamp Mouth.png",
             "Sleepy Drool.png",
-            "Straight Mouth.png"
+            "Straight Mouth.png",
+            "Mouth 01.png",
+            "Mouth 02.png",
+            "Mouth 03.png",
+            "Mouth 04.png",
+            "Mouth 05.png",
+            "Mouth 06.png",
+            "Mouth 07.png",
+            "Mouth 08.png"
           ]
         },
         {
@@ -2492,7 +2937,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         },
         {
@@ -2540,7 +2990,11 @@
             "Pit Vipers.png",
             "Poker Pro Blinders.png",
             "Steve Jobs Round Glasses.png",
-            "Wake Me Up Sleep Mask.png"
+            "Wake Me Up Sleep Mask.png",
+            "Diagonal Reflection Glasses.png",
+            "Eight Lines Specs.png",
+            "Noun Glasses Original.png",
+            "Red Noun Glasses.png"
           ]
         },
         {
@@ -2557,7 +3011,15 @@
             "Smoking Pipe.png",
             "PogChamp Mouth.png",
             "Sleepy Drool.png",
-            "Straight Mouth.png"
+            "Straight Mouth.png",
+            "Mouth 01.png",
+            "Mouth 02.png",
+            "Mouth 03.png",
+            "Mouth 04.png",
+            "Mouth 05.png",
+            "Mouth 06.png",
+            "Mouth 07.png",
+            "Mouth 08.png"
           ]
         },
         {
@@ -2579,7 +3041,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         },
         {
@@ -2632,7 +3099,11 @@
             "Pit Vipers.png",
             "Poker Pro Blinders.png",
             "Steve Jobs Round Glasses.png",
-            "Wake Me Up Sleep Mask.png"
+            "Wake Me Up Sleep Mask.png",
+            "Diagonal Reflection Glasses.png",
+            "Eight Lines Specs.png",
+            "Noun Glasses Original.png",
+            "Red Noun Glasses.png"
           ]
         },
         {
@@ -2649,7 +3120,15 @@
             "Smoking Pipe.png",
             "PogChamp Mouth.png",
             "Sleepy Drool.png",
-            "Straight Mouth.png"
+            "Straight Mouth.png",
+            "Mouth 01.png",
+            "Mouth 02.png",
+            "Mouth 03.png",
+            "Mouth 04.png",
+            "Mouth 05.png",
+            "Mouth 06.png",
+            "Mouth 07.png",
+            "Mouth 08.png"
           ]
         },
         {
@@ -2671,7 +3150,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         },
         {
@@ -2724,7 +3208,11 @@
             "Pit Vipers.png",
             "Poker Pro Blinders.png",
             "Steve Jobs Round Glasses.png",
-            "Wake Me Up Sleep Mask.png"
+            "Wake Me Up Sleep Mask.png",
+            "Diagonal Reflection Glasses.png",
+            "Eight Lines Specs.png",
+            "Noun Glasses Original.png",
+            "Red Noun Glasses.png"
           ]
         },
         {
@@ -2741,7 +3229,15 @@
             "Smoking Pipe.png",
             "PogChamp Mouth.png",
             "Sleepy Drool.png",
-            "Straight Mouth.png"
+            "Straight Mouth.png",
+            "Mouth 01.png",
+            "Mouth 02.png",
+            "Mouth 03.png",
+            "Mouth 04.png",
+            "Mouth 05.png",
+            "Mouth 06.png",
+            "Mouth 07.png",
+            "Mouth 08.png"
           ]
         },
         {
@@ -2763,7 +3259,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         },
         {
@@ -2811,7 +3312,11 @@
             "Pit Vipers.png",
             "Poker Pro Blinders.png",
             "Steve Jobs Round Glasses.png",
-            "Wake Me Up Sleep Mask.png"
+            "Wake Me Up Sleep Mask.png",
+            "Diagonal Reflection Glasses.png",
+            "Eight Lines Specs.png",
+            "Noun Glasses Original.png",
+            "Red Noun Glasses.png"
           ]
         },
         {
@@ -2825,7 +3330,15 @@
             "Pill on Tongue.png",
             "PogChamp Mouth.png",
             "Sleepy Drool.png",
-            "Straight Mouth.png"
+            "Straight Mouth.png",
+            "Mouth 01.png",
+            "Mouth 02.png",
+            "Mouth 03.png",
+            "Mouth 04.png",
+            "Mouth 05.png",
+            "Mouth 06.png",
+            "Mouth 07.png",
+            "Mouth 08.png"
           ]
         },
         {
@@ -2847,7 +3360,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         },
         {
@@ -2897,7 +3415,11 @@
             "Pit Vipers.png",
             "Poker Pro Blinders.png",
             "Steve Jobs Round Glasses.png",
-            "Wake Me Up Sleep Mask.png"
+            "Wake Me Up Sleep Mask.png",
+            "Diagonal Reflection Glasses.png",
+            "Eight Lines Specs.png",
+            "Noun Glasses Original.png",
+            "Red Noun Glasses.png"
           ]
         },
         {
@@ -2914,7 +3436,15 @@
             "Smoking Pipe.png",
             "PogChamp Mouth.png",
             "Sleepy Drool.png",
-            "Straight Mouth.png"
+            "Straight Mouth.png",
+            "Mouth 01.png",
+            "Mouth 02.png",
+            "Mouth 03.png",
+            "Mouth 04.png",
+            "Mouth 05.png",
+            "Mouth 06.png",
+            "Mouth 07.png",
+            "Mouth 08.png"
           ]
         },
         {
@@ -2936,7 +3466,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         },
         {
@@ -2988,7 +3523,11 @@
             "Pit Vipers.png",
             "Poker Pro Blinders.png",
             "Steve Jobs Round Glasses.png",
-            "Wake Me Up Sleep Mask.png"
+            "Wake Me Up Sleep Mask.png",
+            "Diagonal Reflection Glasses.png",
+            "Eight Lines Specs.png",
+            "Noun Glasses Original.png",
+            "Red Noun Glasses.png"
           ]
         },
         {
@@ -3005,7 +3544,15 @@
             "Smoking Pipe.png",
             "PogChamp Mouth.png",
             "Sleepy Drool.png",
-            "Straight Mouth.png"
+            "Straight Mouth.png",
+            "Mouth 01.png",
+            "Mouth 02.png",
+            "Mouth 03.png",
+            "Mouth 04.png",
+            "Mouth 05.png",
+            "Mouth 06.png",
+            "Mouth 07.png",
+            "Mouth 08.png"
           ]
         },
         {
@@ -3027,7 +3574,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         },
         {
@@ -3079,7 +3631,11 @@
             "Pit Vipers.png",
             "Poker Pro Blinders.png",
             "Steve Jobs Round Glasses.png",
-            "Wake Me Up Sleep Mask.png"
+            "Wake Me Up Sleep Mask.png",
+            "Diagonal Reflection Glasses.png",
+            "Eight Lines Specs.png",
+            "Noun Glasses Original.png",
+            "Red Noun Glasses.png"
           ]
         },
         {
@@ -3096,7 +3652,15 @@
             "Smoking Pipe.png",
             "PogChamp Mouth.png",
             "Sleepy Drool.png",
-            "Straight Mouth.png"
+            "Straight Mouth.png",
+            "Mouth 01.png",
+            "Mouth 02.png",
+            "Mouth 03.png",
+            "Mouth 04.png",
+            "Mouth 05.png",
+            "Mouth 06.png",
+            "Mouth 07.png",
+            "Mouth 08.png"
           ]
         },
         {
@@ -3118,7 +3682,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         },
         {
@@ -3161,7 +3730,11 @@
             "Neo Micro Shades.png",
             "Pit Vipers.png",
             "Poker Pro Blinders.png",
-            "Steve Jobs Round Glasses.png"
+            "Steve Jobs Round Glasses.png",
+            "Diagonal Reflection Glasses.png",
+            "Eight Lines Specs.png",
+            "Noun Glasses Original.png",
+            "Red Noun Glasses.png"
           ]
         },
         {
@@ -3173,7 +3746,15 @@
             "HODLING Mouth.png",
             "Handlebar Moustache.png",
             "Smoking Pipe.png",
-            "Straight Mouth.png"
+            "Straight Mouth.png",
+            "Mouth 01.png",
+            "Mouth 02.png",
+            "Mouth 03.png",
+            "Mouth 04.png",
+            "Mouth 05.png",
+            "Mouth 06.png",
+            "Mouth 07.png",
+            "Mouth 08.png"
           ]
         },
         {
@@ -3195,7 +3776,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         },
         {
@@ -3262,7 +3848,11 @@
             "Neo Micro Shades.png",
             "Pit Vipers.png",
             "Poker Pro Blinders.png",
-            "Steve Jobs Round Glasses.png"
+            "Steve Jobs Round Glasses.png",
+            "Diagonal Reflection Glasses.png",
+            "Eight Lines Specs.png",
+            "Noun Glasses Original.png",
+            "Red Noun Glasses.png"
           ]
         },
         {
@@ -3274,7 +3864,15 @@
             "Handlebar Moustache.png",
             "Pill on Tongue.png",
             "Smoking Pipe.png",
-            "Straight Mouth.png"
+            "Straight Mouth.png",
+            "Mouth 01.png",
+            "Mouth 02.png",
+            "Mouth 03.png",
+            "Mouth 04.png",
+            "Mouth 05.png",
+            "Mouth 06.png",
+            "Mouth 07.png",
+            "Mouth 08.png"
           ]
         },
         {
@@ -3296,7 +3894,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         },
         {
@@ -3373,7 +3976,11 @@
             "Neo Micro Shades.png",
             "Pit Vipers.png",
             "Poker Pro Blinders.png",
-            "Steve Jobs Round Glasses.png"
+            "Steve Jobs Round Glasses.png",
+            "Diagonal Reflection Glasses.png",
+            "Eight Lines Specs.png",
+            "Noun Glasses Original.png",
+            "Red Noun Glasses.png"
           ]
         },
         {
@@ -3390,7 +3997,15 @@
             "Smoking Pipe.png",
             "PogChamp Mouth.png",
             "Sleepy Drool.png",
-            "Straight Mouth.png"
+            "Straight Mouth.png",
+            "Mouth 01.png",
+            "Mouth 02.png",
+            "Mouth 03.png",
+            "Mouth 04.png",
+            "Mouth 05.png",
+            "Mouth 06.png",
+            "Mouth 07.png",
+            "Mouth 08.png"
           ]
         },
         {
@@ -3412,7 +4027,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         },
         {
@@ -3490,7 +4110,11 @@
             "Neo Micro Shades.png",
             "Pit Vipers.png",
             "Poker Pro Blinders.png",
-            "Steve Jobs Round Glasses.png"
+            "Steve Jobs Round Glasses.png",
+            "Diagonal Reflection Glasses.png",
+            "Eight Lines Specs.png",
+            "Noun Glasses Original.png",
+            "Red Noun Glasses.png"
           ]
         },
         {
@@ -3507,7 +4131,15 @@
             "Smoking Pipe.png",
             "PogChamp Mouth.png",
             "Sleepy Drool.png",
-            "Straight Mouth.png"
+            "Straight Mouth.png",
+            "Mouth 01.png",
+            "Mouth 02.png",
+            "Mouth 03.png",
+            "Mouth 04.png",
+            "Mouth 05.png",
+            "Mouth 06.png",
+            "Mouth 07.png",
+            "Mouth 08.png"
           ]
         },
         {
@@ -3529,7 +4161,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         },
         {
@@ -3606,7 +4243,11 @@
             "Neo Micro Shades.png",
             "Pit Vipers.png",
             "Poker Pro Blinders.png",
-            "Steve Jobs Round Glasses.png"
+            "Steve Jobs Round Glasses.png",
+            "Diagonal Reflection Glasses.png",
+            "Eight Lines Specs.png",
+            "Noun Glasses Original.png",
+            "Red Noun Glasses.png"
           ]
         },
         {
@@ -3623,7 +4264,15 @@
             "Smoking Pipe.png",
             "PogChamp Mouth.png",
             "Sleepy Drool.png",
-            "Straight Mouth.png"
+            "Straight Mouth.png",
+            "Mouth 01.png",
+            "Mouth 02.png",
+            "Mouth 03.png",
+            "Mouth 04.png",
+            "Mouth 05.png",
+            "Mouth 06.png",
+            "Mouth 07.png",
+            "Mouth 08.png"
           ]
         },
         {
@@ -3645,7 +4294,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         },
         {
@@ -3723,7 +4377,11 @@
             "Neo Micro Shades.png",
             "Pit Vipers.png",
             "Poker Pro Blinders.png",
-            "Steve Jobs Round Glasses.png"
+            "Steve Jobs Round Glasses.png",
+            "Diagonal Reflection Glasses.png",
+            "Eight Lines Specs.png",
+            "Noun Glasses Original.png",
+            "Red Noun Glasses.png"
           ]
         },
         {
@@ -3740,7 +4398,15 @@
             "Smoking Pipe.png",
             "PogChamp Mouth.png",
             "Sleepy Drool.png",
-            "Straight Mouth.png"
+            "Straight Mouth.png",
+            "Mouth 01.png",
+            "Mouth 02.png",
+            "Mouth 03.png",
+            "Mouth 04.png",
+            "Mouth 05.png",
+            "Mouth 06.png",
+            "Mouth 07.png",
+            "Mouth 08.png"
           ]
         },
         {
@@ -3762,7 +4428,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         },
         {
@@ -3836,7 +4507,11 @@
             "Neo Micro Shades.png",
             "Pit Vipers.png",
             "Poker Pro Blinders.png",
-            "Steve Jobs Round Glasses.png"
+            "Steve Jobs Round Glasses.png",
+            "Diagonal Reflection Glasses.png",
+            "Eight Lines Specs.png",
+            "Noun Glasses Original.png",
+            "Red Noun Glasses.png"
           ]
         },
         {
@@ -3853,7 +4528,15 @@
             "Smoking Pipe.png",
             "PogChamp Mouth.png",
             "Sleepy Drool.png",
-            "Straight Mouth.png"
+            "Straight Mouth.png",
+            "Mouth 01.png",
+            "Mouth 02.png",
+            "Mouth 03.png",
+            "Mouth 04.png",
+            "Mouth 05.png",
+            "Mouth 06.png",
+            "Mouth 07.png",
+            "Mouth 08.png"
           ]
         },
         {
@@ -3875,7 +4558,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         },
         {
@@ -3948,7 +4636,11 @@
             "Neo Micro Shades.png",
             "Pit Vipers.png",
             "Poker Pro Blinders.png",
-            "Steve Jobs Round Glasses.png"
+            "Steve Jobs Round Glasses.png",
+            "Diagonal Reflection Glasses.png",
+            "Eight Lines Specs.png",
+            "Noun Glasses Original.png",
+            "Red Noun Glasses.png"
           ]
         },
         {
@@ -3965,7 +4657,15 @@
             "Smoking Pipe.png",
             "PogChamp Mouth.png",
             "Sleepy Drool.png",
-            "Straight Mouth.png"
+            "Straight Mouth.png",
+            "Mouth 01.png",
+            "Mouth 02.png",
+            "Mouth 03.png",
+            "Mouth 04.png",
+            "Mouth 05.png",
+            "Mouth 06.png",
+            "Mouth 07.png",
+            "Mouth 08.png"
           ]
         },
         {
@@ -3987,7 +4687,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         },
         {
@@ -4060,7 +4765,11 @@
             "Neo Micro Shades.png",
             "Pit Vipers.png",
             "Poker Pro Blinders.png",
-            "Steve Jobs Round Glasses.png"
+            "Steve Jobs Round Glasses.png",
+            "Diagonal Reflection Glasses.png",
+            "Eight Lines Specs.png",
+            "Noun Glasses Original.png",
+            "Red Noun Glasses.png"
           ]
         },
         {
@@ -4077,7 +4786,15 @@
             "Smoking Pipe.png",
             "PogChamp Mouth.png",
             "Sleepy Drool.png",
-            "Straight Mouth.png"
+            "Straight Mouth.png",
+            "Mouth 01.png",
+            "Mouth 02.png",
+            "Mouth 03.png",
+            "Mouth 04.png",
+            "Mouth 05.png",
+            "Mouth 06.png",
+            "Mouth 07.png",
+            "Mouth 08.png"
           ]
         },
         {
@@ -4099,7 +4816,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         },
         {
@@ -4882,7 +5604,11 @@
             "Pit Vipers.png",
             "Poker Pro Blinders.png",
             "Steve Jobs Round Glasses.png",
-            "Wake Me Up Sleep Mask.png"
+            "Wake Me Up Sleep Mask.png",
+            "Diagonal Reflection Glasses.png",
+            "Eight Lines Specs.png",
+            "Noun Glasses Original.png",
+            "Red Noun Glasses.png"
           ]
         },
         {
@@ -4899,7 +5625,15 @@
             "Smoking Pipe.png",
             "PogChamp Mouth.png",
             "Sleepy Drool.png",
-            "Straight Mouth.png"
+            "Straight Mouth.png",
+            "Mouth 01.png",
+            "Mouth 02.png",
+            "Mouth 03.png",
+            "Mouth 04.png",
+            "Mouth 05.png",
+            "Mouth 06.png",
+            "Mouth 07.png",
+            "Mouth 08.png"
           ]
         },
         {
@@ -4921,7 +5655,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         },
         {
@@ -4989,7 +5728,11 @@
             "Pit Vipers.png",
             "Poker Pro Blinders.png",
             "Steve Jobs Round Glasses.png",
-            "Wake Me Up Sleep Mask.png"
+            "Wake Me Up Sleep Mask.png",
+            "Diagonal Reflection Glasses.png",
+            "Eight Lines Specs.png",
+            "Noun Glasses Original.png",
+            "Red Noun Glasses.png"
           ]
         },
         {
@@ -5006,7 +5749,15 @@
             "Smoking Pipe.png",
             "PogChamp Mouth.png",
             "Sleepy Drool.png",
-            "Straight Mouth.png"
+            "Straight Mouth.png",
+            "Mouth 01.png",
+            "Mouth 02.png",
+            "Mouth 03.png",
+            "Mouth 04.png",
+            "Mouth 05.png",
+            "Mouth 06.png",
+            "Mouth 07.png",
+            "Mouth 08.png"
           ]
         },
         {
@@ -5028,7 +5779,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         },
         {
@@ -5073,7 +5829,11 @@
             "Pit Vipers.png",
             "Poker Pro Blinders.png",
             "Steve Jobs Round Glasses.png",
-            "Wake Me Up Sleep Mask.png"
+            "Wake Me Up Sleep Mask.png",
+            "Diagonal Reflection Glasses.png",
+            "Eight Lines Specs.png",
+            "Noun Glasses Original.png",
+            "Red Noun Glasses.png"
           ]
         },
         {
@@ -5090,7 +5850,15 @@
             "Smoking Pipe.png",
             "PogChamp Mouth.png",
             "Sleepy Drool.png",
-            "Straight Mouth.png"
+            "Straight Mouth.png",
+            "Mouth 01.png",
+            "Mouth 02.png",
+            "Mouth 03.png",
+            "Mouth 04.png",
+            "Mouth 05.png",
+            "Mouth 06.png",
+            "Mouth 07.png",
+            "Mouth 08.png"
           ]
         },
         {
@@ -5112,7 +5880,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         },
         {
@@ -5152,7 +5925,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         }
       ]
@@ -5183,7 +5961,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         }
       ]
@@ -5214,7 +5997,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         }
       ]
@@ -5245,7 +6033,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         }
       ]
@@ -5276,7 +6069,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         }
       ]
@@ -5307,7 +6105,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         }
       ]
@@ -5338,7 +6141,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         }
       ]
@@ -5369,7 +6177,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         }
       ]
@@ -5400,7 +6213,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         }
       ]
@@ -5431,7 +6249,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         }
       ]
@@ -5462,7 +6285,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         }
       ]
@@ -5493,7 +6321,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         }
       ]
@@ -5524,7 +6357,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         }
       ]
@@ -5563,7 +6401,11 @@
             "Neo Micro Shades.png",
             "Pit Vipers.png",
             "Poker Pro Blinders.png",
-            "Steve Jobs Round Glasses.png"
+            "Steve Jobs Round Glasses.png",
+            "Diagonal Reflection Glasses.png",
+            "Eight Lines Specs.png",
+            "Noun Glasses Original.png",
+            "Red Noun Glasses.png"
           ]
         },
         {
@@ -5592,7 +6434,15 @@
             "Smoking Pipe.png",
             "PogChamp Mouth.png",
             "Sleepy Drool.png",
-            "Straight Mouth.png"
+            "Straight Mouth.png",
+            "Mouth 01.png",
+            "Mouth 02.png",
+            "Mouth 03.png",
+            "Mouth 04.png",
+            "Mouth 05.png",
+            "Mouth 06.png",
+            "Mouth 07.png",
+            "Mouth 08.png"
           ]
         },
         {
@@ -5614,7 +6464,12 @@
             "Sharingan Eyes.png",
             "Six Eyes.png",
             "Smirking Eyes.png",
-            "Space Invader Pupils.png"
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
           ]
         },
         {
@@ -6133,33 +6988,6 @@
             "Ankh Earring.png",
             "Joint Behind Ear.png"
           ]
-        },
-        {
-          "action": "only pick from",
-          "targetLayer": "chains",
-          "targetTrait": [
-            "Boognish Pendant.png",
-            "Crooked Smiley Pendant.png",
-            "Dog Tag Chain.png",
-            "Golden Swarm Pendant.png",
-            "Tongue Out Pendant.png",
-            "Triforce Chain.png",
-            "XRP Chain.png"
-          ]
-        }
-      ]
-    },
-    {
-      "layer": "extras",
-      "operation": "is",
-      "trait": [
-        "Blue Gorilla.png"
-      ],
-      "thenStatements": [
-        {
-          "action": "hide layer",
-          "targetLayer": "ears",
-          "targetTrait": []
         },
         {
           "action": "only pick from",
@@ -7272,6 +8100,399 @@
             "Wandering Fighter Crop.png",
             "White Infinity Crop.png"
           ]
+        }
+      ]
+    },
+    {
+      "layer": "glasses",
+      "operation": "is",
+      "trait": [
+        "Diagonal Reflection Glasses.png"
+      ],
+      "thenStatements": [
+        {
+          "action": "only pick from",
+          "targetLayer": "eyes",
+          "targetTrait": [
+            "Bad Time Eyes.png",
+            "Bloodshot Eyes.png",
+            "Enderman Eyes.png",
+            "Gazers Lunar Eyes.png",
+            "Ghoul Eyes.png",
+            "Half-Lidded Eyes.png",
+            "Herobrine Eyes.png",
+            "Loading Spinner Eyes.png",
+            "Money Sign Eyes.png",
+            "Pepe Side Eye.png",
+            "Punk Eyes.png",
+            "Scar Fox Eyes.png",
+            "Sharingan Eyes.png",
+            "Six Eyes.png",
+            "Smirking Eyes.png",
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
+          ]
+        }
+      ]
+    },
+    {
+      "layer": "glasses",
+      "operation": "is",
+      "trait": [
+        "Eight Lines Specs.png"
+      ],
+      "thenStatements": [
+        {
+          "action": "only pick from",
+          "targetLayer": "eyes",
+          "targetTrait": [
+            "Bad Time Eyes.png",
+            "Bloodshot Eyes.png",
+            "Enderman Eyes.png",
+            "Gazers Lunar Eyes.png",
+            "Ghoul Eyes.png",
+            "Half-Lidded Eyes.png",
+            "Herobrine Eyes.png",
+            "Loading Spinner Eyes.png",
+            "Money Sign Eyes.png",
+            "Pepe Side Eye.png",
+            "Punk Eyes.png",
+            "Scar Fox Eyes.png",
+            "Sharingan Eyes.png",
+            "Six Eyes.png",
+            "Smirking Eyes.png",
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
+          ]
+        }
+      ]
+    },
+    {
+      "layer": "glasses",
+      "operation": "is",
+      "trait": [
+        "Noun Glasses Original.png"
+      ],
+      "thenStatements": [
+        {
+          "action": "only pick from",
+          "targetLayer": "eyes",
+          "targetTrait": [
+            "Bad Time Eyes.png",
+            "Bloodshot Eyes.png",
+            "Enderman Eyes.png",
+            "Gazers Lunar Eyes.png",
+            "Ghoul Eyes.png",
+            "Half-Lidded Eyes.png",
+            "Herobrine Eyes.png",
+            "Loading Spinner Eyes.png",
+            "Money Sign Eyes.png",
+            "Pepe Side Eye.png",
+            "Punk Eyes.png",
+            "Scar Fox Eyes.png",
+            "Sharingan Eyes.png",
+            "Six Eyes.png",
+            "Smirking Eyes.png",
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
+          ]
+        }
+      ]
+    },
+    {
+      "layer": "glasses",
+      "operation": "is",
+      "trait": [
+        "Red Noun Glasses.png"
+      ],
+      "thenStatements": [
+        {
+          "action": "only pick from",
+          "targetLayer": "eyes",
+          "targetTrait": [
+            "Bad Time Eyes.png",
+            "Bloodshot Eyes.png",
+            "Enderman Eyes.png",
+            "Gazers Lunar Eyes.png",
+            "Ghoul Eyes.png",
+            "Half-Lidded Eyes.png",
+            "Herobrine Eyes.png",
+            "Loading Spinner Eyes.png",
+            "Money Sign Eyes.png",
+            "Pepe Side Eye.png",
+            "Punk Eyes.png",
+            "Scar Fox Eyes.png",
+            "Sharingan Eyes.png",
+            "Six Eyes.png",
+            "Smirking Eyes.png",
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
+          ]
+        }
+      ]
+    },
+    {
+      "layer": "extras",
+      "operation": "is",
+      "trait": [
+        "Gizmo Shoulder Companion.png"
+      ],
+      "thenStatements": [
+        {
+          "action": "only pick from",
+          "targetLayer": "ears",
+          "targetTrait": [
+            "AirPod.png",
+            "Ankh Earring.png",
+            "Joint Behind Ear.png"
+          ]
+        },
+        {
+          "action": "only pick from",
+          "targetLayer": "chains",
+          "targetTrait": [
+            "Boognish Pendant.png",
+            "Crooked Smiley Pendant.png",
+            "Dog Tag Chain.png",
+            "Golden Swarm Pendant.png",
+            "Tongue Out Pendant.png",
+            "Triforce Chain.png",
+            "XRP Chain.png"
+          ]
+        }
+      ]
+    },
+    {
+      "layer": "extras",
+      "operation": "is",
+      "trait": [
+        "Moon Fisher.png"
+      ],
+      "thenStatements": [
+        {
+          "action": "only pick from",
+          "targetLayer": "ears",
+          "targetTrait": [
+            "AirPod.png",
+            "Ankh Earring.png",
+            "Joint Behind Ear.png"
+          ]
+        },
+        {
+          "action": "only pick from",
+          "targetLayer": "chains",
+          "targetTrait": [
+            "Boognish Pendant.png",
+            "Crooked Smiley Pendant.png",
+            "Dog Tag Chain.png",
+            "Golden Swarm Pendant.png",
+            "Tongue Out Pendant.png",
+            "Triforce Chain.png",
+            "XRP Chain.png"
+          ]
+        }
+      ]
+    },
+    {
+      "layer": "extras",
+      "operation": "is",
+      "trait": [
+        "Sun Baby.png"
+      ],
+      "thenStatements": [
+        {
+          "action": "only pick from",
+          "targetLayer": "ears",
+          "targetTrait": [
+            "AirPod.png",
+            "Ankh Earring.png",
+            "Joint Behind Ear.png"
+          ]
+        },
+        {
+          "action": "only pick from",
+          "targetLayer": "chains",
+          "targetTrait": [
+            "Boognish Pendant.png",
+            "Crooked Smiley Pendant.png",
+            "Dog Tag Chain.png",
+            "Golden Swarm Pendant.png",
+            "Tongue Out Pendant.png",
+            "Triforce Chain.png",
+            "XRP Chain.png"
+          ]
+        }
+      ]
+    },
+    {
+      "layer": "extras",
+      "operation": "is",
+      "trait": [
+        "Corona Lime Bottle.png"
+      ],
+      "thenStatements": [
+        {
+          "action": "only pick from",
+          "targetLayer": "ears",
+          "targetTrait": [
+            "AirPod.png",
+            "Ankh Earring.png",
+            "Joint Behind Ear.png"
+          ]
+        },
+        {
+          "action": "only pick from",
+          "targetLayer": "chains",
+          "targetTrait": [
+            "Boognish Pendant.png",
+            "Crooked Smiley Pendant.png",
+            "Dog Tag Chain.png",
+            "Golden Swarm Pendant.png",
+            "Tongue Out Pendant.png",
+            "Triforce Chain.png",
+            "XRP Chain.png"
+          ]
+        }
+      ]
+    },
+    {
+      "layer": "costumes",
+      "operation": "is",
+      "trait": [
+        "Carnival Jester Costume.png"
+      ],
+      "thenStatements": [
+        {
+          "action": "hide layer",
+          "targetLayer": "hair",
+          "targetTrait": []
+        },
+        {
+          "action": "hide layer",
+          "targetLayer": "hats",
+          "targetTrait": []
+        },
+        {
+          "action": "only pick from",
+          "targetLayer": "glasses",
+          "targetTrait": [
+            "Tape-Repaired Glasses.png",
+            "Cyclops Ruby Visor.png",
+            "Dark Lens Sunglasses.png",
+            "Disco Shutter Shades.png",
+            "Doc Brown Mirror Visor.png",
+            "Flip-Up Welding Shades.png",
+            "Kamina Shades.png",
+            "Morpheus Nose-Clip Glasses.png",
+            "Neo Micro Shades.png",
+            "Pit Vipers.png",
+            "Poker Pro Blinders.png",
+            "Steve Jobs Round Glasses.png",
+            "Wake Me Up Sleep Mask.png",
+            "Diagonal Reflection Glasses.png",
+            "Eight Lines Specs.png",
+            "Noun Glasses Original.png",
+            "Red Noun Glasses.png"
+          ]
+        },
+        {
+          "action": "only pick from",
+          "targetLayer": "mouth",
+          "targetTrait": [
+            "Autoglyph Mouth.png",
+            "Bubblegum.png",
+            "Buck Teeth.png",
+            "Frown.png",
+            "Handlebar Moustache.png",
+            "HODLING Mouth.png",
+            "Pill on Tongue.png",
+            "Smoking Pipe.png",
+            "PogChamp Mouth.png",
+            "Sleepy Drool.png",
+            "Straight Mouth.png",
+            "Mouth 01.png",
+            "Mouth 02.png",
+            "Mouth 03.png",
+            "Mouth 04.png",
+            "Mouth 05.png",
+            "Mouth 06.png",
+            "Mouth 07.png",
+            "Mouth 08.png"
+          ]
+        },
+        {
+          "action": "only pick from",
+          "targetLayer": "eyes",
+          "targetTrait": [
+            "Bad Time Eyes.png",
+            "Bloodshot Eyes.png",
+            "Enderman Eyes.png",
+            "Gazers Lunar Eyes.png",
+            "Ghoul Eyes.png",
+            "Half-Lidded Eyes.png",
+            "Herobrine Eyes.png",
+            "Loading Spinner Eyes.png",
+            "Money Sign Eyes.png",
+            "Pepe Side Eye.png",
+            "Punk Eyes.png",
+            "Scar Fox Eyes.png",
+            "Sharingan Eyes.png",
+            "Six Eyes.png",
+            "Smirking Eyes.png",
+            "Space Invader Pupils.png",
+            "Basic Blue Eyes.png",
+            "Basic Brown Eyes.png",
+            "Basic Side Glance Eyes.png",
+            "Relaxed Dark Eyes.png",
+            "Sleepy Neutral Eyes.png"
+          ]
+        },
+        {
+          "action": "hide layer",
+          "targetLayer": "clothing",
+          "targetTrait": []
+        },
+        {
+          "action": "only pick from",
+          "targetLayer": "masks",
+          "targetTrait": [
+            "Anonymous Mask.png",
+            "DOOM Mask.png",
+            "Jason Mask.png",
+            "Plague Doctor Mask.png",
+            "Solgods Mask.png",
+            "White Mime Mask.png"
+          ]
+        },
+        {
+          "action": "only pick from",
+          "targetLayer": "ears",
+          "targetTrait": [
+            "AirPod.png",
+            "Ankh Earring.png",
+            "Joint Behind Ear.png"
+          ]
+        },
+        {
+          "action": "hide layer",
+          "targetLayer": "chains",
+          "targetTrait": []
         }
       ]
     }

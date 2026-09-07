@@ -1,16 +1,16 @@
-/* The Load v6 button, pressed in a real browser.
+/* The Load the rules button, pressed in a real browser.
 
-   test/curated-v6.test.cjs covers the logic well - five tests including 10,000
+   test/curated-rules.test.cjs covers the logic well - five tests including 10,000
    native draws - but it builds a FAKE DOM to do it:
 
-     const els={rulev6:{disabled:false},ruleimportnote:{hidden:true,textContent:''}};
+     const els={rulesload:{disabled:false},ruleimportnote:{hidden:true,textContent:''}};
      c.document={getElementById:id=>els[id]};
      ...
-     await els.rulev6.onclick();
+     await els.rulesload.onclick();
 
    so it calls a handler it attached to an object it made. That is the right
    way to test the decisions, and it is structurally unable to notice the
-   button being dead: a renamed id, a 404 on curated-rules-v6.js, a helper the
+   button being dead: a renamed id, a 404 on curated-rules-v7.js, a helper the
    IIFE needs that is not actually global, or the script running before the
    element exists would all leave those five tests green and the button inert.
 
@@ -29,35 +29,38 @@ const start = async (page) => {
   await page.waitForFunction(() => typeof planRuleImport === 'function');
 };
 
-test.describe('the Load v6 button', () => {
+test.describe('the Load the rules button', () => {
   test('exists, and something wired a handler onto it', async ({ page }) => {
-    /* The cheapest possible catch for the whole class: if curated-rules-v6.js
+    /* The cheapest possible catch for the whole class: if curated-rules-v7.js
        fails to load, or its getElementById misses, this is what notices. */
     await start(page);
     const r = await page.evaluate(() => {
-      const b = document.getElementById('rulev6');
+      const b = document.getElementById('rulesload');
       return { there: !!b, wired: !!(b && typeof b.onclick === 'function'),
         label: b ? b.textContent : null };
     });
     expect(r.there, 'the button is in the page').toBe(true);
-    expect(r.wired, 'and curated-rules-v6.js reached it').toBe(true);
-    expect(r.label).toContain('v6');
+    expect(r.wired, 'and curated-rules-v7.js reached it').toBe(true);
+    expect(r.label).toContain('v7');
   });
 
   test('and the bundle it fetches is actually served', async ({ page }) => {
     /* A 404 here is invisible to a test that never makes the request. */
     await start(page);
     const r = await page.evaluate(async () => {
-      const res = await fetch('rules/strict-fit-v6-collection.json');
+      const res = await fetch('rules/strict-fit-v7-collection.json');
       if (!res.ok) return { ok: false, status: res.status };
       const b = await res.json();
       return { ok: true, revision: b.revision, rules: b.rules.length,
         names: Object.values(b.names).reduce((a, v) => a + v.length, 0) };
     });
     expect(r.ok, 'the file is served next to the page').toBe(true);
-    expect(r.revision, 'and is the revision the button checks for').toBe('strict-fit-v6');
+    expect(r.revision, 'and is the revision the button checks for').toBe('strict-fit-v7');
     expect(r.rules).toBeGreaterThan(0);
-    expect(r.names, 'it names the whole collection').toBe(249);
+    /* 271, and this number moving is the point of asserting it: the bundle
+       shipped 249 names against a collection that had grown to 271, so the
+       button would have refused and said the traits did not match. */
+    expect(r.names, 'it names the whole collection').toBe(271);
   });
 
   test('refuses, and changes nothing, when the traits are not here', async ({ page }) => {
@@ -73,7 +76,7 @@ test.describe('the Load v6 button', () => {
       await saveRules();
       await renderShelf();
       const before = LAYERS.slice();
-      document.getElementById('rulev6').click();
+      document.getElementById('rulesload').click();
       await new Promise(x => setTimeout(x, 2500));
       return { note: document.getElementById('ruleimportnote').textContent,
         rules: RULES.length, layersChanged: LAYERS.join() !== before.join() };
@@ -92,7 +95,7 @@ test.describe('the Load v6 button', () => {
       try { gateShow(false); } catch (_) {}
       activeWs = null;
       await dbClear();
-      const bundle = await (await fetch('rules/strict-fit-v6-collection.json')).json();
+      const bundle = await (await fetch('rules/strict-fit-v7-collection.json')).json();
       const blob = new Blob([new Uint8Array([0])]);
       for (const [layer, names] of Object.entries(bundle.names)) {
         for (const n of names) {
@@ -107,14 +110,14 @@ test.describe('the Load v6 button', () => {
       await saveRules();
       await renderShelf();
 
-      document.getElementById('rulev6').click();
+      document.getElementById('rulesload').click();
       await new Promise(x => setTimeout(x, 6000));
       return { note: document.getElementById('ruleimportnote').textContent,
         rules: RULES.length, decisions: DECISIONS.length,
         layers: LAYERS.join(' > '), wantOrder: bundle.order.join(' > ') };
     });
     expect(r.rules, 'rules were actually written').toBeGreaterThan(0);
-    expect(r.note, 'and it says the order was saved').toContain('V6 draw order saved');
+    expect(r.note, 'and it says the order was saved').toContain('V7 draw order saved');
     /* The order it promises: eyes, then glasses, then hats, with masks last. */
     const L = r.layers.split(' > ');
     expect(L.indexOf('eyes'), 'eyes under glasses').toBeLessThan(L.indexOf('glasses'));
@@ -126,14 +129,14 @@ test.describe('the Load v6 button', () => {
   test('and a person answer still outranks what the file says', async ({ page }) => {
     /* The button feeds the same importer as the file picker, so the precedence
        that protects a reviewer's answer has to survive this route too. If it
-       did not, pressing Load v6 would quietly undo the team's review. */
+       did not, pressing Load the rules would quietly undo the team's review. */
     await start(page);
     const r = await page.evaluate(async () => {
       try { authed = true; } catch (_) {}
       try { gateShow(false); } catch (_) {}
       activeWs = null;
       await dbClear();
-      const bundle = await (await fetch('rules/strict-fit-v6-collection.json')).json();
+      const bundle = await (await fetch('rules/strict-fit-v7-collection.json')).json();
       const blob = new Blob([new Uint8Array([0])]);
       for (const [layer, names] of Object.entries(bundle.names))
         for (const n of names) {
@@ -147,7 +150,7 @@ test.describe('the Load v6 button', () => {
       await saveRules();
       await renderShelf();
       /* Load once so there is something to disagree with. */
-      document.getElementById('rulev6').click();
+      document.getElementById('rulesload').click();
       await new Promise(x => setTimeout(x, 6000));
       /* Find a pair the file forbids, and allow it by hand. */
       const g = RULES.find(x => x.length >= 2);
@@ -155,7 +158,7 @@ test.describe('the Load v6 button', () => {
       await decidePair(a, b, true);
       const freed = !RULES.some(x => x.indexOf(a) >= 0 && x.indexOf(b) >= 0);
       /* Load again - the file still forbids it, the person still allowed it. */
-      document.getElementById('rulev6').click();
+      document.getElementById('rulesload').click();
       await new Promise(x => setTimeout(x, 6000));
       const stillFreed = !RULES.some(x => x.indexOf(a) >= 0 && x.indexOf(b) >= 0);
       return { a, b, freed, stillFreed };

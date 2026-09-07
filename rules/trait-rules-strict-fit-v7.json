@@ -33,7 +33,11 @@
           "Neo Micro Shades.png",
           "Pit Vipers.png",
           "Poker Pro Blinders.png",
-          "Steve Jobs Round Glasses.png"
+          "Steve Jobs Round Glasses.png",
+          "Diagonal Reflection Glasses.png",
+          "Eight Lines Specs.png",
+          "Noun Glasses Original.png",
+          "Red Noun Glasses.png"
         ]
       },
       {
@@ -89,7 +93,11 @@
           "Neo Micro Shades.png",
           "Pit Vipers.png",
           "Poker Pro Blinders.png",
-          "Steve Jobs Round Glasses.png"
+          "Steve Jobs Round Glasses.png",
+          "Diagonal Reflection Glasses.png",
+          "Eight Lines Specs.png",
+          "Noun Glasses Original.png",
+          "Red Noun Glasses.png"
         ]
       },
       {
@@ -150,7 +158,11 @@
           "Neo Micro Shades.png",
           "Pit Vipers.png",
           "Poker Pro Blinders.png",
-          "Steve Jobs Round Glasses.png"
+          "Steve Jobs Round Glasses.png",
+          "Diagonal Reflection Glasses.png",
+          "Eight Lines Specs.png",
+          "Noun Glasses Original.png",
+          "Red Noun Glasses.png"
         ]
       },
       {
@@ -206,7 +218,11 @@
           "Neo Micro Shades.png",
           "Pit Vipers.png",
           "Poker Pro Blinders.png",
-          "Steve Jobs Round Glasses.png"
+          "Steve Jobs Round Glasses.png",
+          "Diagonal Reflection Glasses.png",
+          "Eight Lines Specs.png",
+          "Noun Glasses Original.png",
+          "Red Noun Glasses.png"
         ]
       },
       {
@@ -269,7 +285,11 @@
           "Neo Micro Shades.png",
           "Pit Vipers.png",
           "Poker Pro Blinders.png",
-          "Steve Jobs Round Glasses.png"
+          "Steve Jobs Round Glasses.png",
+          "Diagonal Reflection Glasses.png",
+          "Eight Lines Specs.png",
+          "Noun Glasses Original.png",
+          "Red Noun Glasses.png"
         ]
       },
       {
@@ -329,7 +349,11 @@
           "Neo Micro Shades.png",
           "Pit Vipers.png",
           "Poker Pro Blinders.png",
-          "Steve Jobs Round Glasses.png"
+          "Steve Jobs Round Glasses.png",
+          "Diagonal Reflection Glasses.png",
+          "Eight Lines Specs.png",
+          "Noun Glasses Original.png",
+          "Red Noun Glasses.png"
         ]
       },
       {
@@ -385,7 +409,11 @@
           "Neo Micro Shades.png",
           "Pit Vipers.png",
           "Poker Pro Blinders.png",
-          "Steve Jobs Round Glasses.png"
+          "Steve Jobs Round Glasses.png",
+          "Diagonal Reflection Glasses.png",
+          "Eight Lines Specs.png",
+          "Noun Glasses Original.png",
+          "Red Noun Glasses.png"
         ]
       },
       {
@@ -397,7 +425,15 @@
           "Handlebar Moustache.png",
           "Pill on Tongue.png",
           "Smoking Pipe.png",
-          "Straight Mouth.png"
+          "Straight Mouth.png",
+          "Mouth 01.png",
+          "Mouth 02.png",
+          "Mouth 03.png",
+          "Mouth 04.png",
+          "Mouth 05.png",
+          "Mouth 06.png",
+          "Mouth 07.png",
+          "Mouth 08.png"
         ]
       },
       {
@@ -461,7 +497,11 @@
           "Neo Micro Shades.png",
           "Pit Vipers.png",
           "Poker Pro Blinders.png",
-          "Steve Jobs Round Glasses.png"
+          "Steve Jobs Round Glasses.png",
+          "Diagonal Reflection Glasses.png",
+          "Eight Lines Specs.png",
+          "Noun Glasses Original.png",
+          "Red Noun Glasses.png"
         ]
       },
       {
@@ -522,7 +562,11 @@
           "Neo Micro Shades.png",
           "Pit Vipers.png",
           "Poker Pro Blinders.png",
-          "Steve Jobs Round Glasses.png"
+          "Steve Jobs Round Glasses.png",
+          "Diagonal Reflection Glasses.png",
+          "Eight Lines Specs.png",
+          "Noun Glasses Original.png",
+          "Red Noun Glasses.png"
         ]
       },
       {
@@ -573,7 +617,11 @@
           "Neo Micro Shades.png",
           "Pit Vipers.png",
           "Poker Pro Blinders.png",
-          "Steve Jobs Round Glasses.png"
+          "Steve Jobs Round Glasses.png",
+          "Diagonal Reflection Glasses.png",
+          "Eight Lines Specs.png",
+          "Noun Glasses Original.png",
+          "Red Noun Glasses.png"
         ]
       },
       {
@@ -585,7 +633,15 @@
           "HODLING Mouth.png",
           "Handlebar Moustache.png",
           "Smoking Pipe.png",
-          "Straight Mouth.png"
+          "Straight Mouth.png",
+          "Mouth 01.png",
+          "Mouth 02.png",
+          "Mouth 03.png",
+          "Mouth 04.png",
+          "Mouth 05.png",
+          "Mouth 06.png",
+          "Mouth 07.png",
+          "Mouth 08.png"
         ]
       },
       {
@@ -603,20 +659,6 @@
           "White Mime Mask.png"
         ]
       },
-      {
-        "action": "hide layer",
-        "targetLayer": "ears",
-        "targetTrait": []
-      }
-    ]
-  },
-  {
-    "layer": "extras",
-    "operation": "is",
-    "trait": [
-      "Blue Gorilla.png"
-    ],
-    "thenStatements": [
       {
         "action": "hide layer",
         "targetLayer": "ears",
@@ -700,7 +742,11 @@
           "Pit Vipers.png",
           "Poker Pro Blinders.png",
           "Steve Jobs Round Glasses.png",
-          "Wake Me Up Sleep Mask.png"
+          "Wake Me Up Sleep Mask.png",
+          "Diagonal Reflection Glasses.png",
+          "Eight Lines Specs.png",
+          "Noun Glasses Original.png",
+          "Red Noun Glasses.png"
         ]
       }
     ]
@@ -736,7 +782,11 @@
           "Pit Vipers.png",
           "Poker Pro Blinders.png",
           "Steve Jobs Round Glasses.png",
-          "Wake Me Up Sleep Mask.png"
+          "Wake Me Up Sleep Mask.png",
+          "Diagonal Reflection Glasses.png",
+          "Eight Lines Specs.png",
+          "Noun Glasses Original.png",
+          "Red Noun Glasses.png"
         ]
       }
     ]
@@ -790,7 +840,11 @@
           "Pit Vipers.png",
           "Poker Pro Blinders.png",
           "Steve Jobs Round Glasses.png",
-          "Wake Me Up Sleep Mask.png"
+          "Wake Me Up Sleep Mask.png",
+          "Diagonal Reflection Glasses.png",
+          "Eight Lines Specs.png",
+          "Noun Glasses Original.png",
+          "Red Noun Glasses.png"
         ]
       },
       {
@@ -801,7 +855,15 @@
           "HODLING Mouth.png",
           "Handlebar Moustache.png",
           "Pill on Tongue.png",
-          "Smoking Pipe.png"
+          "Smoking Pipe.png",
+          "Mouth 01.png",
+          "Mouth 02.png",
+          "Mouth 03.png",
+          "Mouth 04.png",
+          "Mouth 05.png",
+          "Mouth 06.png",
+          "Mouth 07.png",
+          "Mouth 08.png"
         ]
       },
       {
@@ -840,7 +902,11 @@
           "Pit Vipers.png",
           "Poker Pro Blinders.png",
           "Steve Jobs Round Glasses.png",
-          "Wake Me Up Sleep Mask.png"
+          "Wake Me Up Sleep Mask.png",
+          "Diagonal Reflection Glasses.png",
+          "Eight Lines Specs.png",
+          "Noun Glasses Original.png",
+          "Red Noun Glasses.png"
         ]
       }
     ]
@@ -894,7 +960,11 @@
           "Pit Vipers.png",
           "Poker Pro Blinders.png",
           "Steve Jobs Round Glasses.png",
-          "Wake Me Up Sleep Mask.png"
+          "Wake Me Up Sleep Mask.png",
+          "Diagonal Reflection Glasses.png",
+          "Eight Lines Specs.png",
+          "Noun Glasses Original.png",
+          "Red Noun Glasses.png"
         ]
       }
     ]
@@ -933,7 +1003,11 @@
           "Pit Vipers.png",
           "Poker Pro Blinders.png",
           "Steve Jobs Round Glasses.png",
-          "Wake Me Up Sleep Mask.png"
+          "Wake Me Up Sleep Mask.png",
+          "Diagonal Reflection Glasses.png",
+          "Eight Lines Specs.png",
+          "Noun Glasses Original.png",
+          "Red Noun Glasses.png"
         ]
       }
     ]
@@ -969,7 +1043,11 @@
           "Pit Vipers.png",
           "Poker Pro Blinders.png",
           "Steve Jobs Round Glasses.png",
-          "Wake Me Up Sleep Mask.png"
+          "Wake Me Up Sleep Mask.png",
+          "Diagonal Reflection Glasses.png",
+          "Eight Lines Specs.png",
+          "Noun Glasses Original.png",
+          "Red Noun Glasses.png"
         ]
       }
     ]
@@ -1019,7 +1097,11 @@
           "Pit Vipers.png",
           "Poker Pro Blinders.png",
           "Steve Jobs Round Glasses.png",
-          "Wake Me Up Sleep Mask.png"
+          "Wake Me Up Sleep Mask.png",
+          "Diagonal Reflection Glasses.png",
+          "Eight Lines Specs.png",
+          "Noun Glasses Original.png",
+          "Red Noun Glasses.png"
         ]
       }
     ]
@@ -1055,7 +1137,11 @@
           "Pit Vipers.png",
           "Poker Pro Blinders.png",
           "Steve Jobs Round Glasses.png",
-          "Wake Me Up Sleep Mask.png"
+          "Wake Me Up Sleep Mask.png",
+          "Diagonal Reflection Glasses.png",
+          "Eight Lines Specs.png",
+          "Noun Glasses Original.png",
+          "Red Noun Glasses.png"
         ]
       }
     ]
@@ -1108,7 +1194,11 @@
           "Pit Vipers.png",
           "Poker Pro Blinders.png",
           "Steve Jobs Round Glasses.png",
-          "Wake Me Up Sleep Mask.png"
+          "Wake Me Up Sleep Mask.png",
+          "Diagonal Reflection Glasses.png",
+          "Eight Lines Specs.png",
+          "Noun Glasses Original.png",
+          "Red Noun Glasses.png"
         ]
       }
     ]
@@ -1147,7 +1237,11 @@
           "Pit Vipers.png",
           "Poker Pro Blinders.png",
           "Steve Jobs Round Glasses.png",
-          "Wake Me Up Sleep Mask.png"
+          "Wake Me Up Sleep Mask.png",
+          "Diagonal Reflection Glasses.png",
+          "Eight Lines Specs.png",
+          "Noun Glasses Original.png",
+          "Red Noun Glasses.png"
         ]
       }
     ]
@@ -1183,7 +1277,11 @@
           "Pit Vipers.png",
           "Poker Pro Blinders.png",
           "Steve Jobs Round Glasses.png",
-          "Wake Me Up Sleep Mask.png"
+          "Wake Me Up Sleep Mask.png",
+          "Diagonal Reflection Glasses.png",
+          "Eight Lines Specs.png",
+          "Noun Glasses Original.png",
+          "Red Noun Glasses.png"
         ]
       }
     ]
@@ -1227,7 +1325,11 @@
           "Pit Vipers.png",
           "Poker Pro Blinders.png",
           "Steve Jobs Round Glasses.png",
-          "Wake Me Up Sleep Mask.png"
+          "Wake Me Up Sleep Mask.png",
+          "Diagonal Reflection Glasses.png",
+          "Eight Lines Specs.png",
+          "Noun Glasses Original.png",
+          "Red Noun Glasses.png"
         ]
       }
     ]
@@ -1271,7 +1373,11 @@
           "Pit Vipers.png",
           "Poker Pro Blinders.png",
           "Steve Jobs Round Glasses.png",
-          "Wake Me Up Sleep Mask.png"
+          "Wake Me Up Sleep Mask.png",
+          "Diagonal Reflection Glasses.png",
+          "Eight Lines Specs.png",
+          "Noun Glasses Original.png",
+          "Red Noun Glasses.png"
         ]
       }
     ]
@@ -1310,7 +1416,11 @@
           "Pit Vipers.png",
           "Poker Pro Blinders.png",
           "Steve Jobs Round Glasses.png",
-          "Wake Me Up Sleep Mask.png"
+          "Wake Me Up Sleep Mask.png",
+          "Diagonal Reflection Glasses.png",
+          "Eight Lines Specs.png",
+          "Noun Glasses Original.png",
+          "Red Noun Glasses.png"
         ]
       },
       {
@@ -1324,7 +1434,15 @@
           "Pill on Tongue.png",
           "PogChamp Mouth.png",
           "Sleepy Drool.png",
-          "Straight Mouth.png"
+          "Straight Mouth.png",
+          "Mouth 01.png",
+          "Mouth 02.png",
+          "Mouth 03.png",
+          "Mouth 04.png",
+          "Mouth 05.png",
+          "Mouth 06.png",
+          "Mouth 07.png",
+          "Mouth 08.png"
         ]
       }
     ]
@@ -1356,7 +1474,11 @@
           "Pit Vipers.png",
           "Poker Pro Blinders.png",
           "Steve Jobs Round Glasses.png",
-          "Wake Me Up Sleep Mask.png"
+          "Wake Me Up Sleep Mask.png",
+          "Diagonal Reflection Glasses.png",
+          "Eight Lines Specs.png",
+          "Noun Glasses Original.png",
+          "Red Noun Glasses.png"
         ]
       }
     ]
@@ -1414,7 +1536,11 @@
           "Pit Vipers.png",
           "Poker Pro Blinders.png",
           "Steve Jobs Round Glasses.png",
-          "Wake Me Up Sleep Mask.png"
+          "Wake Me Up Sleep Mask.png",
+          "Diagonal Reflection Glasses.png",
+          "Eight Lines Specs.png",
+          "Noun Glasses Original.png",
+          "Red Noun Glasses.png"
         ]
       }
     ]
@@ -1446,7 +1572,11 @@
           "Pit Vipers.png",
           "Poker Pro Blinders.png",
           "Steve Jobs Round Glasses.png",
-          "Wake Me Up Sleep Mask.png"
+          "Wake Me Up Sleep Mask.png",
+          "Diagonal Reflection Glasses.png",
+          "Eight Lines Specs.png",
+          "Noun Glasses Original.png",
+          "Red Noun Glasses.png"
         ]
       }
     ]
@@ -1482,7 +1612,11 @@
           "Pit Vipers.png",
           "Poker Pro Blinders.png",
           "Steve Jobs Round Glasses.png",
-          "Wake Me Up Sleep Mask.png"
+          "Wake Me Up Sleep Mask.png",
+          "Diagonal Reflection Glasses.png",
+          "Eight Lines Specs.png",
+          "Noun Glasses Original.png",
+          "Red Noun Glasses.png"
         ]
       }
     ]
@@ -1541,7 +1675,11 @@
           "Pit Vipers.png",
           "Poker Pro Blinders.png",
           "Steve Jobs Round Glasses.png",
-          "Wake Me Up Sleep Mask.png"
+          "Wake Me Up Sleep Mask.png",
+          "Diagonal Reflection Glasses.png",
+          "Eight Lines Specs.png",
+          "Noun Glasses Original.png",
+          "Red Noun Glasses.png"
         ]
       }
     ]
@@ -1582,7 +1720,11 @@
           "Pit Vipers.png",
           "Poker Pro Blinders.png",
           "Steve Jobs Round Glasses.png",
-          "Wake Me Up Sleep Mask.png"
+          "Wake Me Up Sleep Mask.png",
+          "Diagonal Reflection Glasses.png",
+          "Eight Lines Specs.png",
+          "Noun Glasses Original.png",
+          "Red Noun Glasses.png"
         ]
       }
     ]
@@ -1618,7 +1760,11 @@
           "Pit Vipers.png",
           "Poker Pro Blinders.png",
           "Steve Jobs Round Glasses.png",
-          "Wake Me Up Sleep Mask.png"
+          "Wake Me Up Sleep Mask.png",
+          "Diagonal Reflection Glasses.png",
+          "Eight Lines Specs.png",
+          "Noun Glasses Original.png",
+          "Red Noun Glasses.png"
         ]
       }
     ]
@@ -1654,7 +1800,11 @@
           "Pit Vipers.png",
           "Poker Pro Blinders.png",
           "Steve Jobs Round Glasses.png",
-          "Wake Me Up Sleep Mask.png"
+          "Wake Me Up Sleep Mask.png",
+          "Diagonal Reflection Glasses.png",
+          "Eight Lines Specs.png",
+          "Noun Glasses Original.png",
+          "Red Noun Glasses.png"
         ]
       }
     ]
@@ -1697,7 +1847,11 @@
           "Pit Vipers.png",
           "Poker Pro Blinders.png",
           "Steve Jobs Round Glasses.png",
-          "Wake Me Up Sleep Mask.png"
+          "Wake Me Up Sleep Mask.png",
+          "Diagonal Reflection Glasses.png",
+          "Eight Lines Specs.png",
+          "Noun Glasses Original.png",
+          "Red Noun Glasses.png"
         ]
       }
     ]
@@ -1740,7 +1894,11 @@
           "Pit Vipers.png",
           "Poker Pro Blinders.png",
           "Steve Jobs Round Glasses.png",
-          "Wake Me Up Sleep Mask.png"
+          "Wake Me Up Sleep Mask.png",
+          "Diagonal Reflection Glasses.png",
+          "Eight Lines Specs.png",
+          "Noun Glasses Original.png",
+          "Red Noun Glasses.png"
         ]
       }
     ]
@@ -1799,7 +1957,11 @@
           "Pit Vipers.png",
           "Poker Pro Blinders.png",
           "Steve Jobs Round Glasses.png",
-          "Wake Me Up Sleep Mask.png"
+          "Wake Me Up Sleep Mask.png",
+          "Diagonal Reflection Glasses.png",
+          "Eight Lines Specs.png",
+          "Noun Glasses Original.png",
+          "Red Noun Glasses.png"
         ]
       }
     ]
@@ -1857,7 +2019,11 @@
           "Pit Vipers.png",
           "Poker Pro Blinders.png",
           "Steve Jobs Round Glasses.png",
-          "Wake Me Up Sleep Mask.png"
+          "Wake Me Up Sleep Mask.png",
+          "Diagonal Reflection Glasses.png",
+          "Eight Lines Specs.png",
+          "Noun Glasses Original.png",
+          "Red Noun Glasses.png"
         ]
       }
     ]
@@ -1893,7 +2059,11 @@
           "Pit Vipers.png",
           "Poker Pro Blinders.png",
           "Steve Jobs Round Glasses.png",
-          "Wake Me Up Sleep Mask.png"
+          "Wake Me Up Sleep Mask.png",
+          "Diagonal Reflection Glasses.png",
+          "Eight Lines Specs.png",
+          "Noun Glasses Original.png",
+          "Red Noun Glasses.png"
         ]
       }
     ]
@@ -1925,7 +2095,11 @@
           "Pit Vipers.png",
           "Poker Pro Blinders.png",
           "Steve Jobs Round Glasses.png",
-          "Wake Me Up Sleep Mask.png"
+          "Wake Me Up Sleep Mask.png",
+          "Diagonal Reflection Glasses.png",
+          "Eight Lines Specs.png",
+          "Noun Glasses Original.png",
+          "Red Noun Glasses.png"
         ]
       }
     ]
@@ -1961,7 +2135,11 @@
           "Pit Vipers.png",
           "Poker Pro Blinders.png",
           "Steve Jobs Round Glasses.png",
-          "Wake Me Up Sleep Mask.png"
+          "Wake Me Up Sleep Mask.png",
+          "Diagonal Reflection Glasses.png",
+          "Eight Lines Specs.png",
+          "Noun Glasses Original.png",
+          "Red Noun Glasses.png"
         ]
       }
     ]
@@ -2019,7 +2197,11 @@
           "Pit Vipers.png",
           "Poker Pro Blinders.png",
           "Steve Jobs Round Glasses.png",
-          "Wake Me Up Sleep Mask.png"
+          "Wake Me Up Sleep Mask.png",
+          "Diagonal Reflection Glasses.png",
+          "Eight Lines Specs.png",
+          "Noun Glasses Original.png",
+          "Red Noun Glasses.png"
         ]
       }
     ]
@@ -2051,7 +2233,11 @@
           "Pit Vipers.png",
           "Poker Pro Blinders.png",
           "Steve Jobs Round Glasses.png",
-          "Wake Me Up Sleep Mask.png"
+          "Wake Me Up Sleep Mask.png",
+          "Diagonal Reflection Glasses.png",
+          "Eight Lines Specs.png",
+          "Noun Glasses Original.png",
+          "Red Noun Glasses.png"
         ]
       }
     ]
@@ -2087,7 +2273,11 @@
           "Pit Vipers.png",
           "Poker Pro Blinders.png",
           "Steve Jobs Round Glasses.png",
-          "Wake Me Up Sleep Mask.png"
+          "Wake Me Up Sleep Mask.png",
+          "Diagonal Reflection Glasses.png",
+          "Eight Lines Specs.png",
+          "Noun Glasses Original.png",
+          "Red Noun Glasses.png"
         ]
       }
     ]
@@ -2119,7 +2309,11 @@
           "Pit Vipers.png",
           "Poker Pro Blinders.png",
           "Steve Jobs Round Glasses.png",
-          "Wake Me Up Sleep Mask.png"
+          "Wake Me Up Sleep Mask.png",
+          "Diagonal Reflection Glasses.png",
+          "Eight Lines Specs.png",
+          "Noun Glasses Original.png",
+          "Red Noun Glasses.png"
         ]
       }
     ]
@@ -2155,7 +2349,11 @@
           "Pit Vipers.png",
           "Poker Pro Blinders.png",
           "Steve Jobs Round Glasses.png",
-          "Wake Me Up Sleep Mask.png"
+          "Wake Me Up Sleep Mask.png",
+          "Diagonal Reflection Glasses.png",
+          "Eight Lines Specs.png",
+          "Noun Glasses Original.png",
+          "Red Noun Glasses.png"
         ]
       }
     ]
@@ -2778,6 +2976,131 @@
       {
         "action": "hide layer",
         "targetLayer": "eyes",
+        "targetTrait": []
+      }
+    ]
+  },
+  {
+    "layer": "costumes",
+    "operation": "is",
+    "trait": [
+      "Carnival Jester Costume.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "hide layer",
+        "targetLayer": "hair",
+        "targetTrait": []
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "hats",
+        "targetTrait": []
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "glasses",
+        "targetTrait": [
+          "Tape-Repaired Glasses.png",
+          "Cyclops Ruby Visor.png",
+          "Dark Lens Sunglasses.png",
+          "Disco Shutter Shades.png",
+          "Doc Brown Mirror Visor.png",
+          "Flip-Up Welding Shades.png",
+          "Kamina Shades.png",
+          "Morpheus Nose-Clip Glasses.png",
+          "Neo Micro Shades.png",
+          "Pit Vipers.png",
+          "Poker Pro Blinders.png",
+          "Steve Jobs Round Glasses.png",
+          "Wake Me Up Sleep Mask.png",
+          "Diagonal Reflection Glasses.png",
+          "Eight Lines Specs.png",
+          "Noun Glasses Original.png",
+          "Red Noun Glasses.png"
+        ]
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "mouth",
+        "targetTrait": [
+          "Autoglyph Mouth.png",
+          "Bubblegum.png",
+          "Buck Teeth.png",
+          "Frown.png",
+          "Handlebar Moustache.png",
+          "HODLING Mouth.png",
+          "Pill on Tongue.png",
+          "Smoking Pipe.png",
+          "PogChamp Mouth.png",
+          "Sleepy Drool.png",
+          "Straight Mouth.png",
+          "Mouth 01.png",
+          "Mouth 02.png",
+          "Mouth 03.png",
+          "Mouth 04.png",
+          "Mouth 05.png",
+          "Mouth 06.png",
+          "Mouth 07.png",
+          "Mouth 08.png"
+        ]
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "eyes",
+        "targetTrait": [
+          "Bad Time Eyes.png",
+          "Bloodshot Eyes.png",
+          "Enderman Eyes.png",
+          "Gazers Lunar Eyes.png",
+          "Ghoul Eyes.png",
+          "Half-Lidded Eyes.png",
+          "Herobrine Eyes.png",
+          "Loading Spinner Eyes.png",
+          "Money Sign Eyes.png",
+          "Pepe Side Eye.png",
+          "Punk Eyes.png",
+          "Scar Fox Eyes.png",
+          "Sharingan Eyes.png",
+          "Six Eyes.png",
+          "Smirking Eyes.png",
+          "Space Invader Pupils.png",
+          "Basic Blue Eyes.png",
+          "Basic Brown Eyes.png",
+          "Basic Side Glance Eyes.png",
+          "Relaxed Dark Eyes.png",
+          "Sleepy Neutral Eyes.png"
+        ]
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "clothing",
+        "targetTrait": []
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "masks",
+        "targetTrait": [
+          "Anonymous Mask.png",
+          "DOOM Mask.png",
+          "Jason Mask.png",
+          "Plague Doctor Mask.png",
+          "Solgods Mask.png",
+          "White Mime Mask.png"
+        ]
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "ears",
+        "targetTrait": [
+          "AirPod.png",
+          "Ankh Earring.png",
+          "Joint Behind Ear.png"
+        ]
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "chains",
         "targetTrait": []
       }
     ]

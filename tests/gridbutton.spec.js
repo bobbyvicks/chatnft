@@ -91,7 +91,7 @@ test.describe('what the Grid download claims and what it produces', () => {
   test('the message names the size it was supposed to be', async ({ page }) => {
     const r = await press(page, { size: 48, button: 'dlNative' });
     expect(r.said, 'the size it got').toContain('Downloaded 48×48');
-    expect(r.said, 'and the one it should have been').toContain("not the collection's 160×160");
+    expect(r.said, 'and the one it should have been').toContain("not on the collection's 160 cell grid");
   });
 
   test('and says it once, not twice', async ({ page }) => {
@@ -119,9 +119,20 @@ test.describe('what the Grid download claims and what it produces', () => {
     expect(r.said, 'nothing to say about the size').toBe('Downloaded 1280×1280');
   });
 
+  test('and a trait at eight pixels per cell is silent', async ({ page }) => {
+    /* THE CONTROL THE OTHERS COULD NOT BE. This check read art.width!==
+       projectGrid - a PIXEL size against a count of CELLS - so it was right
+       only at one pixel per cell, which is what every fixture above happens to
+       be. The real collection is 160 cells of 8 pixels, and every download of
+       every one of its 272 traits carried the warning. 1280 is the grid. */
+    const r = await press(page, { size: 1280, button: 'dlNative' });
+    expect(r.out).toBe('1280x1280');
+    expect(r.said, 'nothing to say about the size').toBe('Downloaded 1280×1280');
+  });
+
   test('but an off-grid trait is still named at 8x', async ({ page }) => {
     const r = await press(page, { size: 48, button: 'dlBig' });
     expect(r.out).toBe('384x384');
-    expect(r.said).toContain("not the collection's 160×160");
+    expect(r.said).toContain("not on the collection's 160 cell grid");
   });
 });

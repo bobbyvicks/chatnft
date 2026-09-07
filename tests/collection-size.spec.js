@@ -1,4 +1,15 @@
-/* Every trait in a collection has to share one canvas size.
+/* Every trait in a collection has to sit on the collection's cell grid.
+
+   SUPERSEDES THE OPENING LINE THIS FILE WAS WRITTEN WITH, which was "every
+   trait has to share one canvas size". That was true when the canvas was the
+   biggest trait in the draw and paintTrait could only grow by whole numbers.
+   autoCanvas picks a canvas now and scales everything into it, so two sizes
+   is two sizes. What still cannot work is a trait that does not divide into
+   the collection's cells - 40 pixels across a 160-cell grid is a quarter of a
+   cell, and a quarter of a pixel cannot be drawn.
+
+   Every case below is unchanged by that: 40 was wrong before and is wrong
+   now, 160 was right and stays right. Only the sentences moved.
 
    They layer over each other and a mint lays them out on a grid, so a 40x40
    PNG in a folder of 160x160 ones is broken output rather than a preference.
@@ -76,7 +87,23 @@ test.describe('collection size consistency', () => {
     expect(s.text, 'the count alone').toBe('1 trait');
     expect(s.title, 'and nothing on hover').toBe('');
     await downloadAll(page);
-    expect(await toastOf(page), 'nor should the download').not.toMatch(/mint needs one size/i);
+    /* Re-aimed at the sentence that exists. "mint needs one size" is not in
+       the app any more, so a negative assertion against it could no longer
+       fail - it would have passed over a download that warned about every
+       trait in the project. The two tests below assert the same phrase
+       positively, which is what makes this one mean something. */
+    expect(await toastOf(page), 'nor should the download').not.toMatch(/cell grid/i);
+  });
+
+  test('a save at eight pixels per cell is silent', async ({ page }) => {
+    /* THE CONTROL THAT WAS MISSING, and the reason this defect lived: every
+       fixture in this file is at one pixel per cell, where a count of cells
+       and a count of pixels are the same number. saveTrait asked
+       art.width!==projectGrid, so on the real collection - 160 cells of 8
+       pixels - every single save said it was off-grid. 1280 IS 160 cells. */
+    await addTrait(page, 'body', 1280);
+    expect(await toastOf(page), 'a trait on the grid must not be warned about')
+      .not.toMatch(/cell grid/i);
   });
 
   test('an off-size trait is named when it is saved', async ({ page }) => {
@@ -105,7 +132,7 @@ test.describe('collection size consistency', () => {
     const said = await toastOf(page);
     expect(said, 'it still reports the download').toContain('2 traits');
     expect(said, 'and names the odd one').toContain('hat');
-    expect(said, 'and says why it matters').toMatch(/one size/i);
+    expect(said, 'and says why it matters').toMatch(/divide into whole cells/i);
   });
 
   test('a collection that agrees with itself but not with the grid is still wrong', async ({ page }) => {
@@ -120,6 +147,7 @@ test.describe('collection size consistency', () => {
     expect(s.title, 'and both are named').toContain('body');
     expect(s.title).toContain('hat');
     await downloadAll(page);
-    expect(await toastOf(page), 'and the download says so too').toMatch(/one size/i);
+    expect(await toastOf(page), 'and the download says so too')
+      .toMatch(/divide into whole cells/i);
   });
 });

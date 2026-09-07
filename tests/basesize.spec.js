@@ -69,7 +69,11 @@ test.describe('the base character counts towards one canvas size', () => {
   test('an off-size base is counted on the shelf and named', async ({ page }) => {
     const r = await project(page, 200);
     expect(r.count, 'the count still counts traits').toContain('2 traits');
-    expect(r.count, 'and the size warning is beside it').toContain('1 not 160');
+    /* "1 not 160" until the census was fixed: it compared a PIXEL size
+       against projectGrid, which counts CELLS. The base is 200 and the grid
+       is 160 cells, so it is still the one named - 200 does not divide into
+       160 whole cells - but the sentence now says which grid it missed. */
+    expect(r.count, 'and the size warning is beside it').toContain('1 not on the 160 cell grid');
     expect(r.title, 'naming the base, not a trait').toContain('hero');
     expect(r.title, 'with its size').toContain('200');
   });
@@ -131,7 +135,8 @@ test.describe('the base character counts towards one canvas size', () => {
         HTMLAnchorElement.prototype.click = realClick; window.toast = realToast; }
       return out.join(' | ');
     });
-    expect(said, 'the base is in the zip and its size is wrong').toContain('not 160');
+    expect(said, 'the base is in the zip and its size is wrong')
+      .toContain('not on the 160 cell grid');
     expect(said).toContain('hero');
   });
 
@@ -142,7 +147,12 @@ test.describe('the base character counts towards one canvas size', () => {
       await new Promise(r => setTimeout(r, 500));
       return document.getElementById('cnote').textContent;
     });
-    expect(note, 'the sheet reports the mismatch').toContain('Not all the same size');
+    /* "Not all the same size" while the sheet was reporting the census, which
+       is not the question the census asks any more. It asks whether each one
+       divides into the collection's cells, and two different sizes that both
+       do are not a problem - autoCanvas scales them. So the sheet says which
+       ones are off the grid. */
+    expect(note, 'the sheet reports the mismatch').toContain('Not on the grid');
     expect(note, 'naming the base').toContain('hero');
   });
 

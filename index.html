@@ -2571,7 +2571,7 @@ async function renderShelf(){
   pc.title = census.oddCount
     /* "every trait" was true of what this LOOKED at and false of what it is
        for: the base is not a trait and is in every picture. */
-    ? census.detail+"  \u2014 everything drawn into a character has to share one canvas size."
+    ? census.detail+"  \u2014 everything drawn into a character has to sit "+census.want+"."
     : "";
   /* A project holding only a base character has something to download now,
      so the button is no longer dead in that state. */
@@ -2932,9 +2932,15 @@ async function saveTrait(){
        rather than only at the download when the reason has been forgotten.
        Shrinking used to be unreachable in Canvas and Art mode, so an off-size
        trait was hard to make by accident; that is no longer true. */
-    const offGrid = (art.width!==projectGrid || art.height!==projectGrid)
-      ? " \u2014 saved at "+art.width+"\u00d7"+art.height+", not the collection's "
-        +projectGrid+"\u00d7"+projectGrid
+    /* A WHOLE NUMBER OF CELLS, not an equality. projectGrid counts CELLS
+       and art.width is PIXELS; at one pixel per cell they are the same
+       number and at eight they are not, so this read 1280 against 160 and
+       told the owner every save in a fine collection was off-grid. The
+       multiple is the same rule snapToGrid enforces on the way in. */
+    const gcells=Math.max(1,projectGrid|0);
+    const offGrid = (art.width%gcells || art.height%gcells)
+      ? " \u2014 saved at "+art.width+"\u00d7"+art.height+", which is not on the"
+        +" collection's "+gcells+" cell grid"
       : "";
     const status=chipVal('tstatus')||'wip';
     const id='t_'+name+'_'+layer+'_'+status;
@@ -3169,8 +3175,24 @@ function crc32(u8){ let c=-1; for(let i=0;i<u8.length;i++) c=CRCT[(c^u8[i])&255]
    happens to be showing now. */
 function sizeCensus(items){
   const key=(w,h)=>(w|0)+"\u00d7"+(h|0);
-  const want=key(projectGrid,projectGrid);
+  /* A WHOLE NUMBER OF CELLS, not a pixel size. projectGrid counts CELLS -
+     160 - and w/h are PIXELS. At one pixel per cell those are the same number,
+     which is every fixture in collection-size.spec; at eight they are not, and
+     this collection is 160 cells of 8px = 1280, so comparing them directly
+     reported all 272 traits as wrong, and the download said
+     "A mint needs one size" about a collection that was fine.
+
+     The intent stands and is recorded in that spec: a set where every trait
+     agrees with every other and none agrees with the COLLECTION is one that
+     "are these all the same" calls clean. Asking whether each trait is a whole
+     number of cells keeps that - 40 in a 160-cell collection is a quarter of a
+     cell and cannot be drawn, whether or not the other traits are 40 too. */
+  const cells=Math.max(1,projectGrid|0);
+  const want="on the "+cells+" cell grid";
   const by=new Map();
+  /* The keys that are not a whole number of cells, decided as each trait is
+     read rather than parsed back out of the display string afterwards. */
+  const bad=new Set();
   for(const t of (items||[])){
     /* Base characters TOO. A base is painted under every generated character,
        so a collection whose base is a different size is exported at the base's
@@ -3184,9 +3206,17 @@ function sizeCensus(items){
     const k=key(t.w,t.h);
     if(!by.has(k)) by.set(k,[]);
     by.get(k).push(t.name||t.id||"unnamed");
+    /* Judged HERE, where w and h are still numbers. The first version parsed
+       them back out of the display key with a regex, which is two conversions
+       and a chance to get one wrong - and it did: the escaping was mangled on
+       the way in, so the pattern read a literal "d" instead of a digit, matched
+       nothing, and every size was called odd. Numbers that are already numbers
+       do not need parsing. */
+    if((t.w|0)%cells!==0 || (t.h|0)%cells!==0) bad.add(k);
   }
   /* Biggest group first, so the sentence names the widest problem first. */
-  const odd=[...by.entries()].filter(e=>e[0]!==want).sort((a,b)=>b[1].length-a[1].length);
+  const odd=[...by.entries()].filter(e=>bad.has(e[0]))
+    .sort((a,b)=>b[1].length-a[1].length);
   return { want, sizes:by, odd, oddCount:odd.reduce((n,e)=>n+e[1].length,0),
     detail:odd.map(e=>e[0]+": "+e[1].join(", ")).join(" \u00b7 ") };
 }
@@ -3276,7 +3306,7 @@ $('dlzip').onclick=async()=>{
   toast('Downloaded '+items.length+' trait'+(items.length===1?'':'s')
     +(refs.length?' and '+refs.length+' base character'+(refs.length===1?'':'s'):'')
     +(zcen.oddCount
-    ? " \u2014 "+zcen.oddCount+" not "+zcen.want+" ("+zcen.detail+"). A mint needs one size."
+    ? " \u2014 "+zcen.oddCount+" not "+zcen.want+" ("+zcen.detail+"). A trait has to divide into whole cells to line up."
     : ""));
 };
 buildLayerSelect();
@@ -7026,7 +7056,7 @@ async function drawCompose(){
         .map(e=>e[0]+" ("+e[1].join(", ")+")")
     : [];
   $("cnote").textContent = odd.length
-    ? "Not all the same size: "+odd.join(" and ")+". Everything drawn into a character has to share one canvas size."
+    ? "Not all the same size: "+odd.join(" and ")+". They are scaled to fit one canvas when a character is drawn."
     : "Stacks one trait per layer over a base, in draw order, to check the set works together.";
   $("cdl").disabled=!picked.length;
 }
@@ -8314,8 +8344,8 @@ async function drawSheet(count){
     ($("cwip").checked?"":" and approved")+". Look for traits that collide rather than stack"+
     (empties?", and note "+empties+" came out with nothing but a base":"")+
     ". Change any dropdown to go back to one character."+shortBy+missed+
-    (scen.oddCount ? "  Not all the same size: "+scen.detail
-      +". Everything drawn into a character has to share one canvas size." : "");
+    (scen.oddCount ? "  Not on the grid: "+scen.detail
+      +". Each of these has to divide into whole cells to line up." : "");
   $("cdl").disabled=false;
 }
 
@@ -11956,9 +11986,11 @@ function download(scale){
        missing: the size it was supposed to be. Saying "Downloaded 48x48 - this
        trait is 48x48" was the first draft, and printing one number twice reads
        as a bug in the message rather than a fact about the trait. */
-    const off = (art.width!==projectGrid || art.height!==projectGrid)
-      ? " \u2014 not the collection's "+projectGrid+"\u00d7"+projectGrid
-        +". A mint needs one size." : "";
+    /* The same whole-cells question saveTrait asks, in the same words. */
+    const dcells=Math.max(1,projectGrid|0);
+    const off = (art.width%dcells || art.height%dcells)
+      ? " \u2014 not on the collection's "+dcells+" cell grid"
+        +". A trait has to divide into whole cells to line up." : "";
     toast('Downloaded '+W+'\u00d7'+H+off);
   },'image/png');
 }

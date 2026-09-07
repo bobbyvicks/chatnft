@@ -248,3 +248,23 @@ export const setSelect = (page, id, value) => page.evaluate(({ id, value }) => {
 /** Whether a toggle button is pressed. */
 export const pressed = (page, id) =>
   page.evaluate(i => document.getElementById(i).getAttribute('aria-pressed'), id);
+
+/** Go to one of the app's three pages.
+
+    The landing page became three - the main page where you pull a trait off a
+    character, the project, and its settings - so anything that works with the
+    shelf, the generator, the layer list or the rarity plan has to be on the
+    right page first, the same way a person does. A test that skips this reads
+    a width of zero and cannot click, because the other pages are display:none.
+
+    Driven through showPage rather than by setting the attribute, so a test
+    goes the way the tab does and cannot pass over a broken router. */
+export async function gotoPage(page, name) {
+  await page.waitForFunction(() => typeof showPage === 'function');
+  await page.evaluate((p) => {
+    showPage(p, true);
+    if (document.getElementById('land').getAttribute('data-page') !== p)
+      throw new Error('the router did not go to ' + p);
+  }, name);
+  await page.waitForTimeout(60);
+}

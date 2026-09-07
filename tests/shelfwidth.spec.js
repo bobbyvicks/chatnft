@@ -20,6 +20,7 @@
    drops the whole declaration, leaving .items a single-column grid. That
    failure looks like a tidy page, so a range assertion would pass through it. */
 import { test, expect } from '@playwright/test';
+import { gotoPage } from './helpers.js';
 
 /* One layer, deliberately more traits than fit on any row at any width here,
    so the column count is always the grid's answer and never the supply's. */
@@ -37,23 +38,48 @@ const seed = (page) => page.evaluate(async () => {
   await renderShelf();
 });
 
-const measure = (page) => page.evaluate(() => {
-  const items = document.querySelector('.items');
-  const canvas = document.querySelector('.item canvas');
-  const w = el => Math.round(el.getBoundingClientRect().width);
-  return {
-    tiles: document.querySelectorAll('.item').length,
-    perRow: getComputedStyle(items).gridTemplateColumns.split(' ').length,
-    tile: w(canvas),
-    proj: w(document.getElementById('proj')),
-    compose: w(document.getElementById('compose')),
-    layers: w(document.getElementById('layers')),
-    extract: w(document.querySelector('.extract')),
-    cloud: w(document.getElementById('cloud')),
-    docWidth: document.documentElement.scrollWidth,
-    viewport: window.innerWidth,
+/* MEASURED ONE PAGE AT A TIME.
+
+   The landing page became three - the main page where you pull a trait off a
+   character, the project, and its settings - so these panels are no longer on
+   screen together and a single pass would read a width of zero for whichever
+   two were not showing. Each is measured where it lives, which is where a
+   person sees it.
+
+   THE CLAIM THE FILE MAKES IS UNCHANGED: the three named panels share one
+   width. Being on different pages is exactly when that matters most, because
+   nothing on screen shows the mismatch any more. Ends on the project page,
+   since most of what follows reads the tiles. */
+const measure = async (page) => {
+  const widthOf = async (sel, pg) => {
+    await gotoPage(page, pg);
+    return page.evaluate((s) => {
+      const el = s[0] === '#' ? document.getElementById(s.slice(1))
+        : document.querySelector(s);
+      if (!el) throw new Error('nothing matches ' + s);
+      return Math.round(el.getBoundingClientRect().width);
+    }, sel);
   };
-});
+  const extract = await widthOf('.extract', 'home');
+  const cloud = await widthOf('#cloud', 'home');
+  const layers = await widthOf('#layers', 'settings');
+  await gotoPage(page, 'project');
+  const rest = await page.evaluate(() => {
+    const items = document.querySelector('.items');
+    const canvas = document.querySelector('.item canvas');
+    const w = el => Math.round(el.getBoundingClientRect().width);
+    return {
+      tiles: document.querySelectorAll('.item').length,
+      perRow: getComputedStyle(items).gridTemplateColumns.split(' ').length,
+      tile: w(canvas),
+      proj: w(document.getElementById('proj')),
+      compose: w(document.getElementById('compose')),
+      docWidth: document.documentElement.scrollWidth,
+      viewport: window.innerWidth,
+    };
+  });
+  return Object.assign(rest, { extract: extract, cloud: cloud, layers: layers });
+};
 
 const at = async (page, width, height) => {
   await page.setViewportSize({ width, height });
@@ -99,15 +125,26 @@ test.describe('the trait shelf', () => {
     /* Asked for, and worth pinning: the shelf is 259 tiles tall, so having it
        first meant scrolling past all of them to reach the panel that tells you
        whether any of them work. */
-    const order = await page.evaluate(() => ['compose', 'layers', 'proj']
-      .map(id => document.getElementById(id).compareDocumentPosition(
-        document.getElementById('proj'))));
+    /* THE LAYER LIST IS NOT IN THIS COMPARISON ANY MORE, and the reason is a
+       stronger version of the same request. It used to be asserted between
+       Build a character and the traits; it is now on the project settings
+       page, so it cannot be scrolled past on the way to the shelf at all.
+       Build a character still comes first on the project page, which is the
+       half of the original ask that still has two things to order. */
+    await gotoPage(page, 'project');
     const tops = await page.evaluate(() => {
       const y = id => document.getElementById(id).getBoundingClientRect().top;
-      return { compose: y('compose'), layers: y('layers'), proj: y('proj') };
+      return { compose: y('compose'), proj: y('proj') };
     });
-    expect(tops.compose, 'Build a character comes first').toBeLessThan(tops.layers);
-    expect(tops.layers, 'then the layers').toBeLessThan(tops.proj);
+    expect(tops.compose, 'Build a character comes first').toBeLessThan(tops.proj);
+    const where = await page.evaluate(() => ({
+      layers: document.getElementById('layers').className,
+      proj: document.getElementById('proj').className,
+    }));
+    expect(where.layers, 'and the layer list moved to the settings page')
+      .toContain('pg-settings');
+    expect(where.proj, 'while the traits are on the project page')
+      .toContain('pg-project');
   });
 
   test('shows a trait far bigger than the 99px it used to get', async ({ page }) => {

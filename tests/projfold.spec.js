@@ -12,6 +12,7 @@
    have vanished does not report it as a folding bug - so the count staying
    visible has its own test rather than being left to the eye. */
 import { test, expect } from '@playwright/test';
+import { gotoPage } from './helpers.js';
 
 const seed = (page) => page.evaluate(async () => {
   try { authed = true; } catch (_) {}
@@ -50,6 +51,8 @@ test.describe('folding the trait organiser', () => {
     await page.goto('/index.html');
     await page.waitForFunction(() => typeof projFold === 'function');
     await seed(page);
+    /* The shelf lives on the project page now. */
+    await gotoPage(page, 'project');
   });
 
   test('opens with the traits showing, and the control says so', async ({ page }) => {

@@ -62,6 +62,29 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
 .land{min-height:100dvh; display:grid; place-content:center; justify-items:center;
   gap:26px; padding:32px 20px; text-align:center;}
 .brand{display:flex; align-items:center; gap:11px;}
+/* THREE PAGES OUT OF ONE SCROLL.
+
+   Each thing on the landing page carries the page it belongs to, and #land
+   carries the page being shown; these six rules hide the rest. Nothing is
+   moved in the document, so every section keeps its own hidden attribute -
+   these rules only ever ADD display:none, and never set display back, so a
+   section that hides itself because it is empty stays hidden on its own
+   page too. */
+#land[data-page="home"] .pg-project,
+#land[data-page="home"] .pg-settings,
+#land[data-page="project"] .pg-home,
+#land[data-page="project"] .pg-settings,
+#land[data-page="settings"] .pg-home,
+#land[data-page="settings"] .pg-project{display:none;}
+.pagenav{display:flex; gap:6px; flex-wrap:wrap; justify-content:center;}
+.pgtab{font:inherit; font-size:13px; color:var(--muted); background:var(--panel);
+  border:1px solid var(--line); border-radius:999px; padding:7px 15px; cursor:pointer;}
+.pgtab:hover{color:var(--ink); border-color:var(--muted);}
+.pgtab:focus-visible{outline:2px solid var(--accent); outline-offset:2px;}
+/* aria-current is the state, and the styling reads it - so the highlight
+   cannot drift from what a screen reader is told. */
+.pgtab[aria-current="page"]{background:var(--accent-soft); border-color:var(--accent);
+  color:var(--accent); font-weight:600;}
 .logo{display:grid; grid-template-columns:1fr 1fr; width:34px; height:34px; border-radius:8px; overflow:hidden;}
 .logo i{display:block;}
 .logo i:nth-child(1),.logo i:nth-child(4){background:var(--accent);}
@@ -94,6 +117,17 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
 .prow.unset .pname{color:var(--muted);}
 .prow.unset .psay{color:var(--accent);}
 .plantot{font-size:11px; color:var(--dim); margin:5px 0 0;}
+/* A set folds. Fourteen headings open far faster than 271 sliders, and the
+   heading keeps saying how many in it still need a rarity - a fold that
+   hid the reason to open it would be worse than the scroll. */
+button.planhead{width:100%; font:inherit; color:inherit; background:none;
+  text-align:left; cursor:pointer;}
+button.planhead:hover b{color:var(--accent);}
+button.planhead:focus-visible{outline:2px solid var(--accent); outline-offset:2px;}
+.planhead .fold{font-size:11px; color:var(--dim); transition:transform .15s;}
+.plangrp.shut .planhead .fold{transform:rotate(-90deg);}
+.plangrp.shut .planbody{display:none;}
+.planhead .todo{color:var(--accent);}
 /* The phone gets the slider its own full-width row: a range input squeezed
    into a third of 375px is not draggable with a thumb. */
 @media (max-width:640px){
@@ -122,7 +156,13 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
 .projhead .acts .olchk{flex:none; white-space:nowrap;}
 .projhead .acts .olchk input{width:auto;}
 .cwrap{display:flex; gap:18px; flex-wrap:wrap; align-items:flex-start;}
-#ccanvas{width:min(300px,72vw); height:auto; image-rendering:pixelated; border-radius:10px;
+/* THREE TIMES THE OLD 300px, by request - the character being previewed was
+   too small to judge. It shares a flex row with the dropdowns, which are
+   min-width 230 and wrap when there is no room, so a wide screen gets a
+   900px character and a narrower one gets the preview full width with the
+   dropdowns beneath it. The 72vw cap is what already kept it inside a
+   phone and is unchanged. */
+#ccanvas{width:min(900px,72vw); height:auto; image-rendering:pixelated; border-radius:10px;
   border:1px solid var(--line); flex:none;
   background:
     linear-gradient(45deg,var(--panel-2) 25%,transparent 25%,transparent 75%,var(--panel-2) 75%),
@@ -983,6 +1023,13 @@ footer .mono{color:var(--ink);}
     <span class="logo" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
     <h1>ChatNFT</h1>
   </div>
+  <!-- The three pages. Buttons rather than links: the router owns the hash,
+       and a link would let the browser navigate before it could. -->
+  <nav class="pagenav" id="pagenav" aria-label="Pages">
+    <button type="button" class="pgtab" data-page="home">Main</button>
+    <button type="button" class="pgtab" data-page="project">Project</button>
+    <button type="button" class="pgtab" data-page="settings">Project settings</button>
+  </nav>
   <button class="acct" id="acctbtn" aria-label="Your account" aria-expanded="false" title="Your account" hidden>
     <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.6"/>
       <path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></svg>
@@ -1014,8 +1061,8 @@ footer .mono{color:var(--ink);}
     <p class="note" id="cloudnote">Nothing uploads until you press Save to cloud.</p>
   </section>
   </div>
-  <p class="tag">Edit pixel art on the grid it was <b>actually drawn on</b>. Nothing leaves your device.</p>
-  <section class="extract">
+  <p class="tag pg-home">Edit pixel art on the grid it was <b>actually drawn on</b>. Nothing leaves your device.</p>
+  <section class="extract pg-home">
     <h2>Pull a trait off a character</h2>
     <p class="lead">Drop the character wearing the trait beside the bare one. What differs comes back on transparency.</p>
     <div class="slots">
@@ -1082,17 +1129,17 @@ footer .mono{color:var(--ink);}
     <p class="err" id="exerr" role="status"></p>
   </section>
 
-  <div class="restore" id="restore" hidden>
+  <div class="restore pg-home" id="restore" hidden>
     <span id="restoretext"></span>
     <span class="acts"><button class="mini go" id="restoreyes">Pick up where you left off</button>
     <button class="mini" id="restoreno">Discard</button></span>
   </div>
-  <div class="drop" id="drop" tabindex="0" role="button" aria-label="Choose a PNG to open">
+  <div class="drop pg-home" id="drop" tabindex="0" role="button" aria-label="Choose a PNG to open">
     <strong>Drop a PNG here</strong>
     <span>or click to choose a file · nothing leaves your device</span>
   </div>
   <input type="file" id="file" accept="image/png,image/gif,image/webp,image/jpeg" hidden>
-  <div class="bulkrow">
+  <div class="bulkrow pg-home">
     <button class="mini" id="bulkbtn"
       title="Reads the layer and the wip / approved / rejected state out of the folder names">Import a folder of traits</button>
 
@@ -1100,13 +1147,13 @@ footer .mono{color:var(--ink);}
   <input type="file" id="bulkfile" webkitdirectory directory multiple hidden>
   <!-- The collection carries a record of where every trait belongs. This
        reads it and offers to put them back. -->
-  <button class="mini" id="sortopen"
+  <button class="mini pg-home" id="sortopen"
     title="Read a trait inventory and put every trait on the layer and under the name it records. Nothing moves until you say so.">Sort by inventory</button>
   <input type="file" id="sortfile" accept="application/json,.json" hidden>
   <p class="note" id="bulknote" hidden></p>
   <p class="err" id="err" role="status"></p>
 
-  <div class="how">
+  <div class="how pg-home">
     <div><h3>Measures</h3><p>Finds the real block size and suggests a resolution.</p></div>
     <div><h3>Recovers</h3><p>Rebuilds each cell from its own pixels. No new colours.</p></div>
     <div><h3>Edits</h3><p>Paint on the true grid, download a clean PNG.</p></div>
@@ -1117,7 +1164,7 @@ footer .mono{color:var(--ink);}
        whether the collection works and the shelf is where you go to fix what
        it says - and the shelf is 259 tiles tall, so having it first meant
        scrolling past all of them to reach the thing that judges them. -->
-  <section class="proj" id="compose" hidden>
+  <section class="proj pg-project" id="compose" hidden>
     <div class="projhead">
       <h2>Build a character</h2>
       <span class="count" id="ccount"></span>
@@ -1185,7 +1232,7 @@ footer .mono{color:var(--ink);}
     </div>
     <p class="note">For the renamed 249-trait collection. Loads the stricter fit decisions and sets the draw order: eyes, glasses, then hats; masks last. Your team's own Yes/No answers still take priority. Continue editing them in Review pairs above.</p>
   </section>
-  <section class="proj" id="layers" hidden>
+  <section class="proj pg-settings" id="layers" hidden>
     <div class="projhead">
       <h2>Layers</h2>
       <span class="count" id="layercount"></span>
@@ -1197,7 +1244,7 @@ footer .mono{color:var(--ink);}
     <div id="layerbody"></div>
     <p class="note">Top of the list draws in front. Removing a layer sends its traits to unsorted.</p>
   </section>
-  <section class="proj" id="plan" hidden>
+  <section class="proj pg-settings" id="plan" hidden>
     <div class="projhead">
       <h2><button class="projfold" id="planfold" type="button" aria-controls="planbody"
         aria-expanded="true" title="Hide the rarity plan">Plan rarity<span class="fold" aria-hidden="true">▾</span></button></h2>
@@ -1208,7 +1255,7 @@ footer .mono{color:var(--ink);}
     </div>
     <div id="planbody"></div>
   </section>
-  <section class="proj" id="proj" hidden>
+  <section class="proj pg-project" id="proj" hidden>
     <div class="projhead">
       <!-- A button rather than a heading with a handler: the keyboard, the
            focus ring and the aria state all come free, and this is the same
@@ -9771,6 +9818,14 @@ function unplannedLine(items,wip){
     +" a rarity to finish this project. Plan rarity is above the traits.";
 }
 
+/* Which sets are open, for this sitting only.
+
+   Not stored: every weight committed re-renders the plan, so a group that
+   shut itself the moment a slider moved would be unusable - and "which sets
+   I had open" is about now rather than about the project, so it has no place
+   in a record that syncs to a teammate. */
+const PLAN_OPEN=new Set();
+
 function renderPlan(items){
   const sec=$("plan"); if(!sec) return;
   const wip=!!($("cwip")&&$("cwip").checked);
@@ -9823,8 +9878,14 @@ function planGroup(g,items,wip){
   const wrap=document.createElement("div");
   wrap.className="plangrp";
   const n=g.rows.length;
-  const head=document.createElement("div");
+  /* A BUTTON, so the keyboard, the focus ring and the aria state come free -
+     the same shape #proj and the side panel already fold with. */
+  const head=document.createElement("button");
+  head.type="button";
   head.className="planhead";
+  const shut=!PLAN_OPEN.has(g.layer);
+  wrap.classList.toggle("shut",shut);
+  head.setAttribute("aria-expanded",shut?"false":"true");
   const nm=document.createElement("b"); nm.textContent=g.layer;
   const cnt=document.createElement("span");
   cnt.textContent=n+(n===1?" trait":" traits");
@@ -9834,7 +9895,33 @@ function planGroup(g,items,wip){
     : pres>=1 ? "on every character"
     : "on "+Math.round(pres*100)+"% of characters";
   head.appendChild(nm); head.appendChild(cnt); head.appendChild(when);
+  /* SAID ON THE SHUT HEADING TOO. The count of what still has no rarity is
+     the reason to open the set, so hiding it inside the thing it is telling
+     you to open would make the fold cost more than the scroll did. */
+  const todo=g.rows.filter(t=>!rarityPlanned(t)).length;
+  if(todo && !g.off){
+    const t=document.createElement("span");
+    t.className="todo";
+    t.textContent=todo+" still to set";
+    head.appendChild(t);
+  }
+  const car=document.createElement("span");
+  car.className="fold"; car.setAttribute("aria-hidden","true");
+  car.textContent="\u25be";
+  head.appendChild(car);
+  head.onclick=()=>{
+    /* The class is toggled here rather than by re-rendering the plan: a
+       redraw would rebuild every other set as well, and this has to feel
+       like opening a drawer. */
+    const nowShut=wrap.classList.toggle("shut");
+    if(nowShut) PLAN_OPEN.delete(g.layer); else PLAN_OPEN.add(g.layer);
+    head.setAttribute("aria-expanded",nowShut?"false":"true");
+  };
   wrap.appendChild(head);
+  /* Everything the fold hides, in one element - so the rule is one line of
+     CSS rather than a list of what happens to be inside a group today. */
+  const body=document.createElement("div");
+  body.className="planbody";
 
   /* Sorted with the unplanned at the top, because they are the reason the
      project is not finished, and then commonest first so the shape of the
@@ -9970,7 +10057,7 @@ function planGroup(g,items,wip){
 
     row.appendChild(name); row.appendChild(sl);
     row.appendChild(share); row.appendChild(say);
-    wrap.appendChild(row);
+    body.appendChild(row);
   }
   repaint();
 
@@ -9987,7 +10074,7 @@ function planGroup(g,items,wip){
     ? "These are all the outcomes for "+g.layer+", so they add up to 100%."
     : "These shares add up to "+Math.round(exact*100)+"%, which cannot be right."
       +" Do not trust this set until it is fixed.";
-  wrap.appendChild(foot);
+  body.appendChild(foot);
 
   const missing=g.rows.filter(t=>!rarityPlanned(t)).length;
   if(missing && n>1){
@@ -10000,7 +10087,7 @@ function planGroup(g,items,wip){
         +" Moving any slider plans the whole set at normal first."
       : missing+" here still "+(missing===1?"needs a rarity":"need a rarity")
         +". Moving a slider plans "+(missing===1?"it":"them")+" at normal first.";
-    wrap.appendChild(warn);
+    body.appendChild(warn);
   }
   if(missing && n>1){
     const b=document.createElement("button");
@@ -10009,8 +10096,9 @@ function planGroup(g,items,wip){
     b.title="Gives them the normal weight. Nothing about the collection changes:"
       +" traits that are all equal were already equally likely.";
     b.onclick=async()=>{ await seedRarity(g.rows); };
-    wrap.appendChild(b);
+    body.appendChild(b);
   }
+  wrap.appendChild(body);
   return wrap;
 }
 
@@ -12800,7 +12888,10 @@ $('gateuser').onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); $('gatepas
 $('acctbtn').onclick=acctToggle;
 $('teaminvite').onclick=teamInvite;
 $('teamcopy').onclick=teamCopy;
-$('wssel').onchange=()=>wsSwitch($('wssel').value||null);
+/* "Click into projects and it opens into the project" - so choosing one
+   goes there rather than leaving somebody on the main page wondering
+   whether anything happened. */
+$('wssel').onchange=()=>{ showPage('project',true); wsSwitch($('wssel').value||null); };
 $('wsnew').onclick=wsCreate;
 $('wsleave').onclick=wsLeave;
 /* Restore the project the person was last in BEFORE anything reads the local
@@ -12970,6 +13061,42 @@ $('cloudpull').onclick=cloudPull;
 const cameFromEmail=sbCaptureFromHash();
 if(cameFromEmail && !sbRecovery) toast("Signed in");
 cloudRender().then(()=>{ if(cameFromEmail && sbRecovery) enterResetMode(); });
+/* ================= pages =========================================
+   Three pages out of what was one scroll. The page is a class on each
+   thing and an attribute on #land - see the CSS - so nothing here moves an
+   element, and every section keeps its own reasons for being hidden.
+
+   The hash is the page, so back and forward work and a refresh stays where
+   you were. An unknown hash is the main page rather than an error: a stale
+   link should land somewhere useful. */
+const PAGES=["home","project","settings"];
+function pageFromHash(){
+  const h=String(location.hash||"").replace(/^#\/?/,"");
+  return PAGES.indexOf(h)>=0 ? h : "home";
+}
+function showPage(p,push){
+  const land=$("land"); if(!land) return;
+  const want=PAGES.indexOf(p)>=0?p:"home";
+  land.setAttribute("data-page",want);
+  for(const b of document.querySelectorAll(".pgtab")){
+    if(b.dataset.page===want) b.setAttribute("aria-current","page");
+    else b.removeAttribute("aria-current");
+  }
+  /* The hash is written only when a PRESS moved the page. Writing it while
+     responding to a hashchange would be answering the browser with what it
+     just told us, and on the first render it would put an entry in the
+     history for a page nobody navigated to. */
+  if(push && pageFromHash()!==want) location.hash="#/"+want;
+  /* Back to the top: these are pages, and arriving halfway down one is what
+     made the single scroll hard to use in the first place. */
+  if(push) window.scrollTo(0,0);
+}
+(function(){
+  for(const b of document.querySelectorAll(".pgtab"))
+    b.onclick=()=>showPage(b.dataset.page,true);
+  addEventListener("hashchange",()=>showPage(pageFromHash(),false));
+  showPage(pageFromHash(),false);
+})();
 $('addlayer').onclick=addLayer;
 $('expproj').onclick=exportProject;
 $('impproj').onclick=()=>$('impfile').click();

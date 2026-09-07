@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { gotoPage } from './helpers.js';
 
 async function openShelf(page) {
   let releaseAuth;
@@ -56,6 +57,10 @@ async function openShelf(page) {
     for (const row of rows) await dbPut(row);
     await renderShelf();
   });
+  /* The shelf is on the project page now, and these tests CLICK and DRAG real
+     cards - a page that is display:none cannot be clicked, which is the whole
+     point of it being hidden. Gone to the way a person goes there. */
+  await gotoPage(page, 'project');
   await expect(page.locator('[data-shelf-card-key]')).toHaveCount(3);
 }
 

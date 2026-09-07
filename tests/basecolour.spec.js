@@ -234,3 +234,118 @@ test.describe('the base a trait was drawn on', () => {
       .toBeLessThan(r.artRows * 1.35);
   });
 });
+
+test.describe('the blended edge between the base and the trait', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/index.html');
+    await page.waitForFunction(() => typeof basePlan === 'function');
+    await page.evaluate(async () => {
+      try { authed = true; } catch (_) {}
+      try { gateShow(false); } catch (_) {}
+      activeWs = null; await dbClear(); BASE_KEEP = [];
+    });
+  });
+
+  test('is decided by the palette, and does not eat the trait', async ({ page }) => {
+    /* THE MEASUREMENT THIS EXISTS TO PROTECT, and it came from a suggestion
+       rather than from me: the Clean up colours button snaps every pixel to
+       the nearest colour the art really uses, which answers the blend exactly
+       instead of guessing at it.
+
+       Over 26 cropped renders, through the page's own functions:
+
+         a ball plus an edge peel   0.6% base left, 4.2% OF THE TRAIT LOST
+         judged by the palette      0.7% base left, 0.0% of the trait lost
+
+       The 4.2% was the trait's own anti-aliased edge, removed for being near
+       the base. This fixture is that edge and nothing else: a hard band of
+       trait, then eight rows blending from trait colour to base colour, then
+       base. Every row past the halfway point of the blend belongs to the
+       trait and must still be there. */
+    const r = await page.evaluate(async () => {
+      const W = 160, H = 160, BAND = 40, BLEND = 8;
+      const PINKC = [230, 3, 124], ART = [30, 40, 200];
+      const c = document.createElement('canvas'); c.width = W; c.height = H;
+      const x = c.getContext('2d', { willReadFrequently: true });
+      const im = x.createImageData(W, H), d = im.data;
+      let seed = 4242;
+      const wob = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return (seed % 5) - 2; };
+      for (let y = 0; y < H; y++) {
+        for (let xx = 0; xx < W; xx++) {
+          const i = (y * W + xx) * 4;
+          let col, jitter = true;
+          if (y < BAND) { col = ART; jitter = false; }
+          else if (y < BAND + BLEND) {
+            /* The halo: a straight mix, which is what an anti-aliased edge is. */
+            const t = (y - BAND + 1) / (BLEND + 1);
+            col = [Math.round(ART[0] + (PINKC[0] - ART[0]) * t),
+                   Math.round(ART[1] + (PINKC[1] - ART[1]) * t),
+                   Math.round(ART[2] + (PINKC[2] - ART[2]) * t)];
+            jitter = false;
+          } else col = PINKC;
+          d[i] = col[0] + (jitter ? wob() : 0);
+          d[i + 1] = col[1] + (jitter ? wob() : 0);
+          d[i + 2] = col[2] + (jitter ? wob() : 0);
+          d[i + 3] = 255;
+        }
+      }
+      x.putImageData(im, 0, 0);
+      /* Taught the base by hand rather than by a render, because this fixture
+         is deliberately only 70% base and must not be mistaken for one. */
+      await saveBaseColours([{ r: PINKC[0], g: PINKC[1], b: PINKC[2] }]);
+      fileName = 'edge.png';
+      startEditor(d, W, H, W, H, palette(d, W * H, 24, 64), false);
+      await new Promise(rr => setTimeout(rr, 80));
+      hideBaseClicked();
+      await new Promise(rr => setTimeout(rr, 80));
+      const out = ctx.getImageData(0, 0, W, H).data;
+      /* Counted by row, so a failure says WHERE it ate rather than how much. */
+      const solidTrait = [], deepBase = [], blend = [];
+      for (let y = 0; y < H; y++) {
+        let opaque = 0;
+        for (let xx = 0; xx < W; xx++) if (out[(y * W + xx) * 4 + 3] >= 128) opaque++;
+        if (y < BAND) solidTrait.push(opaque);
+        /* The blend, all of it, so the halo left behind can be COUNTED rather
+           than asserted away. This is the honest half of the test and it is
+           written to the measured limit rather than to the wish.
+
+           The judgement is made on the palette the Clean up colours button
+           builds, whose tolerance is 30, so eight rows of gradient arrive as
+           three entries and each entry decides for every row inside it. Dumped
+           for this fixture: heads at 74, 122 and 171 from the base against 219
+           across the whole blend. The cut lands at the palette's resolution,
+           which leaves about one row.
+
+           A pass that reclassified those middle entries by whether they were
+           nearer the base than the trait's heavy colours WAS built and is not
+           here: it cleared the base completely and took 51.1% OF THE TRAIT on
+           the sixteen real crops, because real artwork is full of light
+           shading colours that are nearer a pink base than they are to the
+           trait's own dominant blue. Measured, reverted, and recorded so it is
+           not tried a third time. */
+        if (y >= BAND && y < BAND + BLEND) blend.push(opaque);
+        if (y >= BAND + BLEND + 4) deepBase.push(opaque);
+      }
+      return { W, BLEND, solidTrait, deepBase, blend };
+    });
+    expect(Math.min(...r.solidTrait), 'not one row of the trait was touched').toBe(r.W);
+    expect(Math.max(...r.deepBase), 'and the base itself is gone').toBe(0);
+    /* THE HALO, AND WHAT IS HONESTLY CLAIMED ABOUT IT.
+
+       The rows of the blend that fall within the palette's own tolerance of
+       the base join the base entry and go. The rest do not: measured on this
+       fixture, seven of eight survive, and on the sixteen real crops the
+       leftover is 0.7% of the base. So a thin anti-aliased edge is still
+       there afterwards and this test says so rather than asserting it away.
+
+       That is NOT fixed by cleaning the palette first, which was the obvious
+       thing to try: clean-then-hide leaves the same 0.7%. The difference
+       cleaning makes is to the TRAIT - 4.2% lost against 0.0% - which is why
+       the palette decides here and does not snap.
+
+       The last row is asserted because it is the one the mechanism guarantees,
+       and asserting it stops this test passing on a picture nothing touched. */
+    expect(r.blend[r.blend.length - 1],
+      'the row of blend nearest the base goes with it').toBe(0);
+  });
+});

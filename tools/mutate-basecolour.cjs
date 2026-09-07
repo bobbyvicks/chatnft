@@ -26,6 +26,15 @@
    3. The button refuses rather than guesses.
    4. A render is learnt from, or nothing later works at all.
 
+   === WHAT HAPPENED, SECOND ROUND ===
+
+   Six of seven behaved as predicted. The seventh - disabling the palette by
+   dropping its tolerance to 1 - killed one test where I predicted three, and
+   the note on it says why: the fixtures paint the trait as a single exact
+   colour, which survives a mutation that would take a real trait with it.
+   Recorded rather than corrected quietly, because a kill list edited to match
+   the outcome teaches nobody what the tests actually cover.
+
    The NOT lists are where the value is. Three of these five mutants should
    leave four or more tests standing, and a mutant that reds everything would
    mean the tests are measuring "the picture changed" rather than the rule. */
@@ -34,7 +43,7 @@ const { runMutants } = require('./mutrun.cjs');
 const bad = runMutants({
   file: 'index.html',
   spec: 'tests/basecolour.spec.js',
-  ntests: 7,
+  ntests: 8,
   mutants: [
     {
       /* THE DEFECT THAT ACTUALLY HAPPENED, restored. Recognising a remembered
@@ -109,6 +118,49 @@ const bad = runMutants({
          file - the memory is the feature, and two of the three tests exist
          only because it is there. NOT the finished-trait tests, which never
          learn anything, and NOT the cloud test, which is a single render. */
+    },
+    {
+      /* THE PALETTE IS THE JUDGEMENT. At tolerance 1 it stops collapsing the
+         cloud: the 64 slots fill with individual base shades, so nearly every
+         pixel finds a base entry nearest and the trait goes with it. */
+      name: `the palette stops collapsing the cloud`,
+      find: `     colours is a separate decision and stays on its own button. */
+  const pal=palette(d,n,CLEAN_TOL,64).list;`,
+      with: `     colours is a separate decision and stays on its own button. */
+  const pal=palette(d,n,1,64).list;`,
+      kills: [`is decided by the palette, and does not eat the trait`],
+      /* PREDICTED THREE, MEASURED ONE, AND THE PREDICTION WAS WRONG RATHER
+         THAN THE CODE. I expected the 64 slots to fill with base shades and
+         take the trait with them. They do fill with base shades - but the
+         trait in those two fixtures is painted as ONE EXACT COLOUR, with the
+         jitter deliberately switched off for the artwork, so it is a single
+         very popular value that keeps its own slot and survives.
+
+         That is a fixture weakness worth naming: a real trait is dozens of
+         shades and would not be so lucky. The edge fixture, whose trait is
+         also flat but whose BLEND is not, is the one that catches this - and
+         it catches it through the blend rather than through the trait. So the
+         suite does detect the palette being disabled, by one test rather than
+         three, and it detects it for a reason I had not predicted. */
+      /* Anchored on the comment line above it because the same call appears in
+         cleanPlan, which this must not touch - the button and the judgement
+         share CLEAN_TOL on purpose and only one of them is being mutated.
+         NOT the cloud test: it asks that little SURVIVES, and a mutant that
+         removes everything satisfies that. Worth knowing - that test cannot
+         see over-removal, which is why the edge test exists. */
+    },
+    {
+      /* The old ball, restored: judge each pixel by its distance to the base
+         rather than by which real colour it is nearest. */
+      name: `a pixel is judged by distance to the base, not by the palette`,
+      find: `    if(baseEntry[k]){ d[i+3]=0; gone++; }`,
+      with: `    if(list.some(q=>(d[i]-q.r)*(d[i]-q.r)+(d[i+1]-q.g)*(d[i+1]-q.g)+(d[i+2]-q.b)*(d[i+2]-q.b)<=t2)){ d[i+3]=0; gone++; }`,
+      kills: [`is decided by the palette, and does not eat the trait`],
+      /* ONE, and only its last assertion: the blend row nearest the base sits
+         24.3 away and the tolerance is 12, so a ball leaves it behind. That
+         row IS the halo. NOT the solid-trait assertion in the same test - a
+         ball is too timid here, not too greedy - and NOT any test that only
+         asks whether the flat base went, because a ball removes that fine. */
     },
   ],
 });

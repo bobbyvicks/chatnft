@@ -72,6 +72,37 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
 .lrow{display:flex; align-items:center; gap:8px; padding:5px 0;
   border-bottom:1px solid var(--line);}
 .lrow:last-child{border-bottom:none;}
+/* The rarity plan. One row per trait: name, slider, the share of its set,
+   and that share in words - the number is exact and the words are what
+   somebody skims. */
+#plan.folded .projfold .fold{transform:rotate(-90deg);}
+#plan.folded #planbody{display:none;}
+.plangrp{margin:0 0 16px;}
+.planhead{display:flex; align-items:baseline; gap:8px; flex-wrap:wrap;
+  border-bottom:1px solid var(--line); padding-bottom:5px; margin-bottom:6px;}
+.planhead b{font-size:13px; font-weight:600;}
+.planhead span{font-size:11px; color:var(--muted);}
+.prow{display:grid; gap:8px; align-items:center; padding:3px 0;
+  grid-template-columns:minmax(80px,1.3fr) minmax(110px,2fr) 62px minmax(0,1.1fr);}
+.prow .pname{font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.prow input[type=range]{width:100%; margin:0; accent-color:var(--accent);}
+.prow input[type=range]:disabled{opacity:.45;}
+/* tabular-nums so a column of shares lines up while one of them is moving. */
+.prow .pshare{font-size:12px; text-align:right; font-variant-numeric:tabular-nums;}
+.prow .psay{font-size:11px; color:var(--dim); overflow:hidden;
+  text-overflow:ellipsis; white-space:nowrap;}
+.prow.unset .pname{color:var(--muted);}
+.prow.unset .psay{color:var(--accent);}
+.plantot{font-size:11px; color:var(--dim); margin:5px 0 0;}
+/* The phone gets the slider its own full-width row: a range input squeezed
+   into a third of 375px is not draggable with a thumb. */
+@media (max-width:640px){
+  .prow{grid-template-columns:1fr 62px; gap:1px 8px;
+    grid-template-areas:"name share" "slider slider" "say say"; padding:6px 0;}
+  .prow .pname{grid-area:name;} .prow .pshare{grid-area:share;}
+  .prow input[type=range]{grid-area:slider; height:26px;}
+  .prow .psay{grid-area:say;}
+}
 .lname{flex:1; min-width:0; background:none; border:1px solid transparent; color:var(--ink);
   font:inherit; font-size:12.5px; padding:4px 6px; border-radius:6px;}
 .lname:hover{border-color:var(--line);}
@@ -1165,6 +1196,17 @@ footer .mono{color:var(--ink);}
     </div>
     <div id="layerbody"></div>
     <p class="note">Top of the list draws in front. Removing a layer sends its traits to unsorted.</p>
+  </section>
+  <section class="proj" id="plan" hidden>
+    <div class="projhead">
+      <h2><button class="projfold" id="planfold" type="button" aria-controls="planbody"
+        aria-expanded="true" title="Hide the rarity plan">Plan rarity<span class="fold" aria-hidden="true">▾</span></button></h2>
+      <span class="count" id="plancount"></span>
+      <div class="acts">
+        <button class="mini" id="planseedall">Set the rest to normal</button>
+      </div>
+    </div>
+    <div id="planbody"></div>
   </section>
   <section class="proj" id="proj" hidden>
     <div class="projhead">
@@ -2741,7 +2783,13 @@ async function renderShelf(){
       rar.className='rar'; rar.type='number'; rar.min='1'; rar.max='99';
       rar.value=String(traitWeight(t));
       rar.setAttribute('aria-label','Rarity weight for '+t.name);
-      rar.title='How often this is picked by Randomise and the sheet. 1 is normal, 5 is five times as likely.';
+      /* SUPERSEDES "1 is normal, 5 is five times as likely". 1 is not
+         normal, it is the database default and now means nobody has chosen -
+         which is what Plan rarity counts. Two controls over one field must
+         not say different things about it. */
+      rar.title='How often this is picked by Randomise and the sheet. '+RAR_NORMAL+' is normal,'
+        +' higher turns up more often, lower is rarer. 1 means nobody has set it yet.'
+        +' Plan rarity has a slider for this.';
       /* The tile itself opens the trait for editing, so the number box has to
          swallow its own clicks or every attempt to retype the weight opens the
          editor instead. */
@@ -2750,10 +2798,13 @@ async function renderShelf(){
         ev.stopPropagation();
         const v=Math.max(1,Math.min(99,parseInt(rar.value,10)||1));
         rar.value=String(v);
-        /* rarity is not part of the id, so this updates in place rather than
-           creating a second record for the same trait. */
-        await dbPut({...t, rarity:v});
-        renderShelf();
+        /* THROUGH setRarity, the same door the plan's sliders use. Writing
+           dbPut here directly is what kept a weight change out of the group:
+           the spread carries `synced` through, cloudPath does not depend on
+           the weight, so cloudPush skipped the row and said it was already
+           up to date. rarity is still not part of the id, so this updates in
+           place rather than creating a second record for the same trait. */
+        if(await setRarity(t,v)) await afterRarity();
       };
       el.appendChild(rar);
       /* What that weight comes to, right beside it. */
@@ -2858,6 +2909,7 @@ async function renderShelf(){
   /* The compose view reads the same records the shelf just rendered, so it
      cannot drift from what is actually saved. */
   buildLayerPanel(items);
+  renderPlan(items);
   buildCompose(items);
 }
 /* Asking Claude what a trait is. The call goes through /api/identify so the
@@ -3312,11 +3364,15 @@ $('dlzip').onclick=async()=>{
   /* Named separately, because they are different things and the census
      below counts only the traits. "Downloaded 48 traits" over a zip holding
      47 traits and a base was true of nothing in it. */
+  /* The plan, at the moment the project is being finished. Plan rarity is
+     folded by default, so somebody who adds a trait and comes straight here
+     would otherwise never be told. Same counter as the section heading. */
+  const rline=unplannedLine(all,$('cwip')?$('cwip').checked:false);
   toast('Downloaded '+items.length+' trait'+(items.length===1?'':'s')
     +(refs.length?' and '+refs.length+' base character'+(refs.length===1?'':'s'):'')
     +(zcen.oddCount
     ? " \u2014 "+zcen.oddCount+" not "+zcen.want+" ("+zcen.detail+"). A trait has to divide into whole cells to line up."
-    : ""));
+    : "")+rline);
 };
 buildLayerSelect();
 /* NOT called here any more. This ran at top level, so the shelf - names,
@@ -9514,6 +9570,424 @@ function buildLayerPanel(items){
   }
 }
 
+/* ================= plan rarity ===================================
+   THE BOUNDS ARE THE DATABASE'S, not a preference. The live column is
+   `rarity integer NOT NULL CHECK (rarity >= 1 AND rarity <= 99)`, and a
+   value outside it fails the insert, which surfaces as "could not reach the
+   group" because nothing reads the Postgres error body. So the solver's
+   only output is a clamped, rounded integer.
+
+   RAR_UNSET is 1 and is reserved: it is the column default, so a trait
+   nobody has planned reads 1 whether it was created here or arrived from a
+   teammate. That is what makes "still needs a rarity" a fact about the
+   collection rather than a fact about this browser.
+
+   RAR_NORMAL is DERIVED. A weight's room to move is its ratio to the floor
+   and its ratio to the ceiling, and those are equal at sqrt(RAR_MIN*RAR_MAX)
+   = 14.07. Seeding anywhere else would give a set more travel in one
+   direction than the other for no reason.
+
+   POS_MAX is 20,000 and that is measured, not round. The slider has to
+   invert exactly - position to weight and back must be the identity, or a
+   drag that goes nowhere rewrites the weight. At 1,000 steps two
+   consecutive weights collide at the common end of a small set and 802 of
+   the cases checked came back wrong; at 20,000 it is exact for every set
+   size 2..60 at every sibling level. */
+const RAR_MIN=2, RAR_MAX=99, RAR_UNSET=1, POS_MAX=20000;
+const RAR_NORMAL=Math.round(Math.sqrt(RAR_MIN*RAR_MAX));
+
+/* The commonest and rarest a trait can be made in a set of n, expressed as a
+   multiple of an even share. This trait at the ceiling and every sibling at
+   the floor, and the other way round. Both depend on n ALONE, so the track
+   is fixed while the set is - a thumb never moves because a sibling moved. */
+function multHi(n){ return n*RAR_MAX/(RAR_MAX+RAR_MIN*(n-1)); }
+function multLo(n){ return n*RAR_MIN/(RAR_MIN+RAR_MAX*(n-1)); }
+/* Log spacing, so a given distance along the track is the same RATIO
+   wherever you are on it. Right is rarer, which falls out of multLo landing
+   at POS_MAX - not from reversing the input, so the arrow keys agree with
+   the pixels for free. */
+function posOfMult(m,n){
+  if(!(n>1)) return 0;
+  const hi=multHi(n), lo=multLo(n);
+  const p=Math.round(POS_MAX*Math.log(m/hi)/Math.log(lo/hi));
+  return Math.max(0,Math.min(POS_MAX, isFinite(p)?p:0));
+}
+function multOfPos(s,n){
+  if(!(n>1)) return 1;
+  const hi=multHi(n), lo=multLo(n);
+  return hi*Math.pow(lo/hi, Math.max(0,Math.min(POS_MAX,s))/POS_MAX);
+}
+/* The weight that gives share r against siblings totalling O. r = w/(w+O),
+   so w = rO/(1-r). Clamped to the store, which is why a position at the very
+   end of the track can ask for a weight the set cannot hold - the reachable
+   band is drawn from these same numbers rather than discovered by a snap. */
+function weightForShare(r,O){
+  if(!(r>0) || !(r<1)) return RAR_NORMAL;
+  return Math.max(RAR_MIN,Math.min(RAR_MAX,Math.round(r*O/(1-r))));
+}
+/* Has anybody actually chosen this? Weight 1 is the column default and
+   arrives on every unplanned trait from the server too, so this is a fact
+   about the collection and not about this browser. */
+function rarityPlanned(rec){
+  return !!rec && typeof rec.rarity==="number" && rec.rarity!==RAR_UNSET;
+}
+/* The share in words. Read off the MULTIPLIER, never off the slider
+   position: the position is a drawing of the multiplier and the two would
+   drift the moment the track changed. */
+function multWords(m){
+  if(m>=3) return "turns up a lot more than the rest";
+  if(m>=1.5) return "turns up more than the rest";
+  if(m>=0.67) return "about the same as the rest";
+  if(m>=0.33) return "turns up less than the rest";
+  return "hardly ever";
+}
+/* Every trait the generator would draw from this layer, which is the only
+   population a share may be computed over - traitEligible is the same rule
+   buildCompose uses, and asking it here rather than filtering by hand is
+   what stops the two answering differently. */
+function planRows(items,layer,wip){
+  return (items||[]).filter(t=>t.kind==="trait" && (t.layer||"unsorted")===layer
+    && traitEligible(t,wip));
+}
+
+/* Send one weight to the group without re-sending the picture.
+
+   cloudSyncOne uploads the PNG and then DELETEs and re-POSTs the row, which
+   is right when the artwork changed and absurd for an integer: planning a
+   whole collection would re-upload about a gigabyte to change 271 numbers.
+   The live policy on traits covers ALL commands, so a PATCH by row id is
+   allowed and touches no storage.
+
+   Returns false when there is nobody to tell - no group, or a record that
+   has never been pushed and therefore has no row to patch. The caller reads
+   that as "still local", not as a failure. */
+async function cloudRarity(rec){
+  if(!activeWs || !rec || !rec.rowId) return false;
+  try{
+    const h=await sbHeaders({"Content-Type":"application/json"});
+    if(!h) return false;
+    const r=await fetch(SB_URL+"/rest/v1/traits?id=eq."+encodeURIComponent(rec.rowId),
+      {method:"PATCH", headers:h, body:JSON.stringify({rarity:rec.rarity})});
+    return !!(r&&r.ok);
+  }catch(_){ return false; }
+}
+
+/* Write one weight, locally and to the group.
+
+   `synced` is kept when the patch lands, because it is still true: the
+   server has this record's bytes and now its number. It is cleared only
+   when the patch could not be made, where the next push re-sending the
+   picture is the honest cost of a row that really is behind - and where
+   leaving it set would be the app saying the group had something it does
+   not, which is the defect this whole function exists to end. */
+async function setRarity(rec,w){
+  if(!rec) return false;
+  /* RAR_UNSET passes through rather than clamping up to RAR_MIN. Typing 1
+     into the box on a tile is how a trait is put back to "nobody has
+     chosen", and a clamp would silently answer 2 - a weight, and a claim
+     that somebody had decided. The sliders never ask for it: weightForShare
+     cannot return below RAR_MIN. */
+  const v = Math.round(w)===RAR_UNSET ? RAR_UNSET
+    : Math.max(RAR_MIN,Math.min(RAR_MAX,Math.round(w)||RAR_NORMAL));
+  /* Against the EFFECTIVE stored value, so a record with no rarity field at
+     all is already 1 and setting it to 1 writes nothing. Comparing
+     traitWeight alone would have called every no-op a change. */
+  const cur = typeof rec.rarity==="number" ? rec.rarity : RAR_UNSET;
+  if(cur===v) return false;
+  const next={...rec, rarity:v};
+  await dbPut(next);
+  const sent=await cloudRarity(next);
+  if(!sent && activeWs && next.rowId && next.synced) await dbPut({...next, synced:false});
+  return true;
+}
+
+/* ---- the section ------------------------------------------------- */
+/* Rebuilt from the records every time, like every other panel here. It
+   decodes no images and runs no generator, so it is cheap enough to redraw
+   on a commit - which is why the numbers cannot go stale against the store
+   the way a hand-patched DOM would. */
+/* How many traits the generator would draw and nobody has given a rarity.
+
+   ONE COUNTER. The heading of Plan rarity and the Download all message both
+   say this number, and two counts of one thing is how they come to disagree.
+   A hidden set is excluded for the same reason its shares are: nothing in it
+   is drawn, so nothing in it can be missing from a plan. */
+function unplannedCount(items,wip){
+  let n=0;
+  for(const layer of LAYERS){
+    if(HIDDEN_LAYERS.has(layer)) continue;
+    for(const t of planRows(items,layer,wip)) if(!rarityPlanned(t)) n++;
+  }
+  return n;
+}
+/* The sentence, or "" when there is nothing to say - so a caller cannot
+   treat "the plan is finished" as truthy. */
+function unplannedLine(items,wip){
+  const n=unplannedCount(items,wip);
+  if(!n) return "";
+  return " \u2014 "+n+" trait"+(n===1?"":"s")+" still "+(n===1?"needs":"need")
+    +" a rarity to finish this project. Plan rarity is above the traits.";
+}
+
+function renderPlan(items){
+  const sec=$("plan"); if(!sec) return;
+  const wip=!!($("cwip")&&$("cwip").checked);
+  const body=$("planbody"); if(!body) return;
+  const groups=[];
+  let planned=0, unplanned=0;
+  /* Front of the drawing first, the same order the Layers panel shows. */
+  for(let i=LAYERS.length-1;i>=0;i--){
+    const layer=LAYERS[i];
+    const rows=planRows(items,layer,wip);
+    if(!rows.length) continue;
+    const off=HIDDEN_LAYERS.has(layer);
+    /* A set that is turned off is not drawn, so nothing in it can be
+       missing from the plan - the same population rule the shares use. It
+       is still shown, because planning a set before turning it on is a
+       reasonable thing to do and hiding it would look like data loss. */
+    if(!off) for(const t of rows){ if(rarityPlanned(t)) planned++; else unplanned++; }
+    groups.push({layer:layer, rows:rows, off:off});
+  }
+  if(!groups.length){ sec.hidden=true; return; }
+  sec.hidden=false;
+
+  /* Counted here as well as by unplannedCount, and they must agree - the
+     loop above already has the rows in hand, so re-walking them would be a
+     second pass for nothing. Asserted rather than assumed: if the two ever
+     part, the section is the first thing that would notice and this is
+     where it says so. */
+  const total=planned+unplanned;
+  const cross=unplannedCount(items,wip);
+  $("plancount").textContent = unplanned
+    ? planned+" of "+total+" set. "+unplanned+" to go before this is finished."
+      +(cross===unplanned?"":" (and something is wrong: two counts of this"
+        +" disagree, "+unplanned+" against "+cross+")")
+    : "Every trait has a rarity.";
+  const all=$("planseedall");
+  if(all){ all.hidden=!unplanned;
+    all.title="Give every trait that has no rarity the normal weight. Nothing about"
+      +" the collection changes - traits that are all equal were already equally likely."; }
+
+  body.innerHTML="";
+  for(const g of groups) body.appendChild(planGroup(g,items,wip));
+}
+
+/* One layer. The heading says how often the set appears at all, so the 100%
+   below it is plainly a share OF THE SET and not of every character - the
+   tile on the shelf shows that other number, and two figures for one trait
+   differing by a factor of 1/0.65 with nothing explaining the gap is how a
+   screen starts lying without a word of it being false. */
+function planGroup(g,items,wip){
+  const wrap=document.createElement("div");
+  wrap.className="plangrp";
+  const n=g.rows.length;
+  const head=document.createElement("div");
+  head.className="planhead";
+  const nm=document.createElement("b"); nm.textContent=g.layer;
+  const cnt=document.createElement("span");
+  cnt.textContent=n+(n===1?" trait":" traits");
+  const when=document.createElement("span");
+  const pres=layerPresence(g.layer);
+  when.textContent = g.off ? "turned off - nothing here is drawn"
+    : pres>=1 ? "on every character"
+    : "on "+Math.round(pres*100)+"% of characters";
+  head.appendChild(nm); head.appendChild(cnt); head.appendChild(when);
+  wrap.appendChild(head);
+
+  /* Sorted with the unplanned at the top, because they are the reason the
+     project is not finished, and then commonest first so the shape of the
+     set reads down the column. */
+  const tot=g.rows.reduce((a,t)=>a+traitWeight(t),0);
+  const sorted=g.rows.slice().sort((a,b)=>
+    (rarityPlanned(a)?1:0)-(rarityPlanned(b)?1:0)
+    || traitWeight(b)-traitWeight(a)
+    || String(a.name||"").localeCompare(String(b.name||"")));
+  const live=new Map(g.rows.map(t=>[t.id,traitWeight(t)]));
+  const cells=new Map();
+
+  /* The siblings' total, read from the LIVE weights rather than captured at
+     render time: seeding below changes it, and a captured total would solve
+     the drag against a set that no longer exists. */
+  function othersOf(id){
+    let s=0; for(const [k,v] of live) if(k!==id) s+=v;
+    return s;
+  }
+  /* Plan every unplanned trait in this set at normal, in the live map only.
+
+     WITHOUT THIS THE SLIDER RUNS BACKWARDS. An unplanned sibling is at
+     weight 1, which is BELOW RAR_MIN because 1 means "nobody has chosen"
+     rather than "as rare as possible" - so in a set of twenty-one unplanned
+     traits the rarest a plan can ask for, 2, is twice an even share, and
+     dragging towards rare measured 4.8% going to 9.1%.
+
+     Returns how many it planned so the release can say so. On a set where
+     nothing was planned this changes no share at all: twenty-one equal
+     weights are equal whatever the number, so the thumbs do not move. */
+  let seedDone=false;
+  function seedLive(){
+    if(seedDone) return 0;
+    seedDone=true;
+    let did=0;
+    for(const r of g.rows) if(!rarityPlanned(r)){ live.set(r.id,RAR_NORMAL); did++; }
+    if(did){
+      for(const c of cells.values()) c.unset=false;
+      wrap.querySelectorAll(".prow.unset").forEach(el=>el.classList.remove("unset"));
+    }
+    return did;
+  }
+
+  /* Redraw every share in this set from the live weights. Pure arithmetic
+     over one layer - measured at 1ms against 2,025ms for the rule-aware
+     figure - which is what makes a slider that updates as it moves possible
+     at all. */
+  function repaint(){
+    let sum=0; for(const v of live.values()) sum+=v;
+    for(const [id,cell] of cells){
+      const w=live.get(id), share=w/sum;
+      cell.share.textContent=pctLabel(share);
+      /* AT THE END OF TRAVEL, say which end and what to do about it. The
+         limit is the database's column - integers 1 to 99 - reached against
+         wherever the siblings happen to be, so the way further is to move
+         one of them rather than to keep pulling at this one. A thumb that
+         stops with no explanation reads as a broken control. */
+      cell.say.textContent = cell.unset ? cell.unsetWords
+        : w<=RAR_MIN ? "as rare as it goes here - make another one commoner to go further"
+        : w>=RAR_MAX ? "as common as it goes here - make another one rarer to go further"
+        : multWords(n*share);
+    }
+  }
+
+  for(const t of sorted){
+    const row=document.createElement("div");
+    const isSet=rarityPlanned(t);
+    row.className="prow"+(isSet?"":" unset");
+    const name=document.createElement("div");
+    name.className="pname"; name.textContent=t.name||t.id; name.title=t.name||t.id;
+    const sl=document.createElement("input");
+    sl.type="range"; sl.min="0"; sl.max=String(POS_MAX); sl.step="1";
+    sl.setAttribute("aria-label","How rare "+(t.name||"this trait")+" should be");
+    const w0=traitWeight(t), O=tot-w0;
+    sl.value=String(posOfMult(n*(w0/tot),n));
+    /* One trait in a set is drawn every time the set appears, whatever any
+       slider says, and multHi equals multLo there so the track has no
+       length to drag along. Said rather than left looking broken. */
+    sl.disabled = n<2;
+    sl.title = n<2
+      ? "The only trait in this set, so it is drawn every time the set appears."
+      : "Drag right to make it rarer. The number beside it is this trait's share of "+g.layer+".";
+    const share=document.createElement("div"); share.className="pshare";
+    const say=document.createElement("div"); say.className="psay";
+    const unsetWords = n<2 ? "the only one in this set"
+      : "not set - give it a rarity to finish";
+    cells.set(t.id,{share:share, say:say, unset:!isSet, unsetWords:unsetWords});
+
+    if(n>1){
+      /* WHILE DRAGGING: nothing is written and nothing is re-rendered. A
+         dbPut and a renderShelf per tick would cost seconds a pixel. */
+      sl.oninput=()=>{
+        /* First, so the set has room underneath this trait - see seedLive. */
+        seedLive();
+        const O=othersOf(t.id);
+        const nw=weightForShare(multOfPos(+sl.value,n)/n, O);
+        /* THE THUMB SNAPS TO THE WEIGHT THAT WILL ACTUALLY BE STORED. The
+           store holds 98 integers and the track has 20,000 positions, so
+           most positions round to a weight some neighbour also reaches -
+           without this the thumb rests somewhere the collection cannot be,
+           and lets go onto a different number than it showed. */
+        sl.value=String(posOfMult(n*(nw/(nw+O)),n));
+        live.set(t.id,nw);
+        repaint();
+      };
+      /* ON RELEASE: the seeded siblings and this trait, then the panels that
+         show this number redraw so nothing on screen disagrees with the
+         store. The siblings are written FIRST, so that if anything fails
+         half way the set is never left with this trait planned against
+         weights the plan does not consider valid. */
+      sl.onchange=async()=>{
+        const O=othersOf(t.id);
+        const nw=weightForShare(multOfPos(+sl.value,n)/n, O);
+        let also=0;
+        for(const r of g.rows)
+          if(r.id!==t.id && !rarityPlanned(r) && await setRarity(r,RAR_NORMAL)) also++;
+        await setRarity(t,nw);
+        await afterRarity();
+        if(also) toast("Planned the other "+also+" in "+g.layer+" at normal,"
+          +" so this set has room to make one rare. Nothing else changed.");
+      };
+    }
+
+    row.appendChild(name); row.appendChild(sl);
+    row.appendChild(share); row.appendChild(say);
+    wrap.appendChild(row);
+  }
+  repaint();
+
+  const foot=document.createElement("p");
+  foot.className="plantot";
+  /* ASSERTED, not printed from the rounded numbers. Shares are w/Sum(w) so
+     they sum to one by construction - but a column of rounded percentages
+     does not, and printing their total would show 99% or 101% over a set
+     that is perfectly correct. So the exact sum is checked and the sentence
+     states the identity; if the identity ever fails, that is worth knowing
+     and is what the second sentence is for. */
+  let exact=0; for(const t of g.rows) exact+=traitWeight(t)/tot;
+  foot.textContent = Math.abs(exact-1)<1e-9
+    ? "These are all the outcomes for "+g.layer+", so they add up to 100%."
+    : "These shares add up to "+Math.round(exact*100)+"%, which cannot be right."
+      +" Do not trust this set until it is fixed.";
+  wrap.appendChild(foot);
+
+  const missing=g.rows.filter(t=>!rarityPlanned(t)).length;
+  if(missing && n>1){
+    /* Said before it happens, not only in the toast afterwards. A drag that
+       writes twenty other records is worth knowing about in advance. */
+    const warn=document.createElement("p");
+    warn.className="plantot";
+    warn.textContent = missing===n
+      ? "Nothing here has a rarity yet, so they are all equally likely."
+        +" Moving any slider plans the whole set at normal first."
+      : missing+" here still "+(missing===1?"needs a rarity":"need a rarity")
+        +". Moving a slider plans "+(missing===1?"it":"them")+" at normal first.";
+    wrap.appendChild(warn);
+  }
+  if(missing && n>1){
+    const b=document.createElement("button");
+    b.className="mini";
+    b.textContent="Set the "+missing+" unplanned in "+g.layer+" to normal";
+    b.title="Gives them the normal weight. Nothing about the collection changes:"
+      +" traits that are all equal were already equally likely.";
+    b.onclick=async()=>{ await seedRarity(g.rows); };
+    wrap.appendChild(b);
+  }
+  return wrap;
+}
+
+/* Give every unplanned trait in a list the normal weight.
+
+   This is the one press that turns "257 to go" into a finished project when
+   the owner is happy for a set to be even, and it really does change
+   nothing: a set whose weights are all equal draws exactly as it did when
+   they were all the default. The toast says so, because a button that
+   rewrites 271 records ought to say what it did not do as well. */
+async function seedRarity(list){
+  const want=(list||[]).filter(t=>!rarityPlanned(t));
+  if(!want.length) return 0;
+  let done=0;
+  for(const t of want){ if(await setRarity(t,RAR_NORMAL)) done++; }
+  await afterRarity();
+  toast("Set "+done+" trait"+(done===1?"":"s")+" to normal."
+    +" Nothing about the collection changed.");
+  return done;
+}
+
+/* What has to catch up after a weight moves. The plan redraws itself, and
+   the shelf is asked to as well because its tiles carry the same number in
+   two other forms - the weight box and the share - and a panel that
+   disagrees with the one above it is worse than either being wrong alone. */
+async function afterRarity(){
+  await renderShelf();
+}
+
 /* ================= pixelate ======================================
    Someone sends a photo, a smooth illustration, or something a model drew.
    None of that is a trait: a trait in this collection sits on the grid, uses
@@ -12288,6 +12762,37 @@ function projFold(on,remember){
   h.onclick=()=>projFold(!$("proj").classList.contains("folded"));
   let want=false; try{ want=localStorage.getItem(PROJ_KEY)==="1"; }catch(_){}
   projFold(want,false);
+})();
+/* The same fold, for the plan. Its own storage key, because "I closed the
+   traits" and "I closed the plan" are two different choices. */
+const PLAN_KEY="chatnft.planfold";
+function planFold(on,remember){
+  const sec=$("plan"), h=$("planfold");
+  if(!sec) return;
+  sec.classList.toggle("folded",!!on);
+  if(h){
+    h.setAttribute("aria-expanded", on?"false":"true");
+    h.title = on ? "Show the rarity plan" : "Hide the rarity plan";
+  }
+  if(remember!==false){ try{ localStorage.setItem(PLAN_KEY, on?"1":"0"); }catch(_){} }
+}
+(function(){
+  const h=$("planfold"); if(!h) return;
+  h.onclick=()=>planFold(!$("plan").classList.contains("folded"));
+  const seed=$("planseedall");
+  if(seed) seed.onclick=async()=>{
+    const items=await dbAll();
+    const wip=!!($("cwip")&&$("cwip").checked);
+    const all=[];
+    for(const l of LAYERS){ if(HIDDEN_LAYERS.has(l)) continue;
+      for(const t of planRows(items,l,wip)) all.push(t); }
+    await seedRarity(all);
+  };
+  /* FOLDED BY DEFAULT, unlike the traits. A section of 271 sliders opening
+     itself over the shelf on every load is the panel burying its own tail,
+     which this file has already paid for once. */
+  let want=true; try{ const s=localStorage.getItem(PLAN_KEY); if(s!==null) want=s==="1"; }catch(_){}
+  planFold(want,false);
 })();
 /* The collapse is a phone thing and the CSS for it lives in the phone media
    query, so on a wide screen the class did nothing - but it was still being

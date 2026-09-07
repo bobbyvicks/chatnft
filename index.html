@@ -2060,7 +2060,13 @@ function load(file){
 
    Still 0.35 by default, so nothing about the preview changes except that the
    number is now visible and skins always appears. */
-let emptyChance=0.35;
+/* Named because three places ask "is this still the default": the variable
+   below, the list Clear offers to remove, and the reset Clear performs. The
+   markup carries a fourth copy as value="35" that cannot be a constant, so
+   applyEmptyChance writes the control from the variable rather than trusting
+   the two to agree. */
+const EMPTY_DEFAULT=0.35;
+let emptyChance=EMPTY_DEFAULT;
 const ALWAYS_PRESENT=["skins"];
 const DEFAULT_LAYERS=['backgrounds','skins','clothing','costumes','chains','accessories',
   'extras','ears','mouth','eyes','hair-headwear','masks','unsorted'];
@@ -2115,6 +2121,11 @@ let sharedLayerSig=null;
    change happened here and the group has not got it. */
 const LAYERS_NOT_SHARED=" - the group has not got the layer list yet, press Save to cloud";
 const GRID_ID='settings.grid';
+/* THE EIGHTH SETTINGS RECORD. How often a layer is left empty was the one
+   project decision kept in nothing but a variable and a markup default, so
+   it reset to 35% on every page load - and every "of characters" figure in
+   the app is scaled by it. */
+const EMPTY_ID='settings.emptychance';
 const RULES_ID='settings.rules';
 /* Pairs of traits that must never share a character, each side keyed by
    layer/name.
@@ -2575,6 +2586,7 @@ async function renderShelf(){
      the default list is only what it starts from. */
   applyLayers(items);
   applyGrid(items);
+  applyEmptyChance(items);
   /* Before buildCompose runs: generation reads RULES, and a sheet drawn with
      an empty rule list would quietly ignore every rule on the first render. */
   applyRules(items);
@@ -3217,6 +3229,11 @@ $('clearproj').onclick=async()=>{
     if(DECIDE_ORDER.length) have.push("the draw order");
     if(BASE_KEEP.length) have.push("the base colour");
     if(projectGrid!==160) have.push("the "+projectGrid+" cell grid");
+    /* A project where this is the only thing changed used to get no
+       question at all, so Clear kept it and the next import read its
+       percentages against somebody else's number. */
+    if(emptyChance!==EMPTY_DEFAULT)
+      have.push("the "+Math.round(emptyChance*100)+"% empty chance");
     if(have.length)
       alsoSettings=confirm("Also remove "+have.join(", ")
         +"?\n\nCancel keeps them. They will name traits that are gone, which is"
@@ -3233,12 +3250,14 @@ $('clearproj').onclick=async()=>{
     /* The autosave goes with them. It holds the last image being edited, and
        leaving it behind reopens a picture from a collection that no longer
        exists. */
-    for(const id of [RULES_ID,DECISIONS_ID,DECIDE_ID,GRID_ID,BASE_ID,LAYERS_ID,AUTO_ID]){
+    for(const id of [RULES_ID,DECISIONS_ID,DECIDE_ID,GRID_ID,BASE_ID,LAYERS_ID,AUTO_ID,EMPTY_ID]){
       try{ await dbDel(id); kept--; }catch(_){}
     }
     RULES=[]; DECISIONS=[]; DECIDE_ORDER=[]; BASE_KEEP=[];
     projectGrid=160;
     const box=$("rsgrid"); if(box) box.value=projectGrid;
+    emptyChance=EMPTY_DEFAULT;
+    { const e=$("cempty"); if(e) e.value=String(Math.round(emptyChance*100)); }
     LAYERS=DEFAULT_LAYERS.slice();
     HIDDEN_LAYERS.clear();
     /* Not saveLayers(): that would write the record back that was just
@@ -8592,6 +8611,27 @@ function applyGrid(items){
   const box=$("rsgrid"); if(box) box.value=projectGrid;
   buildResizePresets();
 }
+
+/* How often a layer is left empty, which every percentage depends on.
+
+   Clamped on the way OUT of the store as well as on the way in. The box
+   guards what is typed, and a record can also arrive from a project file
+   somebody edited by hand - a chance of 1 would empty every layer that can
+   be empty and leave the shelf reading 0% for hundreds of traits.
+
+   NOT SHARED WITH TEAMMATES YET, and this is where somebody will look for
+   that. cloudPush sends traits and refs only, and collections has no column
+   for this, so two people on one project can read different percentages for
+   the same trait until one is added. It does travel in the project file. */
+function applyEmptyChance(items){
+  const rec=(items||[]).find(i=>i.id===EMPTY_ID);
+  const v=rec&&Number(rec.chance);
+  if(isFinite(v)&&v>=0&&v<=0.9) emptyChance=v;
+  const box=$("cempty"); if(box) box.value=String(Math.round(emptyChance*100));
+}
+async function saveEmptyChance(){
+  await dbPut({id:EMPTY_ID, kind:"settings", chance:emptyChance, at:Date.now()});
+}
 /* A rule naming a trait that no longer exists stays in the list, shown as
    missing. Renaming a trait can strand one, and dropping it quietly would
    throw away an instruction the owner gave. */
@@ -10665,7 +10705,11 @@ const PROJECT_FORMAT="chatnft-project";
    written by 2 still imports - the new fields are simply absent, and every
    read of them is guarded - which is what the version check allows by
    comparing rather than demanding equality. */
-const PROJECT_VERSION=3;
+/* 4: the empty chance joins the file. Older files import exactly as before -
+   the field is simply absent and the project keeps whatever it had - and a
+   NEWER file is still refused, which is the check that has to keep working
+   when this number moves. */
+const PROJECT_VERSION=4;
 
 function blobToDataURL(b){
   return new Promise((res,rej)=>{
@@ -10703,6 +10747,7 @@ async function exportProject(){
     savedAt:new Date().toISOString(),
     layers:LAYERS.slice(), hidden:[...HIDDEN_LAYERS].sort(),
     grid:projectGrid,
+    emptyChance:emptyChance,
     rules:RULES.map(g=>g.slice()),
     decisions:DECISIONS.map(d=>({a:d.a,b:d.b,ok:d.ok,at:d.at,by:d.by||null,src:d.src||"you"})),
     decideOrder:DECIDE_ORDER.slice(),
@@ -10805,6 +10850,16 @@ async function importProject(file){
     const box=$("rsgrid"); if(box) box.value=projectGrid;
     await saveGrid();
     restored.push("the "+projectGrid+" cell grid");
+  }
+  /* Same guard as the grid: only into a project that had nothing of its own
+     to overwrite. A file from before version 4 has no such field and leaves
+     this alone, which is the right answer for it. */
+  if(wasEmpty && typeof doc.emptyChance==="number"
+     && doc.emptyChance>=0 && doc.emptyChance<=0.9){
+    emptyChance=doc.emptyChance;
+    const box=$("cempty"); if(box) box.value=String(Math.round(emptyChance*100));
+    await saveEmptyChance();
+    restored.push("the "+Math.round(emptyChance*100)+"% empty chance");
   }
   /* Layers the file knows about and this browser does not get appended, in
      the order the file had them. The local order is not rewritten: it is
@@ -13114,6 +13169,11 @@ $('bulkfile').onchange=async e=>{
 };
 $('fliph').onclick=()=>flip(true);
 $('flipv').onclick=()=>flip(false);
+/* WRITTEN ON change, not on input. The handler below re-renders the whole
+   shelf on every keystroke already; a database write per keystroke would be
+   worse. Live while you move it, saved when you let go - the same split the
+   rarity sliders use. */
+$('cempty').addEventListener('change',()=>{ saveEmptyChance(); });
 $('cempty').addEventListener('input',()=>{
   /* Clamped here rather than trusted from the box: a number input still
      accepts anything typed, and a chance above 1 would empty every layer. */

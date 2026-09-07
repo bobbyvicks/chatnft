@@ -737,6 +737,33 @@ input[type=range]{width:100%; accent-color:var(--accent); cursor:pointer;}
    is 99999, rather than worked out on paper. */
 .side .olrow input[type=number]{width:66px;}
 /* ================= end density pass ============================= */
+
+/* THE REVIEW SHEET. A tile is a picture, a name and two answers.
+
+   auto-fill rather than a fixed count, because the sheet is 25 hairstyles
+   on one trait and 9 costumes on another, and a fixed grid leaves either a
+   scrollbar or a field of empty cells. */
+.revgrid{display:grid; gap:10px; max-height:62dvh; overflow-y:auto; padding:2px;
+  grid-template-columns:repeat(auto-fill,minmax(132px,1fr));}
+.revtile{border:1px solid var(--line); border-radius:10px; padding:6px;
+  background:var(--panel); display:flex; flex-direction:column; gap:5px;}
+/* The state is carried by the border as well as the buttons, so a sheet of
+   25 reads at a glance instead of one tile at a time. */
+.revtile.yes{border-color:var(--good,#3fa66a);}
+.revtile.no{border-color:var(--bad); opacity:.72;}
+.revtile canvas{width:100%; height:auto; image-rendering:pixelated;
+  border-radius:6px; background:var(--ink-bg,#0006);}
+.revtile .nm{font-size:11.5px; line-height:1.3; color:var(--dim);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.revtile .ans{display:flex; gap:5px;}
+.revtile .ans button{flex:1; padding:3px 0; font-size:11.5px;}
+/* The answer that is currently in force, filled in rather than outlined. */
+.revtile .ans button[aria-pressed="true"]{background:var(--accent-soft);
+  border-color:var(--accent); color:var(--accent);}
+@media (max-width:820px){
+  .revgrid{grid-template-columns:repeat(auto-fill,minmax(108px,1fr)); max-height:56dvh;}
+  .revtile .ans button{padding:7px 0; font-size:12.5px;}
+}
 footer{grid-area:foot; display:flex; align-items:center; gap:15px; padding:4px 16px;
   border-top:1px solid var(--line); background:var(--panel); font-size:11.5px; color:var(--muted);}
 footer .mono{color:var(--ink);}
@@ -1079,12 +1106,25 @@ footer .mono{color:var(--ink);}
     </div>
     <div id="rulelist"></div>
     <p class="note" id="rulestate" hidden></p>
+    <!-- Answering pairs by looking at them, which is how the rules were
+         made in the first place. The picker is two lists and a button so it
+         costs nothing until somebody opens it. -->
+    <div class="olrow" style="margin-top:6px">
+      <span>Review pairs</span>
+      <select id="revtrait" aria-label="Trait to review" style="flex:1;min-width:0"></select>
+      <select id="revlayer" aria-label="Against which layer" style="flex:1;min-width:0"></select>
+      <button class="mini" id="revopen"
+        title="Look at this trait over every trait on that layer and answer yes or no to each. Answers are shared with your group.">Review</button>
+    </div>
+    <p class="note" id="revcover" hidden></p>
     <!-- Building the curated set by hand is 99 rules and 919 members, which
          is about 919 trips through a dropdown of every trait in the
          collection. The file is the gesture. -->
     <div class="olrow" style="margin-top:6px">
       <button class="mini" id="ruleimport"
         title="Read a LaunchMyNFT rules file and turn it into Never-together rules. Nothing is replaced - rules already here are left alone - and any trait the file names that this project does not have is reported rather than invented.">Import rules from a file</button>
+      <button class="mini" id="ruleexport"
+        title="Write the rules back out as a LaunchMyNFT rules file, including everything answered here. Import it there with Rules > Import Rules.">Download for LaunchMyNFT</button>
     </div>
     <p class="note" id="ruleimportnote" hidden></p>
     <input type="file" id="rulefile" accept="application/json,.json" hidden>
@@ -1144,6 +1184,21 @@ footer .mono{color:var(--ink);}
 </div>
 
 <!-- ============ editor ============ -->
+<!-- The review sheet. Same overlay shape as the shortcuts panel: a scrim
+     that closes on Escape and on a click outside the card. -->
+<div class="scrim" id="revscrim" hidden>
+  <div class="card" role="dialog" aria-modal="true" aria-labelledby="revtitle" style="width:min(980px,96vw)">
+    <h2 id="revtitle"></h2>
+    <p class="sub" id="revsub"></p>
+    <div class="revgrid" id="revgrid"></div>
+    <div class="savebar" style="margin-top:18px">
+      <button class="btn ghost" id="revyesall">Yes to the rest</button>
+      <button class="btn ghost" id="revnoall">No to the rest</button>
+      <button class="btn" id="revclose" style="flex:1">Done</button>
+    </div>
+  </div>
+</div>
+
 <div class="scrim" id="ksscrim" hidden>
   <div class="card" role="dialog" aria-modal="true" aria-labelledby="kstitle">
     <h2 id="kstitle">Keyboard shortcuts</h2>
@@ -1845,6 +1900,21 @@ const LAYERS_ID='settings.layers';
    had before this existed and what a set with no rules still wants. */
 let DECIDE_ORDER=[];
 const DECIDE_ID='settings.decideorder';
+/* EVERY PAIR SOMEBODY HAS ANSWERED, and when.
+
+   Separate from RULES because a YES produces no rule, so the rule list
+   cannot tell an allowed pair from one nobody has looked at - and a review
+   needs that difference to show what is left to do.
+
+   Per pair, so two people reviewing at once merge instead of overwriting:
+   the newest answer to each pair wins and no answer is lost to a pair the
+   other person never opened. A whole-list adopt would have made a teammate
+   pressing Load lose everything they had answered since their last push. */
+let DECISIONS=[];
+const DECISIONS_ID='settings.decisions';
+/* Sorted, so the same pair answered from either side is one entry. */
+function pairOf(a,b){ return a<b ? [a,b] : [b,a]; }
+function pairId(a,b){ const p=pairOf(a,b); return p[0]+"\u0000"+p[1]; }
 /* Layers that are turned off: nothing in them is drawn onto a character, and
    nothing in them counts towards what the set can make.
 
@@ -2328,6 +2398,7 @@ async function renderShelf(){
      sheet drawn before it loaded would choose in the wrong order and show a
      collection the rules do not describe. */
   applyDecideOrder(items);
+  applyDecisions(items);
   const traits=items.filter(i=>i.kind==='trait');
   const visibility=currentShelfVisibility();
   const liveTraitKeys=new Set(traits.map(shelfCore.recordKey));
@@ -6257,6 +6328,159 @@ let cItems=[];
    Named layers rather than the whole order: a person cares which of the
    layers they wrote rules about gives way, and listing all sixteen would
    bury that. */
+/* ================= reviewing pairs ================================
+
+   A pair is in one of three states, and the third is why decisions are kept
+   apart from rules: "nobody has looked" is not "allowed", even though the
+   generator treats them the same. Without it the coverage line would be a
+   guess and the sheet could not say what is left. */
+function pairState(a,b){
+  if(RULES.some(g=>g.indexOf(a)>=0&&g.indexOf(b)>=0)) return "no";
+  const id=pairId(a,b);
+  const d=DECISIONS.find(x=>pairId(x.a,x.b)===id);
+  return d ? (d.ok?"yes":"no") : "unseen";
+}
+let revCond=null, revLayer=null;
+/* Which traits this sheet is about. Not traitEligible: a rule names a trait
+   by layer and name and carries no status, and an import leaves everything
+   wip - so reviewing only approved traits would show an empty sheet at the
+   exact moment somebody first tries it. */
+function revCandidates(){
+  return cItems.filter(t=>t&&t.kind==="trait"&&(t.layer||"unsorted")===revLayer)
+    .sort((x,y)=>String(x.name).localeCompare(String(y.name)));
+}
+function revFill(){
+  const T=$("revtrait"), L=$("revlayer");
+  if(!T||!L) return;
+  const keep=T.value, keepL=L.value;
+  T.innerHTML="";
+  const keys=[...new Set(cItems.filter(t=>t&&t.kind==="trait").map(traitKey))].sort();
+  for(const k of keys){ const o=document.createElement("option"); o.value=k; o.textContent=k; T.appendChild(o); }
+  if(keys.indexOf(keep)>=0) T.value=keep;
+  /* Every layer except the one the trait is on: only one trait per layer is
+     ever chosen, so a pair inside a layer can never occur and answering it
+     would write a rule that can never bite. */
+  const own=T.value?T.value.slice(0,T.value.indexOf("/")):null;
+  L.innerHTML="";
+  for(const l of LAYERS){
+    if(l===own||l==="unsorted") continue;
+    const o=document.createElement("option"); o.value=l; o.textContent=l; L.appendChild(o);
+  }
+  if([...L.options].some(o=>o.value===keepL)) L.value=keepL;
+  revCoverage();
+}
+/* How much of this sheet has been answered, said before it is opened so the
+   picker is worth reading on its own. */
+function revCoverage(){
+  const el=$("revcover"); if(!el) return;
+  const cond=$("revtrait").value, layer=$("revlayer").value;
+  if(!cond||!layer){ el.hidden=true; return; }
+  const was=[revCond,revLayer]; revCond=cond; revLayer=layer;
+  const list=revCandidates();
+  revCond=was[0]; revLayer=was[1];
+  if(!list.length){ el.hidden=false; el.textContent="Nothing on "+layer+" to compare it with."; return; }
+  let seen=0, no=0;
+  for(const t of list){ const s=pairState(cond,traitKey(t)); if(s!=="unseen") seen++; if(s==="no") no++; }
+  el.hidden=false;
+  el.textContent=seen+" of "+list.length+" answered"+(no?", "+no+" excluded":"")+".";
+}
+/* One tile: the two traits over the base, painted in the order they would
+   be on a character. Live from the project rather than a stored sheet, so a
+   trait that has been re-cut cannot leave a stale picture behind it. */
+async function revPaint(cv,cond,cand){
+  const base=cItems.find(i=>i&&i.kind==="ref");
+  const pieces=[base,cond,cand].filter(Boolean);
+  let W=0,H=0;
+  for(const p of pieces){ if(p.w>W) W=p.w; if(p.h>H) H=p.h; }
+  if(!W||!H){ W=160; H=160; }
+  cv.width=W; cv.height=H;
+  const g=cv.getContext("2d");
+  g.imageSmoothingEnabled=false;
+  g.clearRect(0,0,W,H);
+  /* Paint order, not decide order - this is a picture of the character. */
+  const at=l=>{ const i=LAYERS.indexOf(l); return i<0?LAYERS.length:i; };
+  const two=[cond,cand].sort((a,b)=>at(a.layer||"unsorted")-at(b.layer||"unsorted"));
+  for(const p of (base?[base]:[]).concat(two)){
+    try{ paintTrait(g,await cBitmap(p),0,0,W,H); }catch(_){ }
+  }
+}
+async function revBuild(){
+  const grid=$("revgrid"); if(!grid) return;
+  grid.innerHTML="";
+  const cond=cItems.find(t=>t&&t.kind==="trait"&&traitKey(t)===revCond);
+  const list=revCandidates();
+  $("revtitle").textContent=revCond+" over "+revLayer;
+  $("revsub").textContent=list.length
+    ? "Yes allows the pair. No keeps them off the same character. Answers are saved as you make them."
+    : "Nothing on that layer yet.";
+  for(const t of list){
+    const k=traitKey(t);
+    const tile=document.createElement("div");
+    tile.className="revtile";
+    const cv=document.createElement("canvas");
+    tile.appendChild(cv);
+    const nm=document.createElement("div");
+    nm.className="nm"; nm.textContent=t.name; nm.title=k;
+    tile.appendChild(nm);
+    const ans=document.createElement("div"); ans.className="ans";
+    const mk=(label,ok)=>{
+      const b=document.createElement("button");
+      b.className="mini"; b.type="button"; b.textContent=label;
+      b.setAttribute("aria-label",label+" to "+revCond+" with "+k);
+      b.onclick=async()=>{
+        b.disabled=true;
+        try{ await decidePair(revCond,k,ok); }catch(_){ toast("Could not save that answer"); }
+        b.disabled=false;
+        revMark(tile,revCond,k);
+        revCoverage();
+        await renderShelf();
+      };
+      return b;
+    };
+    ans.appendChild(mk("Yes",true));
+    ans.appendChild(mk("No",false));
+    tile.appendChild(ans);
+    grid.appendChild(tile);
+    revMark(tile,revCond,k);
+    if(cond) revPaint(cv,cond,t);
+  }
+}
+/* The state on the tile, from the rules and the answers rather than from
+   what the click did - so a rule changed anywhere else shows up here. */
+function revMark(tile,a,b){
+  const s=pairState(a,b);
+  tile.classList.toggle("yes",s==="yes");
+  tile.classList.toggle("no",s==="no");
+  const btns=tile.querySelectorAll(".ans button");
+  if(btns[0]) btns[0].setAttribute("aria-pressed",String(s==="yes"));
+  if(btns[1]) btns[1].setAttribute("aria-pressed",String(s==="no"));
+}
+async function revAll(ok){
+  /* THE REST, not everything: a bulk answer must not overwrite the ones
+     somebody has already thought about. */
+  const list=revCandidates().filter(t=>pairState(revCond,traitKey(t))==="unseen");
+  if(!list.length){ toast("Every pair here has been answered"); return; }
+  for(const t of list){
+    DECISIONS=mergeDecisions(DECISIONS,[{a:revCond,b:traitKey(t),ok:!!ok,at:Date.now()}]);
+    applyDecision(revCond,traitKey(t),ok);
+  }
+  try{ await saveRules(); }catch(_){ toast("Could not save those answers"); return; }
+  await revBuild(); revCoverage(); await renderShelf();
+  toast(list.length+" answered "+(ok?"yes":"no"));
+}
+async function revOpen(on){
+  const sc=$("revscrim"); if(!sc) return;
+  if(!on){ sc.hidden=true; return; }
+  revCond=$("revtrait").value; revLayer=$("revlayer").value;
+  if(!revCond||!revLayer){ toast("Pick a trait and a layer"); return; }
+  sc.hidden=false;
+  await revBuild();
+  /* AFTER revCond and revLayer are set from the pickers. revFill runs this
+     too, but with whatever the layer picker held at the time - so opening a
+     sheet for hair showed the count for skins, which is a real number about
+     something else. */
+  revCoverage();
+}
 function ruleState(){
   const el=$("rulestate"); if(!el) return;
   if(!RULES.length){ el.hidden=true; el.textContent=""; return; }
@@ -6274,9 +6498,17 @@ function ruleState(){
      so the two lines cannot disagree about what the project is called. */
   const sel=$("wssel");
   const where=activeWs ? ((sel&&sel.selectedOptions[0]&&sel.selectedOptions[0].textContent)||"this group") : null;
+  /* This used to say "Save to cloud does not send them", which was true and
+     is not any more. A note that describes an old behaviour confidently is
+     worse than no note, so it is replaced rather than left beside the fix.
+
+     Read from sharedRuleSig, which is set only when a PATCH actually
+     arrived - so "shared" means shared, and a send that failed says so and
+     is retried by the next answer. */
   if(activeWs)
-    bits.push("These "+RULES.length+" rules are on this device only - Save to cloud does not send them, so nobody else in "
-      +where+" has them. Share the rules file and let them import it");
+    bits.push(sharedRuleSig
+      ? "These "+RULES.length+" rules are shared with "+where+", so everyone in it generates the same collection"
+      : "These "+RULES.length+" rules have not reached "+where+" yet - the next answer or rule change sends them again");
   else
     bits.push("They live in this browser only, so keep the file you imported them from");
   el.hidden=false;
@@ -6440,6 +6672,8 @@ async function buildCompose(items){
   buildRules(traits);
   /* After buildRules, because it counts the rules that were just drawn. */
   ruleState();
+  /* After buildRules, which is where cItems is current. */
+  revFill();
   const rows=$("crows");
   const keep={};
   rows.querySelectorAll("select").forEach(s=>{ keep[s.dataset.layer]=s.value; });
@@ -7628,6 +7862,68 @@ async function retargetRules(pairs){
   await saveRules();
   return touched;
 }
+/* THE RULES, AS LAUNCHMYNFT READS THEM.
+
+   The inverse of planRuleImport, and the direction is the whole difficulty.
+   A group here says "at most one of these" and says nothing about which one
+   gives way; a LaunchMyNFT rule names a condition and a target, and the
+   TARGET is what gets re-picked. DECIDE_ORDER holds that answer already -
+   the layer decided earlier wins here, so it is the condition there.
+
+   Every PAIR is placed separately and then gathered by (condition, target
+   layer), so a group spanning three layers - which the import never builds
+   but a hand-made rule can - comes out as several correct rules rather than
+   one wrong one. */
+function exportRules(traits){
+  const byLayer=new Map();
+  for(const t of (traits||[])){
+    if(!t||t.kind!=="trait") continue;
+    const l=t.layer||"unsorted";
+    if(!byLayer.has(l)) byLayer.set(l,[]);
+    if(byLayer.get(l).indexOf(t.name)<0) byLayer.get(l).push(t.name);
+  }
+  for(const [,v] of byLayer) v.sort();
+  const order=decideOrder();
+  const rank=l=>{ const i=order.indexOf(l); return i<0?order.length:i; };
+  const split=k=>({layer:k.slice(0,k.indexOf("/")), name:k.slice(k.indexOf("/")+1)});
+  /* condition trait -> target layer -> the traits it forbids there. */
+  const forbid=new Map();
+  let crossed=0;
+  for(const g of RULES){
+    for(let i=0;i<g.length;i++) for(let j=i+1;j<g.length;j++){
+      const A=split(g[i]), B=split(g[j]);
+      /* Two traits on ONE layer can never both be drawn, so a rule about
+         them is not a rule LaunchMyNFT needs - and expressing it would make
+         a layer forbid itself. */
+      if(A.layer===B.layer) continue;
+      const cond = rank(A.layer)<=rank(B.layer) ? A : B;
+      const targ = cond===A ? B : A;
+      crossed++;
+      const ck=cond.layer+"/"+cond.name;
+      if(!forbid.has(ck)) forbid.set(ck,new Map());
+      const m=forbid.get(ck);
+      if(!m.has(targ.layer)) m.set(targ.layer,new Set());
+      m.get(targ.layer).add(targ.name);
+    }
+  }
+  const out=[], missing=[];
+  for(const [ck,m] of [...forbid.entries()].sort((a,b)=>a[0]<b[0]?-1:1)){
+    const c=split(ck);
+    if(!byLayer.has(c.layer)||byLayer.get(c.layer).indexOf(c.name)<0){ missing.push(ck); continue; }
+    const then=[];
+    for(const [tl,set] of [...m.entries()].sort((a,b)=>a[0]<b[0]?-1:1)){
+      const all=byLayer.get(tl)||[];
+      const allowed=all.filter(n=>!set.has(n));
+      /* An empty allow-list is a rule that can never be satisfied, and their
+         validator says so. "hide layer" is how that is written there. */
+      then.push(allowed.length
+        ? {action:"only pick from", targetLayer:tl, targetTrait:allowed.map(n=>n+".png")}
+        : {action:"hide layer", targetLayer:tl, targetTrait:[]});
+    }
+    if(then.length) out.push({layer:c.layer, operation:"is", trait:[c.name+".png"], thenStatements:then});
+  }
+  return {rules:out, pairs:crossed, missing:missing};
+}
 /* A trait name as the rules file writes it, reduced to something that can be
    compared with a name in this project. The file carries filenames
    ("BTC Cap.png"); a trait here is named by bulkImport as the filename with
@@ -7646,7 +7942,7 @@ function ruleImportName(n){
    Returns the groups it would add, the decide order it would set, and
    every reason it skipped something. It never touches RULES. */
 function planRuleImport(docIn, traits){
-  const out={groups:[], order:[], actions:0, restrictNothing:0,
+  const out={groups:[], order:[], actions:0, restrictNothing:0, pairs:[], decisions:[],
     missingTraits:[], missingLayers:[], badOps:[], ambiguous:[], edges:[]};
   if(!Array.isArray(docIn)) throw new Error("That file is not a list of rules.");
   /* What this project actually has, per layer, keyed by the reduced name.
@@ -7695,6 +7991,10 @@ function planRuleImport(docIn, traits){
             if(m!==undefined) allow.add(m); else out.missingTraits.push(tl+"/"+a);
           }
         const deny=all.filter(n=>!allow.has(n));
+        /* Both sides, for the decision record: what it forbids and what it
+           lets through. The groups below still carry only the forbidden
+           side, so the rule list stays as compact as it was. */
+        for(const n of all) out.pairs.push({a:ck,b:tl+"/"+n,ok:deny.indexOf(n)<0});
         /* An action that forbids nothing is not a rule. Counted, so the
            report can say why 121 actions became fewer groups. */
         if(!deny.length){ out.restrictNothing++; continue; }
@@ -7704,6 +8004,23 @@ function planRuleImport(docIn, traits){
         if(cl!==tl) out.edges.push([cl,tl]);
       }
     }
+  }
+  /* WHAT THIS FILE SETTLES, as answers rather than only as rules.
+
+     A rule can only say "these two never together", so a file that has
+     STOPPED forbidding a pair has no way to say so and the old rule lives
+     forever. Recording the allow side fixes that - but only where it
+     changes something. A yes for every allowed pair would be tens of
+     thousands of entries on a real collection; a yes only where a rule
+     currently forbids it is exactly the leftovers of the previous run.
+
+     Read from RULES as they stand, before anything is added, so "currently
+     forbidden" means by the OLD set rather than by this import. */
+  const now=Date.now();
+  for(const d of out.pairs){
+    if(!d.ok){ out.decisions.push({a:d.a,b:d.b,ok:false,src:"file",at:now}); continue; }
+    if(RULES.some(g=>g.indexOf(d.a)>=0&&g.indexOf(d.b)>=0))
+      out.decisions.push({a:d.a,b:d.b,ok:true,src:"file",at:now});
   }
   out.order=decideOrderFor(out.edges);
   return out;
@@ -7739,6 +8056,73 @@ function decideOrderFor(edges){
   }
   return order;
 }
+/* Newest answer per pair. Order-independent, so it does not matter which
+   side is called "mine" - which is what makes it safe to run on a pull and
+   on a push with the same result. */
+function mergeDecisions(a,b){
+  const by=new Map();
+  for(const d of (a||[]).concat(b||[])){
+    if(!d||!d.a||!d.b) continue;
+    const k=pairId(d.a,d.b), prev=by.get(k);
+    const one={a:pairOf(d.a,d.b)[0],b:pairOf(d.a,d.b)[1],ok:!!d.ok,at:d.at||0,
+      by:d.by||null,src:d.src==="file"?"file":"you"};
+    if(!prev){ by.set(k,one); continue; }
+    /* SOURCE OUTRANKS TIME. Newest-wins alone let a regenerated file revert
+       an answer somebody gave in the sheet after looking at the picture -
+       measured: a yes on cap+mop came back as an exclusion on the next
+       import, while the decision log still said yes. A person looked at it;
+       the generator guessed. Among the SAME source the newest still wins, so
+       two reviewers still merge by time and a re-run still supersedes the
+       run before it. */
+    const wins = (one.src==="you"&&prev.src!=="you") ? true
+               : (prev.src==="you"&&one.src!=="you") ? false
+               : (one.at>=prev.at);
+    if(wins) by.set(k,one);
+  }
+  return [...by.values()];
+}
+/* Make the rules agree with one answer.
+
+   NO: the two must not share a character, so they need a group holding
+   both. If one already does, nothing to do - widening it would be a second
+   rule saying the same thing.
+
+   YES: they must not share a group. WHICH member leaves matters. A group
+   the import builds is one condition trait plus every trait it forbids on
+   ONE other layer, so removing the member whose layer is crowded changes
+   exactly this pair - the others were already unable to co-occur, being on
+   one layer. Removing the lone member instead would dissolve the whole
+   rule and allow every pair in it.
+
+   A group spanning three layers has no such lone member, and there taking
+   one out does allow its other pairings too. Nothing the import makes has
+   that shape; a hand-made one can, and this is the honest limit of doing it
+   in one operation rather than splitting the group. */
+function applyDecision(a,b,ok){
+  const A=pairOf(a,b)[0], B=pairOf(a,b)[1];
+  const holds=g=>g.indexOf(A)>=0&&g.indexOf(B)>=0;
+  if(!ok){
+    if(RULES.some(holds)) return false;
+    RULES=RULES.concat([ruleGroup([A,B])]);
+    return true;
+  }
+  let moved=false;
+  RULES=RULES.map(g=>{
+    if(!holds(g)) return g;
+    moved=true;
+    const layerOf=k=>k.slice(0,k.indexOf("/"));
+    const n=k=>g.filter(x=>layerOf(x)===layerOf(k)).length;
+    const drop = n(B)>=n(A) ? B : A;
+    return g.filter(x=>x!==drop);
+  }).filter(g=>g.length>=2);
+  return moved;
+}
+/* One answer, recorded and applied. */
+async function decidePair(a,b,ok){
+  DECISIONS=mergeDecisions(DECISIONS,[{a:a,b:b,ok:!!ok,at:Date.now()}]);
+  applyDecision(a,b,ok);
+  await saveRules();
+}
 async function saveRules(){
   /* Both fields, in one statement, so they cannot drift apart.
 
@@ -7752,6 +8136,35 @@ async function saveRules(){
     pairs:RULES.reduce((acc,g)=>{
       for(let i=0;i<g.length;i++) for(let j=i+1;j<g.length;j++) acc.push([g[i],g[j]]);
       return acc; },[])});
+  await dbPut({id:DECISIONS_ID, kind:"settings", at:Date.now(),
+    decisions:DECISIONS.map(d=>({a:d.a,b:d.b,ok:d.ok,at:d.at,by:d.by||null}))});
+  /* AND THE GROUP. Same shape as saveLayers: sent when it changed, and the
+     signature is remembered only when the send actually arrived, so a failed
+     one is retried by the next change rather than assumed done. */
+  return await shareRules();
+}
+/* Rules, the order they are decided in, and the answers behind them - one
+   PATCH, because a reader that got the rules without the decisions could not
+   tell which pairs had been reviewed. */
+let sharedRuleSig=null;
+async function shareRules(){
+  if(!activeWs){ sharedRuleSig=null; return false; }
+  const sig=JSON.stringify([RULES,DECIDE_ORDER,DECISIONS]);
+  if(sig===sharedRuleSig) return true;
+  let shared=false;
+  try{
+    const u=await sbUser();
+    const c=u?await cloudCollection(u):null;
+    const h=c?await sbHeaders({"Content-Type":"application/json"}):null;
+    if(c&&h){
+      const r=await fetch(SB_URL+"/rest/v1/collections?id=eq."+c.id,{method:"PATCH",
+        headers:h, body:JSON.stringify({rules:RULES, decide_order:DECIDE_ORDER,
+          decisions:DECISIONS})});
+      shared=r.ok;
+    }
+  }catch(_){ shared=false; }
+  sharedRuleSig = shared ? sig : null;
+  return shared;
 }
 /* Does this trait clash with anything already on the character? */
 /* WHICH TRAITS A TRAIT MAY NOT SHARE A CHARACTER WITH, worked out once per
@@ -8029,6 +8442,10 @@ function decideOrder(){
    import, which knows which layer is the condition and which is the target. */
 async function saveDecideOrder(){
   await dbPut({id:DECIDE_ID, kind:"settings", at:Date.now(), order:DECIDE_ORDER.slice()});
+}
+function applyDecisions(items){
+  const rec=items.find(i=>i.id===DECISIONS_ID);
+  DECISIONS = (rec&&Array.isArray(rec.decisions)) ? mergeDecisions(rec.decisions,[]) : [];
 }
 function applyDecideOrder(items){
   const rec=items.find(i=>i.id===DECIDE_ID);
@@ -8797,7 +9214,7 @@ async function cloudCollection(u){
   if(!team) return null;
   const h=await sbHeaders({"Content-Type":"application/json"});
   if(!h) return null;
-  let r=await fetch(SB_URL+"/rest/v1/collections?select=id,layers&team_id=eq."+team+"&limit=1",{headers:h});
+  let r=await fetch(SB_URL+"/rest/v1/collections?select=id,layers,rules,decisions,decide_order&team_id=eq."+team+"&limit=1",{headers:h});
   if(r.ok){ const rows=await r.json(); if(rows.length) return rows[0]; }
   r=await fetch(SB_URL+"/rest/v1/collections",{method:"POST",
     headers:Object.assign({Prefer:"return=representation"},h),
@@ -9500,6 +9917,34 @@ async function cloudPull(opts){
   if(Array.isArray(c.layers)){
     for(const l of c.layers) if(LAYERS.indexOf(l)<0){ LAYERS.push(l); newLayers++; }
     if(newLayers) await saveLayers();
+  }
+  /* THE RULES AND THE ANSWERS BEHIND THEM.
+
+     Merged per pair, not adopted whole: a teammate pressing Load in the
+     middle of a review must not lose the answers they have given since
+     their last push, and a whole-list adopt would take all of them.
+
+     An EMPTY server side is not an answer. Anyone whose rules predate the
+     column has them locally and nothing up there, and adopting [] would
+     delete the lot - so an empty server takes the local copy instead. */
+  let pulledRules=0;
+  if(Array.isArray(c.rules)||Array.isArray(c.decisions)){
+    const theirs=Array.isArray(c.rules)?c.rules.filter(g=>Array.isArray(g)).map(ruleGroup).filter(g=>g.length>=2):[];
+    const merged=mergeDecisions(DECISIONS,Array.isArray(c.decisions)?c.decisions:[]);
+    if(theirs.length||merged.length){
+      if(theirs.length) RULES=theirs;
+      DECISIONS=merged;
+      /* Every answer applied to the base, so one that contradicts a rule
+         somebody made by hand wins - it was given later. */
+      for(const d of DECISIONS) applyDecision(d.a,d.b,d.ok);
+      if(Array.isArray(c.decide_order)&&c.decide_order.length)
+        DECIDE_ORDER=c.decide_order.map(String).filter(Boolean);
+      pulledRules=RULES.length;
+      await saveRules();
+    } else if(RULES.length){
+      /* Nothing up there and something here: send it rather than lose it. */
+      await saveRules();
+    }
   }
   await renderShelf();
   $("cloudpull").disabled=false;
@@ -10800,6 +11245,52 @@ $('ruleadd').onclick=async()=>{
   toast(a+" and "+b+" will not appear together");
 };
 $('ruleimport').onclick=()=>$('rulefile').click();
+$('ruleexport').onclick=async()=>{
+  const note=$("ruleimportnote"); note.hidden=false;
+  let items=[]; try{ items=await dbAll(); }catch(_){ }
+  const r=exportRules(items.filter(i=>i.kind==="trait"));
+  if(!r.rules.length){
+    note.textContent=RULES.length
+      ? "Nothing to write out - every rule names a trait this project no longer has."
+      : "No rules yet. Import a file or answer some pairs first.";
+    return;
+  }
+  const b=new Blob([JSON.stringify(r.rules,null,2)],{type:"application/json"});
+  const u=URL.createObjectURL(b), a=document.createElement("a");
+  a.href=u; a.download="trait-rules-from-chatnft.json";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(u),1000);
+  /* What it wrote, in the terms of the thing it wrote it for. A conditions
+     count is what LaunchMyNFT shows on import, so it is what to compare. */
+  const bits=[r.rules.length+" condition"+(r.rules.length===1?"":"s")+" written from "+RULES.length+" rule"+(RULES.length===1?"":"s")];
+  bits.push("import it with Rules > Import Rules, which REPLACES the rule list there");
+  if(r.missing.length) bits.push(r.missing.length+" rule"+(r.missing.length===1?"":"s")+" named a trait this project no longer has and "+(r.missing.length===1?"was":"were")+" left out");
+  note.textContent=bits.join(". ")+".";
+  toast("Wrote "+r.rules.length+" conditions");
+};
+$('revopen').onclick=()=>revOpen(true);
+$('revclose').onclick=()=>revOpen(false);
+$('revyesall').onclick=()=>revAll(true);
+$('revnoall').onclick=()=>revAll(false);
+$('revtrait').onchange=()=>{ revFill(); };
+$('revlayer').onchange=()=>revCoverage();
+/* Closes on a click outside the card, like the shortcuts panel. */
+$('revscrim').onclick=e=>{ if(e.target===$('revscrim')) revOpen(false); };
+/* ESCAPE, ON ITS OWN LISTENER. The SHORTCUTS table is the editor's - its
+   handler returns immediately while $('app') is hidden, which is exactly
+   when this sheet is open - so an entry there could never fire, and would
+   have printed a dead key into the help panel. #projsearch already takes
+   Escape this way for the same reason.
+
+   Bound once, and it does nothing unless the sheet is up, so it cannot
+   swallow an Escape meant for anything else. */
+function revEscape(e){
+  if(e.key!=="Escape") return;
+  if($("revscrim").hidden) return;
+  e.preventDefault();
+  revOpen(false);
+}
+document.addEventListener("keydown",revEscape);
 $('rulefile').onchange=async(e)=>{
   const f=e.target.files&&e.target.files[0];
   /* Cleared straight away so choosing the same file twice fires again -
@@ -10828,6 +11319,9 @@ $('rulefile').onchange=async(e)=>{
     return;
   }
   const before=RULES.length;
+  /* What was in force before, so the report can say what this file took
+     back as well as what it added. */
+  const was=new Set(RULES.map(ruleId));
   const have=new Set(RULES.map(ruleId));
   let added=0, already=0;
   for(const g of plan.groups){
@@ -10835,9 +11329,15 @@ $('rulefile').onchange=async(e)=>{
     if(have.has(id)){ already++; continue; }
     have.add(id); RULES.push(g); added++;
   }
-  /* The order the rules need to MEAN what they say. Written only when the
-     sort found one - a cycle returns nothing, and an order invented to fill
-     the gap would be a collection nobody could account for. */
+  /* THEN the answers, over the top. The file's own yes entries undo rules a
+     previous version of it left behind; a person's answers survive both,
+     because mergeDecisions ranks source above time. Applied after the groups
+     are added so a human yes can take back a pair this very import added. */
+  const mine=DECISIONS.filter(d=>d.src!=="file").length;
+  DECISIONS=mergeDecisions(DECISIONS,plan.decisions);
+  for(const d of DECISIONS) applyDecision(d.a,d.b,d.ok);
+  const kept=DECISIONS.filter(d=>d.src!=="file").length;
+  const removed=[...was].filter(id=>!RULES.some(g=>ruleId(g)===id)).length;
   let ordered=false;
   if(plan.order.length){ DECIDE_ORDER=plan.order.slice(); ordered=true; }
   try{
@@ -10855,6 +11355,10 @@ $('rulefile').onchange=async(e)=>{
   const bits=[];
   bits.push("Added "+added+" rule"+(added===1?"":"s")+" from "+plan.actions+" restrictions");
   if(already) bits.push(already+" already here");
+  /* NAMED, because a re-import that quietly dropped rules or quietly
+     reverted somebody's answers is the thing this was fixed for. */
+  if(removed) bits.push(removed+" no longer wanted by this file "+(removed===1?"was":"were")+" removed");
+  if(kept) bits.push(kept+" of your own answer"+(kept===1?"":"s")+" kept over the file");
   if(plan.restrictNothing) bits.push(plan.restrictNothing+" allowed everything and needed no rule");
   if(ordered) bits.push("layers now decide in the order "+DECIDE_ORDER.filter(l=>
     plan.edges.some(e=>e[0]===l||e[1]===l)).join(", "));

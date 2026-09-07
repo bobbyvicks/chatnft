@@ -204,6 +204,32 @@ test.describe('importing a curated rules file', () => {
     expect(r.rules.length, 'alongside the two imported ones').toBe(3);
   });
 
+  test('it matches traits that are still wip, because a rule ignores status', async ({ page }) => {
+    /* THE ORDER A PERSON ACTUALLY DOES THIS IN. Importing a folder with no
+       approved/ subfolders leaves every trait wip, and approving 233 of them
+       is the job you do AFTER checking the rules are right. If the import
+       matched only approved traits it would find nothing at the exact moment
+       somebody first tries it, and the report would say the layers were
+       missing - which would be a lie.
+
+       A rule key is layer/name and carries no status, which is also why a rule
+       survives approving the trait it names. */
+    await page.evaluate(async () => {
+      const traits = (await dbAll()).filter(i => i.kind === 'trait');
+      for (const t of traits) {
+        await dbDel(t.id);
+        await dbPut({ ...t, id: 't_' + t.name + '_' + t.layer + '_wip', status: 'wip' });
+      }
+      await renderShelf();
+    });
+    const wip = await page.evaluate(async () =>
+      (await dbAll()).filter(i => i.kind === 'trait' && i.status === 'wip').length);
+    expect(wip, 'the fixture really is all wip now').toBeGreaterThan(0);
+    const r = await importFile(page, [DOC[0]]);
+    expect(r.rules, 'the rule was made against the wip traits')
+      .toEqual(['hair/bob|hair/curls|hair/mop|hats/apehead']);
+  });
+
   test('a file that is not a rules file is refused, and nothing changes', async ({ page }) => {
     const before = await page.evaluate(() => RULES.length);
     await page.setInputFiles('#rulefile', { name: 'x.json', mimeType: 'application/json',

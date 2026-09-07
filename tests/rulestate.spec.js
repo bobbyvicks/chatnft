@@ -1,25 +1,31 @@
 /* What the rules actually do, and who has them - both of which the app knew
    and never said.
 
-   THE RULES NEVER LEAVE THIS BROWSER. cloudPush uploads
+   THIS FILE PINS WHAT THE PANEL SAYS, and the panel has had to say two
+   different true things.
+
+   It was written when rules never left the browser. cloudPush uploads
    `.filter(i => i.kind==="trait"||i.kind==="ref")`, settings are not in that
-   filter, and RULES appears in no request body in the file. The one setting
-   that reaches the server is the layer list. So in a group project one person
-   can import a hundred curated fit decisions and every teammate generates
-   without them - hats stacked on hair, in a collection built to stop exactly
-   that - and nothing said so.
+   filter, and the only setting reaching the server was the layer list - so one
+   person could curate a hundred combination rules and every teammate would
+   generate without them, hats stacked on hair in a collection built to stop
+   exactly that. The app already knew how to say this for the layer ORDER
+   (LAYERS_NOT_SHARED, at five call sites) and said nothing about the rules.
 
-   The app already knew how to say this for the layer ORDER: LAYERS_NOT_SHARED
-   is " - the group has not got the layer list yet, press Save to cloud", at
-   five call sites, and the trait banner says "N of these are only on this
-   device". The rules, which take far more work to recreate, got nothing.
+   Then a rules column was added to collections and saveRules began PATCHing
+   it, which made the sentence "Save to cloud does not send them" FALSE - and
+   the test pinning that sentence failed, which is how it got replaced instead
+   of left standing beside the fix. A note describing an old behaviour
+   confidently is worse than no note.
 
-   AND THE DECIDE ORDER WAS INVISIBLE. It decides which of two clashing traits
-   survives, and after a reload nothing on screen said one existed.
+   What it says now is read from sharedRuleSig, which is set only when a PATCH
+   actually arrived - so "shared" is an observation, not an intention, and a
+   send that failed says so and is retried by the next change. Two tests, one
+   for each answer, because a note that could only ever say one of them would
+   pass a single test while being useless.
 
-   The last test is the one that keeps this honest: if somebody starts syncing
-   rules, the sentence saying they are not synced becomes a lie, and a note
-   that lies is worse than no note.
+   AND THE DECIDE ORDER, which decides which of two clashing traits survives
+   and which nothing on screen mentioned after a reload.
 */
 import { test, expect } from '@playwright/test';
 
@@ -74,14 +80,57 @@ test.describe('what the rules panel says about itself', () => {
     expect(r.text, 'and does not talk about a group you are not in').not.toContain('nobody else');
   });
 
-  test('in a group it says nobody else has them', async ({ page }) => {
-    /* THE ONE THAT MATTERS. A teammate generating without these rules
-       produces exactly the collection the rules exist to prevent. */
+  test('in a group it says whether they actually got there', async ({ page }) => {
+    /* THIS TEST USED TO ASSERT THE OPPOSITE, and correctly failed the moment
+       the rules started syncing: it pinned the sentence "Save to cloud does
+       not send them", which was true when it was written and became a lie
+       when a rules column was added to collections. A note describing an old
+       behaviour confidently is worse than no note, so the sentence was
+       replaced rather than left standing beside the fix - and this test
+       failing is how that was noticed rather than shipped.
+
+       "Shared" is read from sharedRuleSig, which is set only when a PATCH
+       actually arrived. It is not a claim about what the code intends. */
     const r = await seed(page, { rules: [['hair/bob', 'hats/cap']], group: true });
     expect(r.text, 'it names the count').toContain('1 rules');
-    expect(r.text, 'says they are not sent').toContain('Save to cloud does not send them');
-    expect(r.text, 'says who is missing them').toContain('nobody else in');
-    expect(r.text, 'and what to do instead').toContain('Share the rules file');
+    expect(r.text, 'and says they have not got there, because nothing sent them')
+      .toContain('have not reached');
+    expect(r.text, 'never claiming a send that did not happen')
+      .not.toContain('are shared with');
+  });
+
+  test('and says they are shared once a send has arrived', async ({ page }) => {
+    /* The other half. Without it the test above passes on a note that can only
+       ever say "not reached" - which is the same shape as the assertions found
+       dead earlier today. */
+    const r = await page.evaluate(async () => {
+      activeWs = 'team1';
+      cloudTeamId = 'team1';
+      localStorage.setItem('chatnft.session', JSON.stringify({
+        access_token: 'x', refresh_token: 'y',
+        expires_at: Math.floor(Date.now() / 1000) + 3600, user: { id: 'u1' } }));
+      const real = window.fetch;
+      const json = (o) => new Response(JSON.stringify(o), { status: 200,
+        headers: { 'Content-Type': 'application/json' } });
+      window.fetch = (u) => {
+        const s = String(u);
+        if (s.indexOf('/auth/v1/user') >= 0) return Promise.resolve(json({ id: 'u1' }));
+        if (s.indexOf('/rpc/my_team') >= 0) return Promise.resolve(json('team1'));
+        if (s.indexOf('/rest/v1/collections') >= 0)
+          return Promise.resolve(json([{ id: 'c1', layers: ['skins'] }]));
+        return Promise.resolve(json([]));
+      };
+      try {
+        RULES = [['hair/bob', 'hats/cap']];
+        await saveRules();
+        ruleState();
+      } finally { window.fetch = real; }
+      return { text: document.getElementById('rulestate').textContent,
+        sig: sharedRuleSig !== null };
+    });
+    expect(r.sig, 'the send really did arrive').toBe(true);
+    expect(r.text, 'so it says so').toContain('are shared with');
+    expect(r.text, 'and stops saying they are stuck here').not.toContain('have not reached');
   });
 
   test('and it names the decide order, which nothing else showed', async ({ page }) => {
@@ -114,12 +163,14 @@ test.describe('what the rules panel says about itself', () => {
     expect(r.text, 'but it still says where they live').toContain('this browser only');
   });
 
-  test('the claim it makes about syncing is still true of the code', async ({ page }) => {
-    /* THE ONE THAT KEEPS IT HONEST. The note says Save to cloud does not send
-       the rules. If that ever changes and the sentence stays, the app is
-       lying to somebody about whether their collaborators are protected -
-       which is worse than never having said anything. Asserted against what
-       cloudPush actually uploads, not against a comment about it. */
+  test('Save to cloud still does not carry them - a different path does', async ({ page }) => {
+    /* WHAT THIS PINS NOW. The rules reach the group through saveRules, which
+       PATCHes the collection, and NOT through cloudPush, which uploads traits
+       and base characters and nothing else. Both facts matter: the first is
+       why the note can say "shared", and the second is why pressing Save to
+       cloud is not what shares them - so a future change that moves rule
+       sharing into cloudPush should red this and be looked at rather than
+       silently making the panel's wording wrong again. */
     const r = await page.evaluate(async () => {
       try { authed = true; } catch (_) {}
       try { gateShow(false); } catch (_) {}

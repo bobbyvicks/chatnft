@@ -88,6 +88,10 @@ something. Good places to look, in order:
 
 Newest first. Delete the oldest when this passes 12.
 
+- 2026-09-06 — Pairs can be answered by looking at them: a trait, a target layer, every pairing composited live from the artwork, and Yes or No on each — three states, because "nobody has looked" is not "allowed"
+- 2026-09-06 — Rules, the answers behind them and the decide order reach the group, merged per PAIR so two people reviewing at once keep both halves instead of the second save wiping the first
+- 2026-09-06 — Re-importing a regenerated file left a stale rule the new file explicitly allowed, silently reverted an answer given on the site, and left the rules and the decision log contradicting each other
+- 2026-09-06 — The rules can be written back out as a LaunchMyNFT file, which is what the collection launches with; 1,455 forbidden pairs in and 1,455 out on the real v3 file, none lost or invented
 - 2026-09-06 — The rules never left this browser, so in a group everyone else generated without them; the app told you the layer ORDER had not reached the group and said nothing about a hundred curated rules
 - 2026-09-06 — Every trait imported from a folder with no status subfolders comes in as wip and is drawn onto nothing, and the import report never mentioned it
 - 2026-09-06 — A curated LaunchMyNFT rules file can be read in: 127 fit decisions become 103 never-together rules in one gesture, against about 1,138 trips through a dropdown by hand
@@ -96,15 +100,37 @@ Newest first. Delete the oldest when this passes 12.
 - 2026-09-06 — "Import a folder of traits" could only read a layer it already had, so 63 of 233 files landed in unsorted — one layer, painted over everything — in a collection whose whole point is a hat over hair
 - 2026-09-06 — 103 rules froze the shelf for 5.2s and every later rule edit for 6.7s; conflictsWith asks an index now, 432ms and 448ms, same percentages
 - 2026-09-06 — Eight operations changed the pixels and left the swatch row describing the old artwork; after Clean up colours 59 of the 64 swatches named a colour the image no longer had and clicking one answered "No cells matched"
-- 2026-09-06 — The editing panel ran a quarter taller than it needed to, and the same measurement found the save bar's status chips clipped at every width: "approved" needed 58px and had 18
-- 2026-09-06 — Resize sat two below Move with no keyboard shortcut, its Size fields read the old size until the drag ended, and a stray click with it active leaked an undo step that did nothing when used
-- 2026-09-05 — Canvas resize said "the art is untouched" and could crop three quarters of a drawing away in silence, at both the button and the drag handles
-- 2026-09-05 — The Grid download button promised "the grid size" and gave the trait's own; a 48x48 trait in a 160 collection downloaded 48x48 under that title
 
 ## Facts worth keeping
 
 Measured, with the date. Delete one the moment the code contradicts it.
 
+- **THE COLLECTION LAUNCHES ON LAUNCHMYNFT, so their file format is the
+  canonical one and this app is a stop on the way.** Their rules are
+  DIRECTIONAL - a condition trait and a target layer, and the TARGET is what
+  gets re-picked; ours are symmetric groups that say nothing about which side
+  yields. The same forbidden pair written the two ways produces two different
+  collections. `DECIDE_ORDER` is what supplies the direction on export: the
+  layer decided first is the condition. Round trip measured on the real v3
+  file, 1,455 forbidden pairs each way. *(09-06)*
+- **A rule can only ever say "never together", so a regenerated file cannot
+  take back what an older version of it said.** Import v1, edit a pair, import
+  a tighter v2: the v1 rule that v2 explicitly allows survives forever. Fixed
+  by having the import record what the file ALLOWS as well as what it forbids -
+  but only where a rule currently forbids it, or a real collection writes tens
+  of thousands of entries per import. **Ask what an artefact cannot express,
+  not only what it says.** *(09-06)*
+- **In the decision merge, SOURCE outranks time.** Newest-wins alone let a
+  regenerated file silently revert an answer somebody gave in the review sheet
+  after looking at the picture. A person's answer beats the file's whatever the
+  dates; among the same source the newest still wins, so two reviewers merge by
+  time and a re-run supersedes the run before it. *(09-06)*
+- **`collections` now has `rules`, `decisions` and `decide_order`** (jsonb,
+  default `[]`, added 09-06 with the user's approval). The table's single RLS
+  policy is one ALL-command rule on `is_team_member`, so every teammate can
+  already read and write them - no policy change was needed. An empty server
+  side must never be adopted over a non-empty local set: rules imported before
+  the column existed live only in one browser. *(09-06)*
 - **`indexOf` returns -1, and -1 is less than every real index, so an ORDERING
   assertion passes when the thing is absent.** Measured 09-06: a mutant that
   removed layer adoption entirely left `expect(LAYERS.indexOf('hats'))

@@ -1,6 +1,6 @@
 /* PREDICTIONS for the five specs added with the rules import.
 
-   41 tests across decideorder, ruleimport, randomiserules, importlayers and
+   44 tests across decideorder, ruleimport, randomiserules, importlayers and
    rulestate. Most of them assert an ABSENCE - a pair that never appears, a
    layer that never gets created, a request that never carries a rule - and an
    absence is the easiest thing in the world to prove against an empty
@@ -50,6 +50,15 @@
      skipping it both leave it empty and the group comes out identical. That
      mutant is equivalent on hides and only bites the allow-lists.
 
+   A SECOND ROUND, after four more tests were added (the dedup guard, the two
+   status ones and the wip one), grew three kill lists again. Every one for the
+   same reason: a test written LATER legitimately reds under a mutant whose
+   list predates it. Nothing was wrong either time. A kill list is only true of
+   the suite it was measured against, so adding a test means re-running this
+   rather than assuming it still holds - which is also why the runner refuses
+   unless the test count matches exactly, and it caught the count being wrong
+   twice today.
+
    - An action that forbids nothing becoming a rule reds three tests, not one:
      a group of one member changes the counts in the report and the duplicate
      check as well as the group list.
@@ -59,7 +68,7 @@ const { runMutants } = require('./mutrun.cjs');
 const bad = runMutants({
   file: 'index.html',
   spec: 'tests/decideorder.spec.js tests/ruleimport.spec.js tests/randomiserules.spec.js tests/importlayers.spec.js tests/rulestate.spec.js',
-  ntests: 41,
+  ntests: 44,
   mutants: [
     {
       /* The whole point of the decide order: put it back to walking the paint
@@ -132,6 +141,7 @@ const bad = runMutants({
         'and an allow-list becomes a rule against what it leaves out',
         'an allow-list naming everything is not a rule at all',
         'choosing the file is what actually adds them',
+        'it matches traits that are still wip, because a rule ignores status',
       ],
       /* MUST SURVIVE: the three tests about the REPORT and about merging. They
          are satisfied by any non-empty set of groups, right or wrong, which is
@@ -198,6 +208,7 @@ const bad = runMutants({
         'and unsorted stays last, so nothing new paints on top of everything',
         'creating a layer is reported, not slipped in',
         'a status folder never becomes a layer',
+        'and says nothing about status when the path did carry one',
         'and the whole thirteen-folder collection lands where it should',
       ],
       /* MUST SURVIVE: 'nor does a base folder', which is an absence satisfied
@@ -214,10 +225,18 @@ const bad = runMutants({
       name: 'a status folder is allowed to become a layer',
       find: `    if(STATUSES.indexOf(s)>=0||isBaseSeg(s)) continue;`,
       with: `    if(isBaseSeg(s)) continue;`,
-      kills: ['a status folder never becomes a layer'],
+      kills: [
+        'a status folder never becomes a layer',
+        'and says nothing about status when the path did carry one',
+      ],
       /* NOT the base-folder test, whose half of that condition is still
          standing - the pair is split deliberately so each half is defended on
-         its own rather than by the other. */
+         its own rather than by the other.
+
+         The status-report test reds too: with "approved" adopted as a layer the
+         file lands on it, so the path no longer carries a status the importer
+         recognises and the wip line appears. Added after the fact - it was
+         written later than this list. */
     },
   ],
 });

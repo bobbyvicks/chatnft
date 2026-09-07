@@ -245,6 +245,11 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
 /* ---------- project shelf ---------- */
 .proj{width:min(760px,92vw); text-align:left; padding:18px; border-radius:13px;
   background:var(--panel); border:1px solid var(--line);}
+/* The shelf is the other panel a trait gets judged in, so it takes the same
+   width .extract takes and for the same reason. Kept off .proj because the
+   cloud, compose and layers panels share that class and are forms, which do
+   not improve at 1180px. */
+#proj{width:min(1180px,92vw);}
 .projhead{display:flex; align-items:center; gap:12px; margin-bottom:12px; flex-wrap:wrap;}
 .projhead h2{font-size:13px; text-transform:uppercase; letter-spacing:.1em; color:var(--accent);}
 .projhead .count{font-size:12px; color:var(--dim);}
@@ -281,7 +286,17 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
    still where they edit them. */
 .layer.off .items{opacity:.42;}
 .layer h3::after{content:""; flex:1; height:1px; background:var(--line);}
-.items{display:grid; grid-template-columns:repeat(auto-fill,minmax(108px,1fr)); gap:9px;}
+/* 150 rather than 108. At 108 a 160x160 trait was drawn into a 99px canvas
+   in a 760px panel, six to a row; at 150 in the wider panel it is seven to a
+   row at 141px.
+   The min() is what keeps the phone. A flat 150px minimum needs 309px of
+   content box for two columns and a 375px phone has 307 - so it gave ONE
+   column and a 293px tile, which is how this was first written. Two columns
+   at 47% plus the 9px gap are 94% of the row and fit at every width, and
+   above ~330px of content box the 150px is the smaller of the pair, so no
+   desktop width moves. Measured in tests/shelfwidth.spec.js, because the
+   arithmetic here was wrong the first time it was written down. */
+.items{display:grid; grid-template-columns:repeat(auto-fill,minmax(min(150px,47%),1fr)); gap:9px;}
 .item{position:relative; border-radius:9px; border:1px solid var(--line); background:var(--ground);
   padding:7px 6px 5px; cursor:pointer; text-align:center;}
 .item:hover{border-color:var(--accent);}

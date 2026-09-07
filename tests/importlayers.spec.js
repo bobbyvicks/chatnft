@@ -85,6 +85,13 @@ test.describe('importing a folder whose layers are new', () => {
 
   test('and unsorted stays last, so nothing new paints on top of everything', async ({ page }) => {
     const r = await files(page, ['UPLOAD/hats/BTC Cap.png']);
+    /* ASSERTED FIRST, and a mutation run is why. Without this line the test
+       passed when adoption was removed altogether: indexOf returns -1 for a
+       layer that does not exist, and -1 is less than any real index, so
+       "the new layer sits before unsorted" was true of a layer that was never
+       created. An ordering assertion is satisfied by absence unless something
+       proves the thing is there. */
+    expect(r.layers, 'the layer was actually created').toContain('hats');
     expect(r.layers[r.layers.length - 1], 'unsorted is still the catch-all at the end')
       .toBe('unsorted');
     expect(r.layers.indexOf('hats'), 'and the new layer sits before it')
@@ -121,6 +128,35 @@ test.describe('importing a folder whose layers are new', () => {
     const r = await files(page, ['UPLOAD/masks/Jason Mask.png']);
     expect(r.placed).toEqual(['masks/Jason Mask']);
     expect(r.layers.filter(l => l === 'masks').length, 'masks appears once').toBe(1);
+  });
+
+  test('it says everything came in as wip, and how to change that', async ({ page }) => {
+    /* THE WALL A PERSON HITS FIRST. readPath reads a status only from a WHOLE
+       path segment - approved, wip or rejected - and the real upload folder is
+       called "APPROVED TRAITS - WEBSITE UPLOAD", which correctly does not
+       count: the whole-segment rule exists because "approved-drafts" contains
+       the word and means the opposite. So every file imports as wip, and
+       traitEligible refuses a wip trait unless "include wip" is ticked - an
+       empty Sheet of 12, zero percentages, and a possible-character count of
+       zero, from an import that said "Imported 233 files".
+
+       The behaviour is right and stays. The silence was the defect. */
+    const r = await files(page, ['UPLOAD/hats/BTC Cap.png', 'UPLOAD/hair/Unc Hair.png']);
+    expect(r.note, 'it says how many').toContain('2 had no wip / approved / rejected folder');
+    expect(r.note, 'and what they became').toContain('came in as wip');
+    expect(r.note, 'and the first way out').toContain('approved');
+    expect(r.note, 'and the second').toContain('include wip');
+  });
+
+  test('and says nothing about status when the path did carry one', async ({ page }) => {
+    /* The control. A version that always printed the line would pass the test
+       above while describing files whose status was read correctly from their
+       folder - which is the ordinary case for anyone using the convention the
+       button documents. */
+    const r = await files(page, ['UPLOAD/hats/approved/BTC Cap.png']);
+    expect(r.note, 'no complaint about a status that was there')
+      .not.toContain('came in as wip');
+    expect(r.placed, 'and it still imported').toEqual(['hats/BTC Cap']);
   });
 
   test('and the whole thirteen-folder collection lands where it should', async ({ page }) => {

@@ -159,6 +159,41 @@ test.describe('deciding in one order and painting in another', () => {
       .toBeGreaterThan(1);
   });
 
+  test('a layer named twice in the order is still visited once', async ({ page }) => {
+    /* THE BUG THIS ALMOST SHIPPED WITH, and it had no test until a mutation
+       run showed the one below could not catch it - that fixture supplies a
+       stale name, not a repeated one.
+
+       decideOrder() used to filter DECIDE_ORDER without de-duplicating, so
+       ['hats','hats'] made buildCombo walk the hats layer twice and push a
+       second hat onto the same character. That is not a cosmetic bug: "one
+       trait per layer" is the premise the whole rule translation rests on. A
+       group of one hat and fifteen hairstyles only means "that hat forbids
+       those fifteen" BECAUSE two hairstyles can never co-occur. */
+    const r = await page.evaluate(async () => {
+      DECIDE_ORDER = ['hats', 'hats', 'hair'];
+      await saveDecideOrder();
+      const order = decideOrder();
+      const was = emptyChance;
+      emptyChance = 0;
+      distCache = null; distKey = null;
+      const pools = cPools();
+      let worst = 0;
+      for (let i = 0; i < 100; i++) {
+        const combo = (randomCombo(pools) || []).filter(x => x && x.kind === 'trait');
+        const perLayer = {};
+        for (const rec of combo) perLayer[rec.layer] = (perLayer[rec.layer] || 0) + 1;
+        worst = Math.max(worst, ...Object.values(perLayer));
+      }
+      emptyChance = was;
+      return { order, counts: order.filter(l => l === 'hats').length, worst };
+    });
+    expect(r.counts, 'hats is walked once, not twice').toBe(1);
+    expect(r.order.slice().sort(), 'and the order is still every layer exactly once')
+      .toEqual(LAYERS.slice().sort());
+    expect(r.worst, 'so no character ever carries two traits of one layer').toBe(1);
+  });
+
   test('a decide order naming a layer that is gone is ignored, not obeyed', async ({ page }) => {
     // Layers are renamed and removed, and a stored order that outlived one must
     // not drop the layers it still names or resurrect the one it does not.

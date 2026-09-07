@@ -1078,6 +1078,7 @@ footer .mono{color:var(--ink);}
         title="These two will not appear on the same character. Add more traits to a rule from its own row, and a character carries at most one of them. If the rules cannot all be met at once, the sheet and the collection say how many draws could not honour them.">Add</button>
     </div>
     <div id="rulelist"></div>
+    <p class="note" id="rulestate" hidden></p>
     <!-- Building the curated set by hand is 99 rules and 919 members, which
          is about 919 trips through a dropdown of every trait in the
          collection. The file is the gesture. -->
@@ -6245,6 +6246,42 @@ let cItems=[];
    A rule whose trait is gone is shown as missing rather than dropped - see
    applyRules. It still counts against generation, harmlessly: nothing in the
    set carries that key, so it can never match. */
+/* WHAT THESE RULES ACTUALLY DO, AND WHO HAS THEM.
+
+   Two facts the app knew and never said. The decide order changes which of
+   two clashing traits survives and was invisible after a reload; and the
+   rules live in this browser only - cloudPush filters to kind trait and ref,
+   and no request body in this file mentions RULES - so in a group project
+   everybody else generates without them.
+
+   Named layers rather than the whole order: a person cares which of the
+   layers they wrote rules about gives way, and listing all sixteen would
+   bury that. */
+function ruleState(){
+  const el=$("rulestate"); if(!el) return;
+  if(!RULES.length){ el.hidden=true; el.textContent=""; return; }
+  const bits=[];
+  /* Only the layers a rule actually names, in the order they are decided. */
+  const named=new Set();
+  for(const g of RULES) for(const k of g){
+    const i=k.indexOf("/"); if(i>0) named.add(k.slice(0,i));
+  }
+  const order=decideOrder().filter(l=>named.has(l));
+  if(DECIDE_ORDER.length && order.length>1)
+    bits.push("When two of these clash the later one gives way, and they are decided "
+      +order.join(", then ")+" - not the order they paint in");
+  /* The sharing half. The group name the same way the trait banner reads it,
+     so the two lines cannot disagree about what the project is called. */
+  const sel=$("wssel");
+  const where=activeWs ? ((sel&&sel.selectedOptions[0]&&sel.selectedOptions[0].textContent)||"this group") : null;
+  if(activeWs)
+    bits.push("These "+RULES.length+" rules are on this device only - Save to cloud does not send them, so nobody else in "
+      +where+" has them. Share the rules file and let them import it");
+  else
+    bits.push("They live in this browser only, so keep the file you imported them from");
+  el.hidden=false;
+  el.textContent=bits.join(". ")+".";
+}
 function buildRules(traits){
   const A=$("rulea"), B=$("ruleb"), L=$("rulelist");
   if(!A||!B||!L) return;
@@ -6401,6 +6438,8 @@ async function buildCompose(items){
   }
   emptyChanceTip();
   buildRules(traits);
+  /* After buildRules, because it counts the rules that were just drawn. */
+  ruleState();
   const rows=$("crows");
   const keep={};
   rows.querySelectorAll("select").forEach(s=>{ keep[s.dataset.layer]=s.value; });
@@ -6618,6 +6657,11 @@ async function bulkImport(files){
      the same position applyLayers uses when it adopts a layer from the
      records it can see. */
   const adopted=[];
+  /* How many carried no wip / approved / rejected folder in their path and
+     therefore took the default. Counted rather than inferred from the
+     records afterwards, because a trait that REPLACED an approved one keeps
+     nothing of the old status and the two cases read the same in the store. */
+  let noStatus=0;
   for(const f of list){
     const i=readPath(f.webkitRelativePath||f.name);
     if(i.isRef||i.layer||!i.folder) continue;
@@ -6693,6 +6737,7 @@ async function bulkImport(files){
         }
         const layer=info.layer||"unsorted";
         const status=info.status||"wip";
+        if(!info.status) noStatus++;
         if(!info.layer) noLayer.push(info.name);
         const trec={id:"t_"+info.name+"_"+layer+"_"+status, kind:"trait", name:info.name,
                     layer:layer, status:status, w:w, h:h2, blob:f, at:Date.now(),
@@ -6792,6 +6837,14 @@ async function bulkImport(files){
      clothing. Saying so is the difference between a report and a receipt. */
   if(adopted.length) bits.push("made "+adopted.length+" new layer"+(adopted.length===1?"":"s")
     +" from the folder names ("+adopted.join(", ")+") - check the draw order in Layers");
+  /* THE PROPERTY THAT DECIDES WHETHER ANY OF THEM CAN BE USED, and the only
+     one the report did not mention. traitEligible refuses a wip trait unless
+     "include wip" is ticked, so an import with no status folders leaves a set
+     that draws nothing at all - an empty Sheet of 12, zero percentages, and a
+     possible-character count of zero. The per-card message says it one trait
+     at a time, which is found only after wondering why the sheet is empty. */
+  if(noStatus) bits.push(noStatus+" had no wip / approved / rejected folder in the path and came in as wip"
+    +" - nothing is drawn onto a character until they are approved, or tick include wip");
   if(noLayer.length) bits.push(noLayer.length+" had no layer in the path and went to unsorted"+
     (noLayer.length<=4?" ("+noLayer.join(", ")+")":""));
   if(failed) bits.push(failed+" could not be read");

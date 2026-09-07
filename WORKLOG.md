@@ -35,6 +35,17 @@ Nothing.
 
 ## Queue, worst first
 
+- **`projectGrid`'s comment says it is "stored with the project, like the layer
+  order, because it is a fact about the collection and not about the device" —
+  and the second half is false.** The layer order is PATCHed to the server; the
+  grid only ever reaches IndexedDB, so two people on the same collection can
+  hold different grids. `buildResizePresets` offers different sizes to each of
+  them, the Snap tooltip names a different number, and the save warning says
+  "not the collection's 160×160" about a figure that is this browser's.
+  Measured 09-06 while giving the rules the same treatment. Either sync it (a
+  column on `collections`, which is the user's call) or correct the comment and
+  the word "collection's" in that warning — but a confident comment asserting
+  the opposite of the behaviour is the worst of the three states.
 - **Images orphaned inside a group are never cleaned up.** Deliberate, decided
   09-04 and written into the comment on the guard: the sweep cannot tell a
   teammate's live file from an orphan, and taking the keep-list from the rows
@@ -77,6 +88,8 @@ something. Good places to look, in order:
 
 Newest first. Delete the oldest when this passes 12.
 
+- 2026-09-06 — The rules never left this browser, so in a group everyone else generated without them; the app told you the layer ORDER had not reached the group and said nothing about a hundred curated rules
+- 2026-09-06 — Every trait imported from a folder with no status subfolders comes in as wip and is drawn onto nothing, and the import report never mentioned it
 - 2026-09-06 — A curated LaunchMyNFT rules file can be read in: 127 fit decisions become 103 never-together rules in one gesture, against about 1,138 trips through a dropdown by hand
 - 2026-09-06 — Layers were DECIDED in paint order, so the hair won and the hat was dropped; the ten head traits that need a bare head could only appear on a character that drew no hair anyway, at about a third of their curated frequency
 - 2026-09-06 — The Randomise button never consulted the rules, so the one button you press to check a rule was the only place it did not apply, and that character was downloadable
@@ -87,13 +100,36 @@ Newest first. Delete the oldest when this passes 12.
 - 2026-09-06 — Resize sat two below Move with no keyboard shortcut, its Size fields read the old size until the drag ended, and a stray click with it active leaked an undo step that did nothing when used
 - 2026-09-05 — Canvas resize said "the art is untouched" and could crop three quarters of a drawing away in silence, at both the button and the drag handles
 - 2026-09-05 — The Grid download button promised "the grid size" and gave the trait's own; a 48x48 trait in a 160 collection downloaded 48x48 under that title
-- 2026-09-05 — The rarity tooltip credited the weights for a number that came from running the generator; two equal-weight traits read 49% and 51% under a sentence saying each was worked out from its weight
-- 2026-09-05 — "N possible characters" left the base characters out of the multiplication: three bases and two skins said 2 where the generator makes 6
 
 ## Facts worth keeping
 
 Measured, with the date. Delete one the moment the code contradicts it.
 
+- **`indexOf` returns -1, and -1 is less than every real index, so an ORDERING
+  assertion passes when the thing is absent.** Measured 09-06: a mutant that
+  removed layer adoption entirely left `expect(LAYERS.indexOf('hats'))
+  .toBeLessThan(LAYERS.indexOf('unsorted'))` green, because hats was never
+  created. Same family as the conditional assertions found the same day.
+  **Assert the thing EXISTS before asserting where it sits.** *(09-06)*
+- **`activeWs` selects the IndexedDB, so it must be set BEFORE any seeding.**
+  Each project has its own database (`chatnft.ws.<id>`). A fixture that writes
+  records and then switches project has written them into a database nothing
+  will read, and the symptom is an empty panel that looks like a broken
+  feature. *(09-06)*
+- **Only the layer list reaches the server.** `cloudPush` uploads
+  `.filter(i => i.kind==="trait"||i.kind==="ref")`, so `settings.rules`,
+  `settings.grid` and `settings.decideorder` are per-browser and per-project
+  and nothing else syncs them; `collections` is only ever selected as
+  `id, layers, updated_at`, so there is no column for them either. The rules
+  panel now says so. **`projectGrid` has NOT been given the same treatment and
+  its comment still claims it is "stored with the project, like the layer
+  order" — which is false in the half that matters.** *(09-06)*
+- **A folder with no `approved/` subfolder imports every trait as wip**, and
+  `traitEligible` refuses a wip trait unless "include wip" is ticked — an empty
+  Sheet of 12 and every rarity at zero, from an import that reported success.
+  Status is matched on WHOLE path segments deliberately (`approved-drafts`
+  contains the word and means the opposite), so the default is correct and the
+  report is what had to change. *(09-06)*
 - **Assigning `RULES` in a test is undone by the next `renderShelf`.** It calls
   `applyRules(items)`, which rebuilds RULES from the `settings.rules` record —
   so a fixture that sets RULES and then renders is measuring an app with NO

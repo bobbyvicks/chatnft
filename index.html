@@ -401,6 +401,11 @@ body.shelf-dragging,body.shelf-dragging *{cursor:grabbing!important;}
 
 /* ---------- save bar in the editor ---------- */
 .savebar{display:flex; gap:8px; align-items:center; flex-wrap:wrap;}
+/* Buttons that are peers share a row. .btn is width:100% so that a lone
+   button fills its section, and inside a row of two that is exactly what
+   makes each take a line of its own - which cost the Transform panel 44
+   pixels of height for no reading gain. */
+.btnrow .btn{flex:1; width:auto;}
 .savebar input,.savebar select{padding:8px 9px; border-radius:8px; background:var(--ground);
   border:1px solid var(--line); color:var(--ink); font:inherit; font-size:12.5px;}
 .savebar input{flex:1; min-width:0;}
@@ -1467,7 +1472,11 @@ footer .mono{color:var(--ink);}
         <button class="btn ghost" id="rssnap" aria-pressed="true"
           style="width:auto;padding:6px 12px;font-size:12px;margin-left:4px"
           title="Snap the angle to 15 degrees, moves to whole cells, and sizes to whole multiples of the cell count - or, below one cell, to whole divisions of it">Snap</button></div>
-      <button class="btn ghost" id="rsgo">Resize</button>
+      <div class="savebar btnrow">
+        <button class="btn ghost" id="rsgo">Resize</button>
+        <button class="btn ghost" id="rsfit"
+          title="Resize to the nearest whole multiple of the cell grid - the size a trait has to be to line up. Which repair it is depends on the Change setting above: Canvas pads and keeps every pixel where it is, Art scales the artwork to fill the new size.">Fit to grid</button>
+      </div>
       <p class="note"><span class="mono" id="rsnow">-</span></p>
     </section>
     <section>
@@ -5543,7 +5552,20 @@ function resizePreview(){
   const target = t.mode==="inside" ? t.nw+" \u00d7 "+t.nh+" trait" : t.nw+" \u00d7 "+t.nh;
   const moved = t.snap && (t.askedW!==t.nw || (!pressed("rslock") && t.askedH!==t.nh));
   const same = t.mode==="inside" ? (t.nw===t.curW && t.nh===t.curH) : (t.nw===t.W && t.nh===t.H);
-  if(!moved && same){ n.textContent=now; n.title=""; return; }
+  if(!moved && same){
+    /* The one state this note used to have nothing to say in, and the one
+       where the panel is open with no plan. The shelf says the same thing
+       about the whole collection; this says it about the canvas in front
+       of you, where the button that fixes it is. */
+    const off=offGridNow();
+    n.textContent = off
+      ? now+"  \u00b7 not on the "+Math.max(1,projectGrid|0)+" cell grid"
+      : now;
+    n.title = off
+      ? "A trait has to divide into whole cells to line up. Fit to grid resizes it to the nearest one that does."
+      : "";
+    return;
+  }
   const why = moved
     ? "  \u00b7 snap moved "+t.askedW+" to "+t.nw+"; turn Snap off for "+t.askedW
     : "";
@@ -9000,6 +9022,57 @@ function snapToGrid(v){
   return best;
   return best;
 }
+
+/* The nearest canvas size that divides into whole cells.
+
+   DELIBERATELY NOT snapToGrid, which is one line above and looks like the
+   same question. Below one cell snapToGrid answers with a whole DIVISOR of
+   the grid - 80, 40, 20 - because shrinking has to be expressible and four
+   40s tile a 160 cell. sizeCensus does not accept those: it asks for a whole
+   MULTIPLE. A Fit built on snapToGrid would take a 40px trait in a 160-cell
+   collection, return 40, report success, and leave the shelf still calling it
+   off the grid - a repair button that cannot repair the thing it is beside.
+
+   The floor at one cell is the same fact from the other end: half a cell is
+   not a size a trait can be, whatever rounding says. */
+function gridFit(v){
+  const g=Math.max(1,projectGrid|0);
+  v=Math.max(1,Math.round(v||0));
+  return Math.max(g,Math.round(v/g)*g);
+}
+
+/* Whether the open canvas is what sizeCensus would call off the grid.
+
+   Asked in the census's own terms rather than by calling it, because the
+   census reads SAVED records and this is about the canvas in front of you,
+   which may not be saved yet and may not be a record at all. One rule, two
+   subjects. */
+function offGridNow(){
+  if(typeof ctx==="undefined" || !ctx || !art || !art.width) return false;
+  const g=Math.max(1,projectGrid|0);
+  return (art.width%g)!==0 || (art.height%g)!==0;
+}
+
+function fitToGrid(){
+  if(!ctx) return;
+  /* Trait mode resizes the artwork INSIDE a canvas it never moves, so there
+     is nothing there for a canvas repair to do. Padding is the reading that
+     loses nothing, so an unset mode falls that way rather than resampling
+     somebody's art because they had a chip selected they had forgotten. */
+  const mode=chipVal("rsmode")==="art" ? "art" : "canvas";
+  const nw=gridFit(art.width), nh=gridFit(art.height);
+  if(nw===art.width && nh===art.height){
+    toast("Already "+art.width+"\u00d7"+art.height+", which is on the "
+      +Math.max(1,projectGrid|0)+" cell grid");
+    return;
+  }
+  const was=art.width+"\u00d7"+art.height;
+  const r=resizeTo(nw,nh,mode);
+  /* null only when nothing moved, which the guard above already covered. */
+  if(!r) return;
+  toast((mode==="canvas" ? "Padded " : "Scaled ")+was+" to "+nw+"\u00d7"+nh
+    +", on the "+Math.max(1,projectGrid|0)+" cell grid"+cropLine(r.cut));
+}
 function applyLayers(items){
   const rec=items.find(i=>i.id===LAYERS_ID);
   if(rec&&Array.isArray(rec.layers)&&rec.layers.length) LAYERS=rec.layers.slice();
@@ -12344,6 +12417,7 @@ $('filltol').addEventListener('input',()=>{
    the note is the only thing that points at it. */
 $('rssnap').onclick=()=>{ toggle('rssnap'); resizePreview(); };
 $('rsgo').onclick=applyResize;
+$('rsfit').onclick=fitToGrid;
 $('rotl').onclick=()=>rotateQuarter(false);
 $('rotr').onclick=()=>rotateQuarter(true);
 $('rspreset').addEventListener('change',()=>{

@@ -83,9 +83,24 @@ const pullFrom = (page, total, cap) => page.evaluate(async ([TOTAL, CAP]) => {
 }, [total, cap]);
 
 
-/* Like pullFrom, but the FILE downloads misbehave: every `dropEvery`th one is
-   dropped like a flaky connection, or every one 404s if `mode` says so. */
-const pullWithBadFiles = (page, total, dropEvery, mode) => page.evaluate(async ([TOTAL, DROP, MODE]) => {
+/* Like pullFrom, but the FILE downloads misbehave, and misbehave for a file
+   rather than for a request number.
+
+     { failEvery: 10, failTimes: 2 }   one file in ten drops twice, then works
+     { failEvery: 25, failTimes: 99 }  one file in 25 never works at all
+     { mode: "missing" }               every file 404s
+
+   Per FILE is what makes the counts exact. Per request they were not: eight
+   downloads run at once, so which file a failing request belonged to varied
+   between runs and so did how many files exhausted their three tries. */
+const pullWithBadFiles = (page, total, opts) => page.evaluate(async ([TOTAL, O]) => {
+  const MODE = O.mode || 'flaky';
+  /* failEvery: one file in this many misbehaves. failTimes: how many of ITS
+     OWN attempts fail before it succeeds - so 2 against three tries is a
+     connection that recovers, and 99 is one that never does. Both outcomes
+     are then exact, which is the whole point of the change. */
+  const EVERY = O.failEvery || 1, TIMES = O.failTimes || 0;
+  const tries = new Map();
   try { authed = true; } catch (_) {}
   gateShow(false);
   await dbClear();
@@ -118,15 +133,25 @@ const pullWithBadFiles = (page, total, dropEvery, mode) => page.evaluate(async (
     }
     if (s.indexOf('/storage/v1/object/traits/') >= 0) {
       attempts++;
+      // A 404 is an ANSWER, so it comes before any of the flaky machinery and
+      // never gets a second look. (This line was deleted by the patch that
+      // rewrote the block below it - the replacement range was one line too
+      // wide - and the 404 test caught it immediately.)
       if (MODE === 'missing') return Promise.resolve(new Response('', { status: 404 }));
-      // Every DROPth REQUEST fails - which is not the same as every DROPth
-      // FILE, and this comment used to claim "the numbers are repeatable
-      // rather than flaky" on the strength of that. Measured 09-06 across four
-      // runs of the 1-in-3 test: 1, 2, 3 and 5 files lost. Downloads run
-      // concurrently, so which file each request belongs to varies, and so
-      // does which files exhaust their three tries. The DROP RATE is fixed;
-      // the outcome is not, and no assertion may depend on a particular count.
-      if (attempts % DROP === 0) return Promise.reject(new TypeError('Failed to fetch'));
+      // WHICH FILE, NOT WHICH REQUEST. This used to fail every DROPth
+      // request, and the comment here said in as many words that the
+      // outcome could not be predicted from that and that no assertion may
+      // depend on a particular count - while the test below asserted
+      // loaded === 200. Which request number a download happens to get is a
+      // scheduling accident of eight concurrent fetches; which file the
+      // connection hates is the thing worth modelling, and the path carries
+      // the index, so it can be modelled exactly.
+      const which = +(s.match(/p\/(\d+)\.png/) || [0, -1])[1];
+      if (which < 0) return Promise.reject(new TypeError("unrecognised object path"));
+      const seen = (tries.get(which) || 0) + 1;
+      tries.set(which, seen);
+      if (which % EVERY === 0 && seen <= TIMES)
+        return Promise.reject(new TypeError('Failed to fetch'));
       return Promise.resolve(new Response(new Blob([new Uint8Array([0])]), { status: 200 }));
     }
     return real(u, o);
@@ -135,7 +160,7 @@ const pullWithBadFiles = (page, total, dropEvery, mode) => page.evaluate(async (
   const stored = (await dbAll()).filter(i => i.kind === 'trait').length;
   return { loaded: stored, missing: TOTAL - stored, attempts,
            note: document.getElementById('cloudnote').textContent };
-}, [total, dropEvery, mode]);
+}, [total, opts]);
 
 test.describe('loading a collection bigger than one response', () => {
   test.beforeEach(async ({ page }) => {
@@ -225,10 +250,17 @@ test.describe('loading a collection bigger than one response', () => {
     // Measured before the retry: 200 traits with one download in ten failing
     // loaded 180 and left 20 missing until somebody pressed the button again -
     // which is another 200 requests over the connection that just dropped 20.
-    const r = await pullWithBadFiles(page, 200, 10, 'flaky');
+    const r = await pullWithBadFiles(page, 200, { failEvery: 10, failTimes: 2 });
     expect(r.loaded, 'all of them arrive').toBe(200);
     expect(r.missing).toBe(0);
-    expect(r.attempts, 'at the cost of a few repeats').toBeGreaterThan(200);
+    /* EXACTLY 240, not "more than 200". Twenty files (0, 10, ... 190) drop
+       twice each and succeed on their third attempt; the other 180 arrive
+       first time. 180 + 20*3 = 240. This used to say toBeGreaterThan(200),
+       which a pull that gave up after two tries would also satisfy - it would
+       lose files, and this test would then fail on the count above instead,
+       for a reason the message would not explain. The exact number says what
+       happened rather than that something did. */
+    expect(r.attempts, 'twenty files retried twice each, and nothing else repeated').toBe(240);
     expect(r.note, 'and nothing is reported unread').not.toContain('could not be read');
   });
 
@@ -237,7 +269,7 @@ test.describe('loading a collection bigger than one response', () => {
     // object is not in the bucket and asking twice more will not put it there.
     // Retrying it would turn a fast clear failure into a slow one, and this is
     // what proves the retry only covers transient failures.
-    const r = await pullWithBadFiles(page, 50, 1, 'missing');
+    const r = await pullWithBadFiles(page, 50, { mode: 'missing' });
     expect(r.attempts, 'exactly one attempt each').toBe(50);
     expect(r.loaded).toBe(0);
     expect(r.note, 'and it says so plainly').toContain('could not be read');
@@ -247,8 +279,14 @@ test.describe('loading a collection bigger than one response', () => {
     // Three tries is not magic and must not pretend to be. At one drop in
     // three it recovers nearly everything, and whatever it cannot get is
     // counted rather than quietly left out.
-    const r = await pullWithBadFiles(page, 200, 3, 'flaky');
-    expect(r.loaded, 'nearly all of them').toBeGreaterThan(190);
+    const r = await pullWithBadFiles(page, 200, { failEvery: 25, failTimes: 99 });
+    expect(r.loaded, 'nearly all of them').toBe(192);
+    expect(r.missing, 'and the eight that never answered are counted').toBe(8);
+    /* 216: the 192 good files once each, and the eight bad ones three times
+       before being given up on. This is what proves the retry STOPS - a pull
+       that kept trying would arrive at the same 192 loaded and say the same
+       thing on screen, and only the request count can tell the difference. */
+    expect(r.attempts, 'three tries each for the eight, one for everything else').toBe(216);
     /* This was `if (r.missing) expect(r.note).toContain('could not be read')`,
        and the count it depends on is not fixed - measured at 1, 2, 3 and 5
        across four runs. A conditional around the only assertion about the
@@ -257,16 +295,16 @@ test.describe('loading a collection bigger than one response', () => {
        just been found in cleanpalette.spec.js, where a mutation run proved the
        guard was carrying the whole test.
 
-       Both branches assert now, so no outcome passes silently, and the number
-       is cross-checked rather than assumed: `missing` is counted from the
-       database and the note is read off the screen. */
+       Both branches asserted after that, so no outcome passed silently. THE
+       CONDITIONAL IS NOW GONE ENTIRELY, because the count is no longer a
+       matter of luck: the fixture fails a chosen FILE rather than a chosen
+       request number, so eight files are lost every time and the message can
+       be asserted flat. The lesson is kept because the reasoning still holds
+       wherever an outcome really is variable - the answer there was to assert
+       both branches, and the better answer here was to remove the variance. */
     expect(r.loaded + r.missing, 'every trait is accounted for one way or the other')
       .toBe(200);
-    if (r.missing)
-      expect(r.note, 'what it could not get is counted, by name, on screen')
-        .toContain(r.missing + ' could not be read');
-    else
-      expect(r.note, 'and a run that lost nothing must not claim it did')
-        .not.toContain('could not be read');
+    expect(r.note, 'what it could not get is counted, by name, on screen')
+      .toContain('8 could not be read');
   });
 });

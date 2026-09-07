@@ -1,0 +1,2785 @@
+[
+  {
+    "layer": "clothing",
+    "operation": "is",
+    "trait": [
+      "Exit Liquidity Red Hood Up.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "only pick from",
+        "targetLayer": "hair",
+        "targetTrait": [
+          "Balding Hair.png",
+          "Dark Fringe.png",
+          "Leopard Buzz Cut.png",
+          "Unc Hair.png"
+        ]
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "hats",
+        "targetTrait": []
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "glasses",
+        "targetTrait": [
+          "Tape-Repaired Glasses.png",
+          "Cyclops Ruby Visor.png",
+          "Dark Lens Sunglasses.png",
+          "Disco Shutter Shades.png",
+          "Morpheus Nose-Clip Glasses.png",
+          "Neo Micro Shades.png",
+          "Pit Vipers.png",
+          "Poker Pro Blinders.png",
+          "Steve Jobs Round Glasses.png"
+        ]
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "masks",
+        "targetTrait": [
+          "Anonymous Mask.png",
+          "DOOM Mask.png",
+          "Jason Mask.png",
+          "Plague Doctor Mask.png",
+          "Solgods Mask.png",
+          "White Mime Mask.png"
+        ]
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "ears",
+        "targetTrait": []
+      }
+    ]
+  },
+  {
+    "layer": "costumes",
+    "operation": "is",
+    "trait": [
+      "Blue Hedgehog Onesie.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "only pick from",
+        "targetLayer": "hair",
+        "targetTrait": [
+          "Balding Hair.png",
+          "Dark Fringe.png",
+          "Leopard Buzz Cut.png",
+          "Unc Hair.png"
+        ]
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "hats",
+        "targetTrait": []
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "glasses",
+        "targetTrait": [
+          "Tape-Repaired Glasses.png",
+          "Cyclops Ruby Visor.png",
+          "Dark Lens Sunglasses.png",
+          "Disco Shutter Shades.png",
+          "Morpheus Nose-Clip Glasses.png",
+          "Neo Micro Shades.png",
+          "Pit Vipers.png",
+          "Poker Pro Blinders.png",
+          "Steve Jobs Round Glasses.png"
+        ]
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "clothing",
+        "targetTrait": []
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "masks",
+        "targetTrait": [
+          "Anonymous Mask.png",
+          "DOOM Mask.png",
+          "Jason Mask.png",
+          "Plague Doctor Mask.png",
+          "Solgods Mask.png",
+          "White Mime Mask.png"
+        ]
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "ears",
+        "targetTrait": []
+      }
+    ]
+  },
+  {
+    "layer": "costumes",
+    "operation": "is",
+    "trait": [
+      "Blue Striped Pajamas.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "only pick from",
+        "targetLayer": "hair",
+        "targetTrait": [
+          "Balding Hair.png",
+          "Dark Fringe.png",
+          "Leopard Buzz Cut.png",
+          "Unc Hair.png"
+        ]
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "hats",
+        "targetTrait": []
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "glasses",
+        "targetTrait": [
+          "Tape-Repaired Glasses.png",
+          "Cyclops Ruby Visor.png",
+          "Dark Lens Sunglasses.png",
+          "Disco Shutter Shades.png",
+          "Morpheus Nose-Clip Glasses.png",
+          "Neo Micro Shades.png",
+          "Pit Vipers.png",
+          "Poker Pro Blinders.png",
+          "Steve Jobs Round Glasses.png"
+        ]
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "clothing",
+        "targetTrait": []
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "masks",
+        "targetTrait": [
+          "Anonymous Mask.png",
+          "DOOM Mask.png",
+          "Jason Mask.png",
+          "Plague Doctor Mask.png",
+          "Solgods Mask.png",
+          "White Mime Mask.png"
+        ]
+      }
+    ]
+  },
+  {
+    "layer": "costumes",
+    "operation": "is",
+    "trait": [
+      "Desert Jedi Robes.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "only pick from",
+        "targetLayer": "hair",
+        "targetTrait": [
+          "Balding Hair.png",
+          "Dark Fringe.png",
+          "Leopard Buzz Cut.png",
+          "Unc Hair.png"
+        ]
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "hats",
+        "targetTrait": []
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "glasses",
+        "targetTrait": [
+          "Tape-Repaired Glasses.png",
+          "Cyclops Ruby Visor.png",
+          "Dark Lens Sunglasses.png",
+          "Disco Shutter Shades.png",
+          "Morpheus Nose-Clip Glasses.png",
+          "Neo Micro Shades.png",
+          "Pit Vipers.png",
+          "Poker Pro Blinders.png",
+          "Steve Jobs Round Glasses.png"
+        ]
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "clothing",
+        "targetTrait": []
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "masks",
+        "targetTrait": [
+          "Anonymous Mask.png",
+          "DOOM Mask.png",
+          "Jason Mask.png",
+          "Plague Doctor Mask.png",
+          "Solgods Mask.png",
+          "White Mime Mask.png"
+        ]
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "ears",
+        "targetTrait": [
+          "AirPod.png",
+          "Ankh Earring.png"
+        ]
+      }
+    ]
+  },
+  {
+    "layer": "costumes",
+    "operation": "is",
+    "trait": [
+      "Dog Onesie.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "only pick from",
+        "targetLayer": "hair",
+        "targetTrait": [
+          "Dark Fringe.png",
+          "Leopard Buzz Cut.png",
+          "Unc Hair.png"
+        ]
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "hats",
+        "targetTrait": []
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "glasses",
+        "targetTrait": [
+          "Tape-Repaired Glasses.png",
+          "Cyclops Ruby Visor.png",
+          "Dark Lens Sunglasses.png",
+          "Disco Shutter Shades.png",
+          "Morpheus Nose-Clip Glasses.png",
+          "Neo Micro Shades.png",
+          "Pit Vipers.png",
+          "Poker Pro Blinders.png",
+          "Steve Jobs Round Glasses.png"
+        ]
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "clothing",
+        "targetTrait": []
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "masks",
+        "targetTrait": [
+          "Anonymous Mask.png",
+          "Jason Mask.png",
+          "Plague Doctor Mask.png",
+          "Solgods Mask.png",
+          "White Mime Mask.png"
+        ]
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "ears",
+        "targetTrait": []
+      }
+    ]
+  },
+  {
+    "layer": "costumes",
+    "operation": "is",
+    "trait": [
+      "Orange Winter Parka.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "only pick from",
+        "targetLayer": "hair",
+        "targetTrait": [
+          "Balding Hair.png",
+          "Dark Fringe.png",
+          "Leopard Buzz Cut.png",
+          "Unc Hair.png"
+        ]
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "hats",
+        "targetTrait": []
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "glasses",
+        "targetTrait": [
+          "Tape-Repaired Glasses.png",
+          "Cyclops Ruby Visor.png",
+          "Dark Lens Sunglasses.png",
+          "Disco Shutter Shades.png",
+          "Morpheus Nose-Clip Glasses.png",
+          "Neo Micro Shades.png",
+          "Pit Vipers.png",
+          "Poker Pro Blinders.png",
+          "Steve Jobs Round Glasses.png"
+        ]
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "clothing",
+        "targetTrait": []
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "masks",
+        "targetTrait": [
+          "Anonymous Mask.png",
+          "DOOM Mask.png",
+          "Jason Mask.png",
+          "Plague Doctor Mask.png",
+          "Solgods Mask.png",
+          "White Mime Mask.png"
+        ]
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "ears",
+        "targetTrait": []
+      }
+    ]
+  },
+  {
+    "layer": "costumes",
+    "operation": "is",
+    "trait": [
+      "Balaclava Suit.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "hide layer",
+        "targetLayer": "hair",
+        "targetTrait": []
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "hats",
+        "targetTrait": []
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "glasses",
+        "targetTrait": [
+          "Tape-Repaired Glasses.png",
+          "Cyclops Ruby Visor.png",
+          "Dark Lens Sunglasses.png",
+          "Disco Shutter Shades.png",
+          "Morpheus Nose-Clip Glasses.png",
+          "Neo Micro Shades.png",
+          "Pit Vipers.png",
+          "Poker Pro Blinders.png",
+          "Steve Jobs Round Glasses.png"
+        ]
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "mouth",
+        "targetTrait": [
+          "Bubblegum.png",
+          "Buck Teeth.png",
+          "Handlebar Moustache.png",
+          "Pill on Tongue.png",
+          "Smoking Pipe.png",
+          "Straight Mouth.png"
+        ]
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "clothing",
+        "targetTrait": []
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "masks",
+        "targetTrait": [
+          "Anonymous Mask.png",
+          "DOOM Mask.png",
+          "Jason Mask.png",
+          "Plague Doctor Mask.png",
+          "Solgods Mask.png",
+          "White Mime Mask.png"
+        ]
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "ears",
+        "targetTrait": [
+          "AirPod.png",
+          "Ankh Earring.png"
+        ]
+      }
+    ]
+  },
+  {
+    "layer": "costumes",
+    "operation": "is",
+    "trait": [
+      "Whale Onesie.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "only pick from",
+        "targetLayer": "hair",
+        "targetTrait": [
+          "Balding Hair.png",
+          "Dark Fringe.png",
+          "Leopard Buzz Cut.png",
+          "Unc Hair.png"
+        ]
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "hats",
+        "targetTrait": []
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "glasses",
+        "targetTrait": [
+          "Tape-Repaired Glasses.png",
+          "Cyclops Ruby Visor.png",
+          "Dark Lens Sunglasses.png",
+          "Disco Shutter Shades.png",
+          "Morpheus Nose-Clip Glasses.png",
+          "Neo Micro Shades.png",
+          "Pit Vipers.png",
+          "Poker Pro Blinders.png",
+          "Steve Jobs Round Glasses.png"
+        ]
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "clothing",
+        "targetTrait": []
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "masks",
+        "targetTrait": [
+          "Anonymous Mask.png",
+          "DOOM Mask.png",
+          "Jason Mask.png",
+          "Plague Doctor Mask.png",
+          "Solgods Mask.png",
+          "White Mime Mask.png"
+        ]
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "ears",
+        "targetTrait": []
+      }
+    ]
+  },
+  {
+    "layer": "costumes",
+    "operation": "is",
+    "trait": [
+      "White Assassin Robes.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "only pick from",
+        "targetLayer": "hair",
+        "targetTrait": [
+          "Balding Hair.png",
+          "Dark Fringe.png",
+          "Leopard Buzz Cut.png",
+          "Unc Hair.png"
+        ]
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "hats",
+        "targetTrait": []
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "glasses",
+        "targetTrait": [
+          "Tape-Repaired Glasses.png",
+          "Cyclops Ruby Visor.png",
+          "Dark Lens Sunglasses.png",
+          "Disco Shutter Shades.png",
+          "Morpheus Nose-Clip Glasses.png",
+          "Neo Micro Shades.png",
+          "Pit Vipers.png",
+          "Poker Pro Blinders.png",
+          "Steve Jobs Round Glasses.png"
+        ]
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "clothing",
+        "targetTrait": []
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "masks",
+        "targetTrait": [
+          "Anonymous Mask.png",
+          "DOOM Mask.png",
+          "Jason Mask.png",
+          "Plague Doctor Mask.png",
+          "Solgods Mask.png",
+          "White Mime Mask.png"
+        ]
+      }
+    ]
+  },
+  {
+    "layer": "costumes",
+    "operation": "is",
+    "trait": [
+      "Yellow Hazmat Suit.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "hide layer",
+        "targetLayer": "hair",
+        "targetTrait": []
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "hats",
+        "targetTrait": []
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "glasses",
+        "targetTrait": [
+          "Tape-Repaired Glasses.png",
+          "Cyclops Ruby Visor.png",
+          "Dark Lens Sunglasses.png",
+          "Disco Shutter Shades.png",
+          "Morpheus Nose-Clip Glasses.png",
+          "Neo Micro Shades.png",
+          "Pit Vipers.png",
+          "Poker Pro Blinders.png",
+          "Steve Jobs Round Glasses.png"
+        ]
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "mouth",
+        "targetTrait": [
+          "Autoglyph Mouth.png",
+          "Frown.png",
+          "HODLING Mouth.png",
+          "Handlebar Moustache.png",
+          "Smoking Pipe.png",
+          "Straight Mouth.png"
+        ]
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "clothing",
+        "targetTrait": []
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "masks",
+        "targetTrait": [
+          "Anonymous Mask.png",
+          "Jason Mask.png",
+          "Solgods Mask.png",
+          "White Mime Mask.png"
+        ]
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "ears",
+        "targetTrait": []
+      }
+    ]
+  },
+  {
+    "layer": "extras",
+    "operation": "is",
+    "trait": [
+      "Blue Gorilla.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "hide layer",
+        "targetLayer": "ears",
+        "targetTrait": []
+      }
+    ]
+  },
+  {
+    "layer": "extras",
+    "operation": "is",
+    "trait": [
+      "Blue Lightsaber.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "only pick from",
+        "targetLayer": "ears",
+        "targetTrait": [
+          "AirPod.png",
+          "Ankh Earring.png"
+        ]
+      }
+    ]
+  },
+  {
+    "layer": "extras",
+    "operation": "is",
+    "trait": [
+      "Cross Chain.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "hide layer",
+        "targetLayer": "chains",
+        "targetTrait": []
+      }
+    ]
+  },
+  {
+    "layer": "extras",
+    "operation": "is",
+    "trait": [
+      "Shoulder Crow.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "hide layer",
+        "targetLayer": "ears",
+        "targetTrait": []
+      }
+    ]
+  },
+  {
+    "layer": "hats",
+    "operation": "is",
+    "trait": [
+      "Binance Bucket Hat.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "only pick from",
+        "targetLayer": "hair",
+        "targetTrait": [
+          "Balding Hair.png",
+          "Dark Fringe.png",
+          "Unc Hair.png"
+        ]
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "glasses",
+        "targetTrait": [
+          "Tape-Repaired Glasses.png",
+          "Cyclops Ruby Visor.png",
+          "Dark Lens Sunglasses.png",
+          "Disco Shutter Shades.png",
+          "Doc Brown Mirror Visor.png",
+          "Kamina Shades.png",
+          "Morpheus Nose-Clip Glasses.png",
+          "Neo Micro Shades.png",
+          "Pit Vipers.png",
+          "Poker Pro Blinders.png",
+          "Steve Jobs Round Glasses.png",
+          "Wake Me Up Sleep Mask.png"
+        ]
+      }
+    ]
+  },
+  {
+    "layer": "hats",
+    "operation": "is",
+    "trait": [
+      "Binance Cap.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "only pick from",
+        "targetLayer": "hair",
+        "targetTrait": [
+          "Balding Hair.png",
+          "Dark Fringe.png",
+          "Unc Hair.png"
+        ]
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "glasses",
+        "targetTrait": [
+          "Tape-Repaired Glasses.png",
+          "Cyclops Ruby Visor.png",
+          "Dark Lens Sunglasses.png",
+          "Disco Shutter Shades.png",
+          "Doc Brown Mirror Visor.png",
+          "Kamina Shades.png",
+          "Morpheus Nose-Clip Glasses.png",
+          "Neo Micro Shades.png",
+          "Pit Vipers.png",
+          "Poker Pro Blinders.png",
+          "Steve Jobs Round Glasses.png",
+          "Wake Me Up Sleep Mask.png"
+        ]
+      }
+    ]
+  },
+  {
+    "layer": "hats",
+    "operation": "is",
+    "trait": [
+      "Black Headset.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "only pick from",
+        "targetLayer": "hair",
+        "targetTrait": [
+          "Balding Hair.png",
+          "Bartender Crop.png",
+          "Con Artist Side Sweep.png",
+          "Dark Fringe.png",
+          "Developer Hair.png",
+          "Divine Ponytail.png",
+          "Dutch Dreadlocks.png",
+          "Football Mohawk.png",
+          "HODLING Tousled Hair.png",
+          "Leopard Buzz Cut.png",
+          "Playground Leader Tufts.png",
+          "Punk Frumpy Hair.png",
+          "Quiet Antagonist Part.png",
+          "Recluse Bedhead.png",
+          "One-Wing Silver Hair.png",
+          "Sorcerer Hunter Sweep.png",
+          "Spirit Listener Fringe.png",
+          "Stray God Shag.png",
+          "Unc Hair.png",
+          "Wandering Fighter Crop.png"
+        ]
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "glasses",
+        "targetTrait": [
+          "Tape-Repaired Glasses.png",
+          "Cyclops Ruby Visor.png",
+          "Dark Lens Sunglasses.png",
+          "Disco Shutter Shades.png",
+          "Doc Brown Mirror Visor.png",
+          "Flip-Up Welding Shades.png",
+          "Kamina Shades.png",
+          "Morpheus Nose-Clip Glasses.png",
+          "Neo Micro Shades.png",
+          "Pit Vipers.png",
+          "Poker Pro Blinders.png",
+          "Steve Jobs Round Glasses.png",
+          "Wake Me Up Sleep Mask.png"
+        ]
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "mouth",
+        "targetTrait": [
+          "Bubblegum.png",
+          "HODLING Mouth.png",
+          "Handlebar Moustache.png",
+          "Pill on Tongue.png",
+          "Smoking Pipe.png"
+        ]
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "ears",
+        "targetTrait": [
+          "Ankh Earring.png"
+        ]
+      }
+    ]
+  },
+  {
+    "layer": "hats",
+    "operation": "is",
+    "trait": [
+      "Bloodshot Ape Head.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "hide layer",
+        "targetLayer": "hair",
+        "targetTrait": []
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "glasses",
+        "targetTrait": [
+          "Tape-Repaired Glasses.png",
+          "Cyclops Ruby Visor.png",
+          "Dark Lens Sunglasses.png",
+          "Disco Shutter Shades.png",
+          "Doc Brown Mirror Visor.png",
+          "Kamina Shades.png",
+          "Morpheus Nose-Clip Glasses.png",
+          "Neo Micro Shades.png",
+          "Pit Vipers.png",
+          "Poker Pro Blinders.png",
+          "Steve Jobs Round Glasses.png",
+          "Wake Me Up Sleep Mask.png"
+        ]
+      }
+    ]
+  },
+  {
+    "layer": "hats",
+    "operation": "is",
+    "trait": [
+      "Blue Party Hat.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "only pick from",
+        "targetLayer": "hair",
+        "targetTrait": [
+          "Balding Hair.png",
+          "Bartender Crop.png",
+          "Con Artist Side Sweep.png",
+          "Dark Fringe.png",
+          "Developer Hair.png",
+          "Divine Ponytail.png",
+          "Dutch Dreadlocks.png",
+          "Football Mohawk.png",
+          "HODLING Tousled Hair.png",
+          "Leopard Buzz Cut.png",
+          "Playground Leader Tufts.png",
+          "Punk Frumpy Hair.png",
+          "Quiet Antagonist Part.png",
+          "Recluse Bedhead.png",
+          "One-Wing Silver Hair.png",
+          "Sorcerer Hunter Sweep.png",
+          "Spirit Listener Fringe.png",
+          "Stray God Shag.png",
+          "Unc Hair.png",
+          "Wandering Fighter Crop.png"
+        ]
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "glasses",
+        "targetTrait": [
+          "Tape-Repaired Glasses.png",
+          "Cyclops Ruby Visor.png",
+          "Dark Lens Sunglasses.png",
+          "Disco Shutter Shades.png",
+          "Doc Brown Mirror Visor.png",
+          "Flip-Up Welding Shades.png",
+          "Kamina Shades.png",
+          "Morpheus Nose-Clip Glasses.png",
+          "Neo Micro Shades.png",
+          "Pit Vipers.png",
+          "Poker Pro Blinders.png",
+          "Steve Jobs Round Glasses.png",
+          "Wake Me Up Sleep Mask.png"
+        ]
+      }
+    ]
+  },
+  {
+    "layer": "hats",
+    "operation": "is",
+    "trait": [
+      "Brown Cowboy Hat.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "only pick from",
+        "targetLayer": "hair",
+        "targetTrait": [
+          "Balding Hair.png",
+          "Dark Fringe.png",
+          "Football Mohawk.png",
+          "Leopard Buzz Cut.png",
+          "Playground Leader Tufts.png",
+          "Unc Hair.png"
+        ]
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "glasses",
+        "targetTrait": [
+          "Tape-Repaired Glasses.png",
+          "Cyclops Ruby Visor.png",
+          "Dark Lens Sunglasses.png",
+          "Disco Shutter Shades.png",
+          "Doc Brown Mirror Visor.png",
+          "Kamina Shades.png",
+          "Morpheus Nose-Clip Glasses.png",
+          "Neo Micro Shades.png",
+          "Pit Vipers.png",
+          "Poker Pro Blinders.png",
+          "Steve Jobs Round Glasses.png",
+          "Wake Me Up Sleep Mask.png"
+        ]
+      }
+    ]
+  },
+  {
+    "layer": "hats",
+    "operation": "is",
+    "trait": [
+      "Bitcoin Cap.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "only pick from",
+        "targetLayer": "hair",
+        "targetTrait": [
+          "Balding Hair.png",
+          "Dark Fringe.png",
+          "Unc Hair.png"
+        ]
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "glasses",
+        "targetTrait": [
+          "Tape-Repaired Glasses.png",
+          "Cyclops Ruby Visor.png",
+          "Dark Lens Sunglasses.png",
+          "Disco Shutter Shades.png",
+          "Doc Brown Mirror Visor.png",
+          "Kamina Shades.png",
+          "Morpheus Nose-Clip Glasses.png",
+          "Neo Micro Shades.png",
+          "Pit Vipers.png",
+          "Poker Pro Blinders.png",
+          "Steve Jobs Round Glasses.png",
+          "Wake Me Up Sleep Mask.png"
+        ]
+      }
+    ]
+  },
+  {
+    "layer": "hats",
+    "operation": "is",
+    "trait": [
+      "Cannabis Trucker Cap.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "only pick from",
+        "targetLayer": "hair",
+        "targetTrait": [
+          "Balding Hair.png",
+          "Bartender Crop.png",
+          "Dark Fringe.png",
+          "Divine Ponytail.png",
+          "Dutch Dreadlocks.png",
+          "Football Mohawk.png",
+          "HODLING Tousled Hair.png",
+          "Leopard Buzz Cut.png",
+          "Playground Leader Tufts.png",
+          "Punk Frumpy Hair.png",
+          "Quiet Antagonist Part.png",
+          "Recluse Bedhead.png",
+          "One-Wing Silver Hair.png",
+          "Sorcerer Hunter Sweep.png",
+          "Spirit Listener Fringe.png",
+          "Stray God Shag.png",
+          "Unc Hair.png"
+        ]
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "glasses",
+        "targetTrait": [
+          "Tape-Repaired Glasses.png",
+          "Cyclops Ruby Visor.png",
+          "Dark Lens Sunglasses.png",
+          "Disco Shutter Shades.png",
+          "Doc Brown Mirror Visor.png",
+          "Kamina Shades.png",
+          "Morpheus Nose-Clip Glasses.png",
+          "Neo Micro Shades.png",
+          "Pit Vipers.png",
+          "Poker Pro Blinders.png",
+          "Steve Jobs Round Glasses.png",
+          "Wake Me Up Sleep Mask.png"
+        ]
+      }
+    ]
+  },
+  {
+    "layer": "hats",
+    "operation": "is",
+    "trait": [
+      "Pill Logo Cap.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "only pick from",
+        "targetLayer": "hair",
+        "targetTrait": [
+          "Balding Hair.png",
+          "Dark Fringe.png",
+          "Unc Hair.png"
+        ]
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "glasses",
+        "targetTrait": [
+          "Tape-Repaired Glasses.png",
+          "Cyclops Ruby Visor.png",
+          "Dark Lens Sunglasses.png",
+          "Disco Shutter Shades.png",
+          "Doc Brown Mirror Visor.png",
+          "Kamina Shades.png",
+          "Morpheus Nose-Clip Glasses.png",
+          "Neo Micro Shades.png",
+          "Pit Vipers.png",
+          "Poker Pro Blinders.png",
+          "Steve Jobs Round Glasses.png",
+          "Wake Me Up Sleep Mask.png"
+        ]
+      }
+    ]
+  },
+  {
+    "layer": "hats",
+    "operation": "is",
+    "trait": [
+      "Casino Crown.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "only pick from",
+        "targetLayer": "hair",
+        "targetTrait": [
+          "Balding Hair.png",
+          "Bartender Crop.png",
+          "Con Artist Side Sweep.png",
+          "Dark Fringe.png",
+          "Developer Hair.png",
+          "Divine Ponytail.png",
+          "Dutch Dreadlocks.png",
+          "Football Mohawk.png",
+          "HODLING Tousled Hair.png",
+          "Leopard Buzz Cut.png",
+          "Playground Leader Tufts.png",
+          "Punk Frumpy Hair.png",
+          "Quiet Antagonist Part.png",
+          "Recluse Bedhead.png",
+          "One-Wing Silver Hair.png",
+          "Sorcerer Hunter Sweep.png",
+          "Spirit Listener Fringe.png",
+          "Stray God Shag.png",
+          "Unc Hair.png",
+          "Wandering Fighter Crop.png"
+        ]
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "glasses",
+        "targetTrait": [
+          "Tape-Repaired Glasses.png",
+          "Cyclops Ruby Visor.png",
+          "Dark Lens Sunglasses.png",
+          "Disco Shutter Shades.png",
+          "Doc Brown Mirror Visor.png",
+          "Kamina Shades.png",
+          "Morpheus Nose-Clip Glasses.png",
+          "Neo Micro Shades.png",
+          "Pit Vipers.png",
+          "Poker Pro Blinders.png",
+          "Steve Jobs Round Glasses.png",
+          "Wake Me Up Sleep Mask.png"
+        ]
+      }
+    ]
+  },
+  {
+    "layer": "hats",
+    "operation": "is",
+    "trait": [
+      "Chef Hat.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "only pick from",
+        "targetLayer": "hair",
+        "targetTrait": [
+          "Balding Hair.png",
+          "Dark Fringe.png",
+          "Football Mohawk.png",
+          "Leopard Buzz Cut.png",
+          "Playground Leader Tufts.png",
+          "Unc Hair.png"
+        ]
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "glasses",
+        "targetTrait": [
+          "Tape-Repaired Glasses.png",
+          "Cyclops Ruby Visor.png",
+          "Dark Lens Sunglasses.png",
+          "Disco Shutter Shades.png",
+          "Doc Brown Mirror Visor.png",
+          "Kamina Shades.png",
+          "Morpheus Nose-Clip Glasses.png",
+          "Neo Micro Shades.png",
+          "Pit Vipers.png",
+          "Poker Pro Blinders.png",
+          "Steve Jobs Round Glasses.png",
+          "Wake Me Up Sleep Mask.png"
+        ]
+      }
+    ]
+  },
+  {
+    "layer": "hats",
+    "operation": "is",
+    "trait": [
+      "Coinbase Cap.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "only pick from",
+        "targetLayer": "hair",
+        "targetTrait": [
+          "Balding Hair.png",
+          "Dark Fringe.png",
+          "Unc Hair.png"
+        ]
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "glasses",
+        "targetTrait": [
+          "Tape-Repaired Glasses.png",
+          "Cyclops Ruby Visor.png",
+          "Dark Lens Sunglasses.png",
+          "Disco Shutter Shades.png",
+          "Doc Brown Mirror Visor.png",
+          "Kamina Shades.png",
+          "Morpheus Nose-Clip Glasses.png",
+          "Neo Micro Shades.png",
+          "Pit Vipers.png",
+          "Poker Pro Blinders.png",
+          "Steve Jobs Round Glasses.png",
+          "Wake Me Up Sleep Mask.png"
+        ]
+      }
+    ]
+  },
+  {
+    "layer": "hats",
+    "operation": "is",
+    "trait": [
+      "Desert Council Wrap.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "only pick from",
+        "targetLayer": "hair",
+        "targetTrait": [
+          "Balding Hair.png",
+          "Dark Fringe.png",
+          "Divine Ponytail.png",
+          "Football Mohawk.png",
+          "Leopard Buzz Cut.png",
+          "Playground Leader Tufts.png",
+          "Quiet Antagonist Part.png",
+          "Recluse Bedhead.png",
+          "Sorcerer Hunter Sweep.png",
+          "Spirit Listener Fringe.png",
+          "Unc Hair.png"
+        ]
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "glasses",
+        "targetTrait": [
+          "Tape-Repaired Glasses.png",
+          "Cyclops Ruby Visor.png",
+          "Dark Lens Sunglasses.png",
+          "Disco Shutter Shades.png",
+          "Doc Brown Mirror Visor.png",
+          "Kamina Shades.png",
+          "Morpheus Nose-Clip Glasses.png",
+          "Neo Micro Shades.png",
+          "Pit Vipers.png",
+          "Poker Pro Blinders.png",
+          "Steve Jobs Round Glasses.png",
+          "Wake Me Up Sleep Mask.png"
+        ]
+      }
+    ]
+  },
+  {
+    "layer": "hats",
+    "operation": "is",
+    "trait": [
+      "Detective Deerstalker.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "only pick from",
+        "targetLayer": "hair",
+        "targetTrait": [
+          "Balding Hair.png",
+          "Dark Fringe.png",
+          "Divine Ponytail.png",
+          "Football Mohawk.png",
+          "Leopard Buzz Cut.png",
+          "Playground Leader Tufts.png",
+          "Quiet Antagonist Part.png",
+          "Recluse Bedhead.png",
+          "One-Wing Silver Hair.png",
+          "Spirit Listener Fringe.png",
+          "Unc Hair.png"
+        ]
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "glasses",
+        "targetTrait": [
+          "Tape-Repaired Glasses.png",
+          "Cyclops Ruby Visor.png",
+          "Dark Lens Sunglasses.png",
+          "Disco Shutter Shades.png",
+          "Doc Brown Mirror Visor.png",
+          "Kamina Shades.png",
+          "Morpheus Nose-Clip Glasses.png",
+          "Neo Micro Shades.png",
+          "Pit Vipers.png",
+          "Poker Pro Blinders.png",
+          "Steve Jobs Round Glasses.png",
+          "Wake Me Up Sleep Mask.png"
+        ]
+      }
+    ]
+  },
+  {
+    "layer": "hats",
+    "operation": "is",
+    "trait": [
+      "Energy Drink Helmet.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "only pick from",
+        "targetLayer": "hair",
+        "targetTrait": [
+          "Balding Hair.png",
+          "Dark Fringe.png",
+          "Football Mohawk.png",
+          "Leopard Buzz Cut.png",
+          "Playground Leader Tufts.png",
+          "Unc Hair.png"
+        ]
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "glasses",
+        "targetTrait": [
+          "Tape-Repaired Glasses.png",
+          "Cyclops Ruby Visor.png",
+          "Dark Lens Sunglasses.png",
+          "Disco Shutter Shades.png",
+          "Doc Brown Mirror Visor.png",
+          "Kamina Shades.png",
+          "Morpheus Nose-Clip Glasses.png",
+          "Neo Micro Shades.png",
+          "Pit Vipers.png",
+          "Poker Pro Blinders.png",
+          "Steve Jobs Round Glasses.png",
+          "Wake Me Up Sleep Mask.png"
+        ]
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "mouth",
+        "targetTrait": [
+          "Autoglyph Mouth.png",
+          "Buck Teeth.png",
+          "Frown.png",
+          "HODLING Mouth.png",
+          "Pill on Tongue.png",
+          "PogChamp Mouth.png",
+          "Sleepy Drool.png",
+          "Straight Mouth.png"
+        ]
+      }
+    ]
+  },
+  {
+    "layer": "hats",
+    "operation": "is",
+    "trait": [
+      "Exposed Brain.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "hide layer",
+        "targetLayer": "hair",
+        "targetTrait": []
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "glasses",
+        "targetTrait": [
+          "Tape-Repaired Glasses.png",
+          "Cyclops Ruby Visor.png",
+          "Dark Lens Sunglasses.png",
+          "Disco Shutter Shades.png",
+          "Doc Brown Mirror Visor.png",
+          "Kamina Shades.png",
+          "Morpheus Nose-Clip Glasses.png",
+          "Neo Micro Shades.png",
+          "Pit Vipers.png",
+          "Poker Pro Blinders.png",
+          "Steve Jobs Round Glasses.png",
+          "Wake Me Up Sleep Mask.png"
+        ]
+      }
+    ]
+  },
+  {
+    "layer": "hats",
+    "operation": "is",
+    "trait": [
+      "Green K Visor.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "only pick from",
+        "targetLayer": "hair",
+        "targetTrait": [
+          "Balding Hair.png",
+          "Bartender Crop.png",
+          "Con Artist Side Sweep.png",
+          "Dark Fringe.png",
+          "Developer Hair.png",
+          "Divine Ponytail.png",
+          "Duelist Tricolor Spikes.png",
+          "Dutch Dreadlocks.png",
+          "Experiment Flame Quiff.png",
+          "Football Mohawk.png",
+          "HODLING Tousled Hair.png",
+          "Leopard Buzz Cut.png",
+          "Playground Leader Tufts.png",
+          "Punk Frumpy Hair.png",
+          "Quiet Antagonist Part.png",
+          "Recluse Bedhead.png",
+          "Red Warden Bristles.png",
+          "Royal Widows Peak.png",
+          "One-Wing Silver Hair.png",
+          "Sorcerer Hunter Sweep.png",
+          "Spirit Listener Fringe.png",
+          "Stray God Shag.png",
+          "Unc Hair.png",
+          "Wandering Fighter Crop.png",
+          "White Infinity Crop.png"
+        ]
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "glasses",
+        "targetTrait": [
+          "Tape-Repaired Glasses.png",
+          "Cyclops Ruby Visor.png",
+          "Dark Lens Sunglasses.png",
+          "Disco Shutter Shades.png",
+          "Doc Brown Mirror Visor.png",
+          "Kamina Shades.png",
+          "Morpheus Nose-Clip Glasses.png",
+          "Neo Micro Shades.png",
+          "Pit Vipers.png",
+          "Poker Pro Blinders.png",
+          "Steve Jobs Round Glasses.png",
+          "Wake Me Up Sleep Mask.png"
+        ]
+      }
+    ]
+  },
+  {
+    "layer": "hats",
+    "operation": "is",
+    "trait": [
+      "Flame Visor with Blond Hair.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "hide layer",
+        "targetLayer": "hair",
+        "targetTrait": []
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "glasses",
+        "targetTrait": [
+          "Tape-Repaired Glasses.png",
+          "Cyclops Ruby Visor.png",
+          "Dark Lens Sunglasses.png",
+          "Disco Shutter Shades.png",
+          "Doc Brown Mirror Visor.png",
+          "Kamina Shades.png",
+          "Morpheus Nose-Clip Glasses.png",
+          "Neo Micro Shades.png",
+          "Pit Vipers.png",
+          "Poker Pro Blinders.png",
+          "Steve Jobs Round Glasses.png",
+          "Wake Me Up Sleep Mask.png"
+        ]
+      }
+    ]
+  },
+  {
+    "layer": "hats",
+    "operation": "is",
+    "trait": [
+      "Make Solana Great Again Hat.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "only pick from",
+        "targetLayer": "hair",
+        "targetTrait": [
+          "Balding Hair.png",
+          "Dark Fringe.png",
+          "Unc Hair.png"
+        ]
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "glasses",
+        "targetTrait": [
+          "Tape-Repaired Glasses.png",
+          "Cyclops Ruby Visor.png",
+          "Dark Lens Sunglasses.png",
+          "Disco Shutter Shades.png",
+          "Doc Brown Mirror Visor.png",
+          "Kamina Shades.png",
+          "Morpheus Nose-Clip Glasses.png",
+          "Neo Micro Shades.png",
+          "Pit Vipers.png",
+          "Poker Pro Blinders.png",
+          "Steve Jobs Round Glasses.png",
+          "Wake Me Up Sleep Mask.png"
+        ]
+      }
+    ]
+  },
+  {
+    "layer": "hats",
+    "operation": "is",
+    "trait": [
+      "Cash Headband.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "only pick from",
+        "targetLayer": "hair",
+        "targetTrait": [
+          "Balding Hair.png",
+          "Bartender Crop.png",
+          "Con Artist Side Sweep.png",
+          "Dark Fringe.png",
+          "Developer Hair.png",
+          "Divine Ponytail.png",
+          "Duelist Tricolor Spikes.png",
+          "Dutch Dreadlocks.png",
+          "Experiment Flame Quiff.png",
+          "Football Mohawk.png",
+          "HODLING Tousled Hair.png",
+          "Leopard Buzz Cut.png",
+          "Playground Leader Tufts.png",
+          "Punk Frumpy Hair.png",
+          "Quiet Antagonist Part.png",
+          "Recluse Bedhead.png",
+          "Red Warden Bristles.png",
+          "Royal Widows Peak.png",
+          "One-Wing Silver Hair.png",
+          "Sorcerer Hunter Sweep.png",
+          "Spirit Listener Fringe.png",
+          "Stray God Shag.png",
+          "Unc Hair.png",
+          "Wandering Fighter Crop.png",
+          "White Infinity Crop.png"
+        ]
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "glasses",
+        "targetTrait": [
+          "Tape-Repaired Glasses.png",
+          "Cyclops Ruby Visor.png",
+          "Dark Lens Sunglasses.png",
+          "Disco Shutter Shades.png",
+          "Doc Brown Mirror Visor.png",
+          "Flip-Up Welding Shades.png",
+          "Kamina Shades.png",
+          "Morpheus Nose-Clip Glasses.png",
+          "Neo Micro Shades.png",
+          "Pit Vipers.png",
+          "Poker Pro Blinders.png",
+          "Steve Jobs Round Glasses.png",
+          "Wake Me Up Sleep Mask.png"
+        ]
+      }
+    ]
+  },
+  {
+    "layer": "hats",
+    "operation": "is",
+    "trait": [
+      "Moo Deng Hat.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "only pick from",
+        "targetLayer": "hair",
+        "targetTrait": [
+          "Balding Hair.png",
+          "Bartender Crop.png",
+          "Dark Fringe.png",
+          "Football Mohawk.png",
+          "Leopard Buzz Cut.png",
+          "Playground Leader Tufts.png",
+          "Quiet Antagonist Part.png",
+          "Unc Hair.png"
+        ]
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "glasses",
+        "targetTrait": [
+          "Tape-Repaired Glasses.png",
+          "Cyclops Ruby Visor.png",
+          "Dark Lens Sunglasses.png",
+          "Disco Shutter Shades.png",
+          "Doc Brown Mirror Visor.png",
+          "Kamina Shades.png",
+          "Morpheus Nose-Clip Glasses.png",
+          "Neo Micro Shades.png",
+          "Pit Vipers.png",
+          "Poker Pro Blinders.png",
+          "Steve Jobs Round Glasses.png",
+          "Wake Me Up Sleep Mask.png"
+        ]
+      }
+    ]
+  },
+  {
+    "layer": "hats",
+    "operation": "is",
+    "trait": [
+      "NEET Bucket Hat.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "only pick from",
+        "targetLayer": "hair",
+        "targetTrait": [
+          "Balding Hair.png",
+          "Dark Fringe.png",
+          "Unc Hair.png"
+        ]
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "glasses",
+        "targetTrait": [
+          "Tape-Repaired Glasses.png",
+          "Cyclops Ruby Visor.png",
+          "Dark Lens Sunglasses.png",
+          "Disco Shutter Shades.png",
+          "Doc Brown Mirror Visor.png",
+          "Kamina Shades.png",
+          "Morpheus Nose-Clip Glasses.png",
+          "Neo Micro Shades.png",
+          "Pit Vipers.png",
+          "Poker Pro Blinders.png",
+          "Steve Jobs Round Glasses.png",
+          "Wake Me Up Sleep Mask.png"
+        ]
+      }
+    ]
+  },
+  {
+    "layer": "hats",
+    "operation": "is",
+    "trait": [
+      "Expedition Panama Hat.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "only pick from",
+        "targetLayer": "hair",
+        "targetTrait": [
+          "Balding Hair.png",
+          "Dark Fringe.png",
+          "Unc Hair.png"
+        ]
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "glasses",
+        "targetTrait": [
+          "Tape-Repaired Glasses.png",
+          "Cyclops Ruby Visor.png",
+          "Dark Lens Sunglasses.png",
+          "Disco Shutter Shades.png",
+          "Doc Brown Mirror Visor.png",
+          "Kamina Shades.png",
+          "Morpheus Nose-Clip Glasses.png",
+          "Neo Micro Shades.png",
+          "Pit Vipers.png",
+          "Poker Pro Blinders.png",
+          "Steve Jobs Round Glasses.png",
+          "Wake Me Up Sleep Mask.png"
+        ]
+      }
+    ]
+  },
+  {
+    "layer": "hats",
+    "operation": "is",
+    "trait": [
+      "Raccoon Tail Cap.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "only pick from",
+        "targetLayer": "hair",
+        "targetTrait": [
+          "Balding Hair.png",
+          "Dark Fringe.png",
+          "Football Mohawk.png",
+          "Leopard Buzz Cut.png",
+          "Playground Leader Tufts.png",
+          "Quiet Antagonist Part.png",
+          "Recluse Bedhead.png",
+          "Sorcerer Hunter Sweep.png",
+          "Spirit Listener Fringe.png",
+          "Unc Hair.png"
+        ]
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "glasses",
+        "targetTrait": [
+          "Tape-Repaired Glasses.png",
+          "Cyclops Ruby Visor.png",
+          "Dark Lens Sunglasses.png",
+          "Disco Shutter Shades.png",
+          "Doc Brown Mirror Visor.png",
+          "Kamina Shades.png",
+          "Morpheus Nose-Clip Glasses.png",
+          "Neo Micro Shades.png",
+          "Pit Vipers.png",
+          "Poker Pro Blinders.png",
+          "Steve Jobs Round Glasses.png",
+          "Wake Me Up Sleep Mask.png"
+        ]
+      }
+    ]
+  },
+  {
+    "layer": "hats",
+    "operation": "is",
+    "trait": [
+      "Red Bandit Turban.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "only pick from",
+        "targetLayer": "hair",
+        "targetTrait": [
+          "Balding Hair.png",
+          "Dark Fringe.png",
+          "Football Mohawk.png",
+          "Leopard Buzz Cut.png",
+          "Playground Leader Tufts.png",
+          "Quiet Antagonist Part.png",
+          "Recluse Bedhead.png",
+          "Sorcerer Hunter Sweep.png",
+          "Spirit Listener Fringe.png",
+          "Unc Hair.png"
+        ]
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "glasses",
+        "targetTrait": [
+          "Tape-Repaired Glasses.png",
+          "Cyclops Ruby Visor.png",
+          "Dark Lens Sunglasses.png",
+          "Disco Shutter Shades.png",
+          "Doc Brown Mirror Visor.png",
+          "Kamina Shades.png",
+          "Morpheus Nose-Clip Glasses.png",
+          "Neo Micro Shades.png",
+          "Pit Vipers.png",
+          "Poker Pro Blinders.png",
+          "Steve Jobs Round Glasses.png",
+          "Wake Me Up Sleep Mask.png"
+        ]
+      }
+    ]
+  },
+  {
+    "layer": "hats",
+    "operation": "is",
+    "trait": [
+      "Red Mushroom Cap.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "only pick from",
+        "targetLayer": "hair",
+        "targetTrait": [
+          "Balding Hair.png",
+          "Bartender Crop.png",
+          "Con Artist Side Sweep.png",
+          "Dark Fringe.png",
+          "Developer Hair.png",
+          "Divine Ponytail.png",
+          "Duelist Tricolor Spikes.png",
+          "Dutch Dreadlocks.png",
+          "Experiment Flame Quiff.png",
+          "Football Mohawk.png",
+          "HODLING Tousled Hair.png",
+          "Leopard Buzz Cut.png",
+          "Playground Leader Tufts.png",
+          "Punk Frumpy Hair.png",
+          "Quiet Antagonist Part.png",
+          "Recluse Bedhead.png",
+          "Red Warden Bristles.png",
+          "Royal Widows Peak.png",
+          "One-Wing Silver Hair.png",
+          "Sorcerer Hunter Sweep.png",
+          "Spirit Listener Fringe.png",
+          "Stray God Shag.png",
+          "Unc Hair.png",
+          "Wandering Fighter Crop.png",
+          "White Infinity Crop.png"
+        ]
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "glasses",
+        "targetTrait": [
+          "Tape-Repaired Glasses.png",
+          "Cyclops Ruby Visor.png",
+          "Dark Lens Sunglasses.png",
+          "Disco Shutter Shades.png",
+          "Doc Brown Mirror Visor.png",
+          "Flip-Up Welding Shades.png",
+          "Kamina Shades.png",
+          "Morpheus Nose-Clip Glasses.png",
+          "Neo Micro Shades.png",
+          "Pit Vipers.png",
+          "Poker Pro Blinders.png",
+          "Steve Jobs Round Glasses.png",
+          "Wake Me Up Sleep Mask.png"
+        ]
+      }
+    ]
+  },
+  {
+    "layer": "hats",
+    "operation": "is",
+    "trait": [
+      "Roaring Kitty Bandana.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "only pick from",
+        "targetLayer": "hair",
+        "targetTrait": [
+          "Balding Hair.png",
+          "Bartender Crop.png",
+          "Con Artist Side Sweep.png",
+          "Dark Fringe.png",
+          "Developer Hair.png",
+          "Divine Ponytail.png",
+          "Duelist Tricolor Spikes.png",
+          "Dutch Dreadlocks.png",
+          "Experiment Flame Quiff.png",
+          "Football Mohawk.png",
+          "HODLING Tousled Hair.png",
+          "Leopard Buzz Cut.png",
+          "Playground Leader Tufts.png",
+          "Punk Frumpy Hair.png",
+          "Quiet Antagonist Part.png",
+          "Recluse Bedhead.png",
+          "Red Warden Bristles.png",
+          "Royal Widows Peak.png",
+          "One-Wing Silver Hair.png",
+          "Sorcerer Hunter Sweep.png",
+          "Spirit Listener Fringe.png",
+          "Stray God Shag.png",
+          "Unc Hair.png",
+          "Wandering Fighter Crop.png",
+          "White Infinity Crop.png"
+        ]
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "glasses",
+        "targetTrait": [
+          "Tape-Repaired Glasses.png",
+          "Cyclops Ruby Visor.png",
+          "Dark Lens Sunglasses.png",
+          "Disco Shutter Shades.png",
+          "Doc Brown Mirror Visor.png",
+          "Kamina Shades.png",
+          "Morpheus Nose-Clip Glasses.png",
+          "Neo Micro Shades.png",
+          "Pit Vipers.png",
+          "Poker Pro Blinders.png",
+          "Steve Jobs Round Glasses.png",
+          "Wake Me Up Sleep Mask.png"
+        ]
+      }
+    ]
+  },
+  {
+    "layer": "hats",
+    "operation": "is",
+    "trait": [
+      "Robin Hood Cap.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "only pick from",
+        "targetLayer": "hair",
+        "targetTrait": [
+          "Balding Hair.png",
+          "Dark Fringe.png",
+          "Unc Hair.png"
+        ]
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "glasses",
+        "targetTrait": [
+          "Tape-Repaired Glasses.png",
+          "Cyclops Ruby Visor.png",
+          "Dark Lens Sunglasses.png",
+          "Disco Shutter Shades.png",
+          "Doc Brown Mirror Visor.png",
+          "Kamina Shades.png",
+          "Morpheus Nose-Clip Glasses.png",
+          "Neo Micro Shades.png",
+          "Pit Vipers.png",
+          "Poker Pro Blinders.png",
+          "Steve Jobs Round Glasses.png",
+          "Wake Me Up Sleep Mask.png"
+        ]
+      }
+    ]
+  },
+  {
+    "layer": "hats",
+    "operation": "is",
+    "trait": [
+      "SMB Bandana.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "hide layer",
+        "targetLayer": "hair",
+        "targetTrait": []
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "glasses",
+        "targetTrait": [
+          "Tape-Repaired Glasses.png",
+          "Cyclops Ruby Visor.png",
+          "Dark Lens Sunglasses.png",
+          "Disco Shutter Shades.png",
+          "Doc Brown Mirror Visor.png",
+          "Kamina Shades.png",
+          "Morpheus Nose-Clip Glasses.png",
+          "Neo Micro Shades.png",
+          "Pit Vipers.png",
+          "Poker Pro Blinders.png",
+          "Steve Jobs Round Glasses.png",
+          "Wake Me Up Sleep Mask.png"
+        ]
+      }
+    ]
+  },
+  {
+    "layer": "hats",
+    "operation": "is",
+    "trait": [
+      "Solana Cap.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "only pick from",
+        "targetLayer": "hair",
+        "targetTrait": [
+          "Balding Hair.png",
+          "Dark Fringe.png",
+          "Unc Hair.png"
+        ]
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "glasses",
+        "targetTrait": [
+          "Tape-Repaired Glasses.png",
+          "Cyclops Ruby Visor.png",
+          "Dark Lens Sunglasses.png",
+          "Disco Shutter Shades.png",
+          "Doc Brown Mirror Visor.png",
+          "Kamina Shades.png",
+          "Morpheus Nose-Clip Glasses.png",
+          "Neo Micro Shades.png",
+          "Pit Vipers.png",
+          "Poker Pro Blinders.png",
+          "Steve Jobs Round Glasses.png",
+          "Wake Me Up Sleep Mask.png"
+        ]
+      }
+    ]
+  },
+  {
+    "layer": "hats",
+    "operation": "is",
+    "trait": [
+      "Sushi Chef Headband.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "only pick from",
+        "targetLayer": "hair",
+        "targetTrait": [
+          "Balding Hair.png",
+          "Bartender Crop.png",
+          "Con Artist Side Sweep.png",
+          "Dark Fringe.png",
+          "Developer Hair.png",
+          "Divine Ponytail.png",
+          "Duelist Tricolor Spikes.png",
+          "Dutch Dreadlocks.png",
+          "Experiment Flame Quiff.png",
+          "Football Mohawk.png",
+          "HODLING Tousled Hair.png",
+          "Leopard Buzz Cut.png",
+          "Playground Leader Tufts.png",
+          "Punk Frumpy Hair.png",
+          "Quiet Antagonist Part.png",
+          "Recluse Bedhead.png",
+          "Red Warden Bristles.png",
+          "Royal Widows Peak.png",
+          "One-Wing Silver Hair.png",
+          "Sorcerer Hunter Sweep.png",
+          "Spirit Listener Fringe.png",
+          "Stray God Shag.png",
+          "Unc Hair.png",
+          "Wandering Fighter Crop.png",
+          "White Infinity Crop.png"
+        ]
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "glasses",
+        "targetTrait": [
+          "Tape-Repaired Glasses.png",
+          "Cyclops Ruby Visor.png",
+          "Dark Lens Sunglasses.png",
+          "Disco Shutter Shades.png",
+          "Doc Brown Mirror Visor.png",
+          "Kamina Shades.png",
+          "Morpheus Nose-Clip Glasses.png",
+          "Neo Micro Shades.png",
+          "Pit Vipers.png",
+          "Poker Pro Blinders.png",
+          "Steve Jobs Round Glasses.png",
+          "Wake Me Up Sleep Mask.png"
+        ]
+      }
+    ]
+  },
+  {
+    "layer": "hats",
+    "operation": "is",
+    "trait": [
+      "Trainer Cap with Hair.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "hide layer",
+        "targetLayer": "hair",
+        "targetTrait": []
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "glasses",
+        "targetTrait": [
+          "Tape-Repaired Glasses.png",
+          "Cyclops Ruby Visor.png",
+          "Dark Lens Sunglasses.png",
+          "Disco Shutter Shades.png",
+          "Doc Brown Mirror Visor.png",
+          "Kamina Shades.png",
+          "Morpheus Nose-Clip Glasses.png",
+          "Neo Micro Shades.png",
+          "Pit Vipers.png",
+          "Poker Pro Blinders.png",
+          "Steve Jobs Round Glasses.png",
+          "Wake Me Up Sleep Mask.png"
+        ]
+      }
+    ]
+  },
+  {
+    "layer": "hats",
+    "operation": "is",
+    "trait": [
+      "WAGMI Cap.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "only pick from",
+        "targetLayer": "hair",
+        "targetTrait": [
+          "Balding Hair.png",
+          "Dark Fringe.png",
+          "Unc Hair.png"
+        ]
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "glasses",
+        "targetTrait": [
+          "Tape-Repaired Glasses.png",
+          "Cyclops Ruby Visor.png",
+          "Dark Lens Sunglasses.png",
+          "Disco Shutter Shades.png",
+          "Doc Brown Mirror Visor.png",
+          "Kamina Shades.png",
+          "Morpheus Nose-Clip Glasses.png",
+          "Neo Micro Shades.png",
+          "Pit Vipers.png",
+          "Poker Pro Blinders.png",
+          "Steve Jobs Round Glasses.png",
+          "Wake Me Up Sleep Mask.png"
+        ]
+      }
+    ]
+  },
+  {
+    "layer": "hats",
+    "operation": "is",
+    "trait": [
+      "WIF Beanie with Messy Hair.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "hide layer",
+        "targetLayer": "hair",
+        "targetTrait": []
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "glasses",
+        "targetTrait": [
+          "Tape-Repaired Glasses.png",
+          "Cyclops Ruby Visor.png",
+          "Dark Lens Sunglasses.png",
+          "Disco Shutter Shades.png",
+          "Doc Brown Mirror Visor.png",
+          "Kamina Shades.png",
+          "Morpheus Nose-Clip Glasses.png",
+          "Neo Micro Shades.png",
+          "Pit Vipers.png",
+          "Poker Pro Blinders.png",
+          "Steve Jobs Round Glasses.png",
+          "Wake Me Up Sleep Mask.png"
+        ]
+      }
+    ]
+  },
+  {
+    "layer": "hats",
+    "operation": "is",
+    "trait": [
+      "Yellow Hard Hat.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "only pick from",
+        "targetLayer": "hair",
+        "targetTrait": [
+          "Balding Hair.png",
+          "Dark Fringe.png",
+          "Unc Hair.png"
+        ]
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "glasses",
+        "targetTrait": [
+          "Tape-Repaired Glasses.png",
+          "Cyclops Ruby Visor.png",
+          "Dark Lens Sunglasses.png",
+          "Disco Shutter Shades.png",
+          "Doc Brown Mirror Visor.png",
+          "Kamina Shades.png",
+          "Morpheus Nose-Clip Glasses.png",
+          "Neo Micro Shades.png",
+          "Pit Vipers.png",
+          "Poker Pro Blinders.png",
+          "Steve Jobs Round Glasses.png",
+          "Wake Me Up Sleep Mask.png"
+        ]
+      }
+    ]
+  },
+  {
+    "layer": "masks",
+    "operation": "is",
+    "trait": [
+      "Anonymous Mask.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "only pick from",
+        "targetLayer": "hair",
+        "targetTrait": [
+          "Balding Hair.png",
+          "Bartender Crop.png",
+          "Con Artist Side Sweep.png",
+          "Dark Fringe.png",
+          "Developer Hair.png",
+          "Divine Ponytail.png",
+          "Duelist Tricolor Spikes.png",
+          "Dutch Dreadlocks.png",
+          "Experiment Flame Quiff.png",
+          "Football Mohawk.png",
+          "HODLING Tousled Hair.png",
+          "Leopard Buzz Cut.png",
+          "Playground Leader Tufts.png",
+          "Punk Frumpy Hair.png",
+          "Quiet Antagonist Part.png",
+          "Recluse Bedhead.png",
+          "Red Warden Bristles.png",
+          "Royal Widows Peak.png",
+          "One-Wing Silver Hair.png",
+          "Sorcerer Hunter Sweep.png",
+          "Spirit Listener Fringe.png",
+          "Stray God Shag.png",
+          "Unc Hair.png",
+          "Wandering Fighter Crop.png",
+          "White Infinity Crop.png"
+        ]
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "hats",
+        "targetTrait": [
+          "Black Headset.png",
+          "Blue Party Hat.png",
+          "Casino Crown.png",
+          "Chef Hat.png",
+          "Red Mushroom Cap.png",
+          "Yellow Hard Hat.png"
+        ]
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "glasses",
+        "targetTrait": []
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "mouth",
+        "targetTrait": []
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "eyes",
+        "targetTrait": []
+      }
+    ]
+  },
+  {
+    "layer": "masks",
+    "operation": "is",
+    "trait": [
+      "DOOM Mask.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "only pick from",
+        "targetLayer": "hair",
+        "targetTrait": [
+          "Balding Hair.png",
+          "Bartender Crop.png",
+          "Con Artist Side Sweep.png",
+          "Dark Fringe.png",
+          "Developer Hair.png",
+          "Divine Ponytail.png",
+          "Duelist Tricolor Spikes.png",
+          "Dutch Dreadlocks.png",
+          "Experiment Flame Quiff.png",
+          "Football Mohawk.png",
+          "HODLING Tousled Hair.png",
+          "Leopard Buzz Cut.png",
+          "Playground Leader Tufts.png",
+          "Punk Frumpy Hair.png",
+          "Quiet Antagonist Part.png",
+          "Recluse Bedhead.png",
+          "Red Warden Bristles.png",
+          "Royal Widows Peak.png",
+          "One-Wing Silver Hair.png",
+          "Sorcerer Hunter Sweep.png",
+          "Spirit Listener Fringe.png",
+          "Stray God Shag.png",
+          "Unc Hair.png",
+          "Wandering Fighter Crop.png",
+          "White Infinity Crop.png"
+        ]
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "hats",
+        "targetTrait": [
+          "Black Headset.png",
+          "Blue Party Hat.png",
+          "Brown Cowboy Hat.png",
+          "Casino Crown.png",
+          "Chef Hat.png",
+          "Raccoon Tail Cap.png",
+          "Red Mushroom Cap.png",
+          "Yellow Hard Hat.png"
+        ]
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "glasses",
+        "targetTrait": []
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "mouth",
+        "targetTrait": []
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "eyes",
+        "targetTrait": []
+      }
+    ]
+  },
+  {
+    "layer": "masks",
+    "operation": "is",
+    "trait": [
+      "George Droid Mask.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "hide layer",
+        "targetLayer": "hair",
+        "targetTrait": []
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "hats",
+        "targetTrait": []
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "glasses",
+        "targetTrait": []
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "mouth",
+        "targetTrait": []
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "eyes",
+        "targetTrait": []
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "ears",
+        "targetTrait": []
+      }
+    ]
+  },
+  {
+    "layer": "masks",
+    "operation": "is",
+    "trait": [
+      "Jason Mask.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "only pick from",
+        "targetLayer": "hair",
+        "targetTrait": [
+          "Balding Hair.png",
+          "Bartender Crop.png",
+          "Con Artist Side Sweep.png",
+          "Dark Fringe.png",
+          "Developer Hair.png",
+          "Divine Ponytail.png",
+          "Duelist Tricolor Spikes.png",
+          "Dutch Dreadlocks.png",
+          "Experiment Flame Quiff.png",
+          "Football Mohawk.png",
+          "HODLING Tousled Hair.png",
+          "Leopard Buzz Cut.png",
+          "Playground Leader Tufts.png",
+          "Punk Frumpy Hair.png",
+          "Quiet Antagonist Part.png",
+          "Recluse Bedhead.png",
+          "Red Warden Bristles.png",
+          "Royal Widows Peak.png",
+          "One-Wing Silver Hair.png",
+          "Sorcerer Hunter Sweep.png",
+          "Spirit Listener Fringe.png",
+          "Stray God Shag.png",
+          "Unc Hair.png",
+          "Wandering Fighter Crop.png",
+          "White Infinity Crop.png"
+        ]
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "hats",
+        "targetTrait": [
+          "Black Headset.png"
+        ]
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "glasses",
+        "targetTrait": []
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "mouth",
+        "targetTrait": []
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "eyes",
+        "targetTrait": []
+      }
+    ]
+  },
+  {
+    "layer": "masks",
+    "operation": "is",
+    "trait": [
+      "Mandalorian Mask.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "hide layer",
+        "targetLayer": "hair",
+        "targetTrait": []
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "hats",
+        "targetTrait": []
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "glasses",
+        "targetTrait": []
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "mouth",
+        "targetTrait": []
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "eyes",
+        "targetTrait": []
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "ears",
+        "targetTrait": [
+          "AirPod.png",
+          "Ankh Earring.png"
+        ]
+      }
+    ]
+  },
+  {
+    "layer": "masks",
+    "operation": "is",
+    "trait": [
+      "Plague Doctor Mask.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "only pick from",
+        "targetLayer": "hair",
+        "targetTrait": [
+          "Balding Hair.png",
+          "Bartender Crop.png",
+          "Con Artist Side Sweep.png",
+          "Dark Fringe.png",
+          "Developer Hair.png",
+          "Divine Ponytail.png",
+          "Duelist Tricolor Spikes.png",
+          "Dutch Dreadlocks.png",
+          "Experiment Flame Quiff.png",
+          "Football Mohawk.png",
+          "HODLING Tousled Hair.png",
+          "Leopard Buzz Cut.png",
+          "Playground Leader Tufts.png",
+          "Punk Frumpy Hair.png",
+          "Quiet Antagonist Part.png",
+          "Recluse Bedhead.png",
+          "Red Warden Bristles.png",
+          "Royal Widows Peak.png",
+          "One-Wing Silver Hair.png",
+          "Sorcerer Hunter Sweep.png",
+          "Spirit Listener Fringe.png",
+          "Stray God Shag.png",
+          "Unc Hair.png",
+          "Wandering Fighter Crop.png",
+          "White Infinity Crop.png"
+        ]
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "hats",
+        "targetTrait": [
+          "Binance Bucket Hat.png",
+          "Binance Cap.png",
+          "Blue Party Hat.png",
+          "Brown Cowboy Hat.png",
+          "Cannabis Trucker Cap.png",
+          "Pill Logo Cap.png",
+          "Casino Crown.png",
+          "Chef Hat.png",
+          "Coinbase Cap.png",
+          "Desert Council Wrap.png",
+          "Detective Deerstalker.png",
+          "Exposed Brain.png",
+          "Green K Visor.png",
+          "Flame Visor with Blond Hair.png",
+          "Make Solana Great Again Hat.png",
+          "Cash Headband.png",
+          "NEET Bucket Hat.png",
+          "Expedition Panama Hat.png",
+          "Raccoon Tail Cap.png",
+          "Red Bandit Turban.png",
+          "Red Mushroom Cap.png",
+          "Roaring Kitty Bandana.png",
+          "Robin Hood Cap.png",
+          "SMB Bandana.png",
+          "Solana Cap.png",
+          "Sushi Chef Headband.png",
+          "Trainer Cap with Hair.png",
+          "WAGMI Cap.png",
+          "WIF Beanie with Messy Hair.png",
+          "Yellow Hard Hat.png"
+        ]
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "glasses",
+        "targetTrait": []
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "mouth",
+        "targetTrait": []
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "eyes",
+        "targetTrait": []
+      }
+    ]
+  },
+  {
+    "layer": "masks",
+    "operation": "is",
+    "trait": [
+      "Red Oni Mask.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "only pick from",
+        "targetLayer": "hair",
+        "targetTrait": [
+          "Balding Hair.png",
+          "Bartender Crop.png",
+          "Con Artist Side Sweep.png",
+          "Dark Fringe.png",
+          "Developer Hair.png",
+          "Divine Ponytail.png",
+          "Duelist Tricolor Spikes.png",
+          "Dutch Dreadlocks.png",
+          "Experiment Flame Quiff.png",
+          "Football Mohawk.png",
+          "HODLING Tousled Hair.png",
+          "Leopard Buzz Cut.png",
+          "Playground Leader Tufts.png",
+          "Punk Frumpy Hair.png",
+          "Quiet Antagonist Part.png",
+          "Recluse Bedhead.png",
+          "Red Warden Bristles.png",
+          "Royal Widows Peak.png",
+          "One-Wing Silver Hair.png",
+          "Sorcerer Hunter Sweep.png",
+          "Spirit Listener Fringe.png",
+          "Stray God Shag.png",
+          "Unc Hair.png",
+          "Wandering Fighter Crop.png",
+          "White Infinity Crop.png"
+        ]
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "hats",
+        "targetTrait": []
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "glasses",
+        "targetTrait": []
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "mouth",
+        "targetTrait": []
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "eyes",
+        "targetTrait": []
+      }
+    ]
+  },
+  {
+    "layer": "masks",
+    "operation": "is",
+    "trait": [
+      "Ghostface Mask.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "only pick from",
+        "targetLayer": "hair",
+        "targetTrait": [
+          "Balding Hair.png",
+          "Bartender Crop.png",
+          "Con Artist Side Sweep.png",
+          "Dark Fringe.png",
+          "Developer Hair.png",
+          "Divine Ponytail.png",
+          "Duelist Tricolor Spikes.png",
+          "Dutch Dreadlocks.png",
+          "Experiment Flame Quiff.png",
+          "Football Mohawk.png",
+          "HODLING Tousled Hair.png",
+          "Leopard Buzz Cut.png",
+          "Playground Leader Tufts.png",
+          "Punk Frumpy Hair.png",
+          "Quiet Antagonist Part.png",
+          "Recluse Bedhead.png",
+          "Red Warden Bristles.png",
+          "Royal Widows Peak.png",
+          "One-Wing Silver Hair.png",
+          "Sorcerer Hunter Sweep.png",
+          "Spirit Listener Fringe.png",
+          "Stray God Shag.png",
+          "Unc Hair.png",
+          "Wandering Fighter Crop.png",
+          "White Infinity Crop.png"
+        ]
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "hats",
+        "targetTrait": [
+          "Black Headset.png"
+        ]
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "glasses",
+        "targetTrait": []
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "mouth",
+        "targetTrait": []
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "eyes",
+        "targetTrait": []
+      }
+    ]
+  },
+  {
+    "layer": "masks",
+    "operation": "is",
+    "trait": [
+      "Solgods Mask.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "only pick from",
+        "targetLayer": "hair",
+        "targetTrait": [
+          "Balding Hair.png",
+          "Bartender Crop.png",
+          "Con Artist Side Sweep.png",
+          "Dark Fringe.png",
+          "Developer Hair.png",
+          "Divine Ponytail.png",
+          "Duelist Tricolor Spikes.png",
+          "Dutch Dreadlocks.png",
+          "Experiment Flame Quiff.png",
+          "Football Mohawk.png",
+          "HODLING Tousled Hair.png",
+          "Leopard Buzz Cut.png",
+          "Playground Leader Tufts.png",
+          "Punk Frumpy Hair.png",
+          "Quiet Antagonist Part.png",
+          "Recluse Bedhead.png",
+          "Red Warden Bristles.png",
+          "Royal Widows Peak.png",
+          "One-Wing Silver Hair.png",
+          "Sorcerer Hunter Sweep.png",
+          "Spirit Listener Fringe.png",
+          "Stray God Shag.png",
+          "Unc Hair.png",
+          "Wandering Fighter Crop.png",
+          "White Infinity Crop.png"
+        ]
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "hats",
+        "targetTrait": []
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "glasses",
+        "targetTrait": []
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "mouth",
+        "targetTrait": []
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "eyes",
+        "targetTrait": []
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "ears",
+        "targetTrait": [
+          "AirPod.png",
+          "Ankh Earring.png"
+        ]
+      }
+    ]
+  },
+  {
+    "layer": "masks",
+    "operation": "is",
+    "trait": [
+      "White Mime Mask.png"
+    ],
+    "thenStatements": [
+      {
+        "action": "only pick from",
+        "targetLayer": "hair",
+        "targetTrait": [
+          "Balding Hair.png",
+          "Bartender Crop.png",
+          "Con Artist Side Sweep.png",
+          "Dark Fringe.png",
+          "Developer Hair.png",
+          "Divine Ponytail.png",
+          "Duelist Tricolor Spikes.png",
+          "Dutch Dreadlocks.png",
+          "Experiment Flame Quiff.png",
+          "Football Mohawk.png",
+          "HODLING Tousled Hair.png",
+          "Leopard Buzz Cut.png",
+          "Playground Leader Tufts.png",
+          "Punk Frumpy Hair.png",
+          "Quiet Antagonist Part.png",
+          "Recluse Bedhead.png",
+          "Red Warden Bristles.png",
+          "Royal Widows Peak.png",
+          "One-Wing Silver Hair.png",
+          "Sorcerer Hunter Sweep.png",
+          "Spirit Listener Fringe.png",
+          "Stray God Shag.png",
+          "Unc Hair.png",
+          "Wandering Fighter Crop.png",
+          "White Infinity Crop.png"
+        ]
+      },
+      {
+        "action": "only pick from",
+        "targetLayer": "hats",
+        "targetTrait": [
+          "Black Headset.png"
+        ]
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "glasses",
+        "targetTrait": []
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "mouth",
+        "targetTrait": []
+      },
+      {
+        "action": "hide layer",
+        "targetLayer": "eyes",
+        "targetTrait": []
+      }
+    ]
+  }
+]

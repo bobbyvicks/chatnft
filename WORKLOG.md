@@ -28,6 +28,10 @@ queue that cannot be updated by the thing doing the work rots by construction.
 
 Nothing.
 
+## Curated v6 handoff — 2026-09-06
+
+Codex connected the validated 249-trait v6 collection to the native review from d869d42. `rules/strict-fit-v6-collection.json` includes all 427 pair policies, including explicit unrestricted lists that clear older glasses→eyes exclusions; the separate LaunchMyNFT download remains the canonical 189-action file. The new button validates filenames before calling the existing importer and applies the user's paint order. Native human-answer priority and sharing remain in force. `saveRules` now retains decision `src` across reloads; losing it promoted file defaults to human answers. `npm run test:curated-rules`: five tests passed, including 10,000 native-generator draws. Full browser suite was not run in this Codex session. See `docs/strict-fit-v6.md` for the source and update procedure.
+
 > A run claims an item by putting it here with the UTC time it started, and
 > clears it when it commits. If you find something here older than about an
 > hour, the run that wrote it died — check `git log` for whether its work

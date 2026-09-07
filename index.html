@@ -1128,6 +1128,11 @@ footer .mono{color:var(--ink);}
     </div>
     <p class="note" id="ruleimportnote" hidden></p>
     <input type="file" id="rulefile" accept="application/json,.json" hidden>
+    <div class="olrow" style="margin-top:8px">
+      <button class="mini" id="rulev6">Load reviewed v6 collection rules</button>
+      <a class="mini" href="rules/trait-rules-strict-fit-v6.json" download>Download v6 for LaunchMyNFT</a>
+    </div>
+    <p class="note">For the renamed 249-trait collection. Loads the stricter fit decisions and sets the draw order: eyes, glasses, then hats; masks last. Your team's own Yes/No answers still take priority. Continue editing them in Review pairs above.</p>
   </section>
   <section class="proj" id="layers" hidden>
     <div class="projhead">
@@ -8137,7 +8142,7 @@ async function saveRules(){
       for(let i=0;i<g.length;i++) for(let j=i+1;j<g.length;j++) acc.push([g[i],g[j]]);
       return acc; },[])});
   await dbPut({id:DECISIONS_ID, kind:"settings", at:Date.now(),
-    decisions:DECISIONS.map(d=>({a:d.a,b:d.b,ok:d.ok,at:d.at,by:d.by||null}))});
+    decisions:DECISIONS.map(d=>({a:d.a,b:d.b,ok:d.ok,at:d.at,by:d.by||null,src:d.src||"you"}))});
   /* AND THE GROUP. Same shape as saveLayers: sent when it changed, and the
      signature is remembered only when the send actually arrived, so a failed
      one is retried by the next change rather than assumed done. */
@@ -11296,6 +11301,9 @@ $('rulefile').onchange=async(e)=>{
   /* Cleared straight away so choosing the same file twice fires again -
      which somebody will do after fixing a name. */
   e.target.value="";
+  return importRuleFile(f);
+};
+async function importRuleFile(f){
   if(!f) return;
   const note=$("ruleimportnote"); note.hidden=false;
   note.textContent="Reading "+f.name+"...";
@@ -11372,7 +11380,8 @@ $('rulefile').onchange=async(e)=>{
   if(plan.ambiguous.length) bits.push(plan.ambiguous.length+" name"+(plan.ambiguous.length===1?"":"s")+" matched more than one trait and "+(plan.ambiguous.length===1?"was":"were")+" left out");
   note.textContent=bits.join(". ")+".";
   toast("Added "+added+" rule"+(added===1?"":"s"));
-};
+  return true;
+}
 $('csheet').onclick=()=>drawSheet(12);
 $('cgenzip').onclick=async()=>{
   const btn=$("cgenzip");
@@ -11698,5 +11707,6 @@ addEventListener('keydown',e=>{
 addEventListener('keyup',e=>{ if(e.code==='Space'){ spaceHeld=false; if(!pan) stage.style.cursor=panMode?'grab':''; } });
 addEventListener('resize',()=>{ if(!$('app').hidden&&zoom<=1) fitZoom(); });
 </script>
+<script src="curated-rules-v6.js"></script>
 </body>
 </html>

@@ -7195,8 +7195,36 @@ async function bulkImport(files){
      appended to as the loop runs, so it cannot answer that question later. */
   const beforeIds=new Set(shelfItems.filter(i=>i.kind==="trait").map(i=>i.id));
   const beforeTraits=shelfItems.filter(i=>i.kind==="trait");
+  /* THE BYTES, not the name. A name is what somebody typed and a version
+     suffix is what they typed the second time; the picture is the thing that
+     either is or is not already in the project.
+
+     Cached per record, because the alternative is re-hashing the whole
+     collection once per incoming file - 272 traits against 272 files is
+     74,000 reads of the same blobs. */
+  const sigCache=new Map();
+  async function fileSig(b){
+    try{
+      const buf=await b.arrayBuffer();
+      const h=await crypto.subtle.digest("SHA-256",buf);
+      return [...new Uint8Array(h)].map(v=>v.toString(16).padStart(2,"0")).join("");
+    }catch(_){ return null; }   /* no hash means no match, never a false one */
+  }
+  async function recSig(rec){
+    if(sigCache.has(rec.id)) return sigCache.get(rec.id);
+    const s=rec.blob ? await fileSig(rec.blob) : null;
+    sigCache.set(rec.id,s);
+    return s;
+  }
   const writtenIds=new Set();
   let fresh=0, replaced=0;
+  /* Named rather than counted: "3 renamed" is a number to worry about and
+     "Retro Jazz Cup Skin -> Retro Jazz Cup Skin v2" is a thing you can
+     recognise as right or wrong at a glance. */
+  /* Named rather than counted: "3 duplicates" is a number to worry about,
+     and "Retro Jazz Cup Skin and Retro Jazz Cup Skin v2" is a pair somebody
+     can recognise as right or wrong at a glance. */
+  const sameArt=[];
   for(let i=0;i<list.length;i++){
     const f=list[i];
     if(i%12===0){
@@ -7252,6 +7280,41 @@ async function bulkImport(files){
            resolve to the same trait: the second is a replacement, not a new one. */
         if(beforeIds.has(trec.id)||writtenIds.has(trec.id)) replaced++; else fresh++;
         writtenIds.add(trec.id);
+        /* THE SAME PICTURE UNDER ANOTHER NAME. The id carries the name, so
+           "cap v2.png" lands beside "cap" and both stay - which is how a
+           project ends up holding forty versions of one skin. A byte match
+           in the SAME layer is the same artwork renamed, so the old record
+           goes and this one keeps the new name.
+
+           Same layer only: one picture can legitimately serve two layers,
+           and merging those would delete a trait somebody meant to have
+           twice. Across layers an identical file is a coincidence. */
+        /* SAID, NOT DONE. This deleted the old record on a byte match, and
+           the first test of it destroyed a trait: re-importing an unchanged
+           folder went from two traits to one, because two files in it had
+           identical bytes and the first deleted the second before the loop
+           reached it.
+
+           Within one batch a file can delete a record a later file is about
+           to supply, and beforeTraits is a snapshot from before any of them
+           ran. Guardable - but being wrong deletes artwork, and there is
+           nothing here to merge: measured over the real collection, 272
+           approved files and 419 in the working folder, zero byte-identical
+           pairs among either.
+
+           So it says so. The person importing knows which of the two they
+           meant to keep, and the absent-check below already settles this the
+           same way: guessing throws away work, being told costs nothing. */
+        const sig=await fileSig(f);
+        if(sig){
+          for(const old of beforeTraits){
+            if(old.id===trec.id) continue;
+            if((old.layer||"unsorted")!==layer) continue;
+            if(await recSig(old)!==sig) continue;
+            sameArt.push(old.name+" and "+info.name);
+            break;
+          }
+        }
         await dbPut(trec);
         supplied.push({name:info.name, layer:layer, status:status, id:trec.id});
         shelfItems.push(trec);
@@ -7310,6 +7373,8 @@ async function bulkImport(files){
      unsorted are the ones the folder names did not explain, and silently
      filing them reads as if they were understood. */
   const bits=[];
+  if(sameArt.length) bits.push(sameArt.length+" the same picture twice ("
+    +sameArt.slice(0,3).join("; ")+(sameArt.length>3?" and "+(sameArt.length-3)+" more":"")+")");
   /* New against replaced. Counting FILES READ while the reader is asking "did
      my edit land, and did I add anything by accident" answers a question nobody
      asked - and a re-import of a folder you changed one file in reads exactly

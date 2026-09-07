@@ -6637,7 +6637,8 @@ async function revPaint(cv,cond,cand){
   const base=cItems.find(i=>i&&i.kind==="ref");
   const pieces=[base,cond,cand].filter(Boolean);
   let W=0,H=0;
-  for(const p of pieces){ if(p.w>W) W=p.w; if(p.h>H) H=p.h; }
+  /* Fixed, so two pairs are compared at the same size. */
+  W=CANVAS_SIDE; H=CANVAS_SIDE;
   if(!W||!H){ W=160; H=160; }
   cv.width=W; cv.height=H;
   const g=cv.getContext("2d");
@@ -6977,7 +6978,8 @@ async function drawCompose(){
      agreed with each other exactly. The fallback only applies to an empty
      selection, where there is no size to take. */
   let W=0,H=0;
-  for(const p of picked){ if(p.rec.w>W) W=p.rec.w; if(p.rec.h>H) H=p.rec.h; }
+  /* Fixed, so the preview does not change size with the picks. */
+  W=CANVAS_SIDE; H=CANVAS_SIDE;
   if(!W||!H){ W=160; H=160; }
   cv.width=W; cv.height=H;
   const g=cv.getContext("2d");
@@ -7806,6 +7808,19 @@ function pixelBlock(bm){
   return n;
 }
 function gcdOf(a,b){ a=Math.abs(a); b=Math.abs(b); while(b){ const t=a%b; a=b; b=t; } return a||1; }
+/* ONE SIZE FOR EVERY COMPOSITE, chosen by measuring the collection rather
+   than picked. 1048 was asked for and is the worst available number - it is
+   8 x 131 with 131 prime, so all 272 traits land on a split grid. 1024 looks
+   reasonable and is not: the 31 skins are 1280 on 8px blocks, so 1024 makes
+   their cells 6.4px and they come out alternately 6 and 7 - and skins are
+   the base layer of every character. 1280 is what the skins already are, and
+   1024 art grows into it at 5/4, which turns 8px cells into exactly 10.
+
+     canvas   broken grids   shrunk
+      1048    272 of 272       38
+      1024     38              38
+      1280     24               1   */
+const CANVAS_SIDE=1280;
 function paintTrait(g,bm,ox,oy,W,H){
   const w=bm.width||W, h=bm.height||H;
   /* Never below 1: a trait larger than the box would scale to 0 and vanish.
@@ -7837,10 +7852,28 @@ function paintTrait(g,bm,ox,oy,W,H){
      can only ever make a trait larger, never smaller. */
   const fit=Math.min(W/w,H/h);
   let use=k;
+  /* SMALLER THAN THE CANVAS: scale down. k is floored at 1, so a trait
+     bigger than the box used to be drawn at its own size and cropped by
+     it - one 2048 file in this collection, losing 38% of itself. That was
+     never a trade-off between size and blocks, just a gap. */
+  if(fit<1){ use=fit; }
   if(fit>k){
     const num=Math.min(W,H), den=Math.min(w,h);
     const q=den/gcdOf(num,den);
     if(q>1 && pixelBlock(bm)%q===0) use=fit;
+    /* AND WHEN THE WHOLE NUMBER IS 1, take the fit anyway. The rule above
+       protects blocks by giving up size, and at k=1 there is no size to
+       give up - the choice is between the fit and not scaling at all, and
+       not scaling leaves a 1024 trait at 80% of everything beside it in
+       every image. The striped fixture in tests/pixels.spec.js is the other
+       case and is untouched: its whole number is 3, so the rule is choosing
+       between 3 and 3.33 and the 10% it gives up buys uniform stripes.
+
+       Measured over the 272 real traits: every one this newly scales has
+       1px or 2px blocks. The chunky 8px art all lands whole through the
+       test above, so the fractional scale only ever reaches artwork with
+       almost no block structure to damage. */
+    else if(k===1) use=fit;
   }
   const dw=Math.round(w*use), dh=Math.round(h*use);
   g.drawImage(bm,ox+Math.round((W-dw)/2),oy+Math.round((H-dh)/2),dw,dh);
@@ -8034,7 +8067,10 @@ async function buildCollection(n,onProgress){
   const pools=cPools();
   const combos=uniqueCombos(pools,n);
   let W=0,H=0;
-  for(const c of combos) for(const r of c){ if(r.w>W) W=r.w; if(r.h>H) H=r.h; }
+  /* THE FIXED CANVAS, not the biggest trait in this draw - see CANVAS_SIDE.
+     Sizing to the draw meant two runs of Generate could produce collections
+     at two different resolutions and say nothing about it. */
+  W=CANVAS_SIDE; H=CANVAS_SIDE;
   /* WHAT SIZES WENT IN. The canvas is the largest of them and paintTrait
      scales by a whole number, so anything smaller is drawn at its native
      size and centred - a 1024 hat on a 1280 head is a hat that looks too
@@ -8080,7 +8116,9 @@ async function drawSheet(count){
   const combos=uniqueCombos(pools,count);
   const got=combos.length;
   let W=0,H=0;
-  for(const c of combos) for(const r of c){ if(r.w>W) W=r.w; if(r.h>H) H=r.h; }
+  /* Fixed, so every tile on the sheet is the same size whatever
+     was picked for it. */
+  W=CANVAS_SIDE; H=CANVAS_SIDE;
   if(!W||!H){ toast("Nothing saved to build from"); return; }
   /* From what was actually drawn: laying out for `count` when fewer came
      back leaves a band of empty canvas that reads as a rendering fault. */

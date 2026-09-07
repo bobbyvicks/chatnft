@@ -93,13 +93,32 @@ test.describe('traits of different sizes on one canvas', () => {
     expect(r.first).toBe(0);
   });
 
-  test('a trait bigger than the box is drawn, not scaled to nothing', async ({ page }) => {
-    // Math.floor of a ratio below one is zero, and a zero scale is an invisible
-    // trait - the failure would be a blank character with nothing to explain it.
+  test('a trait bigger than the box is scaled down, not cropped by it', async ({ page }) => {
+    // SUPERSEDED, and the original concern kept. Math.floor of a ratio below
+    // one is zero, and a zero scale is an invisible trait - a blank character
+    // with nothing to explain it. That is still asserted first.
+    //
+    // What this used to assert as the ANSWER was "at native size", and native
+    // size in a smaller box means cropped. Measured on the real collection:
+    // one 2048 trait painted onto the 1280 canvas lost 38% of itself off the
+    // edges, silently, in every image it appeared in. Drawing it and cropping
+    // it is not meaningfully better than not drawing it.
+    //
+    // So it is scaled to fit. The stripes come out uneven, which is the cost,
+    // and the alternative was losing a third of the artwork.
     await striped(page, 200);
     const r = await paint(page, 160, 160);
     expect(r.count, 'something was drawn').toBeGreaterThan(0);
-    expect(r.widths, 'at native size').toEqual([1]);
+    expect(r.first, 'and it starts inside the box').toBeGreaterThanOrEqual(0);
+    expect(r.last, 'and ends inside it, rather than running off the edge')
+      .toBeLessThan(160);
+    // 100 black columns at 0.8 come back as 60 runs, not 80. I wrote 80 first
+    // and it is wrong: shrinking a one-pixel-on, one-pixel-off pattern merges
+    // neighbouring columns, and merged columns read as one run. That loss is
+    // inherent to making 1px detail smaller and no scaling rule avoids it -
+    // which is worth pinning, because the number quietly moving would mean the
+    // scale had changed.
+    expect(r.count, 'and most of the stripes survive the reduction').toBe(60);
   });
 
   test('the tighter side decides, so nothing overflows the box', async ({ page }) => {

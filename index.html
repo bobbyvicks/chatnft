@@ -10872,6 +10872,10 @@ const CLOUD_DEFAULT_NOTE="Nothing uploads until you press Save to cloud.";
    network. */
 const CLOUD_OFFLINE_TOAST="Cannot reach the server just now - nothing was changed. Try again in a moment.";
 let localBooted=false;
+/* Set once a page load has asked the group for its changes, so the several
+   cloudRender calls an auth handshake makes do not each pull the whole
+   collection. Same shape as localBooted below, and for the same reason. */
+let groupCaughtUp=false;
 function bootLocal(){
   if(localBooted) return;
   localBooted=true;
@@ -10914,6 +10918,17 @@ async function cloudRender(){
   if(inn) wsRender();
   if(!inn){ $("teamrow").hidden=true; $("teamnote").hidden=true; }
   if(inn) cloudStatus(u);
+  /* THE REFRESH A PERSON ACTUALLY PERFORMS. Everything above this renders
+     what this browser already had; nothing asked the group for anything, so
+     a teammate's reorder or layer move sat on the server unseen until
+     somebody thought to press Load from cloud.
+
+     Once per page, not per call - cloudRender runs again on every auth
+     change, and pulling the collection each time would download a teammate's
+     edits repeatedly for nothing. Not awaited, so the shelf that is already
+     on screen is not held back by the network; groupCatchUp re-renders when
+     it lands. */
+  if(inn && activeWs && !groupCaughtUp){ groupCaughtUp=true; groupCatchUp(); }
   return u;
 }
 
@@ -11799,6 +11814,46 @@ async function wsList(){
   }catch(_){ return {ok:false,teams:[]}; }
 }
 
+/* Take whatever the group has: their edits, their draw order, the layer they
+   moved something to, and anything they removed.
+
+   ONE FUNCTION FOR TWO CALLERS. Opening the project from the dropdown and
+   opening the page are the same act as far as a person is concerned, and
+   only the first of them used to do this - so a teammate's reorder was on
+   the server, the code to apply it worked, and a refresh ran none of it.
+
+   Failures are swallowed on purpose: this runs at boot, and a group that
+   cannot be reached must leave somebody with their own work on screen
+   rather than an error where the shelf should be. */
+async function groupCatchUp(){
+  try{
+    const onServer=await cloudPull({quiet:true, keepMine:true});
+    if(onServer){
+      /* NOT WHEN THE SERVER SAYS NOTHING AT ALL. Anything this device holds
+         that the group no longer has was removed by somebody, and putting it
+         back on every open is how one person's delete gets undone by the
+         next person to look. But an empty answer beside hundreds of records
+         this device believes it SENT is a read that went wrong far more
+         often than it is a collection somebody emptied - and now that this
+         runs on every page load rather than only on a switch, that would be
+         a standing offer to erase the lot. */
+      const mine=(await dbAll()).filter(i=>(i.kind==="trait"||i.kind==="ref")&&i.synced);
+      if(!onServer.size && mine.length){
+        toast("The group came back empty, so nothing was removed here."
+          +" Press Load from cloud if it really is empty.");
+      } else {
+        let gone=0;
+        for(const it of mine){
+          if(onServer.has(shelfCore.recordKey(it))) continue;
+          await dbDel(it.id); gone++;
+        }
+        if(gone) toast(gone+" removed by someone else");
+      }
+    }
+  }catch(_){}
+  await renderShelf();
+}
+
 async function wsSwitch(id){
   if((id||null)===(activeWs||null)) return;
   activeWs = id||null;
@@ -11825,20 +11880,7 @@ async function wsSwitch(id){
        Only items marked as having reached the server are ever removed. Work
        that failed to upload is not on the server BECAUSE it never got there,
        and deleting it would be the opposite of what is wanted. */
-    try{
-      const onServer=await cloudPull({quiet:true, keepMine:true});
-      if(onServer){
-        let gone=0;
-        for(const it of await dbAll()){
-          if(it.kind!=="trait"&&it.kind!=="ref") continue;
-          if(!it.synced) continue;
-          if(onServer.has(shelfCore.recordKey(it))) continue;
-          await dbDel(it.id); gone++;
-        }
-        if(gone) toast(gone+" removed by someone else");
-      }
-    }catch(_){}
-    await renderShelf();
+    await groupCatchUp();
   }
   toast(activeWs?"Opened the group project":"Back on your page");
 }

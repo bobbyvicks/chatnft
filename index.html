@@ -249,7 +249,13 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
    width .extract takes and for the same reason. Kept off .proj because the
    cloud, compose and layers panels share that class and are forms, which do
    not improve at 1180px. */
-#proj{width:min(1180px,92vw);}
+/* All three, not just the shelf. These two were deliberately left at 760 when
+   the shelf was widened - my reasoning was that a form stretched wide leaves
+   its controls hugging the left - and the person whose page it is asked for
+   them to match. Their reason is better than mine was: three panels on one
+   page at two different widths is a ragged edge, and the one that is narrower
+   reads as unfinished rather than as considered. */
+#proj,#compose,#layers{width:min(1180px,92vw);}
 .projhead{display:flex; align-items:center; gap:12px; margin-bottom:12px; flex-wrap:wrap;}
 .projhead h2{font-size:13px; text-transform:uppercase; letter-spacing:.1em; color:var(--accent);}
 .projhead .count{font-size:12px; color:var(--dim);}
@@ -855,6 +861,13 @@ footer .mono{color:var(--ink);}
   .side{padding-bottom:calc(14px + env(safe-area-inset-bottom,0px));}
   .swatches{grid-template-columns:repeat(10,1fr);} .sw{min-height:30px;}
   footer{gap:11px; padding:7px 14px; flex-wrap:wrap;} .hint{display:none;}
+  /* ONE ROW, not two. #pos and #under read out the cell under the POINTER,
+     and a phone has none to hover with: they say "-" until a finger is on
+     the glass and are underneath it when one is. #zpan is Move, and its
+     handler is literally $("panbtn").click() - the same pan button already
+     in the tool rail. Measured: the bar was 82px over two rows and the three
+     of them were the whole reason for the second. */
+  .ptronly,#zpan{display:none;}
   /* Thumb-sized. These were 26px controls being used to fix the very problem
      of not being able to zoom without drawing, which is not a job for a small
      button. */
@@ -1051,47 +1064,10 @@ footer .mono{color:var(--ink);}
   </div>
 
 
-  <section class="proj" id="proj" hidden>
-    <div class="projhead">
-      <h2>Your project</h2>
-      <p class="note" id="wsbanner" hidden style="width:100%;margin:0 0 6px"></p>
-      <!-- What the group changed since you last looked. Beside the project
-           banner because it is about this project and about these traits. -->
-      <p class="note mail" id="mailnote" hidden style="width:100%;margin:0 0 6px"></p>
-      <span class="count" id="projcount"></span>
-      <div class="acts">
-        <input id="projsearch" type="search" placeholder="find a trait"
-          aria-label="Filter traits by name" autocomplete="off">
-        <button class="mini filt" data-f="all" aria-pressed="true">all</button>
-        <button class="mini filt" data-f="wip" aria-pressed="false">wip</button>
-        <button class="mini filt" data-f="approved" aria-pressed="false">approved</button>
-        <button class="mini filt" data-f="rejected" aria-pressed="false">rejected</button>
-        <button class="mini" id="dlzip">Download all</button>
-        <button class="mini" id="expproj">Export project</button>
-        <button class="mini" id="impproj">Import</button>
-        <input id="impfile" type="file" accept="application/json,.chatnft,.json" hidden>
-        <button class="mini" id="clearproj">Clear</button>
-      </div>
-      <div class="shelfvisibility">
-        <p class="note">Drag a card by its handle to reorder it or move it to another layer.</p>
-        <button class="mini" id="shelfhidden" aria-pressed="false" hidden>Show hidden</button>
-        <button class="mini" id="shelfshowall" hidden>Show all</button>
-        <button class="mini" id="shelfsets" hidden>Sets off</button>
-        <span class="sr-only" id="shelfstatus" role="status" aria-live="polite"></span>
-      </div>
-      <!-- Bulk sorting. A batch import lands everything in "unsorted", and
-           moving it a card at a time is the only thing that was on offer. -->
-      <div class="shelfpick" id="shelfpick" hidden>
-        <span id="shelfpickcount">Nothing picked</span>
-        <button class="mini" id="shelfpickall">Pick all shown</button>
-        <label for="shelfpicklayer" class="sr-only">Move the picked traits to</label>
-        <select id="shelfpicklayer" aria-label="Move the picked traits to"></select>
-        <button class="mini go" id="shelfpickmove" disabled>Move</button>
-        <button class="mini" id="shelfpicknone" disabled>Clear</button>
-      </div>
-    </div>
-    <div id="projbody"></div>
-  </section>
+  <!-- Above the shelf, by request. Build a character is where you find out
+       whether the collection works and the shelf is where you go to fix what
+       it says - and the shelf is 259 tiles tall, so having it first meant
+       scrolling past all of them to reach the thing that judges them. -->
   <section class="proj" id="compose" hidden>
     <div class="projhead">
       <h2>Build a character</h2>
@@ -1168,6 +1144,47 @@ footer .mono{color:var(--ink);}
     </div>
     <div id="layerbody"></div>
     <p class="note">Top of the list draws in front. Removing a layer sends its traits to unsorted.</p>
+  </section>
+  <section class="proj" id="proj" hidden>
+    <div class="projhead">
+      <h2>Your project</h2>
+      <p class="note" id="wsbanner" hidden style="width:100%;margin:0 0 6px"></p>
+      <!-- What the group changed since you last looked. Beside the project
+           banner because it is about this project and about these traits. -->
+      <p class="note mail" id="mailnote" hidden style="width:100%;margin:0 0 6px"></p>
+      <span class="count" id="projcount"></span>
+      <div class="acts">
+        <input id="projsearch" type="search" placeholder="find a trait"
+          aria-label="Filter traits by name" autocomplete="off">
+        <button class="mini filt" data-f="all" aria-pressed="true">all</button>
+        <button class="mini filt" data-f="wip" aria-pressed="false">wip</button>
+        <button class="mini filt" data-f="approved" aria-pressed="false">approved</button>
+        <button class="mini filt" data-f="rejected" aria-pressed="false">rejected</button>
+        <button class="mini" id="dlzip">Download all</button>
+        <button class="mini" id="expproj">Export project</button>
+        <button class="mini" id="impproj">Import</button>
+        <input id="impfile" type="file" accept="application/json,.chatnft,.json" hidden>
+        <button class="mini" id="clearproj">Clear</button>
+      </div>
+      <div class="shelfvisibility">
+        <p class="note">Drag a card by its handle to reorder it or move it to another layer.</p>
+        <button class="mini" id="shelfhidden" aria-pressed="false" hidden>Show hidden</button>
+        <button class="mini" id="shelfshowall" hidden>Show all</button>
+        <button class="mini" id="shelfsets" hidden>Sets off</button>
+        <span class="sr-only" id="shelfstatus" role="status" aria-live="polite"></span>
+      </div>
+      <!-- Bulk sorting. A batch import lands everything in "unsorted", and
+           moving it a card at a time is the only thing that was on offer. -->
+      <div class="shelfpick" id="shelfpick" hidden>
+        <span id="shelfpickcount">Nothing picked</span>
+        <button class="mini" id="shelfpickall">Pick all shown</button>
+        <label for="shelfpicklayer" class="sr-only">Move the picked traits to</label>
+        <select id="shelfpicklayer" aria-label="Move the picked traits to"></select>
+        <button class="mini go" id="shelfpickmove" disabled>Move</button>
+        <button class="mini" id="shelfpicknone" disabled>Clear</button>
+      </div>
+    </div>
+    <div id="projbody"></div>
   </section>
   <div class="shelfdestinations" id="shelfdestinations" hidden aria-label="Move trait to layer"></div>
 </main>
@@ -1487,8 +1504,8 @@ footer .mono{color:var(--ink);}
   </aside>
 
   <footer>
-    <span>Cell <span class="mono" id="pos">—</span></span>
-    <span>Under <span class="mono" id="under">—</span></span>
+    <span class="ptronly">Cell <span class="mono" id="pos">—</span></span>
+    <span class="ptronly">Under <span class="mono" id="under">—</span></span>
     <span>Brush <span class="mono" id="bsize">1×1</span></span>
     <span class="hint" title="Wheel or pinch to zoom. Middle-drag, space-drag or two fingers to pan.">
       Wheel to zoom · space-drag to pan</span>
@@ -4563,6 +4580,16 @@ function startEditor(data,w,h,srcW,srcH,pal,recovered){
     const r=hideBase();
     if(r && (r.gone+r.peeled)){
       ctx.putImageData(r.plan.im,0,0);
+      /* RESTORED. patch266 replaced this line by accident: it captured a line
+         number, then wrote at an EARLIER line in the same run, and used the
+         stale number afterwards - so kit.replace overwrote whichever line had
+         moved into that slot instead of the one it had checked. Deleting the
+         line that teaches this browser its base colours turned the remembered
+         -base feature off, silently, and the file still parsed.
+
+         The lesson is not go-bottom-upward, which I already knew and did not
+         do. It is that kit.replace trusts an index nobody re-checks: an anchor
+         is verified when it is FOUND and never again when it is USED. */
       if(r.plan.source==="render") saveBaseColours(r.plan.list);
       refreshStats(); repalette(); cleanLabel(); baseLabel();
       toast("Hid the base - "+(r.gone+r.peeled).toLocaleString()+" pixels. Undo brings it back.");
@@ -4571,6 +4598,16 @@ function startEditor(data,w,h,srcW,srcH,pal,recovered){
   /* Here, not at boot: the panel has to be laid out before its height means
      anything. Cheap - it reads two numbers and, on a panel that fits, stops. */
   foldDefaults();
+  /* AND FIT AGAIN, ONCE THE LAYOUT HAS SETTLED. fitZoom above runs while the
+     panel is still finding its height, so on a phone it measured a stage
+     that was still growing and floored to 1x - and pixel art scales in whole
+     steps, so one step out is a quarter of the area. Measured at 375x812: a
+     160-cell trait opened at 160px in a stage that could hold 320.
+
+     Two frames: one for the layout to happen, one to measure it. Idempotent,
+     so on a screen that was already right this changes nothing - which is
+     why opening a SECOND image always looked fine and this went unnoticed. */
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{ if(ctx) fitZoom(); }));
   if(recovered) toast('Recovered to '+w+'×'+h+' from '+srcW+'×'+srcH);
 }
 function buildPalette(list){
@@ -11869,6 +11906,29 @@ function sideDown(on,remember){
     y0=null;
   });
   grip.addEventListener("pointercancel",()=>{ y0=null; });
+  /* AND FROM ANYWHERE ON THE SHEET. The handle worked and is 34px tall in a
+     panel of several hundred, so the gesture was there and nothing pointed
+     at it.
+
+     Only while the panel is scrolled to its top. That is the one moment a
+     downward drag cannot also have meant "scroll up", so this costs the
+     scrolling nothing - and the guard is what keeps it from fighting the
+     content, which is the usual way a sheet like this goes wrong.
+
+     Not on a control: a drag that starts on a button is somebody pressing
+     the button and moving their thumb a little. */
+  let sy=null, sfrom=0;
+  side.addEventListener("pointerdown",e=>{
+    if(e.target.closest("button,input,select,textarea,label,.sw,.grip")) return;
+    sy=e.clientY; sfrom=side.scrollTop;
+  },{passive:true});
+  side.addEventListener("pointermove",e=>{
+    if(sy===null || isDown()) return;
+    if(sfrom>0 || side.scrollTop>0){ sy=null; return; }
+    if(e.clientY-sy>48){ sideDown(true); sy=null; }
+  },{passive:true});
+  side.addEventListener("pointerup",()=>{ sy=null; },{passive:true});
+  side.addEventListener("pointercancel",()=>{ sy=null; },{passive:true});
   grip.addEventListener("keydown",e=>{
     if(e.key==="Enter"||e.key===" "){ e.preventDefault(); sideDown(!isDown()); }
   });

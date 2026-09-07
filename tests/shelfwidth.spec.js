@@ -49,6 +49,7 @@ const measure = (page) => page.evaluate(() => {
     compose: w(document.getElementById('compose')),
     layers: w(document.getElementById('layers')),
     extract: w(document.querySelector('.extract')),
+    cloud: w(document.getElementById('cloud')),
     docWidth: document.documentElement.scrollWidth,
     viewport: window.innerWidth,
   };
@@ -74,14 +75,39 @@ test.describe('the trait shelf', () => {
     expect(r.proj, 'and is wider than it was').toBeGreaterThan(760);
   });
 
-  test('and the panels that are forms are left alone', async ({ page }) => {
-    /* THE CONTROL for the test above. Widening .proj instead of #proj would
-       satisfy "the shelf is wider" while stretching three panels that hold
-       controls, not grids - their contents would hug the left of a 1180px
-       box. If this ever reds, the width went on the shared class. */
+  test('and Build a character and the layer list match it', async ({ page }) => {
+    /* SUPERSEDED, and kept rather than deleted so the file still records that
+       this width was a choice and who made it.
+
+       This used to assert 760 for both. I had left them narrow when the shelf
+       was widened, reasoning that a form stretched wide leaves its controls
+       hugging the left - and the person whose page it is asked for all three
+       to match, because three panels at two widths is a ragged edge and the
+       narrow one reads as unfinished rather than as considered. Their reason
+       is better than mine was.
+
+       Still a control, and still against the same mistake: the width belongs
+       to three named panels, not to .proj, which #cloud also wears. */
     const r = await measure(page);
-    expect(r.compose, 'Build a character keeps its width').toBe(760);
-    expect(r.layers, 'so does the layer list').toBe(760);
+    expect(r.compose, 'Build a character matches the shelf').toBe(r.proj);
+    expect(r.layers, 'and so does the layer list').toBe(r.proj);
+    expect(r.cloud, 'but the cloud panel, which shares the class, does not')
+      .not.toBe(r.proj);
+  });
+
+  test('and they sit above the traits', async ({ page }) => {
+    /* Asked for, and worth pinning: the shelf is 259 tiles tall, so having it
+       first meant scrolling past all of them to reach the panel that tells you
+       whether any of them work. */
+    const order = await page.evaluate(() => ['compose', 'layers', 'proj']
+      .map(id => document.getElementById(id).compareDocumentPosition(
+        document.getElementById('proj'))));
+    const tops = await page.evaluate(() => {
+      const y = id => document.getElementById(id).getBoundingClientRect().top;
+      return { compose: y('compose'), layers: y('layers'), proj: y('proj') };
+    });
+    expect(tops.compose, 'Build a character comes first').toBeLessThan(tops.layers);
+    expect(tops.layers, 'then the layers').toBeLessThan(tops.proj);
   });
 
   test('shows a trait far bigger than the 99px it used to get', async ({ page }) => {

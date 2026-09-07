@@ -77,6 +77,11 @@ something. Good places to look, in order:
 
 Newest first. Delete the oldest when this passes 12.
 
+- 2026-09-06 — A curated LaunchMyNFT rules file can be read in: 127 fit decisions become 103 never-together rules in one gesture, against about 1,138 trips through a dropdown by hand
+- 2026-09-06 — Layers were DECIDED in paint order, so the hair won and the hat was dropped; the ten head traits that need a bare head could only appear on a character that drew no hair anyway, at about a third of their curated frequency
+- 2026-09-06 — The Randomise button never consulted the rules, so the one button you press to check a rule was the only place it did not apply, and that character was downloadable
+- 2026-09-06 — "Import a folder of traits" could only read a layer it already had, so 63 of 233 files landed in unsorted — one layer, painted over everything — in a collection whose whole point is a hat over hair
+- 2026-09-06 — 103 rules froze the shelf for 5.2s and every later rule edit for 6.7s; conflictsWith asks an index now, 432ms and 448ms, same percentages
 - 2026-09-06 — Eight operations changed the pixels and left the swatch row describing the old artwork; after Clean up colours 59 of the 64 swatches named a colour the image no longer had and clicking one answered "No cells matched"
 - 2026-09-06 — The editing panel ran a quarter taller than it needed to, and the same measurement found the save bar's status chips clipped at every width: "approved" needed 58px and had 18
 - 2026-09-06 — Resize sat two below Move with no keyboard shortcut, its Size fields read the old size until the drag ended, and a stray click with it active leaked an undo step that did nothing when used
@@ -84,15 +89,38 @@ Newest first. Delete the oldest when this passes 12.
 - 2026-09-05 — The Grid download button promised "the grid size" and gave the trait's own; a 48x48 trait in a 160 collection downloaded 48x48 under that title
 - 2026-09-05 — The rarity tooltip credited the weights for a number that came from running the generator; two equal-weight traits read 49% and 51% under a sentence saying each was worked out from its weight
 - 2026-09-05 — "N possible characters" left the base characters out of the multiplication: three bases and two skins said 2 where the generator makes 6
-- 2026-09-05 — Every size check skipped the base character, so a 200x200 base under 160x160 traits exported the whole collection at 200 with nothing said anywhere
-- 2026-09-05 — "Download all" left the base character out of the zip, and dropped the status folder off any file it had to rename, so that trait came back wip
-- 2026-09-05 — Renaming a trait in the editor lost its hidden state and the card came back; three of the four sites that change a trait's record key already transferred it
-- 2026-09-05 — Moving a trait silently disarmed every rule that named it: a layer rename, a layer removal, a drag, a bulk move and an editor rename all changed the layer/name a rule keys on and none told the rules
-- 2026-09-05 — The group heard about a layer rename, reorder, addition or removal only when somebody pressed Save to cloud; saveLayers sends the list when it actually changes and every layer message says when it did not go
 
 ## Facts worth keeping
 
 Measured, with the date. Delete one the moment the code contradicts it.
+
+- **Assigning `RULES` in a test is undone by the next `renderShelf`.** It calls
+  `applyRules(items)`, which rebuilds RULES from the `settings.rules` record —
+  so a fixture that sets RULES and then renders is measuring an app with NO
+  rules. This cost a wrong measurement: a render with 103 rules loaded timed at
+  12ms and looked fine, because the rules had been wiped before it ran. With
+  `saveRules()` first it was 5,192ms. **Call saveRules(), and assert something
+  that can only be true when the rules are live** — here `traitChance` returning
+  `estimated:true`. *(09-06)*
+- **The number of RULES is a performance input to every render.** `traitChance`
+  is called once per trait card and calls `distributionOf`, which runs
+  `DIST_DRAWS` = 20,000 generated characters whenever `RULES.length`. The cache
+  key contains RULES, so every rule edit pays it again. Nothing had shown this
+  because nobody had ever had more than a handful of rules. **Ask what a feature
+  multiplies, not just what it costs once.** *(09-06)*
+- **`LAYERS` was the paint order AND the pick order, and they disagree.**
+  `buildCombo` commits each pick and filters the next layer against it, so the
+  EARLIER layer wins; the paint loop draws the array front to back, so the
+  earlier layer is UNDERNEATH. Hair under a hat therefore meant hair decided
+  first and the hat was dropped. `DECIDE_ORDER` is the pick order now and
+  `buildCombo` sorts back into `LAYERS` before returning — `comboKey` joins ids
+  positionally and would otherwise call one character two. *(09-06)*
+- **A file you do not own changes under you.** The curated rules file was 51
+  conditions and 82 traits when first read and 54 and 92 two hours later, the
+  same evening, because its author was still working. Numbers quoted to the user
+  from the first reading were already wrong. **Assert the PROPERTIES of a
+  translation and PRINT the counts** — a check that hard-codes a count from
+  somebody else's file fails the next time they save it. *(09-06)*
 
 - **A conditional around the only assertion in a test is a test that can
   assert nothing.** `if (kept.survives)` carried the whole surviving-pick test

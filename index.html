@@ -1078,6 +1078,15 @@ footer .mono{color:var(--ink);}
         title="These two will not appear on the same character. Add more traits to a rule from its own row, and a character carries at most one of them. If the rules cannot all be met at once, the sheet and the collection say how many draws could not honour them.">Add</button>
     </div>
     <div id="rulelist"></div>
+    <!-- Building the curated set by hand is 99 rules and 919 members, which
+         is about 919 trips through a dropdown of every trait in the
+         collection. The file is the gesture. -->
+    <div class="olrow" style="margin-top:6px">
+      <button class="mini" id="ruleimport"
+        title="Read a LaunchMyNFT rules file and turn it into Never-together rules. Nothing is replaced - rules already here are left alone - and any trait the file names that this project does not have is reported rather than invented.">Import rules from a file</button>
+    </div>
+    <p class="note" id="ruleimportnote" hidden></p>
+    <input type="file" id="rulefile" accept="application/json,.json" hidden>
   </section>
   <section class="proj" id="layers" hidden>
     <div class="projhead">
@@ -1821,6 +1830,20 @@ const DEFAULT_LAYERS=['backgrounds','skins','clothing','costumes','chains','acce
   'extras','ears','mouth','eyes','hair-headwear','masks','unsorted'];
 let LAYERS=DEFAULT_LAYERS.slice();
 const LAYERS_ID='settings.layers';
+/* THE ORDER LAYERS ARE DECIDED IN, which is not the order they are painted
+   in. LAYERS is the paint order and stays it.
+
+   buildCombo commits each pick and filters the next layer against what is
+   already taken, so whichever layer is reached FIRST wins the argument.
+   That made the list do two jobs, and for headwear they disagree: hair is
+   painted under a hat, so hair is earlier in LAYERS, so hair decided first
+   and the hat was the thing dropped. The rules this was built for mean the
+   reverse - the hat is the choice and the hair gives way.
+
+   EMPTY MEANS "the same as the paint order", which is what every project
+   had before this existed and what a set with no rules still wants. */
+let DECIDE_ORDER=[];
+const DECIDE_ID='settings.decideorder';
 /* Layers that are turned off: nothing in them is drawn onto a character, and
    nothing in them counts towards what the set can make.
 
@@ -2300,6 +2323,10 @@ async function renderShelf(){
   /* Before buildCompose runs: generation reads RULES, and a sheet drawn with
      an empty rule list would quietly ignore every rule on the first render. */
   applyRules(items);
+  /* Beside applyRules and for the same reason: buildCombo reads it, and a
+     sheet drawn before it loaded would choose in the wrong order and show a
+     collection the rules do not describe. */
+  applyDecideOrder(items);
   const traits=items.filter(i=>i.kind==='trait');
   const visibility=currentShelfVisibility();
   const liveTraitKeys=new Set(traits.map(shelfCore.recordKey));
@@ -6460,9 +6487,21 @@ async function drawCompose(){
 }
 function composeRandom(){
   const sels=[...$("crows").querySelectorAll("select")].filter(s=>!s.disabled);
-  for(const s of sels){
+  /* IN DECIDE ORDER, NOT ROW ORDER. The rows are built in paint order, so
+     walking them top to bottom chose the hair before the hat and left the
+     hat to yield - the same inversion buildCombo carried until DECIDE_ORDER
+     existed. The base has no layer and is not in the order; it is what the
+     layers are painted onto, so it goes first. */
+  const order=decideOrder();
+  const rank=s=>s.dataset.layer==="__base" ? -1
+    : (order.indexOf(s.dataset.layer)<0 ? order.length : order.indexOf(s.dataset.layer));
+  const walk=sels.slice().sort((a,b)=>rank(a)-rank(b));
+  /* What the character is carrying so far, in the same shape conflictsWith
+     reads - records, not ids. */
+  const chosen=[];
+  for(const s of walk){
     const opts=[...s.options].filter(o=>o.value);
-    if(!opts.length) continue;
+    if(!opts.length){ s.value=""; continue; }
     /* The base always gets one; a trait layer may legitimately be empty, which
        is what makes generated characters differ at all. */
     const skip = s.dataset.layer!=="__base"
@@ -6471,8 +6510,16 @@ function composeRandom(){
     /* The dropdown holds ids; the weights live on the records, so the options
        are resolved back to records before picking. */
     const recs=opts.map(o=>cItems.find(i=>i.id===o.value)).filter(Boolean);
-    const hit=recs.length?weightedPick(recs):null;
-    s.value = (skip||!hit) ? "" : hit.id;
+    /* THE RULES. This is the line that was missing: without it the one
+       button people press to check a rule was the one place the rule was
+       not applied, and the character it drew could be downloaded. */
+    const ok = RULES.length ? recs.filter(r=>!conflictsWith(r,chosen)) : recs;
+    const hit = (skip||!ok.length) ? null : weightedPick(ok);
+    s.value = hit ? hit.id : "";
+    /* Only a trait that was actually taken constrains the next layer. A
+       skipped layer and a cornered one both leave the row empty and neither
+       may narrow anything. */
+    if(hit) chosen.push(hit);
   }
   drawCompose();
 }
@@ -6521,9 +6568,28 @@ function readPath(rel){
      means unsorted, which is last in the draw order, so the base model was
      painted on top of every trait it was supposed to sit under. Measured on
      495 real files: 8 with no layer, and all 8 were the base models. */
-  const inBaseFolder = parts.some(function(seg){
-    const s=seg.toLowerCase(); return s==="base"||s==="bases"||s==="references"; });
-  return {name:name, layer:layer, status:status,
+  const isBaseSeg=s=>s==="base"||s==="bases"||s==="references";
+  const inBaseFolder = parts.some(function(seg){ return isBaseSeg(seg.toLowerCase()); });
+  /* THE FOLDER IT IS ACTUALLY IN, whether or not that is a layer yet.
+
+     `layer` above can only ever name a layer the project already has, which
+     made the button unable to read a layer out of a folder name - the one
+     thing its title says it does. Measured: a thirteen-folder collection
+     with hats, hair and glasses in it put 63 of its 233 files in unsorted,
+     because those three are not in DEFAULT_LAYERS.
+
+     Same last-match-wins rule as the status, minus the segments that mean
+     something else: a status folder is not a layer, and neither is a base
+     folder. Lower-cased like `layer`, so the two cannot disagree about the
+     same folder. The caller decides whether to adopt it - readPath only
+     reads. */
+  let folder=null;
+  for(const seg of parts){
+    const s=seg.toLowerCase();
+    if(STATUSES.indexOf(s)>=0||isBaseSeg(s)) continue;
+    folder=s;
+  }
+  return {name:name, layer:layer, folder:folder, status:status,
           isRef:inBaseFolder||/^_?reference/i.test(name)||/^_/.test(name)};
 }
 async function bulkImport(files){
@@ -6537,6 +6603,31 @@ async function bulkImport(files){
   }
   const MAX=1200;
   const list=pngs.slice(0,MAX);
+  /* THE LAYERS THIS FOLDER IMPLIES, adopted before anything is written.
+
+     The record carries the layer and everything downstream keys on it -
+     the shelf, cPools, the draw order, and every rule, which names a trait
+     as layer/name. So the layer has to be right at WRITE time; fixing it
+     afterwards would mean rewriting every id.
+
+     One pass, no decoding: readPath only splits a string. A base file is
+     skipped because it is not on a layer at all, and a folder that already
+     names a layer needs nothing.
+
+     Inserted before "unsorted", which is the catch-all and stays last -
+     the same position applyLayers uses when it adopts a layer from the
+     records it can see. */
+  const adopted=[];
+  for(const f of list){
+    const i=readPath(f.webkitRelativePath||f.name);
+    if(i.isRef||i.layer||!i.folder) continue;
+    if(LAYERS.indexOf(i.folder)>=0||adopted.indexOf(i.folder)>=0) continue;
+    adopted.push(i.folder);
+  }
+  for(const l of adopted){
+    const u=LAYERS.indexOf("unsorted");
+    if(u>=0) LAYERS.splice(u,0,l); else LAYERS.push(l);
+  }
   let ok=0,failed=0,refs=0,oversized=0,strips=0,renamed=0;
   /* What this batch actually contained, so the reconcile below can tell a
      file that MOVED from one the import never mentioned. */
@@ -6694,11 +6785,22 @@ async function bulkImport(files){
      names a count of existing records describes something that was changed. */
   if(absent.length) bits.push(absent.length+" already in the project "+(absent.length===1?"was":"were")+" not in this folder and "+(absent.length===1?"was":"were")+" left alone"
     +(absent.length<=4?" ("+absent.join(", ")+")":""));
+  /* NAMED, because creating a layer changes the draw order of the whole
+     collection. They arrive in the order the folder is walked, which is
+     alphabetical and has nothing to do with what should paint over what -
+     hair before hats is right by luck here and would not be for chains and
+     clothing. Saying so is the difference between a report and a receipt. */
+  if(adopted.length) bits.push("made "+adopted.length+" new layer"+(adopted.length===1?"":"s")
+    +" from the folder names ("+adopted.join(", ")+") - check the draw order in Layers");
   if(noLayer.length) bits.push(noLayer.length+" had no layer in the path and went to unsorted"+
     (noLayer.length<=4?" ("+noLayer.join(", ")+")":""));
   if(failed) bits.push(failed+" could not be read");
   if(pngs.length>MAX) bits.push("stopped at "+MAX+" of "+pngs.length+" PNGs");
   if(all.length>pngs.length) bits.push((all.length-pngs.length)+" non-PNG ignored");
+  /* Once, after the writes. applyLayers would re-adopt these from the
+     records on the next render anyway, but only in whatever order dbAll
+     hands them back; saving pins the order the folder actually had. */
+  if(adopted.length){ try{ await saveLayers(); }catch(_){ } }
   note.textContent=bits.join(". ")+".";
   toast("Imported "+ok+" file"+(ok===1?"":"s"));
 }
@@ -7160,7 +7262,7 @@ function buildCombo(pools){
   const out=[]; let violated=false;
   const base=pools.__base;
   if(base&&base.length) out.push(weightedPick(base));
-  for(const layer of LAYERS){
+  for(const layer of decideOrder()){
     const p=pools[layer];
     if(!p||!p.length) continue;
     /* An empty layer is what makes characters differ, but not every layer can
@@ -7179,7 +7281,21 @@ function buildCombo(pools){
     }
     out.push(weightedPick(ok));
   }
-  return { combo:out, violated };
+  /* BACK INTO PAINT ORDER BEFORE IT LEAVES. Two things downstream assume
+     it and neither would say so if it stopped being true: the paint loop
+     draws this array front to back, and comboKey joins the ids
+     positionally, so the same traits decided in a different order would
+     otherwise key as a different character and uniqueCombos would hand back
+     duplicates.
+
+     The base stays where it is. It is not on a layer - it is what the
+     layers are painted onto - so it is held out of the sort rather than
+     given a position in it. */
+  const paintAt=l=>{ const i=LAYERS.indexOf(l); return i<0?LAYERS.length:i; };
+  const first=(base&&base.length)?1:0;
+  const combo=out.slice(0,first).concat(out.slice(first)
+    .sort((a,b)=>paintAt((a&&a.layer)||"unsorted")-paintAt((b&&b.layer)||"unsorted")));
+  return { combo:combo, violated };
 }
 /* How many times to try before accepting that the rules cannot be met. Each
    attempt re-rolls every layer independently, so a set with any legal character
@@ -7459,6 +7575,117 @@ async function retargetRules(pairs){
   await saveRules();
   return touched;
 }
+/* A trait name as the rules file writes it, reduced to something that can be
+   compared with a name in this project. The file carries filenames
+   ("BTC Cap.png"); a trait here is named by bulkImport as the filename with
+   the extension taken off. Case and surrounding space are ignored because a
+   person renaming a trait should not silently break a rule about it. */
+function ruleImportName(n){
+  return String(n||"").replace(/\.(png|jpe?g|webp|gif)$/i,"").trim().toLowerCase();
+}
+/* WORK OUT WHAT A RULES FILE WOULD DO, WITHOUT DOING ANY OF IT.
+
+   Separated from the button so the translation can be tested on its own,
+   and so nothing is written until every problem with the file is known -
+   half an import is worse than none, because the half that landed looks
+   exactly like a whole one.
+
+   Returns the groups it would add, the decide order it would set, and
+   every reason it skipped something. It never touches RULES. */
+function planRuleImport(docIn, traits){
+  const out={groups:[], order:[], actions:0, restrictNothing:0,
+    missingTraits:[], missingLayers:[], badOps:[], ambiguous:[], edges:[]};
+  if(!Array.isArray(docIn)) throw new Error("That file is not a list of rules.");
+  /* What this project actually has, per layer, keyed by the reduced name.
+     A layer whose names collide once the extension is stripped cannot be
+     matched safely, so it is refused by name rather than guessed at. */
+  const byLayer=new Map();
+  const clash=new Map();
+  for(const t of traits){
+    if(!t||t.kind!=="trait") continue;
+    const l=t.layer||"unsorted", k=ruleImportName(t.name);
+    if(!k) continue;
+    if(!byLayer.has(l)) byLayer.set(l,new Map());
+    const m=byLayer.get(l);
+    if(m.has(k)&&m.get(k)!==t.name){ clash.set(l+"/"+k,true); continue; }
+    m.set(k,t.name);
+  }
+  const key=(layer,name)=>{
+    const m=byLayer.get(layer); if(!m) return null;
+    const k=ruleImportName(name);
+    if(clash.has(layer+"/"+k)){ out.ambiguous.push(layer+"/"+name); return null; }
+    const real=m.get(k);
+    return real===undefined ? null : layer+"/"+real;
+  };
+  for(const r of docIn){
+    if(!r||typeof r!=="object") continue;
+    const cl=String(r.layer||"");
+    /* Only "is". "is not" would mean the condition holds for every OTHER
+       trait on the layer, which is a different and much larger expansion;
+       refusing it by name beats importing something that is nearly right. */
+    if(r.operation!=="is"){ out.badOps.push(cl+" "+String(r.operation)); continue; }
+    if(!byLayer.has(cl)){ out.missingLayers.push(cl); continue; }
+    for(const t of (r.trait||[])){
+      const ck=key(cl,t);
+      if(!ck){ out.missingTraits.push(cl+"/"+t); continue; }
+      for(const s of (r.thenStatements||[])){
+        out.actions++;
+        const tl=String(s.targetLayer||"");
+        if(!byLayer.has(tl)){ out.missingLayers.push(tl); continue; }
+        const all=[...byLayer.get(tl).values()];
+        /* Everything on the target layer, minus what the action allows.
+           "hide layer" allows nothing, so it forbids the lot. */
+        const allow=new Set();
+        if(s.action!=="hide layer")
+          for(const a of (s.targetTrait||[])){
+            const m=byLayer.get(tl).get(ruleImportName(a));
+            if(m!==undefined) allow.add(m); else out.missingTraits.push(tl+"/"+a);
+          }
+        const deny=all.filter(n=>!allow.has(n));
+        /* An action that forbids nothing is not a rule. Counted, so the
+           report can say why 121 actions became fewer groups. */
+        if(!deny.length){ out.restrictNothing++; continue; }
+        out.groups.push(ruleGroup([ck].concat(deny.map(n=>tl+"/"+n))));
+        /* The direction a group cannot carry: the target is the side that
+           yields, and in this app that is whichever layer decides later. */
+        if(cl!==tl) out.edges.push([cl,tl]);
+      }
+    }
+  }
+  out.order=decideOrderFor(out.edges);
+  return out;
+}
+/* A decide order satisfying every condition-before-target edge, disturbing
+   the paint order as little as possible.
+
+   Kahn, but always taking the available layer that comes EARLIEST in LAYERS,
+   so a layer nothing has a rule about keeps its place. The whole order is
+   returned, not just the layers the file mentions: decideOrder() puts every
+   layer it was not told about after the ones it was, so a partial list would
+   quietly move skins and backgrounds to the end.
+
+   A cycle - A before B and B before A - cannot be ordered at all. It returns
+   nothing rather than a plausible order, and the caller says so; a made-up
+   order would be a collection nobody could explain. */
+function decideOrderFor(edges){
+  const indeg=new Map(LAYERS.map(l=>[l,0]));
+  const next=new Map(LAYERS.map(l=>[l,[]]));
+  const seen=new Set();
+  for(const [a,b] of edges){
+    if(!indeg.has(a)||!indeg.has(b)) continue;
+    const sig=a+"\u0000"+b; if(seen.has(sig)) continue; seen.add(sig);
+    next.get(a).push(b); indeg.set(b,indeg.get(b)+1);
+  }
+  const order=[]; const left=LAYERS.slice();
+  while(left.length){
+    const i=left.findIndex(l=>indeg.get(l)===0);
+    if(i<0) return [];
+    const l=left.splice(i,1)[0];
+    order.push(l);
+    for(const m of next.get(l)) indeg.set(m,indeg.get(m)-1);
+  }
+  return order;
+}
 async function saveRules(){
   /* Both fields, in one statement, so they cannot drift apart.
 
@@ -7474,25 +7701,63 @@ async function saveRules(){
       return acc; },[])});
 }
 /* Does this trait clash with anything already on the character? */
+/* WHICH TRAITS A TRAIT MAY NOT SHARE A CHARACTER WITH, worked out once per
+   rule list instead of once per question.
+
+   "At most one member of a group" means a trait clashes with every other
+   member of every group it appears in, so the union of those members is a
+   flat set and the test is a lookup. Same predicate: o is in the set exactly
+   when some group holds both k and o.
+
+   MEASURED, on 103 real rules over 1,138 members: a cold render went from
+   5,192ms to the figure in the commit body, because distributionOf makes
+   20,000 draws and every layer of every draw filtered its candidates through
+   the old scan - about 1,100 string comparisons before judging one trait.
+
+   The guard is the array REFERENCE and its LENGTH, because those are what
+   the callers move: buildRules, applyRules and retargetRules assign a new
+   array; the Add button and the rules import push onto the existing one and
+   the import rolls back by setting length. It does NOT catch a mutation that
+   keeps both - RULES[0]=[...] - and nothing does that today.
+
+   Deliberately not rebuilt from applyRules: eight spec files assign RULES
+   directly and generate without a render, and an applyRules-only rebuild
+   would leave every one of them judging against a stale index. */
+let clashRef=null, clashLen=-1, clashMap=null;
+function clashSet(k){
+  if(!(clashMap && clashRef===RULES && clashLen===RULES.length)){
+    clashMap=new Map();
+    for(const g of RULES){
+      for(const a of g){
+        let s=clashMap.get(a);
+        if(!s){ s=new Set(); clashMap.set(a,s); }
+        for(const b of g) if(b!==a) s.add(b);
+      }
+    }
+    clashRef=RULES; clashLen=RULES.length;
+  }
+  return clashMap.get(k);
+}
 function conflictsWith(rec,chosen){
   if(!RULES.length) return false;
   const k=traitKey(rec);
   /* At most one member of a group. The old version built a pair key for every
-     (candidate, chosen) couple and looked it up; this asks whether the
-     candidate and something already chosen sit in the same group, which is the
-     same question at two members and the right one at any size.
+     (candidate, chosen) couple and looked it up; the version before this one
+     walked every group asking whether it held the candidate. This asks a set
+     that was built once, which is the same question at any size.
 
      o!==k is load-bearing: two records can share a traitKey, and a group never
      contains the same member twice, so a trait must not be found to clash with
      itself. The old code was safe here for a different reason - a self-pair
      could never be in RULES - so this keeps the property rather than
-     inheriting it. */
-  for(const g of RULES){
-    if(g.indexOf(k)<0) continue;
-    for(const other of chosen){
-      const o=traitKey(other);
-      if(o!==k && g.indexOf(o)>=0) return true;
-    }
+     inheriting it. The set cannot contain k either, since it is built from the
+     other members, and the test is kept anyway because it is the property that
+     matters rather than the way it currently holds. */
+  const bad=clashSet(k);
+  if(!bad) return false;
+  for(const other of chosen){
+    const o=traitKey(other);
+    if(o!==k && bad.has(o)) return true;
   }
   return false;
 }
@@ -7680,6 +7945,41 @@ function applyLayers(items){
   if(rec&&Array.isArray(rec.hidden))
     for(const l of rec.hidden){ const s=String(l); if(LAYERS.indexOf(s)>=0) HIDDEN_LAYERS.add(s); }
   buildLayerSelect();
+}
+/* The layers to walk when CHOOSING, reconciled against the layer list as it
+   stands. A name that is no longer a layer drops out, and a layer the order
+   has never heard of follows the ones it names, in paint order.
+
+   Reconciled on every read rather than rewritten on every layer change,
+   because the alternative is a stored list that a rename or a removal turns
+   into a lie - the same reason applyLayers adopts a layer from the records
+   it can see rather than trusting what was saved. */
+function decideOrder(){
+  if(!DECIDE_ORDER.length) return LAYERS.slice();
+  /* THE CONTRACT: this returns every member of LAYERS exactly once, whatever
+     the stored order says. buildCombo walks it and pushes one pick per step, so
+     a repeated name would put TWO traits of one layer on a character - and
+     "one trait per layer" is not a detail here, it is the premise the whole
+     rule translation rests on. A group of {one hat, fifteen hairstyles} is only
+     equivalent to "that hat forbids those fifteen" because two hairstyles could
+     never co-occur anyway.
+
+     DECIDE_ORDER is written by the import, which produces a permutation, so the
+     duplicate cannot arrive from there. It can arrive from a hand-edited or
+     half-written settings record, and the cost of not defending it is a
+     character with two hats and a comboKey that calls one character two. */
+  const named=[...new Set(DECIDE_ORDER)].filter(l=>LAYERS.indexOf(l)>=0);
+  const seen=new Set(named);
+  return named.concat(LAYERS.filter(l=>!seen.has(l)));
+}
+/* Written whenever something works out an order - today that is the rules
+   import, which knows which layer is the condition and which is the target. */
+async function saveDecideOrder(){
+  await dbPut({id:DECIDE_ID, kind:"settings", at:Date.now(), order:DECIDE_ORDER.slice()});
+}
+function applyDecideOrder(items){
+  const rec=items.find(i=>i.id===DECIDE_ID);
+  DECIDE_ORDER = (rec&&Array.isArray(rec.order)) ? rec.order.map(String).filter(Boolean) : [];
 }
 function buildLayerSelect(){
   const sel=$("tlayer");
@@ -10445,6 +10745,76 @@ $('ruleadd').onclick=async()=>{
   try{ await saveRules(); }catch(_){ toast("Could not save the rule"); return; }
   renderShelf();
   toast(a+" and "+b+" will not appear together");
+};
+$('ruleimport').onclick=()=>$('rulefile').click();
+$('rulefile').onchange=async(e)=>{
+  const f=e.target.files&&e.target.files[0];
+  /* Cleared straight away so choosing the same file twice fires again -
+     which somebody will do after fixing a name. */
+  e.target.value="";
+  if(!f) return;
+  const note=$("ruleimportnote"); note.hidden=false;
+  note.textContent="Reading "+f.name+"...";
+  let plan;
+  try{
+    const parsed=JSON.parse(await f.text());
+    let items=[]; try{ items=await dbAll(); }catch(_){ }
+    plan=planRuleImport(parsed, items.filter(i=>i.kind==="trait"));
+  }catch(err){
+    note.textContent="Could not read that file: "+(err&&err.message?err.message:"it is not valid JSON")+".";
+    return;
+  }
+  /* NOTHING MATCHED IS NOT A SUCCESSFUL IMPORT OF NOTHING. The usual cause
+     is a project whose layers are not the ones the file names, and saying
+     which layers are missing is the fix. */
+  if(!plan.groups.length){
+    note.textContent="Nothing to import. "+(plan.missingLayers.length
+      ? "This project has no layer called "+[...new Set(plan.missingLayers)].slice(0,5).join(", ")
+        +" - import the trait folders first."
+      : "The file named "+plan.actions+" restrictions and none of them applied to a trait in this project.");
+    return;
+  }
+  const before=RULES.length;
+  const have=new Set(RULES.map(ruleId));
+  let added=0, already=0;
+  for(const g of plan.groups){
+    const id=ruleId(g);
+    if(have.has(id)){ already++; continue; }
+    have.add(id); RULES.push(g); added++;
+  }
+  /* The order the rules need to MEAN what they say. Written only when the
+     sort found one - a cycle returns nothing, and an order invented to fill
+     the gap would be a collection nobody could account for. */
+  let ordered=false;
+  if(plan.order.length){ DECIDE_ORDER=plan.order.slice(); ordered=true; }
+  try{
+    await saveRules();
+    if(ordered) await saveDecideOrder();
+  }catch(_){
+    RULES.length=before;
+    note.textContent="Could not save those rules, so none were kept.";
+    return;
+  }
+  await renderShelf();
+  /* Every number that matters, including the ones that are somebody's
+     problem: a trait named by the file and absent here is a rule that will
+     never bite, and it is worth more said than counted. */
+  const bits=[];
+  bits.push("Added "+added+" rule"+(added===1?"":"s")+" from "+plan.actions+" restrictions");
+  if(already) bits.push(already+" already here");
+  if(plan.restrictNothing) bits.push(plan.restrictNothing+" allowed everything and needed no rule");
+  if(ordered) bits.push("layers now decide in the order "+DECIDE_ORDER.filter(l=>
+    plan.edges.some(e=>e[0]===l||e[1]===l)).join(", "));
+  else bits.push("the rules disagree about which layer decides first, so the decide order was left alone");
+  const miss=[...new Set(plan.missingTraits)];
+  if(miss.length) bits.push(miss.length+" trait"+(miss.length===1?"":"s")+" named by the file "+(miss.length===1?"is":"are")+" not in this project"
+    +(miss.length<=6?" ("+miss.join(", ")+")":"")+", so nothing keeps them apart");
+  const ml=[...new Set(plan.missingLayers)];
+  if(ml.length) bits.push("no layer called "+ml.join(", "));
+  if(plan.badOps.length) bits.push(plan.badOps.length+" condition"+(plan.badOps.length===1?"":"s")+" used a test this cannot read and "+(plan.badOps.length===1?"was":"were")+" skipped");
+  if(plan.ambiguous.length) bits.push(plan.ambiguous.length+" name"+(plan.ambiguous.length===1?"":"s")+" matched more than one trait and "+(plan.ambiguous.length===1?"was":"were")+" left out");
+  note.textContent=bits.join(". ")+".";
+  toast("Added "+added+" rule"+(added===1?"":"s"));
 };
 $('csheet').onclick=()=>drawSheet(12);
 $('cgenzip').onclick=async()=>{

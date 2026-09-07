@@ -258,6 +258,19 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
 #proj,#compose,#layers{width:min(1180px,92vw);}
 .projhead{display:flex; align-items:center; gap:12px; margin-bottom:12px; flex-wrap:wrap;}
 .projhead h2{font-size:13px; text-transform:uppercase; letter-spacing:.1em; color:var(--accent);}
+/* The heading is the control. Inherit rather than restate: the h2 above
+   already carries the size, the tracking and the colour, and a button
+   resets all three. */
+.projfold{font:inherit; color:inherit; letter-spacing:inherit; text-transform:inherit;
+  display:inline-flex; align-items:center; gap:7px; cursor:pointer; padding:0;}
+.projfold:hover{color:var(--ink);}
+.projfold:focus-visible{outline:2px solid var(--accent); outline-offset:3px; border-radius:4px;}
+.projfold .fold{font-size:13px; line-height:1; color:var(--dim); transition:transform .15s;}
+#proj.folded .projfold .fold{transform:rotate(-90deg);}
+/* ONLY the tiles. The count, the notes and the buttons stay - a folded shelf
+   has to say how much is in it, or it reads as an empty project. */
+#proj.folded #projbody{display:none;}
+#proj.folded .shelfvisibility,#proj.folded .shelfpick{display:none;}
 .projhead .count{font-size:12px; color:var(--dim);}
 .projhead .acts{margin-left:auto; display:flex; gap:8px;}
 /* Wrapping, not overflowing. Measured at 375px: this row was 568px wide and
@@ -1147,7 +1160,11 @@ footer .mono{color:var(--ink);}
   </section>
   <section class="proj" id="proj" hidden>
     <div class="projhead">
-      <h2>Your project</h2>
+      <!-- A button rather than a heading with a handler: the keyboard, the
+           focus ring and the aria state all come free, and this is the same
+           shape the side panel sections already use. -->
+      <h2><button class="projfold" id="projfold" type="button" aria-controls="projbody"
+        aria-expanded="true" title="Hide the traits">Your project<span class="fold" aria-hidden="true">▾</span></button></h2>
       <p class="note" id="wsbanner" hidden style="width:100%;margin:0 0 6px"></p>
       <!-- What the group changed since you last looked. Beside the project
            banner because it is about this project and about these traits. -->
@@ -11971,6 +11988,32 @@ $('cloudout').onclick=cloudSignOut;
    colours in front of you or the art is a working preference and re-making it
    on every load is its own annoyance. */
 const SIDE_KEY="chatnft.sidedown";
+/* THE SHELF FOLDS TOO, and for a stronger reason than the side panel: the
+   shelf is 272 tiles and measured 10,522px with the collection loaded, so
+   everything below it is further away than anybody scrolls.
+
+   Only the tiles are hidden. The heading keeps its count, so a folded shelf
+   says "272 traits" rather than looking like an empty project - which is how
+   this feature goes wrong, and it goes wrong quietly, because somebody who
+   believes their work has vanished does not file it as a folding bug. */
+const PROJ_KEY="chatnft.projfold";
+function projFold(on,remember){
+  const sec=$("proj"), h=$("projfold");
+  if(!sec) return;
+  sec.classList.toggle("folded",!!on);
+  if(h){
+    h.setAttribute("aria-expanded", on?"false":"true");
+    h.title = on ? "Show the traits" : "Hide the traits";
+  }
+  /* remember:false - restoring a choice is not making one. */
+  if(remember!==false){ try{ localStorage.setItem(PROJ_KEY, on?"1":"0"); }catch(_){} }
+}
+(function(){
+  const h=$("projfold"); if(!h) return;
+  h.onclick=()=>projFold(!$("proj").classList.contains("folded"));
+  let want=false; try{ want=localStorage.getItem(PROJ_KEY)==="1"; }catch(_){}
+  projFold(want,false);
+})();
 /* The collapse is a phone thing and the CSS for it lives in the phone media
    query, so on a wide screen the class did nothing - but it was still being
    set, which is a state waiting to mean something later. Worse, a browser

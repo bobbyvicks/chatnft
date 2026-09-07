@@ -1360,6 +1360,11 @@ footer .mono{color:var(--ink);}
       <div class="olrow"><label for="bgtol" title="Only colour touching the border is removed">Keep within</label>
         <input id="bgtol" type="number" min="0" max="120" value="24" style="width:72px"
           aria-label="Background tolerance"></div>
+      <!-- Clear background floods in from the border, so it cannot reach
+           base showing THROUGH a trait - between the teeth of a grin, say.
+           This goes by colour instead and reaches both. -->
+      <button class="btn ghost" id="hidebase" disabled
+        title="Finds the flat colours the character underneath was drawn in and takes them out, including the blended edge around them">Hide the base colour</button>
       <button class="btn ghost" id="fillholes"
         title="Close gaps the artwork surrounds on every side">Fill holes</button>
       <div class="olrow"><label for="holemax" title="Closes gaps the art surrounds. 0 means any size - raise it to keep a hole that belongs">Biggest gap</label>
@@ -2435,6 +2440,7 @@ async function renderShelf(){
      sheet drawn before it loaded would choose in the wrong order and show a
      collection the rules do not describe. */
   applyDecideOrder(items);
+  applyBaseColours(items);
   applyDecisions(items);
   const traits=items.filter(i=>i.kind==='trait');
   const visibility=currentShelfVisibility();
@@ -4473,6 +4479,35 @@ function startEditor(data,w,h,srcW,srcH,pal,recovered){
   fitZoom(); refreshStats();
   outlinePreview();
   cleanLabel();
+  /* A picture whose base pair covers nearly all of it is a render, not a
+     trait, and clearing it is the whole point of the feature. Measured over
+     both populations before this was allowed to happen by itself: the
+     sixteen real renders reach 94.5% at the lowest, the 264 approved traits
+     79.1% at the highest, so 88 sits in a 15-point gap rather than on the
+     edge of a guess. Undoable, and it says so. */
+  baseLabel();
+  const bp=basePlan();
+  /* A render clears itself and teaches this browser its colours. A picture
+     that merely CONTAINS them - the ordinary case, a crop that took some
+     base with it - clears itself too, but only while what it would take is
+     small enough to be a fringe rather than the trait. */
+  /* RENDERS ONLY, and this is a retreat from what patch255 did. A picture
+     that merely CONTAINS the remembered colours cannot be told apart from a
+     crop leftover by how much of it there is: measured over the 264 approved
+     traits, clearing on that footing took 19.2% of I Heart Boobies, 5.6% of
+     Rainbow Spiral and 4.6% of Rainbow Road, all of which are simply pink.
+     No threshold separates those from a fringe, so nothing here guesses -
+     they get the button, which says what it would take. */
+  if(bp && bp.source==="render"){
+    snapshot();
+    const r=hideBase();
+    if(r && (r.gone+r.peeled)){
+      ctx.putImageData(r.plan.im,0,0);
+      if(r.plan.source==="render") saveBaseColours(r.plan.list);
+      refreshStats(); repalette(); cleanLabel(); baseLabel();
+      toast("Hid the base - "+(r.gone+r.peeled).toLocaleString()+" pixels. Undo brings it back.");
+    } else undoStack.pop();
+  }
   /* Here, not at boot: the panel has to be laid out before its height means
      anything. Cheap - it reads two numbers and, on a panel that fits, stops. */
   foldDefaults();
@@ -8725,6 +8760,26 @@ function applyDecisions(items){
   const rec=items.find(i=>i.id===DECISIONS_ID);
   DECISIONS = (rec&&Array.isArray(rec.decisions)) ? mergeDecisions(rec.decisions,[]) : [];
 }
+/* THE BASE THIS COLLECTION IS DRAWN ON, kept because it does not change.
+
+   A settings record rather than a guess repeated per picture. The whole
+   difficulty is that after a crop the base is a fringe - a few per cent of
+   the picture - and nothing about the picture itself says which few per
+   cent. A render says it unmistakably, so the render is where it is learnt
+   and this is where it is kept. */
+const BASE_ID='settings.basecolours';
+let BASE_KEEP=[];
+function applyBaseColours(items){
+  const rec=items.find(i=>i.id===BASE_ID);
+  BASE_KEEP = (rec&&Array.isArray(rec.colours))
+    ? rec.colours.filter(c=>c&&typeof c.r==="number").map(c=>({r:c.r|0,g:c.g|0,b:c.b|0}))
+    : [];
+}
+async function saveBaseColours(list){
+  BASE_KEEP=list.map(q=>({r:q.r,g:q.g,b:q.b}));
+  try{ await dbPut({id:BASE_ID, kind:"settings", at:Date.now(), colours:BASE_KEEP.slice()}); }
+  catch(_){ /* remembering is a convenience; failing to is not worth a dialog */ }
+}
 function applyDecideOrder(items){
   const rec=items.find(i=>i.id===DECIDE_ID);
   DECIDE_ORDER = (rec&&Array.isArray(rec.order)) ? rec.order.map(String).filter(Boolean) : [];
@@ -9068,6 +9123,303 @@ function cleanColours(){
      the canvas and keeps a picked colour only if it survived. */
   repalette();
   toast(pl.before.toLocaleString()+" colours down to "+pl.after);
+}
+
+/* ---------- the base a trait was drawn on ------------------------ */
+/* A trait is drawn on top of a flat two-colour character and then cropped
+   out of the render, so whatever the crop did not catch arrives as base.
+   Taking it out by hand is the slowest part of making one, and it is slow for
+   a reason worth writing down: the base is not a colour but a CLOUD. One real
+   render holds 36,070 distinct colours; its commonest single shade is 4.7% of
+   the picture while the base covers 63%. An eyedropper removes one shade of
+   several thousand, which is why this has to work on a ball in colour space
+   rather than on a value.
+
+   Measured on the sixteen "pink base" renders on disk: within radius 12 of
+   its centre the base reaches 63.5% of the picture, and radius 24 reaches
+   63.9 - so the cloud is complete by 12 and nothing is gained by opening it
+   wider. The base is found in the PICTURE rather than assumed, because the
+   real renders are green and pink and this file's own keyCharacter draws
+   green and mint - a tool keyed to KEY_FILL would have missed every one. */
+const BASE_BALL=12;    /* the cloud around one base colour, measured */
+/* How far a REMEMBERED colour may sit from the one in front of it and still
+   be the same colour. Wider than the cloud on purpose, and measured: across
+   the sixteen renders the green runs #03D105 to #08E401, so two renders'
+   greens are 29.9 apart, and a pink remembered from one is 13.9 from the
+   pink in another. Nothing here is a shade of the collection's own artwork
+   at this distance - the nearest is 6.8, and that is INSIDE the ball, which
+   is what the printed share on the button is for. */
+const BASE_FIND=45;
+const BASE_STEP=0.004; /* share of the picture a wider ball must still add */
+const BASE_SAT=120;    /* chroma; no skin, metal or shadow reaches this */
+const BASE_APART=60;   /* two base colours, not two shades of one */
+const BASE_COVER=88;   /* percent of the picture a real base pair covers */
+const BASE_REACH=60;   /* the widest a derived tolerance may open */
+const BASE_PEEL=3;     /* passes of the blended edge between base and art */
+const chroma=(r,g,b)=>Math.max(r,g,b)-Math.min(r,g,b);
+/* WHAT THE BASE IS, HOW SURE, AND HOW WIDE TO CUT - all read off the canvas
+   and none of it applied. Separated from the button so the answer can be put
+   ON the button before anybody commits to changing the artwork, the way
+   cleanLabel already does for the palette. */
+function basePlan(){
+  if(!ctx) return null;
+  const W=art.width, H=art.height, n=W*H;
+  const im=ctx.getImageData(0,0,W,H), d=im.data;
+  /* tol 8 rather than 1: the cloud has to arrive as one entry, or its
+     commonest shade competes with its own neighbours for a place in the list
+     and the base looks like forty small colours instead of one big one. */
+  const pal=palette(d,n,8,64).list;
+  if(!pal.length) return null;
+  let opaque=0;
+  for(let p=0;p<n;p++) if(d[p*4+3]>=128) opaque++;
+  if(!opaque) return null;
+  /* The candidates: saturated, and far enough apart to be different colours
+     rather than two shades of the same one. */
+  const balls=[];
+  for(const q of pal){
+    if(chroma(q.r,q.g,q.b)<BASE_SAT) continue;
+    if(balls.some(b=>(b.r-q.r)**2+(b.g-q.g)**2+(b.b-q.b)**2<=BASE_APART*BASE_APART) ) continue;
+    let hit=0;
+    for(const c of pal){
+      if((c.r-q.r)**2+(c.g-q.g)**2+(c.b-q.b)**2<=BASE_BALL*BASE_BALL) hit+=c.n;
+    }
+    balls.push({r:q.r,g:q.g,b:q.b,n:hit});
+    if(balls.length>=4) break;
+  }
+  if(!balls.length) return null;
+  balls.sort((a,b)=>b.n-a.n);
+  /* WHAT COUNTS AS THE BASE, in the order the answer can be trusted.
+
+     remembered - colours a render already taught this browser. Used at any
+                  size, which is the whole point: after a crop the base is a
+                  fringe and could never be found by looking for the biggest
+                  thing in the picture.
+     render     - the pair covers BASE_COVER of a picture, which measured
+                  over 280 real files means a render and never a trait.
+     guess      - the two biggest saturated balls, and nothing says they are
+                  a base. Returned so the label can explain itself, and
+                  never acted on.  */
+  let list=balls.slice(0,2);
+  let cover=list.reduce((a,b)=>a+b.n,0)/opaque*100;
+  let source = cover>=BASE_COVER && list.length>=2 ? "render" : "guess";
+  if(BASE_KEEP.length){
+    /* RE-CENTRED, and this is the fix for the defect that mattered. No two
+       renders share a base value - the sixteen on disk run #E6037C, #E90382,
+       #EB0370, #EF0275 - so a remembered pink lands about 11 from the pink in
+       front of it. That is near enough to RECOGNISE and much too far to
+       MEASURE from: the tolerance below asks how far the nearest other colour
+       is, and the nearest other colour was this picture's own base cloud, 12
+       to 24 away. Tolerance 12, and 92% of the base survived.
+
+       So the remembered colour says which colour, and the picture says where
+       it is. Everything downstream then measures from a shade that is really
+       in front of it. */
+    const here=[];
+    for(const q of BASE_KEEP){
+      let seed=null, most=0, hit=0;
+      for(const c of pal){
+        /* BASE_FIND, not BASE_BALL. This asks whether the remembered colour
+           is here at all; the ball that gets removed is grown from whatever
+           this finds. At 12 the green went unrecognised in five of sixteen
+           renders and their green survived untouched. */
+        if((c.r-q.r)**2+(c.g-q.g)**2+(c.b-q.b)**2>BASE_FIND*BASE_FIND) continue;
+        hit+=c.n;
+        if(c.n>most){ most=c.n; seed=c; }
+      }
+      if(!seed) continue;
+      /* Counted again around the seed, because the ball that matters is the
+         one centred on the picture, not the one centred on the memory. */
+      let n=0;
+      for(const c of pal){
+        if((c.r-seed.r)**2+(c.g-seed.g)**2+(c.b-seed.b)**2<=BASE_BALL*BASE_BALL) n+=c.n;
+      }
+      here.push({r:seed.r,g:seed.g,b:seed.b,n});
+    }
+    if(here.length){
+      list=here;
+      cover=here.reduce((a,b)=>a+b.n,0)/opaque*100;
+      source="remembered";
+    }
+  }
+  /* HOW FAR THE NEAREST REAL COLOUR IS. This is what sets the tolerance, and
+     it is measured per picture rather than fixed, because a fixed one cannot
+     be both wide enough for these renders and safe on a trait that is
+     genuinely pink. Across the 264 approved traits the nearest colour to this
+     base pink is 6.8 away - Casino Floor's #EC007D, on 1984 pixels - so a
+     tool that took out "anything pink" would gut a real background. */
+  /* HOW WIDE THE CLOUD IS, grown from the seed rather than inferred from
+     what else is in the picture. Measured on a real render, the share
+     gathered as the radius opens runs
+
+       r2 43.0%   r4 61.2%   r6 62.9%   r8 63.3%   r12 63.5%   r24 63.9%
+
+     - steep, then flat. The flat part is the edge of the base and it is
+     there whether the picture is a whole render or a crop out of one, which
+     is exactly what the previous two attempts were not: both set the
+     tolerance from the distance to the nearest other colour, and on a crop
+     the nearest other colour IS the base's own outer shades, so the
+     tolerance collapsed to 12 and most of the base survived. */
+  let tol=BASE_BALL, held=0;
+  for(const q of list){
+    let r=2, was=0;
+    while(r<BASE_REACH){
+      let n=0;
+      for(const c of pal){
+        if((c.r-q.r)**2+(c.g-q.g)**2+(c.b-q.b)**2<=r*r) n+=c.n;
+      }
+      /* Still gathering something worth having, so keep opening. Below this
+         the increments are anti-aliased strays, not the base. */
+      if(r>2 && n-was < opaque*BASE_STEP) break;
+      was=n; r+=2;
+    }
+    if(r>tol){ tol=r; held=was; }
+  }
+  /* AND THE CAP, which is what the distance to the nearest real colour was
+     always for. It stops the ball reaching a colour that is genuinely
+     something else - the approved collection puts #EC007D, on 1984 pixels of
+     backgrounds/Casino Floor.png, 6.8 from this base pink - rather than
+     setting the size, which it was never able to do correctly. */
+  let gap=Infinity;
+  for(const c of pal){
+    if(c.n<opaque*0.002) continue;   /* an edge blend is not a colour in use */
+    let near=Infinity;
+    for(const q of list){
+      const dd=Math.sqrt((c.r-q.r)**2+(c.g-q.g)**2+(c.b-q.b)**2);
+      if(dd<near) near=dd;
+    }
+    if(near>tol && near<gap) gap=near;
+  }
+  if(gap!==Infinity) tol=Math.min(tol, Math.max(BASE_BALL, gap*0.6));
+  tol=Math.min(BASE_REACH, tol);
+  return {im,d,n,W,H,opaque,list,cover,gap,tol,pal,source};
+}
+/* Every pixel wearing the base goes, and then the edge it blended into.
+
+   The ball alone is not enough and the reason is arithmetic: between base
+   pink and a black outline every intermediate colour is a real pixel, and the
+   ones in the middle sit about 130 from either end - far outside any
+   tolerance that is safe to apply, and exactly the halo that gets cut by
+   hand. So the artwork's own colours are collected first, from pixels well
+   clear of the base, and then any pixel that still touches a hole and is
+   nearer the base than to anything the artwork uses is peeled. */
+function hideBase(){
+  const pl=basePlan();
+  if(!pl) return null;
+  const {d,n,W,H,list,tol}=pl;
+  const t2=tol*tol;
+  const isBase=(i)=>{
+    for(const q of list){
+      const dr=d[i]-q.r, dg=d[i+1]-q.g, db=d[i+2]-q.b;
+      if(dr*dr+dg*dg+db*db<=t2) return true;
+    }
+    return false;
+  };
+  let gone=0;
+  for(let p=0;p<n;p++){
+    const i=p*4;
+    if(d[i+3]<128) continue;
+    if(isBase(i)){ d[i+3]=0; gone++; }
+  }
+  /* What the trait is actually made of, taken from what survived and from
+     well clear of the base, so the peel below has something true to compare
+     against rather than the blend it is trying to remove. */
+  const keep=[];
+  {
+    const c=new Map();
+    for(let p=0;p<n;p++){
+      const i=p*4;
+      if(d[i+3]<128) continue;
+      let near=Infinity;
+      for(const q of list){
+        const dd=(d[i]-q.r)**2+(d[i+1]-q.g)**2+(d[i+2]-q.b)**2;
+        if(dd<near) near=dd;
+      }
+      if(Math.sqrt(near)<tol*2) continue;
+      const k=(d[i]<<16)|(d[i+1]<<8)|d[i+2];
+      c.set(k,(c.get(k)||0)+1);
+    }
+    for(const [k,v] of c) if(v>=8) keep.push({r:(k>>16)&255,g:(k>>8)&255,b:k&255});
+  }
+  /* Nothing survived far enough from the base to say what the trait is, so
+     there is no honest comparison to peel against and it stops here. */
+  let peeled=0;
+  if(keep.length){
+    for(let pass=0;pass<BASE_PEEL;pass++){
+      const doomed=[];
+      for(let p=0;p<n;p++){
+        const i=p*4;
+        if(d[i+3]<128) continue;
+        const x=p%W, y=(p/W)|0;
+        const edge=(x>0&&d[(p-1)*4+3]<128)||(x<W-1&&d[(p+1)*4+3]<128)
+          ||(y>0&&d[(p-W)*4+3]<128)||(y<H-1&&d[(p+W)*4+3]<128);
+        if(!edge) continue;
+        let db2=Infinity;
+        for(const q of list){
+          const dd=(d[i]-q.r)**2+(d[i+1]-q.g)**2+(d[i+2]-q.b)**2;
+          if(dd<db2) db2=dd;
+        }
+        let da2=Infinity;
+        for(const q of keep){
+          const dd=(d[i]-q.r)**2+(d[i+1]-q.g)**2+(d[i+2]-q.b)**2;
+          if(dd<da2) da2=dd;
+        }
+        if(db2<da2) doomed.push(p);
+      }
+      if(!doomed.length) break;
+      for(const p of doomed){ d[p*4+3]=0; peeled++; }
+    }
+  }
+  return {plan:pl, gone, peeled};
+}
+/* The button says what it found before it is pressed, so the size of what is
+   about to happen is visible rather than promised. */
+function baseLabel(){
+  const b=$("hidebase"); if(!b) return;
+  const pl=basePlan();
+  if(!pl || !pl.list.length || pl.source==="guess"){
+    b.textContent="Hide the base colour";
+    b.disabled=true;
+    /* Disabled with a reason, because a dead control with no explanation
+       reads as broken rather than as not applicable. */
+    b.title = pl && pl.source==="guess"
+      ? "No base is known yet. Open one of the renders and this learns its colours."
+      : "Finds the flat colours the character underneath was drawn in and takes them out, including the blended edge around them";
+    return;
+  }
+  b.disabled=false;
+  const names=pl.list.map(q=>hex(q.r,q.g,q.b)).join(" + ");
+  /* The share is printed for BOTH sources. It used to be shown only for a
+     render, where it is least needed - a render is 95% base and obviously
+     so. On a remembered base it is the whole safeguard: measured over the
+     264 approved traits, pressing this on backgrounds/I Heart Boobies.png
+     takes 19.2% of it, and the only thing that can stop that is the number
+     being on the button beforehand. */
+  b.textContent="Hide the base colour ("+names+", "+Math.round(pl.cover)+"%)";
+  b.title="Takes out "+names+" and the blended edge around them";
+}
+function hideBaseClicked(){
+  const pl=basePlan();
+  /* REFUSING IS THE POINT. Pressed on a finished trait the old version took
+     the two biggest saturated colours and called them the base - 79% of
+     hats/Coinbase Cap.png, which is two blues. It only knows what a base is
+     when it has been told or when the picture is unmistakably a render. */
+  if(!pl || !pl.list.length){ toast("No base colour here"); return; }
+  if(pl.source==="guess"){
+    toast("Not sure what the base is here - open a render first, or use Replace");
+    return;
+  }
+  const redoWas=redoStack.slice(), dropped=snapshot();
+  const r=hideBase();
+  if(!r || !(r.gone+r.peeled)){
+    dropSnapshot(redoWas,dropped);
+    toast("Nothing here matches the base colour");
+    return;
+  }
+  ctx.putImageData(r.plan.im,0,0);
+  if(r.plan.source==="render") saveBaseColours(r.plan.list);
+  refreshStats(); repalette(); cleanLabel(); baseLabel();
+  toast("Hid "+(r.gone+r.peeled).toLocaleString()+" base pixels"
+    +(r.peeled?" ("+r.peeled.toLocaleString()+" of them the blended edge)":""));
 }
 
 async function collectionPalette(cap){
@@ -11824,6 +12176,10 @@ $('fillholes').onclick=()=>{
     +(r.tooBig?(" - left "+r.tooBig+" over the limit"):""));
 };
 
+/* Beside Clear background because they answer the same complaint from two
+   directions: that one floods in from the border and cannot reach base
+   showing through a gap in the trait, this one goes by colour and can. */
+$('hidebase').onclick=hideBaseClicked;
 $('debg').onclick=()=>{
   if(!ctx) return;
   const W=art.width,H=art.height, img=ctx.getImageData(0,0,W,H), d=img.data;

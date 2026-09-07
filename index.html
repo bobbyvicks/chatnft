@@ -2008,7 +2008,11 @@ function ruleId(g){ return (g||[]).join("\u0000"); }
    of pixels and comes out alternately n and n+1 wide. The collection this was
    built for is 160 cells, and its files are 1254px - 7.8375 per cell - which is
    where its uneven pixels come from. Stored with the project, like the layer
-   order, because it is a fact about the collection and not about the device. */
+   order, because it is a fact about the collection and not about the device.
+   CARRIED IN THE PROJECT EXPORT, AND NOT TO THE SERVER - which is the half
+   of that sentence that was untrue. saveLayers PATCHes the layer order to
+   collections; there is no column here to PATCH, so a teammate opening the
+   same collection gets whatever their own browser last saved. */
 let projectGrid=160;
 /* Deliberately still 'pixelbench' after the rename to ChatNFT: this string is
    the key to every trait already saved in a browser. Renaming it would leave
@@ -9505,7 +9509,11 @@ async function openPixelate(d,w,hh,name){
    the layer order or the rarities at all, which is exactly what the existing
    Download all loses. */
 const PROJECT_FORMAT="chatnft-project";
-const PROJECT_VERSION=2;
+/* 3, not 2: the document gained the settings it had been dropping. A file
+   written by 2 still imports - the new fields are simply absent, and every
+   read of them is guarded - which is what the version check allows by
+   comparing rather than demanding equality. */
+const PROJECT_VERSION=3;
 
 function blobToDataURL(b){
   return new Promise((res,rej)=>{
@@ -9533,8 +9541,21 @@ async function exportProject(){
       out.push(saved);
     }catch(_){ failed++; }
   }
+  /* EVERY SETTING, not just the layer order. This wrote layers and items and
+     nothing else, while the store held six settings records - so the grid,
+     the rules, the answers behind them, the decide order and the base colour
+     were all dropped. Measured by exporting a filled project, wiping the
+     browser and importing it back: one rule became none and 128 cells became
+     160, and the only thing said about it was how many items were imported. */
   const doc={format:PROJECT_FORMAT, version:PROJECT_VERSION,
-    savedAt:new Date().toISOString(), layers:LAYERS.slice(), items:out};
+    savedAt:new Date().toISOString(),
+    layers:LAYERS.slice(), hidden:[...HIDDEN_LAYERS].sort(),
+    grid:projectGrid,
+    rules:RULES.map(g=>g.slice()),
+    decisions:DECISIONS.map(d=>({a:d.a,b:d.b,ok:d.ok,at:d.at,by:d.by||null,src:d.src||"you"})),
+    decideOrder:DECIDE_ORDER.slice(),
+    baseColours:BASE_KEEP.map(q=>({r:q.r,g:q.g,b:q.b})),
+    items:out};
   const b=new Blob([JSON.stringify(doc)],{type:"application/json"});
   const u=URL.createObjectURL(b), a=document.createElement("a");
   a.href=u; a.download="chatnft-project.json";
@@ -9561,6 +9582,11 @@ async function importProject(file){
   let existing=[];
   try{ existing=await dbAll(); }catch(_){}
   const taken=new Set(existing.map(i=>i.id));
+  /* A RESTORE, not a merge. Nothing here to lose, so the settings in the
+     file are the only ones there are. With traits already present this is
+     somebody adding to a project they are working in, and their grid and
+     draw order are the ones that count. */
+  const wasEmpty=!existing.some(i=>i.kind==="trait");
   let added=0, renamed=0, failed=0;
   for(const it of doc.items){
     if(!it||!it.png||!it.name) { failed++; continue; }
@@ -9587,16 +9613,68 @@ async function importProject(file){
       if(typeof it.shelfOrder==="number") rec.shelfOrder=it.shelfOrder; }
     try{ await dbPut(rec); added++; }catch(_){ failed++; }
   }
-  /* Layers the file knows about and this browser does not get appended, in the
-     order the file had them. The local order is not rewritten: it is this
-     collection's draw order and the imported file does not get to reorder it. */
+  /* THE SETTINGS. Rules and answers MERGE, always: the importer already
+     refuses to let a file cost somebody their traits, and their rules and
+     their review are worth the same care. The rest is taken only on a
+     RESTORE - wasEmpty, this browser held no traits at all - because a grid
+     or a draw order belongs to the collection that is already open, and a
+     friend's file does not get to redraw it. */
+  const restored=[];
+  if(Array.isArray(doc.rules)&&doc.rules.length){
+    const have=new Set(RULES.map(ruleId));
+    let gained=0;
+    for(const g of doc.rules){
+      if(!Array.isArray(g)||g.length<2) continue;
+      const s=g.map(String).slice().sort();
+      const k=ruleId(s);
+      if(have.has(k)) continue;
+      have.add(k); RULES.push(s); gained++;
+    }
+    if(gained) restored.push(gained+" rule"+(gained===1?"":"s"));
+  }
+  if(Array.isArray(doc.decisions)&&doc.decisions.length){
+    const was=DECISIONS.length;
+    DECISIONS=mergeDecisions(DECISIONS, doc.decisions);
+    const gain=DECISIONS.length-was;
+    if(gain) restored.push(gain+" answer"+(gain===1?"":"s"));
+  }
+  if(restored.length) await saveRules();
+  if(wasEmpty && Array.isArray(doc.decideOrder) && doc.decideOrder.length){
+    DECIDE_ORDER=doc.decideOrder.map(String).filter(Boolean);
+    await saveDecideOrder();
+    restored.push("the draw order");
+  }
+  if(wasEmpty && Array.isArray(doc.baseColours) && doc.baseColours.length){
+    await saveBaseColours(doc.baseColours.filter(c=>c&&typeof c.r==="number"));
+    if(BASE_KEEP.length) restored.push("the base colour");
+  }
+  if(wasEmpty && typeof doc.grid==="number" && doc.grid>=4 && doc.grid<=1024){
+    projectGrid=doc.grid;
+    const box=$("rsgrid"); if(box) box.value=projectGrid;
+    await saveGrid();
+    restored.push("the "+projectGrid+" cell grid");
+  }
+  /* Layers the file knows about and this browser does not get appended, in
+     the order the file had them. The local order is not rewritten: it is
+     this collection's draw order and the imported file does not get to
+     reorder it. */
   let newLayers=0;
   if(Array.isArray(doc.layers)){
     for(const l of doc.layers) if(LAYERS.indexOf(l)<0){ LAYERS.push(l); newLayers++; }
-    if(newLayers) await saveLayers();
   }
+  /* After the layers, so a layer the file names has somewhere to be hidden.
+     On a restore only: a layer you can see in a project you are already
+     working in is one you chose to see. */
+  let hid=0;
+  if(wasEmpty && Array.isArray(doc.hidden)){
+    for(const l of doc.hidden)
+      if(LAYERS.indexOf(l)>=0 && !HIDDEN_LAYERS.has(l)){ HIDDEN_LAYERS.add(l); hid++; }
+    if(hid) restored.push(hid+" layer"+(hid===1?"":"s")+" turned off");
+  }
+  if(newLayers||hid) await saveLayers();
   await renderShelf();
   const bits=["Imported "+added+" item"+(added===1?"":"s")];
+  if(restored.length) bits.push("restored "+restored.join(", "));
   if(renamed) bits.push(renamed+" renamed to avoid replacing something");
   if(newLayers) bits.push(newLayers+" new layer"+(newLayers===1?"":"s"));
   if(failed) bits.push(failed+" could not be read");

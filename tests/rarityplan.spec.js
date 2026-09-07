@@ -125,6 +125,38 @@ test.describe('planning how rare each trait should be', () => {
       }
     });
 
+  test('an even set puts every thumb on the same mark, at any weight',
+    async ({ page }) => {
+      /* THE AXIS ITSELF, and the argument for it in one assertion.
+
+         Twenty-one traits all at weight 3 draw at 3.1% each - identical to
+         twenty-one all at weight 300 - because a share is w/Sum(w) and the
+         scale cancels. So the thumbs must be identical too, and on the even
+         mark, or the screen says one of those sets is full of rare traits.
+
+         ADDED BECAUSE A MUTATION RUN SHOWED NOTHING WAS DEFENDING THIS ANY
+         MORE. The round-trip test used to catch a weight axis - it read a
+         rendered position and committed it - but the guard that stops a
+         release writing when the thumb has not moved compares the position
+         against itself, so it now passes over any render position at all. A
+         guard added for one correctness property silently removed the only
+         cover another had. */
+      const at = async (w) => {
+        await project(page, { layers: ['eyes', 'unsorted'],
+          traits: EYES(21).map(t => ({ ...t, r: w })) });
+        const g = await readGroup(page, 'eyes');
+        return { pos: [...new Set(g.rows.map(r => r.pos))], pct: g.rows[0].pct };
+      };
+      const low = await at(3);
+      const high = await at(300);
+      const even = await page.evaluate(() => posOfMult(1, 21));
+      expect(low.pos, 'one position for twenty-one equal traits').toHaveLength(1);
+      expect(high.pos).toHaveLength(1);
+      expect(low.pos[0], 'and it is the even mark, not the weight').toBe(even);
+      expect(high.pos[0], 'a hundred times the weight, the same mark').toBe(even);
+      expect(low.pct, 'because the shares are the same').toBe(high.pct);
+    });
+
   test('the position and the multiplier are inverses of each other',
     async ({ page }) => {
       /* ADDED AFTER A MUTATION RUN FOUND THE GAP. Inverting multOfPos left two
@@ -218,7 +250,58 @@ test.describe('planning how rare each trait should be', () => {
       const now = (await readGroup(page, 'eyes')).rows[0];
       expect(was).toBe('4.8%');
       expect(parseFloat(now.pct), 'rarer than it was').toBeLessThan(parseFloat(was));
-      expect(now.pct).toBe('0.71%');
+      /* 0.71% until the weight ceiling was widened from 99 to 5000. The
+         neutral is the point whose ratio to each end is equal, so it moved
+         from sqrt(2*99)=14 to sqrt(2*5000)=100, and one drag now reaches 50x
+         rarer than an even share instead of 7x. This is a share of the SET;
+         eyes is on 65% of characters, so it is 0.065% of the collection. */
+      expect(now.pct).toBe('0.10%');
+    });
+
+  test('one drag reaches a one-of-one, below 0.1% of characters',
+    async ({ page }) => {
+      /* THE REASON THE CEILING WAS WIDENED. At 99 the neutral weight was
+         sqrt(2*99) = 14, so one drag reached only 14/2 = 7x rarer than an even
+         share - 0.46% of characters on eyes - and 0.1% was not expressible at
+         any setting. At 5000 the neutral is 100 and one drag is 50x.
+
+         Measured through traitChance, which is the share of CHARACTERS and
+         therefore the number a collection is actually judged on - eyes is on
+         65% of characters, so this is the set share of 0.10% times 0.65. */
+      await project(page, SET);
+      await drag(page, 'eyes', 0, 'rare', true);
+      await page.waitForTimeout(500);
+      const r = await page.evaluate(async () => {
+        const items = await dbAll();
+        const rec = items.find(i => i.name === 'e0');
+        const ch = traitChance(rec, items, false);
+        return { pct: ch.pct * 100, weight: rec.rarity, estimated: !!ch.estimated };
+      });
+      expect(r.weight, 'the floor of the store').toBe(2);
+      expect(r.estimated, 'no rules here, so this is arithmetic not a sample').toBe(false);
+      expect(r.pct, 'below the one in ten thousand that was asked for')
+        .toBeLessThan(0.1);
+      expect(r.pct, 'and not zero, which would mean it never appears')
+        .toBeGreaterThan(0);
+    });
+
+  test('but a set of three cannot, and that is arithmetic rather than a limit',
+    async ({ page }) => {
+      /* THE HONEST BOUND, pinned so nobody later reads it as the feature being
+         broken. ears holds three traits. One of three at the floor against two
+         at normal is 2/202 of the set, which is 0.64% of characters, and no
+         ceiling changes that: to make one of three rare the other two have to
+         carry everything, and there are only two of them. */
+      await project(page, { layers: ['ears', 'unsorted'], traits: [
+        { n: 'a', l: 'ears' }, { n: 'b', l: 'ears' }, { n: 'c', l: 'ears' }] });
+      await drag(page, 'ears', 0, 'rare', true);
+      await page.waitForTimeout(500);
+      const pct = await page.evaluate(async () => {
+        const items = await dbAll();
+        return traitChance(items.find(i => i.name === 'a'), items, false).pct * 100;
+      });
+      expect(pct, 'as rare as three traits go').toBeGreaterThan(0.5);
+      expect(pct).toBeLessThan(0.8);
     });
 
   test('and dragging the other way makes it commoner', async ({ page }) => {
@@ -227,8 +310,12 @@ test.describe('planning how rare each trait should be', () => {
     await project(page, SET);
     await drag(page, 'eyes', 0, 'common');
     const g = await readGroup(page, 'eyes');
+    /* Was "greater than 20", which the widened ceiling made slack: the
+       commonest a trait can be went from 26% of its set to 71%, so a mutation
+       that halved every displayed share still cleared 20 and the test stopped
+       seeing it. Pinned against what the store can actually reach now. */
     expect(parseFloat(g.rows[0].pct), 'much commoner than an even 4.8%')
-      .toBeGreaterThan(20);
+      .toBeGreaterThan(50);
   });
 
   test('moving one moves everything else, and the set still totals 100%',
@@ -239,7 +326,7 @@ test.describe('planning how rare each trait should be', () => {
       await project(page, SET);
       await drag(page, 'eyes', 0, 'rare');
       const g = await readGroup(page, 'eyes');
-      expect(g.rows[0].pct, 'the one that moved').toBe('0.71%');
+      expect(g.rows[0].pct, 'the one that moved').toBe('0.10%');
       const others = g.rows.slice(1).map(r => r.pct);
       expect(new Set(others).size, 'the other twenty all moved together').toBe(1);
       expect(parseFloat(others[0]), 'and upward, because the total is fixed')
@@ -274,7 +361,7 @@ test.describe('planning how rare each trait should be', () => {
           toast: ($('toast') || {}).textContent || '' };
       });
       expect(r.weights.e0, 'the one dragged is at the floor').toBe(2);
-      expect(r.weights.e1, 'and the siblings were planted at normal').toBe(14);
+      expect(r.weights.e1, 'and the siblings were planted at normal').toBe(100);
       expect(r.planned, 'all twenty-one are planned now').toBe(21);
       expect(r.count).toBe('Every trait has a rarity.');
       expect(r.toast, 'and it said what else it did').toContain('Planned the other 20');
@@ -297,12 +384,18 @@ test.describe('planning how rare each trait should be', () => {
 
   test('rendering and letting go without moving writes nothing',
     async ({ page }) => {
-      /* The round trip has to be the identity or the section rewrites the
-         collection just by being looked at. 20,000 positions was measured for
-         exactly this: at 1,000 two consecutive weights collided at the common
-         end of a small set. */
+      /* Otherwise the section rewrites the collection just by being looked at.
+
+         THE WEIGHTS HERE SPAN THE WHOLE STORE, 2 to 5000, ON PURPOSE. They
+         used to stop at 90, which is the region where the round trip inverts
+         exactly - so this passed on the arithmetic and never touched the
+         guard. Widening the ceiling put 4,999 weights on the same track and
+         neighbours near the common end now share a position, so the trip can
+         come back one off. A release compares the thumb against the position
+         the row was DRAWN at instead, which is exact whatever the arithmetic
+         does at the ends, and these fixtures are what exercise it. */
       await project(page, { layers: ['eyes', 'unsorted'],
-        traits: EYES(21).map((t, i) => ({ ...t, r: 2 + (i * 4) % 90 })) });
+        traits: EYES(21).map((t, i) => ({ ...t, r: 2 + Math.round(i * 4998 / 20) })) });
       const before = await page.evaluate(async () =>
         (await dbAll()).filter(i => i.kind === 'trait')
           .map(t => t.name + ':' + t.rarity).sort().join(','));

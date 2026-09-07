@@ -24,7 +24,7 @@ const bad = runMutants({
   file: 'index.html',
   spec: 'tests/rarityplan.spec.js tests/rarity.spec.js tests/rarityreload.spec.js '
     + 'tests/raritytip.spec.js tests/drift.spec.js',
-  ntests: 56,
+  ntests: 59,
   mutants: [
     {
       /* The axis becomes the weight, which is what it looks like it ought to
@@ -32,19 +32,31 @@ const bad = runMutants({
       name: 'the slider shows the weight instead of the multiplier',
       find: `    sl.value=String(posOfMult(n*(w0/tot),n));`,
       with: `    sl.value=String(POS_MAX-Math.round(POS_MAX*(w0-RAR_MIN)/(RAR_MAX-RAR_MIN)));`,
-      kills: ['rendering and letting go without moving writes nothing'],
-      /* PREDICTED THE WRONG TEST. I said "the thumb never rests on a weight the
-         store cannot hold" would catch it. It does not, and the reason is
-         worth having: that test DRAGS, and a drag recomputes the thumb through
-         posOfMult in the input handler - so it lands back on the multiplier
-         axis whatever the initial render did. Only the RENDERED position is
-         mutated, so only the test that reads a rendered position and commits
-         it untouched can see this.
+      kills: ['an even set puts every thumb on the same mark, at any weight'],
+      /* WRONG TWICE, AND THE SECOND TIME IS THE ONE WORTH READING.
 
-         Which makes the round-trip test load-bearing for more than the slider
-         resolution it was written for: it is the one thing standing between a
-         later "simplify the axis to the weight" and a screen where twenty-one
-         equal traits all read as rarest. */
+         First I said "the thumb never rests on a weight the store cannot hold"
+         would catch it. It does not: that test DRAGS, and a drag recomputes
+         the thumb through posOfMult in the input handler, so it lands back on
+         the multiplier axis whatever the initial render did. Only the RENDERED
+         position is mutated.
+
+         So the round-trip test caught it instead - it reads a rendered
+         position and commits it untouched - and I wrote that down as the thing
+         standing between a later "simplify the axis to the weight" and a
+         screen where twenty-one equal traits all read as rarest.
+
+         THEN I REMOVED THAT COVER WITHOUT NOTICING. Widening the ceiling to
+         5000 broke the exact round trip at the common end, so a release now
+         compares the thumb against the position the row was drawn at - and
+         that guard compares a mutated render position against ITSELF. It
+         matches, nothing is written, and the test passes over any axis at all.
+         A guard added for one correctness property silently took away the only
+         cover another had, and only re-running the mutants said so.
+
+         tests/rarityplan.spec.js now pins the axis directly: twenty-one traits
+         at weight 3 and twenty-one at weight 300 are the same collection, so
+         they must show the same thumb, on the even mark. */
     },
     {
       /* Right becomes commoner. */
@@ -57,7 +69,6 @@ const bad = runMutants({
         'and dragging the other way makes it commoner',
         'moving one moves everything else, and the set still totals 100%',
         'the thumb never rests on a weight the store cannot hold',
-        'rendering and letting go without moving writes nothing',
         'the end of the track says what to do to go further',
       ],
       /* AND THE SCREEN-SUM TEST IS NOT IN THAT LIST, having been put there
@@ -144,6 +155,8 @@ const bad = runMutants({
         'one press sets everything that is still unplanned',
         'and Download all says it too, because that is the finish',
         'dragging towards rare makes it RARER, on a set nobody has planned',
+        'one drag reaches a one-of-one, below 0.1% of characters',
+        'but a set of three cannot, and that is arithmetic rather than a limit',
         'moving one moves everything else, and the set still totals 100%',
         'the thumb never rests on a weight the store cannot hold',
         'a set of one says so and has nothing to drag',
@@ -157,6 +170,22 @@ const bad = runMutants({
          "and says so no longer once every one is set" must SURVIVE - it
          asserts the finished sentence, which this mutant makes true always -
          and that is precisely why it is worthless without its pair. */
+    },
+    {
+      /* THE GUARD THAT REPLACED AN EXACT ROUND TRIP. With the ceiling at 5000
+         there are 4,999 storable weights on one track, so neighbours near the
+         common end share a position and the trip can come back one off. A
+         release therefore compares the thumb against the position the row was
+         DRAWN at rather than trusting the arithmetic to invert.
+
+         The fixture for the test below was widened to span 2..5000 at the same
+         time, because at 2..90 the trip really is exact and the test passed
+         without ever reaching the guard. This mutant is what proves it does
+         now. */
+      name: 'a release writes even when the thumb did not move',
+      find: `        if(sl.value===sl.dataset.at) return;`,
+      with: `        if(false) return;`,
+      kills: ['rendering and letting go without moving writes nothing'],
     },
     {
       /* The write stops reaching the group, which is the defect that was in

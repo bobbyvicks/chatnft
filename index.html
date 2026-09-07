@@ -2780,7 +2780,7 @@ async function renderShelf(){
       dup.onclick=async ev=>{ ev.stopPropagation(); await duplicateTrait(t); };
       el.appendChild(dup);
       const rar=document.createElement('input');
-      rar.className='rar'; rar.type='number'; rar.min='1'; rar.max='99';
+      rar.className='rar'; rar.type='number'; rar.min='1'; rar.max=String(RAR_MAX);
       rar.value=String(traitWeight(t));
       rar.setAttribute('aria-label','Rarity weight for '+t.name);
       /* SUPERSEDES "1 is normal, 5 is five times as likely". 1 is not
@@ -2796,7 +2796,10 @@ async function renderShelf(){
       rar.onclick=ev=>ev.stopPropagation();
       rar.onchange=async ev=>{
         ev.stopPropagation();
-        const v=Math.max(1,Math.min(99,parseInt(rar.value,10)||1));
+        /* From the constants, not from a repeated 99. The box and the
+           slider bound one column and a number typed here that the store
+           refuses comes back as "could not reach the group". */
+        const v=Math.max(RAR_UNSET,Math.min(RAR_MAX,parseInt(rar.value,10)||RAR_UNSET));
         rar.value=String(v);
         /* THROUGH setRarity, the same door the plan's sliders use. Writing
            dbPut here directly is what kept a weight change out of the group:
@@ -9587,13 +9590,26 @@ function buildLayerPanel(items){
    = 14.07. Seeding anywhere else would give a set more travel in one
    direction than the other for no reason.
 
-   POS_MAX is 20,000 and that is measured, not round. The slider has to
-   invert exactly - position to weight and back must be the identity, or a
-   drag that goes nowhere rewrites the weight. At 1,000 steps two
+   POS_MAX is 20,000 and that is measured, not round. At 1,000 steps two
    consecutive weights collide at the common end of a small set and 802 of
-   the cases checked came back wrong; at 20,000 it is exact for every set
-   size 2..60 at every sibling level. */
-const RAR_MIN=2, RAR_MAX=99, RAR_UNSET=1, POS_MAX=20000;
+   the checked cases came back wrong.
+
+   IT NO LONGER INVERTS EXACTLY EVERYWHERE, and the ceiling of 5000 is why.
+   With 4,999 storable weights rather than 98, neighbouring weights near the
+   COMMON end are barely different as shares - 410 against 411 with two
+   siblings differ by 0.00001 - and no resolution separates them: 500,000
+   positions still collided. What was measured instead:
+
+     from the even mark DOWNWARD, every set size 2..60: weight error 0,
+     which is the whole half of the track that makes a trait rare;
+     at the far common end, siblings pinned at the floor: worst SHARE
+     error 0.045 of a percentage point, between weights that are the same
+     trait as far as a collection is concerned.
+
+   So a release writes only when the thumb actually MOVED, compared against
+   the position the row was rendered at. That makes the no-op exact by
+   construction rather than by an inverse that happens to hold. */
+const RAR_MIN=2, RAR_MAX=5000, RAR_UNSET=1, POS_MAX=20000;
 const RAR_NORMAL=Math.round(Math.sqrt(RAR_MIN*RAR_MAX));
 
 /* The commonest and rarest a trait can be made in a set of n, expressed as a
@@ -9658,18 +9674,39 @@ function planRows(items,layer,wip){
    The live policy on traits covers ALL commands, so a PATCH by row id is
    allowed and touches no storage.
 
-   Returns false when there is nobody to tell - no group, or a record that
-   has never been pushed and therefore has no row to patch. The caller reads
-   that as "still local", not as a failure. */
+   Returns WHICH kind of outcome, not a boolean, because the caller has to
+   tell two failures apart:
+
+     "ok"          the group has it.
+     "nogroup"     there is nobody to tell - no group, or a record never
+                   pushed and so having no row to patch. Not a failure.
+     "unreachable" offline, dropped, a 5xx. The group really is behind.
+     "refused"     the value breaks a constraint. Sending it again cannot
+                   help, and every attempt costs a picture upload.
+
+   A boolean collapsed the last two, and they want opposite handling. */
 async function cloudRarity(rec){
-  if(!activeWs || !rec || !rec.rowId) return false;
+  if(!activeWs || !rec || !rec.rowId) return "nogroup";
   try{
     const h=await sbHeaders({"Content-Type":"application/json"});
-    if(!h) return false;
+    if(!h) return "unreachable";
     const r=await fetch(SB_URL+"/rest/v1/traits?id=eq."+encodeURIComponent(rec.rowId),
       {method:"PATCH", headers:h, body:JSON.stringify({rarity:rec.rarity})});
-    return !!(r&&r.ok);
-  }catch(_){ return false; }
+    if(r&&r.ok) return "ok";
+    /* THE RANGE IS THE DATABASE'S, AND IT CAN DISAGREE WITH THIS PAGE.
+       Widening the column and shipping the page are two steps, so there is a
+       window where a weight this app allows is one the store refuses - and
+       every failure here used to read as "could not reach the group",
+       because nothing looked at the reason. A 400 with a check-constraint
+       body is not a network problem and must not be reported as one. */
+    let why=""; try{ why=await r.text(); }catch(_){ }
+    if(r && r.status===400 && /rarity/i.test(why)){
+      toast("The group will not take a rarity of "+rec.rarity
+        +" - its limit is lower than this page allows. Saved here only.");
+      return "refused";
+    }
+    return "unreachable";
+  }catch(_){ return "unreachable"; }
 }
 
 /* Write one weight, locally and to the group.
@@ -9697,7 +9734,12 @@ async function setRarity(rec,w){
   const next={...rec, rarity:v};
   await dbPut(next);
   const sent=await cloudRarity(next);
-  if(!sent && activeWs && next.rowId && next.synced) await dbPut({...next, synced:false});
+  /* ONLY "unreachable" clears the flag. A refused row will be refused again,
+     and cloudSyncOne re-uploads the PNG on every attempt - so marking 271
+     refused traits unsynced would queue about a gigabyte to re-send numbers
+     the server is going to reject a second time. "nogroup" clears nothing
+     either: there was never anything to be behind. */
+  if(sent==="unreachable" && next.rowId && next.synced) await dbPut({...next, synced:false});
   return true;
 }
 
@@ -9868,6 +9910,11 @@ function planGroup(g,items,wip){
     sl.setAttribute("aria-label","How rare "+(t.name||"this trait")+" should be");
     const w0=traitWeight(t), O=tot-w0;
     sl.value=String(posOfMult(n*(w0/tot),n));
+    /* Where this row was DRAWN. A release compares against it rather than
+       trusting the arithmetic to invert: at the common end of a wide range
+       two neighbouring weights share a position, so a round trip can come
+       back one off and a drag that went nowhere would rewrite the weight. */
+    sl.dataset.at=sl.value;
     /* One trait in a set is drawn every time the set appears, whatever any
        slider says, and multHi equals multLo there so the track has no
        length to drag along. Said rather than left looking broken. */
@@ -9904,6 +9951,11 @@ function planGroup(g,items,wip){
          half way the set is never left with this trait planned against
          weights the plan does not consider valid. */
       sl.onchange=async()=>{
+        /* Nothing moved, nothing is written - and nothing is re-rendered
+           either, so opening the section and clicking about cannot churn
+           271 records or bump anybody's updated_at. */
+        if(sl.value===sl.dataset.at) return;
+        sl.dataset.at=sl.value;
         const O=othersOf(t.id);
         const nw=weightForShare(multOfPos(+sl.value,n)/n, O);
         let also=0;

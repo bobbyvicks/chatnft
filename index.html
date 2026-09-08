@@ -83,6 +83,12 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
 .pgtab:focus-visible{outline:2px solid var(--accent); outline-offset:2px;}
 /* aria-current is the state, and the styling reads it - so the highlight
    cannot drift from what a screen reader is told. */
+/* A jump, not a tab: it goes somewhere rather than naming where you are, so
+   it never carries aria-current and is not styled as the place you stand. */
+.pgjump{font:inherit; font-size:13px; color:var(--muted); background:none;
+  border:1px dashed var(--line); border-radius:999px; padding:7px 15px; cursor:pointer;}
+.pgjump:hover{color:var(--ink); border-color:var(--muted);}
+.pgjump:focus-visible{outline:2px solid var(--accent); outline-offset:2px;}
 .pgtab[aria-current="page"]{background:var(--accent-soft); border-color:var(--accent);
   color:var(--accent); font-weight:600;}
 .logo{display:grid; grid-template-columns:1fr 1fr; width:34px; height:34px; border-radius:8px; overflow:hidden;}
@@ -117,6 +123,13 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
 .prow.unset .pname{color:var(--muted);}
 .prow.unset .psay{color:var(--accent);}
 .plantot{font-size:11px; color:var(--dim); margin:5px 0 0;}
+.urow{display:flex; gap:8px; align-items:baseline; padding:4px 0;
+  border-bottom:1px solid var(--line); font-size:12px;}
+.urow:last-child{border-bottom:none;}
+.urow .uwho{font-weight:600; min-width:88px;}
+.urow .uwhat{flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.urow .uwhen{color:var(--dim); font-variant-numeric:tabular-nums; white-space:nowrap;}
+.urow.mine .uwho{color:var(--accent);}
 /* A set folds. Fourteen headings open far faster than 271 sliders, and the
    heading keeps saying how many in it still need a rarity - a fold that
    hid the reason to open it would be worse than the scroll. */
@@ -1025,10 +1038,16 @@ footer .mono{color:var(--ink);}
   </div>
   <!-- The three pages. Buttons rather than links: the router owns the hash,
        and a link would let the browser navigate before it could. -->
+  <!-- Two tabs, because settings is not a peer of the project - it is where
+       the project's knobs live. You get there from inside it, and back the
+       same way. -->
   <nav class="pagenav" id="pagenav" aria-label="Pages">
     <button type="button" class="pgtab" data-page="home">Main</button>
     <button type="button" class="pgtab" data-page="project">Project</button>
-    <button type="button" class="pgtab" data-page="settings">Project settings</button>
+    <button type="button" class="pgjump pg-project" id="tosettings"
+      data-page="settings">Project settings</button>
+    <button type="button" class="pgjump pg-settings" id="toproject"
+      data-page="project">← Back to the project</button>
   </nav>
   <button class="acct" id="acctbtn" aria-label="Your account" aria-expanded="false" title="Your account" hidden>
     <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.6"/>
@@ -1170,9 +1189,9 @@ footer .mono{color:var(--ink);}
       <span class="count" id="ccount"></span>
       <div class="acts">
         <label class="olchk" style="margin-right:4px"><input type="checkbox" id="cwip"> include wip</label>
-        <label class="olchk" style="margin-right:4px" id="cemptytip" title="How often a layer is left out when randomising.">empty
+        <label class="olchk" style="margin-right:4px" id="cemptytip" title="How often a layer is left out when randomizing.">empty
           <input id="cempty" type="number" min="0" max="90" step="5" value="35" style="width:52px">%</label>
-        <button class="mini" id="crand">Randomise</button>
+        <button class="mini" id="crand">Randomize</button>
         <button class="mini" id="csheet">Sheet of 12</button>
         <!-- The set itself. Everything above previews it; this is the only way
              to get the images AND the metadata a mint actually consumes. -->
@@ -1190,6 +1209,29 @@ footer .mono{color:var(--ink);}
       <div class="crows" id="crows"></div>
     </div>
     <p class="note" id="cnote">Stacks one trait per layer over a base, in draw order, to check the set works together.</p>
+
+  </section>
+  <!-- What the group has been doing. First on the settings page because it
+       is the thing you glance at, not the thing you configure. -->
+  <section class="proj pg-settings" id="updates" hidden>
+    <div class="projhead">
+      <h2>What changed</h2>
+      <span class="count" id="updcount"></span>
+      <div class="acts">
+        <button class="mini" id="updrefresh">Check again</button>
+      </div>
+    </div>
+    <div id="updbody"></div>
+  </section>
+  <!-- The trait parameters. They lived inside Build a character, under the
+       character preview, which is where they were written rather than where
+       they belong: forty lines of rules under a picture. Moved whole, with
+       every id intact, so every handler still finds its control. -->
+  <section class="proj pg-settings" id="rules" hidden>
+    <div class="projhead">
+      <h2>Trait rules</h2>
+      <span class="count">which traits can share a character</span>
+    </div>
     <!-- The other half of "look for traits that collide rather than stack".
          Finding one used to be the end of it: the next sheet drew it again. -->
     <div class="olrow" style="margin-top:6px">
@@ -2581,7 +2623,7 @@ async function renderShelf(){
   /* Both early exits have to take the compose panel down with them, or
      clearing the project leaves it on screen listing traits that are gone. */
   try{ items=await dbAll(); }catch(_){ $('proj').hidden=true; $('compose').hidden=true;
-    $('layers').hidden=true; return; }
+    $('layers').hidden=true; $('rules').hidden=true; return; }
   /* Before anything groups by layer: the saved order is the authority, and
      the default list is only what it starts from. */
   applyLayers(items);
@@ -2649,7 +2691,8 @@ async function renderShelf(){
   const cardShows=t=>shows(t)&&(!visibility.isHidden(shelfCore.recordKey(t))||visibility.reveal);
   const savedRefs=items.filter(i=>i.kind==='ref');
   $('proj').hidden=!items.length;
-  if(!items.length){ $('compose').hidden=true; $('layers').hidden=true; return; }
+  if(!items.length){ $('compose').hidden=true; $('layers').hidden=true;
+    $('rules').hidden=true; return; }
   /* What is on screen, not what is in the database. The empty-shelf message
      below was already fixed to name which of three causes emptied it, but the
      count beside it was left saying the total - so a search that narrowed 300
@@ -2846,7 +2889,7 @@ async function renderShelf(){
          normal, it is the database default and now means nobody has chosen -
          which is what Plan rarity counts. Two controls over one field must
          not say different things about it. */
-      rar.title='How often this is picked by Randomise and the sheet. '+RAR_NORMAL+' is normal,'
+      rar.title='How often this is picked by Randomize and the sheet. '+RAR_NORMAL+' is normal,'
         +' higher turns up more often, lower is rarer. 1 means nobody has set it yet.'
         +' Plan rarity has a slider for this.';
       /* The tile itself opens the trait for editing, so the number box has to
@@ -2971,6 +3014,15 @@ async function renderShelf(){
   /* The compose view reads the same records the shelf just rendered, so it
      cannot drift from what is actually saved. */
   buildLayerPanel(items);
+  /* The rules are about the collection, like Build a character, and are
+     meaningless with nothing in it - so they appear and go together.
+
+     NOT copied from compose.hidden, which is what the first version did and
+     why the section never appeared: buildCompose runs BELOW this line, so the
+     value being copied was still the one from before the render. Reaching
+     here already means the project has something in it - the empty case
+     returned above - so the condition is stated rather than borrowed. */
+  $('rules').hidden=false;
   renderPlan(items);
   buildCompose(items);
 }
@@ -7132,7 +7184,7 @@ function emptyChanceTip(){
   const el=$("cemptytip"); if(!el) return;
   const always=ALWAYS_PRESENT.filter(l=>!HIDDEN_LAYERS.has(l));
   const off=ALWAYS_PRESENT.filter(l=>HIDDEN_LAYERS.has(l));
-  let t="How often a layer is left out when randomising.";
+  let t="How often a layer is left out when randomizing.";
   if(always.length) t+=" "+always.join(" and ")+(always.length===1?" is":" are")+" always drawn.";
   if(off.length) t+=" "+off.join(" and ")+(off.length===1?" is":" are")
     +" normally always drawn, but the set is turned off.";
@@ -9907,6 +9959,130 @@ async function setRarity(rec,w){
      either: there was never anything to be behind. */
   if(sent==="unreachable" && next.rowId && next.synced) await dbPut({...next, synced:false});
   return true;
+}
+
+/* How long ago, in words somebody reads rather than a timestamp.
+
+   Deliberately coarse. "3 minutes ago" and "4 minutes ago" are the same
+   fact, and a list that reflows every time it is redrawn reads as activity
+   rather than as a record. */
+function agoWords(iso){
+  const t=Date.parse(iso||"");
+  if(!isFinite(t)) return "";
+  const secs=Math.max(0,(Date.now()-t)/1000);
+  if(secs<90) return "just now";
+  const mins=Math.round(secs/60);
+  if(mins<60) return mins+" minutes ago";
+  const hrs=Math.round(mins/60);
+  if(hrs<24) return hrs===1?"an hour ago":hrs+" hours ago";
+  const days=Math.round(hrs/24);
+  return days===1?"yesterday":days+" days ago";
+}
+
+/* Who the people in this group are, by the only name they have chosen.
+
+   auth.users is not readable by a client, so without the RPC a uuid is all
+   anybody could see. It returns the username and NOTHING else - not the
+   email, and not the part before the @, which was the obvious fallback and
+   would have handed every teammate the local part of a real address.
+
+   Cached per team: the answer changes only when somebody joins or leaves,
+   and this is read once per row otherwise. A failure caches nothing, so a
+   dropped request does not turn into a permanent list of "someone".  */
+let memberNames=null, memberNamesFor=null;
+async function teamNames(team){
+  if(memberNamesFor===team && memberNames) return memberNames;
+  let m=null;
+  try{
+    const h=await sbHeaders({"Content-Type":"application/json"});
+    if(h){
+      const r=await fetch(SB_URL+"/rest/v1/rpc/team_member_names",
+        {method:"POST", headers:h, body:JSON.stringify({t:team})});
+      if(r.ok){
+        m=new Map();
+        for(const row of await r.json()) m.set(row.user_id, row.username||null);
+      }
+    }
+  }catch(_){ m=null; }
+  if(m){ memberNames=m; memberNamesFor=team; }
+  return m||new Map();
+}
+
+/* What the group has changed lately.
+
+   Ordered on updated_at, which a database trigger maintains rather than
+   whichever browser wrote last - the one column here worth deciding on.
+   owner is who last WROTE the row, which for a re-upload is the last person
+   to save it rather than whoever drew it, and the heading says so. */
+const UPDATE_ROWS=25;
+/* One run at a time. The router is not the only caller - Check again is a
+   button somebody can press twice - and a list emptied by one run while
+   another is filling it is wrong however it was reached. A second request
+   would also be answering a question the first is already answering. */
+let updatesBusy=false;
+async function renderUpdates(){
+  const sec=$("updates"); if(!sec) return;
+  if(updatesBusy) return;
+  updatesBusy=true;
+  try{ await renderUpdatesNow(sec); } finally{ updatesBusy=false; }
+}
+async function renderUpdatesNow(sec){
+  const body=$("updbody"), count=$("updcount");
+  if(!activeWs){
+    sec.hidden=false;
+    count.textContent="";
+    body.innerHTML="";
+    const p=document.createElement("p"); p.className="note";
+    p.textContent="This is your own page, so there is nobody else to hear from."
+      +" Open a group project to see what your team has changed.";
+    body.appendChild(p);
+    return;
+  }
+  sec.hidden=false;
+  count.textContent="asking the group\u2026";
+  let rows=null, me=null;
+  try{
+    const u=await sbUser(); me=u&&u.id;
+    const c=u?await cloudCollection(u):null;
+    const h=c?await sbHeaders():null;
+    if(c&&h){
+      const r=await fetch(SB_URL+"/rest/v1/traits?select=name,layer,status,owner,updated_at"
+        +"&collection_id=eq."+c.id+"&order=updated_at.desc&limit="+UPDATE_ROWS,{headers:h});
+      if(r.ok) rows=await r.json();
+    }
+  }catch(_){ rows=null; }
+  body.innerHTML="";
+  if(!rows){
+    count.textContent="";
+    const p=document.createElement("p"); p.className="note";
+    p.textContent="Could not reach the group just now. Nothing here is out of date -"
+      +" it simply has not been read yet.";
+    body.appendChild(p);
+    return;
+  }
+  const names=await teamNames(activeWs);
+  count.textContent = rows.length
+    ? "the last "+rows.length+", most recent first"
+    : "nothing has been changed yet";
+  for(const row of rows){
+    const el=document.createElement("div");
+    el.className="urow"+(row.owner&&row.owner===me?" mine":"");
+    const who=document.createElement("span"); who.className="uwho";
+    /* "you" for your own, the username for a teammate, and "someone" when
+       they have not chosen one - which is a gap worth showing as a gap
+       rather than filling with an email nobody agreed to share. */
+    who.textContent = (row.owner&&row.owner===me) ? "you"
+      : (names.get(row.owner) || "someone");
+    const what=document.createElement("span"); what.className="uwhat";
+    what.textContent=(row.name||"a trait")+" in "+(row.layer||"unsorted")
+      +(row.status&&row.status!=="approved"?" ("+row.status+")":"");
+    what.title=what.textContent;
+    const when=document.createElement("span"); when.className="uwhen";
+    when.textContent=agoWords(row.updated_at);
+    when.title=String(row.updated_at||"");
+    el.appendChild(who); el.appendChild(what); el.appendChild(when);
+    body.appendChild(el);
+  }
 }
 
 /* ---- the section ------------------------------------------------- */
@@ -13099,6 +13275,8 @@ function planFold(on,remember){
 (function(){
   const h=$("planfold"); if(!h) return;
   h.onclick=()=>planFold(!$("plan").classList.contains("folded"));
+  const again=$("updrefresh");
+  if(again) again.onclick=()=>renderUpdates();
   const seed=$("planseedall");
   if(seed) seed.onclick=async()=>{
     const items=await dbAll();
@@ -13212,9 +13390,24 @@ function pageFromHash(){
 function showPage(p,push){
   const land=$("land"); if(!land) return;
   const want=PAGES.indexOf(p)>=0?p:"home";
+  /* ALREADY HERE, SO NOTHING TO DO. Writing the hash below fires
+     hashchange, which calls this again - harmless while it only toggled
+     classes, and not harmless once it also starts a request: both calls ran
+     renderUpdates, both emptied the list, and both appended to what the
+     other had cleared. Measured as three rows on the server showing as six.
+
+     It also stops a press on the page you are already on jumping you to the
+     top of it. On the first render the attribute is unset, so this never
+     blocks the one call that has to happen. */
+  if(land.getAttribute("data-page")===want) return;
   land.setAttribute("data-page",want);
   for(const b of document.querySelectorAll(".pgtab")){
-    if(b.dataset.page===want) b.setAttribute("aria-current","page");
+    /* Project stays lit while you are in its settings. You have not left the
+       project to change its rarity - settings is a room inside it, and a tab
+       bar showing nothing selected would say otherwise. */
+    const here = b.dataset.page===want
+      || (want==="settings" && b.dataset.page==="project");
+    if(here) b.setAttribute("aria-current","page");
     else b.removeAttribute("aria-current");
   }
   /* The hash is written only when a PRESS moved the page. Writing it while
@@ -13225,9 +13418,14 @@ function showPage(p,push){
   /* Back to the top: these are pages, and arriving halfway down one is what
      made the single scroll hard to use in the first place. */
   if(push) window.scrollTo(0,0);
+  /* Asked when you arrive rather than on every render: it is a request to
+     the server, and the page it is on is the only one that shows it. */
+  if(want==="settings") renderUpdates();
 }
 (function(){
-  for(const b of document.querySelectorAll(".pgtab"))
+  /* Tabs and jumps alike: both are "go to this page", and binding only the
+     tabs is how the settings button would have looked broken. */
+  for(const b of document.querySelectorAll(".pgtab,.pgjump"))
     b.onclick=()=>showPage(b.dataset.page,true);
   addEventListener("hashchange",()=>showPage(pageFromHash(),false));
   showPage(pageFromHash(),false);

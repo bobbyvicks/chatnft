@@ -162,7 +162,92 @@ test.describe('the app is three pages', () => {
       await gotoPage(page, 'project');
       const r = await page.evaluate(() => [...document.querySelectorAll('.pgtab')]
         .map(b => [b.dataset.page, b.getAttribute('aria-current')]));
-      expect(r).toEqual([['home', null], ['project', 'page'], ['settings', null]]);
+      expect(r, 'two tabs, not three').toEqual([['home', null], ['project', 'page']]);
+    });
+
+  test('and the project stays lit while you are in its settings',
+    async ({ page }) => {
+      /* SETTINGS IS NOT A THIRD TAB. It is a room inside the project - you get
+         there from a button while you are in it, and back the same way - so
+         the tab bar must not go blank when you walk into it. */
+      await gotoPage(page, 'settings');
+      const r = await page.evaluate(() => ({
+        tabs: [...document.querySelectorAll('.pgtab')]
+          .map(b => [b.dataset.page, b.getAttribute('aria-current')]),
+        /* And a jump is not a tab: one is on screen at a time and neither ever
+           claims to be where you are standing. */
+        jumps: [...document.querySelectorAll('.pgjump')].map(b => ({
+          to: b.dataset.page,
+          shown: b.getBoundingClientRect().height > 0,
+          current: b.getAttribute('aria-current'),
+        })),
+      }));
+      expect(r.tabs).toEqual([['home', null], ['project', 'page']]);
+      expect(r.jumps.filter(j => j.shown).map(j => j.to),
+        'only the way back is offered from here').toEqual(['project']);
+      expect(r.jumps.every(j => j.current === null),
+        'a jump never says it is the current page').toBe(true);
+    });
+
+  test('and the way into settings is offered from the project', async ({ page }) => {
+    // The other half: the button has to be there, and pressing it has to work.
+    await gotoPage(page, 'project');
+    const shown = await page.evaluate(() =>
+      document.getElementById('tosettings').getBoundingClientRect().height > 0);
+    expect(shown, 'the settings button is on the project page').toBe(true);
+    await page.click('#tosettings');
+    await page.waitForTimeout(150);
+    expect(await page.evaluate(() =>
+      document.getElementById('land').getAttribute('data-page'))).toBe('settings');
+    await page.click('#toproject');
+    await page.waitForTimeout(150);
+    expect(await page.evaluate(() =>
+      document.getElementById('land').getAttribute('data-page')), 'and back again')
+      .toBe('project');
+  });
+
+  test('the trait rules are in settings, not under the character preview',
+    async ({ page }) => {
+      /* They lived inside Build a character, which is where they were written
+         rather than where they belong - forty lines of trait parameters under
+         a picture. Moved whole, so this checks both that they are on the
+         settings page and that every control came with them. */
+      await gotoPage(page, 'settings');
+      const r = await page.evaluate(() => {
+        const ids = ['rulea', 'ruleb', 'ruleadd', 'rulelist', 'revtrait', 'revlayer',
+          'revopen', 'ruleimport', 'ruleexport', 'rulesload'];
+        return {
+          inRules: ids.every(i => {
+            const e = document.getElementById(i);
+            return !!e && !!e.closest('#rules');
+          }),
+          shown: document.getElementById('rules').getBoundingClientRect().height > 0,
+          stillInCompose: ids.filter(i => {
+            const e = document.getElementById(i);
+            return e && e.closest('#compose');
+          }),
+        };
+      });
+      expect(r.inRules, 'every rules control is in the rules section').toBe(true);
+      expect(r.stillInCompose, 'and none left behind in Build a character').toEqual([]);
+      expect(r.shown, 'and the section is actually on screen').toBe(true);
+    });
+
+  test('and the rules section comes and goes with Build a character',
+    async ({ page }) => {
+      /* IT DID NOT APPEAR AT ALL when it was first split out: a new section
+         gets its own hidden attribute, and renderShelf raises #proj, #compose
+         and #layers by hand from a list this was not in. Every markup check
+         passed and the thing was still invisible. Both are about the
+         collection rather than one trait, so they show and hide together. */
+      await gotoPage(page, 'settings');
+      expect(await page.evaluate(() => $('rules').hidden), 'shown with traits').toBe(false);
+      await page.evaluate(async () => { await dbClear(); await renderShelf(); });
+      await page.waitForTimeout(300);
+      const r = await page.evaluate(() => ({
+        rules: $('rules').hidden, compose: $('compose').hidden }));
+      expect(r.rules, 'and gone when the project is empty').toBe(true);
+      expect(r.rules, 'exactly when Build a character is').toBe(r.compose);
     });
 
   test('choosing a project goes to the project page', async ({ page }) => {

@@ -1,0 +1,27 @@
+-- WHEN THE RULES WERE LAST WRITTEN, so that clearing them is an EVENT rather
+-- than an absence.
+--
+-- The pull merges rather than adopts, on purpose: a teammate pressing Load in
+-- the middle of a review must not lose the answers they have given since their
+-- last push. One line carries that reasoning today:
+--
+--   } else if(RULES.length){
+--     /* Nothing up there and something here: send it rather than lose it. */
+--
+-- which is right for a browser whose rules predate the column, and wrong for
+-- one whose rules were deliberately cleared by somebody else. Both look
+-- identical from here: an empty server and a full browser. The first re-seeds
+-- the server, which is what you want; the second re-seeds a collection the
+-- owner just emptied, which undoes the clear the moment any teammate presses
+-- Load.
+--
+-- A timestamp separates them. Empty AND newer than anything this browser has
+-- sent is a clear, and is adopted. Empty and older is a server that has never
+-- been told, and is still filled in from here.
+--
+-- Milliseconds since the epoch rather than timestamptz, because the client
+-- compares it against a value it wrote itself with Date.now() and a round trip
+-- through a timestamp string is one more place for the two to disagree. 0 for
+-- every existing row: nothing has been cleared yet, which is true.
+alter table public.collections
+  add column if not exists rules_at bigint not null default 0;

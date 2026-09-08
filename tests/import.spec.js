@@ -206,13 +206,28 @@ test.describe('the import report', () => {
     expect(r.note, 'nothing was replaced, so nothing to qualify').not.toMatch(/updated|all updates/);
   });
 
-  test('re-importing the same folder replaces, and says so', async ({ page }) => {
-    await landing(page);
-    await importFiles(page, three);
-    const again = await importFiles(page, three);
-    expect(again.count, 'nothing was duplicated').toBe(3);
-    expect(again.note, 'and the report says they were all replacements').toMatch(/all updates/);
-  });
+  /* THESE TWO ASSERTED "all updates" AND "3 updated" AND WERE RIGHT TO, until
+     the behaviour under them changed. A re-import used to rewrite every record
+     it read, so an unchanged file genuinely was an update - and rewriting it
+     is what silently dropped the trait's rarity, its place on the shelf and
+     the server row it held. An unchanged file is now left alone, so the honest
+     word for it is not "updated". See tests/reimport.spec.js, which covers what
+     is kept; what these two still pin is the count: re-importing does not
+     duplicate, and a genuinely new file is counted apart from the rest.
+
+     The fixture here fills every canvas with one flat colour, so all three of
+     these files are byte-identical to their first import - which is exactly
+     the case the new wording is about. */
+  test('re-importing the same folder duplicates nothing, and says so',
+    async ({ page }) => {
+      await landing(page);
+      await importFiles(page, three);
+      const again = await importFiles(page, three);
+      expect(again.count, 'nothing was duplicated').toBe(3);
+      expect(again.note, 'and it says it recognised them').toMatch(/3 already here/);
+      expect(again.note, 'rather than claiming to have rewritten them')
+        .not.toMatch(/updated/);
+    });
 
   test('one file added to a folder already imported is counted apart', async ({ page }) => {
     // The number someone actually wants: did my new file land, and did I add
@@ -222,7 +237,7 @@ test.describe('the import report', () => {
     const r = await importFiles(page, three.concat([{ path: 'set/skins/ash.png', w: 160, h: 160 }]));
     expect(r.count).toBe(4);
     expect(r.note, 'one new').toMatch(/1 new/);
-    expect(r.note, 'and three replaced').toMatch(/3 updated/);
+    expect(r.note, 'and the other three recognised').toMatch(/3 already here/);
   });
 
   test('a file the folder no longer has is named, and left alone', async ({ page }) => {

@@ -1263,6 +1263,8 @@ footer .mono{color:var(--ink);}
         title="Read a LaunchMyNFT rules file and turn it into Never-together rules. Nothing is replaced - rules already here are left alone - and any trait the file names that this project does not have is reported rather than invented.">Import rules from a file</button>
       <button class="mini" id="ruleexport"
         title="Write the rules back out as a LaunchMyNFT rules file, including everything answered here. Import it there with Rules > Import Rules.">Download for LaunchMyNFT</button>
+      <button class="mini" id="ruleclear"
+        title="Remove every Never-together rule and every reviewed answer, so a new rules file can be imported over a clean project. Importing only ever adds, so without this a regenerated file lands on top of rules naming traits that have been renamed away. Your traits, layers and draw order are not touched.">Clear all rules</button>
     </div>
     <p class="note" id="ruleimportnote" hidden></p>
     <input type="file" id="rulefile" accept="application/json,.json" hidden>
@@ -2170,6 +2172,14 @@ const GRID_ID='settings.grid';
    the app is scaled by it. */
 const EMPTY_ID='settings.emptychance';
 const RULES_ID='settings.rules';
+/* WHEN THIS BROWSER LAST WROTE THE RULES, in milliseconds.
+
+   Only ever compared against the same number on the server, to tell a
+   collection whose rules were deliberately CLEARED from one that has never
+   had any. Those are the same shape - an empty list - and opposite
+   instructions: adopt the first, fill in the second. 0 means this browser
+   has never written them, which is the safe end of that comparison. */
+let rulesAt=0;
 /* Pairs of traits that must never share a character, each side keyed by
    layer/name.
 
@@ -7498,6 +7508,22 @@ async function bulkImport(files){
      appended to as the loop runs, so it cannot answer that question later. */
   const beforeIds=new Set(shelfItems.filter(i=>i.kind==="trait").map(i=>i.id));
   const beforeTraits=shelfItems.filter(i=>i.kind==="trait");
+  /* The same snapshot, reachable by id. beforeIds already answers "was this
+     here", and the record itself is what carries the rarity, the shelf
+     position and the server row across a replacement. */
+  const beforeById=new Map(beforeTraits.map(i=>[i.id,i]));
+  /* Candidates for the same-picture check, which is NOT the same list as
+     beforeTraits. That one is a snapshot of what the project held before the
+     import and is what the absent-check must compare against; this one grows
+     as the run writes, because two copies of one PNG inside a single folder
+     are exactly as much of a duplicate as one copy against an older record -
+     and were reported as nothing at all, filter() having returned a new array
+     that nothing ever appended to. */
+  const artSoFar=beforeTraits.slice();
+  /* Files this folder supplied that were already here, unchanged. Counted
+     rather than inferred from fresh and replaced: those two describe writes,
+     and the whole point of these is that nothing was written. */
+  let unchanged=0;
   /* THE BYTES, not the name. A name is what somebody typed and a version
      suffix is what they typed the second time; the picture is the thing that
      either is or is not already in the project.
@@ -7563,19 +7589,97 @@ async function bulkImport(files){
         /* Before the id is built from it - the id is
            "t_"+name+"_"+layer+"_"+status, so renaming afterwards would make
            a second record rather than a better-named one. */
+        /* Hashed BEFORE the name is worked out, because for an auto-named
+           file the bytes are the only thing that says which trait it is. */
+        const sig=await fileSig(f);
         if(looksUnnamed(info.name)){
           const lay=info.layer||"unsorted";
-          nextNum[lay]=(nextNum[lay]||0)+1;
-          info.name=lay+"-"+nextNum[lay];
+          /* THE PICTURE, NOT THE POSITION. The number used to come from a
+             counter that restarted every import, so adding one file to the
+             folder shifted every later name by one and re-keyed each file
+             onto the record before it. The name IS the id, so that
+             overwrote real artwork while reporting "13 named for you"
+             either way.
+
+             If these bytes are already a trait on this layer, this file IS
+             that trait: it takes its name back and lands on its own record
+             whatever order the folder is read in. */
+          let known=null;
+          if(sig){
+            for(const old of beforeTraits){
+              if((old.layer||"unsorted")!==lay) continue;
+              if(await recSig(old)!==sig) continue;
+              known=old.name; break;
+            }
+          }
+          if(known!==null) info.name=known;
+          else{
+            /* New artwork, so it needs a number nothing else holds. Starting
+               from one would land on backgrounds-1, which already exists. */
+            if(nextNum[lay]===undefined){
+              let top=0;
+              for(const old of beforeTraits){
+                if((old.layer||"unsorted")!==lay) continue;
+                const m=/^(.*)-([0-9]+)$/.exec(String(old.name||""));
+                if(m&&m[1]===lay) top=Math.max(top,parseInt(m[2],10)||0);
+              }
+              nextNum[lay]=top;
+            }
+            nextNum[lay]=nextNum[lay]+1;
+            info.name=lay+"-"+nextNum[lay];
+          }
           renamed++;
         }
         const layer=info.layer||"unsorted";
         const status=info.status||"wip";
         if(!info.status) noStatus++;
         if(!info.layer) noLayer.push(info.name);
-        const trec={id:"t_"+info.name+"_"+layer+"_"+status, kind:"trait", name:info.name,
+        const tid="t_"+info.name+"_"+layer+"_"+status;
+        /* THE SAME FILE COMING BACK. A folder gets imported a second time
+           because a few files in it changed, and on the real collection "a
+           few" is five out of 274. The other 269 are byte-identical to what
+           is already here.
+
+           Skipping them is not an optimisation. REWRITING THE RECORD IS WHAT
+           LOSES THINGS - the weight the rarity plan set, the place on the
+           shelf somebody dragged it to, the row it holds on the server. A
+           file knows its pixels and its name; everything else on that record
+           was decided here, and re-reading the file is not new information
+           about any of it.
+
+           Costs nothing: the bytes are hashed above anyway - the name of an
+           auto-named file depends on them, and so does the duplicate-name
+           check further down.
+
+           Not taken when this batch has already written the id. Two files in
+           one folder resolving to the same trait is a replacement, and the
+           snapshot compared against here predates both of them. */
+        const prev = writtenIds.has(tid) ? null : (beforeById.get(tid)||null);
+        if(prev && sig && await recSig(prev)===sig){
+          unchanged++;
+          writtenIds.add(tid);
+          /* Still supplied. The move and absent checks below read this list
+             to decide what the folder no longer holds, and a file left alone
+             is very much a file the folder still holds - leaving it out
+             would report every unchanged trait as missing. */
+          supplied.push({name:info.name, layer:layer, status:status, id:tid});
+          perLayer[layer]=(perLayer[layer]||0)+1;
+          ok++;
+          continue;
+        }
+        /* WHAT THE PROJECT DECIDED, carried across the replacement. The
+           picture changed; where it sits, how often it is drawn and which
+           server row it is did not.
+
+           synced is deliberately NOT carried. These bytes have not been up
+           yet, and a record that claims they have is the one outcome worse
+           than uploading too much. */
+        const trec={id:tid, kind:"trait", name:info.name,
                     layer:layer, status:status, w:w, h:h2, blob:f, at:Date.now(),
-                    shelfOrder:shelfCore.nextShelfOrder(shelfItems,layer)};
+                    shelfOrder:(prev&&typeof prev.shelfOrder==="number")
+                      ? prev.shelfOrder : shelfCore.nextShelfOrder(shelfItems,layer)};
+        if(prev&&typeof prev.rarity==="number") trec.rarity=prev.rarity;
+        if(prev&&prev.rowId) trec.rowId=prev.rowId;
         /* A file re-imported under the same name, layer and status has the same
            id and REPLACES its trait - which is how an edit on disk reaches the
            project. Counted separately so the report can say so. The
@@ -7608,9 +7712,8 @@ async function bulkImport(files){
            So it says so. The person importing knows which of the two they
            meant to keep, and the absent-check below already settles this the
            same way: guessing throws away work, being told costs nothing. */
-        const sig=await fileSig(f);
         if(sig){
-          for(const old of beforeTraits){
+          for(const old of artSoFar){
             if(old.id===trec.id) continue;
             if((old.layer||"unsorted")!==layer) continue;
             if(await recSig(old)!==sig) continue;
@@ -7621,6 +7724,7 @@ async function bulkImport(files){
         await dbPut(trec);
         supplied.push({name:info.name, layer:layer, status:status, id:trec.id});
         shelfItems.push(trec);
+        artSoFar.push(trec);
         if(activeWs) await cloudSyncOne(trec);
         perLayer[layer]=(perLayer[layer]||0)+1;
       }
@@ -7682,10 +7786,21 @@ async function bulkImport(files){
      my edit land, and did I add anything by accident" answers a question nobody
      asked - and a re-import of a folder you changed one file in reads exactly
      like the first import did. */
-  bits.push("Imported "+ok+" file"+(ok===1?"":"s")
-    +(fresh&&replaced ? " ("+fresh+" new, "+replaced+" updated)"
-      : replaced&&!fresh ? " (all updates)"
-      : ""));
+  /* THE THREE ANSWERS, because they are three different facts and the reader
+     is asking one specific question: did my edit land, and did I add anything
+     by accident. "Imported 274 files" is the same sentence whether 274 traits
+     changed or none did.
+
+     The old wording had no way to say "already here" at all - an unchanged
+     file counted as an update, because it was one. */
+  {
+    const kinds=[];
+    if(fresh) kinds.push(fresh+" new");
+    if(replaced) kinds.push(replaced+" updated");
+    if(unchanged) kinds.push(unchanged+" already here");
+    bits.push("Imported "+ok+" file"+(ok===1?"":"s")
+      +(kinds.length ? " ("+kinds.join(", ")+")" : ""));
+  }
   /* Named, not folded into "failed": a file skipped for its size has a
      different fix from one that would not decode. */
   if(oversized) bits.push(oversized+" skipped as over "+MAX_SIDE+"px");
@@ -8699,10 +8814,10 @@ function applyGrid(items){
    somebody edited by hand - a chance of 1 would empty every layer that can
    be empty and leave the shelf reading 0% for hundreds of traits.
 
-   NOT SHARED WITH TEAMMATES YET, and this is where somebody will look for
-   that. cloudPush sends traits and refs only, and collections has no column
-   for this, so two people on one project can read different percentages for
-   the same trait until one is added. It does travel in the project file. */
+   SHARED WITH TEAMMATES, and this is where somebody will look for that.
+   collections.empty_chance holds it, shareRules sends it and takeEmptyChance
+   reads it back. This paragraph said the opposite for as long as that was
+   true, and kept saying it afterwards. It also travels in the project file. */
 function applyEmptyChance(items){
   const rec=(items||[]).find(i=>i.id===EMPTY_ID);
   const v=rec&&Number(rec.chance);
@@ -8770,6 +8885,10 @@ function applyRules(items){
      the old filter dropped everything longer than two, so a three-trait rule
      could be written to storage and never read back. */
   RULES = raw.filter(g=>Array.isArray(g)).map(g=>ruleGroup(g)).filter(g=>g.length>=2);
+  /* A record written before the stamp existed reads as 0, which says this
+     browser has never written the rules - so a server that has them wins,
+     which is what happened before there was a stamp at all. */
+  rulesAt = (rec&&typeof rec.rulesAt==="number") ? rec.rulesAt : 0;
   /* Two of the same rule would double every conflict check for nothing. */
   const seen=new Set();
   RULES=RULES.filter(p=>{ const k=ruleId(p); if(seen.has(k)) return false; seen.add(k); return true; });
@@ -9136,6 +9255,49 @@ function applyDecision(a,b,ok){
   }).filter(g=>g.length>=2);
   return moved;
 }
+/* CLEARING THE LOT, so a regenerated rules file can land on a clean project.
+
+   Import only ever adds - a rule already present is counted and skipped, and
+   nothing is ever removed. That is right for adding a second file and wrong
+   after a rename, which is when the rules stop naming traits that exist.
+
+   THE ANSWERS GO TOO. Not tidiness: applyDecision pushes a group into RULES
+   for every "no", and the pull replays every answer it holds, so rules
+   cleared without their answers rebuild themselves on the next load.
+
+   The traits, the layers and the draw order are not touched. The draw order
+   in particular is a property of the LAYERS rather than of any rule, and the
+   next import sets it again anyway. */
+async function clearRules(){
+  const note=$("ruleimportnote");
+  const say=m=>{ if(note){ note.hidden=false; note.textContent=m; } };
+  const nR=RULES.length, nD=DECISIONS.length;
+  if(!nR&&!nD){ say("There are no rules to clear."); return; }
+  const what=[];
+  if(nR) what.push(nR+" never-together rule"+(nR===1?"":"s"));
+  if(nD) what.push(nD+" reviewed answer"+(nD===1?"":"s"));
+  /* Counted and named before anything goes. "2,603 answers" is a number
+     somebody can weigh; "the rules" is not. */
+  if(!confirm("Remove "+what.join(" and ")+"?"
+    +"\n\nThe answers go with the rules because a No answer rebuilds its rule"
+    +" every time the project loads, so keeping them would undo this."
+    +(activeWs?"\n\nThis is a group project, so it clears them for everyone.":"")
+    +"\n\nYour traits, layers and draw order are not touched.")) return;
+  RULES=[]; DECISIONS=[];
+  let sent=false;
+  try{ sent=await saveRules(); }
+  catch(_){ say("Could not clear them - nothing was changed on the server."); return; }
+  await renderShelf();
+  /* WHETHER IT REACHED THE GROUP, said plainly. A clear that stayed in this
+     browser comes back on the next load, and finding that out by watching it
+     happen is the worst way to learn it. */
+  say("Cleared "+what.join(" and ")+". "+(activeWs
+    ? (sent ? "The group has them cleared too - import a rules file to start again."
+            : "This browser is clear, but the group could not be reached, so they"
+              +" will come back on the next load. Try again when you are back online.")
+    : "Import a rules file to start again."));
+}
+
 /* One answer, recorded and applied. */
 async function decidePair(a,b,ok){
   DECISIONS=mergeDecisions(DECISIONS,[{a:a,b:b,ok:!!ok,at:Date.now()}]);
@@ -9143,6 +9305,11 @@ async function decidePair(a,b,ok){
   await saveRules();
 }
 async function saveRules(){
+  /* Stamped here rather than in shareRules, so the copy in this browser and
+     the copy on the server carry the SAME number. Every caller of this
+     function is a change to the rules made on this device, which is exactly
+     what the stamp records. */
+  rulesAt=Date.now();
   /* Both fields, in one statement, so they cannot drift apart.
 
      pairs is a WRITE-ONLY mirror for a copy of this page that predates groups.
@@ -9151,7 +9318,7 @@ async function saveRules(){
      older tab enforces what it cannot display, instead of dropping it.
      Nothing in this file ever reads pairs. */
   await dbPut({id:RULES_ID, kind:"settings", at:Date.now(),
-    groups:RULES.map(g=>g.slice()),
+    groups:RULES.map(g=>g.slice()), rulesAt:rulesAt,
     pairs:RULES.reduce((acc,g)=>{
       for(let i=0;i<g.length;i++) for(let j=i+1;j<g.length;j++) acc.push([g[i],g[j]]);
       return acc; },[])});
@@ -9180,7 +9347,7 @@ async function shareRules(){
     if(c&&h){
       const r=await fetch(SB_URL+"/rest/v1/collections?id=eq."+c.id,{method:"PATCH",
         headers:h, body:JSON.stringify({rules:RULES, decide_order:DECIDE_ORDER,
-          decisions:DECISIONS, empty_chance:emptyChance})});
+          decisions:DECISIONS, empty_chance:emptyChance, rules_at:rulesAt})});
       shared=r.ok;
     }
   }catch(_){ shared=false; }
@@ -11381,7 +11548,7 @@ async function cloudCollection(u){
   if(!team) return null;
   const h=await sbHeaders({"Content-Type":"application/json"});
   if(!h) return null;
-  let r=await fetch(SB_URL+"/rest/v1/collections?select=id,layers,rules,decisions,decide_order,empty_chance&team_id=eq."+team+"&limit=1",{headers:h});
+  let r=await fetch(SB_URL+"/rest/v1/collections?select=id,layers,rules,decisions,decide_order,empty_chance,rules_at&team_id=eq."+team+"&limit=1",{headers:h});
   if(r.ok){ const rows=await r.json(); if(rows.length) return rows[0]; }
   r=await fetch(SB_URL+"/rest/v1/collections",{method:"POST",
     headers:Object.assign({Prefer:"return=representation"},h),
@@ -12142,6 +12309,32 @@ async function cloudPull(opts){
      delete the lot - so an empty server takes the local copy instead. */
   await takeEmptyChance(c);
   let pulledRules=0;
+  /* A CLEAR IS AN EVENT, NOT AN ABSENCE.
+
+     Empty up there and full down here has two causes and they want opposite
+     things: rules that predate the column, which must be sent rather than
+     lost, and rules somebody deliberately cleared, which must be adopted.
+     The branch below reads both as the first, so any teammate pressing Load
+     used to push a cleared collection straight back to what it was.
+
+     The stamp is what separates them. Newer than anything this browser has
+     written AND empty is a clear; anything else falls through to the merge,
+     which is unchanged. Written straight to the store rather than through
+     saveRules, because adopting somebody else's clear is not a new one -
+     stamping it again here would make two browsers take turns re-clearing. */
+  {
+    const theirsAt=(c&&typeof c.rules_at==="number")?c.rules_at:0;
+    const nothingThere=!(Array.isArray(c.rules)&&c.rules.length)
+                     &&!(Array.isArray(c.decisions)&&c.decisions.length);
+    if(theirsAt>rulesAt && nothingThere && (RULES.length||DECISIONS.length)){
+      RULES=[]; DECISIONS=[];
+      rulesAt=theirsAt;
+      await dbPut({id:RULES_ID, kind:"settings", at:Date.now(),
+        groups:[], pairs:[], rulesAt:rulesAt});
+      await dbPut({id:DECISIONS_ID, kind:"settings", at:Date.now(), decisions:[]});
+      toast("The group cleared the trait rules");
+    }
+  }
   if(Array.isArray(c.rules)||Array.isArray(c.decisions)){
     const theirs=Array.isArray(c.rules)?c.rules.filter(g=>Array.isArray(g)).map(ruleGroup).filter(g=>g.length>=2):[];
     const merged=mergeDecisions(DECISIONS,Array.isArray(c.decisions)?c.decisions:[]);
@@ -13698,6 +13891,7 @@ $('ruleadd').onclick=async()=>{
   toast(a+" and "+b+" will not appear together");
 };
 $('ruleimport').onclick=()=>$('rulefile').click();
+$('ruleclear').onclick=clearRules;
 $('ruleexport').onclick=async()=>{
   const note=$("ruleimportnote"); note.hidden=false;
   let items=[]; try{ items=await dbAll(); }catch(_){ }

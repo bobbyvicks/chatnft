@@ -73,10 +73,17 @@ test.describe('naming the traits that are not on the collection grid', () => {
   test('a collection that agrees with itself but not with the grid is still wrong',
     async ({ page }) => {
       /* THE RECORDED DECISION, restated here because the first attempt at this
-         fix broke it. Comparing against "the size most of them share" calls
-         two 40x40 traits in a 160-cell collection clean - they agree with each
-         other perfectly, and 40 is a quarter of a cell. BOTH are wrong. */
-      const r = await census(page, [['body', 40, 40], ['hat', 40, 40]], 160);
+         fix broke it. Comparing against "the size most of them share" calls two
+         equal off-grid traits clean - they agree with each other perfectly and
+         with nothing else. BOTH are wrong.
+
+         THE SIZE MOVED FROM 40 TO 100, and the reason is a second correction.
+         40 IS on the grid of a 160-cell collection: it is a whole division of
+         it, so it draws at exactly x32 onto a 1280 canvas and lands perfectly -
+         measured, by reading the scale drawImage is given. The rule is a whole
+         multiple OR a whole division, which is also exactly what snapToGrid
+         offers, and 40 was a false positive. 100 is neither. */
+      const r = await census(page, [['body', 100, 100], ['hat', 100, 100]], 160);
       expect(r.oddCount, 'both, not neither').toBe(2);
       expect(r.detail).toContain('body');
       expect(r.detail).toContain('hat');

@@ -207,30 +207,63 @@ test.describe('fitting a trait to the collection grid', () => {
       expect(r.said).toContain('160 cell grid');
     });
 
-  test('below one cell it goes UP to a whole cell, not to a divisor',
+  test('a whole division of the cell count is already on the grid',
     async ({ page }) => {
-      /* THE ONE THAT SEPARATES THIS FROM snapToGrid, which sits one line above
-         it and answers a different question. snapToGrid(40) at grid 160 is 40:
-         a whole divisor, offered deliberately so that shrinking is expressible.
-         sizeCensus does not accept 40, so a Fit built on snapToGrid would
-         return the size it was given, report success, and leave the shelf
-         still calling the trait off the grid. */
+      /* THIS TEST USED TO ASSERT THE OPPOSITE, and it was wrong.
+
+         It said a 40px canvas on a 160-cell project should be fitted UP to
+         160, because sizeCensus called 40 off the grid. That made Fit disagree
+         with snapToGrid, which deliberately offers whole divisions below one
+         cell so that shrinking is expressible at all.
+
+         MEASURED, by intercepting drawImage and reading the scale each trait
+         is actually given onto the canvas autoCanvas picks: a 40px trait among
+         1280px ones draws at exactly x32 and lands perfectly, while a 1254px
+         one draws at x1.0207 and smears. The census was flagging both. 40 was
+         a false positive, so Fit leaves it alone and says so. */
       const r = await fit(page, { size: 40, mode: 'canvas', grid: 160 });
-      expect(r.out, 'one whole cell, not the divisor').toBe('160x160');
-      expect(r.census, 'which is what the warning wanted').toBe(0);
+      expect(r.out, 'left exactly as it was').toBe('40x40');
+      expect(r.said).toContain('Already');
+      expect(r.census, 'and the shelf agrees it is fine').toBe(0);
     });
 
-  test('and the same trait through snapToGrid really does stay at 40',
+  test('every size snap can produce is a size the shelf accepts',
     async ({ page }) => {
-      /* THE POSITIVE CONTROL for the test above: it only means something if
-         snapToGrid genuinely answers 40 here. If it ever starts answering 160
-         the distinction has gone and that test passes for the wrong reason. */
+      /* THE GUARD THAT STOPS THESE TWO PARTING AGAIN, which is the whole
+         reason this fix exists. snapToGrid is the control for staying on the
+         grid and onCellGrid is the warning for being off it; they disagreed
+         below one cell for a week. Asserted over the ladder rather than at one
+         point, so a change to either that reintroduces the gap fails here
+         instead of on somebody's shelf. */
+      const bad = await page.evaluate(() => {
+        projectGrid = 160;
+        const out = [];
+        for (let v = 1; v < 500; v++) {
+          const s = snapToGrid(v);
+          if (!onCellGrid(s, s, 160)) out.push(v + ' -> ' + s);
+        }
+        return out;
+      });
+      expect(bad, 'snap never lands somewhere the shelf calls wrong').toEqual([]);
+    });
+
+  test('and the two really do answer differently, so the guard is not vacuous',
+    async ({ page }) => {
+      /* A CONTROL on the test above. If snapToGrid only ever returned whole
+         multiples, "everything it produces is on the grid" would hold for a
+         reason that has nothing to do with the fix - so the divisor half of
+         its ladder is asserted directly. */
       const r = await page.evaluate(() => {
         projectGrid = 160;
-        return { snap: snapToGrid(40), fit: gridFit(40) };
+        const below = new Set();
+        for (let v = 1; v < 160; v++) below.add(snapToGrid(v));
+        return { below: [...below].sort((a, b) => a - b),
+          fourty: snapToGrid(40), fit: gridFit(40) };
       });
-      expect(r.snap, 'a whole divisor of the cell').toBe(40);
-      expect(r.fit, 'a whole multiple of it').toBe(160);
+      expect(r.fourty, 'snap still answers with a division').toBe(40);
+      expect(r.below.length, 'and there are several of them').toBeGreaterThan(4);
+      expect(r.below.every(v => 160 % v === 0), 'each one divides the cell count').toBe(true);
+      expect(r.fit, 'while gridFit still names the nearest whole multiple').toBe(160);
     });
 
   test('padding never crops, so a canvas just over a cell grows to the next',

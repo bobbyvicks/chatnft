@@ -3061,7 +3061,7 @@ async function saveTrait(){
        told the owner every save in a fine collection was off-grid. The
        multiple is the same rule snapToGrid enforces on the way in. */
     const gcells=Math.max(1,projectGrid|0);
-    const offGrid = (art.width%gcells || art.height%gcells)
+    const offGrid = !onCellGrid(art.width,art.height,gcells)
       ? " \u2014 saved at "+art.width+"\u00d7"+art.height+", which is not on the"
         +" collection's "+gcells+" cell grid"
       : "";
@@ -3342,7 +3342,10 @@ function sizeCensus(items){
        the way in, so the pattern read a literal "d" instead of a digit, matched
        nothing, and every size was called odd. Numbers that are already numbers
        do not need parsing. */
-    if((t.w|0)%cells!==0 || (t.h|0)%cells!==0) bad.add(k);
+    /* SUPERSEDES a multiples-only test, which was a false positive on every
+       size snapToGrid offers below one cell - measured, a 40px trait draws at
+       x32 onto a 1280 canvas and lands perfectly. See onCellGrid. */
+    if(!onCellGrid(t.w,t.h,cells)) bad.add(k);
   }
   /* Biggest group first, so the sentence names the widest problem first. */
   const odd=[...by.entries()].filter(e=>bad.has(e[0]))
@@ -3440,7 +3443,7 @@ $('dlzip').onclick=async()=>{
   toast('Downloaded '+items.length+' trait'+(items.length===1?'':'s')
     +(refs.length?' and '+refs.length+' base character'+(refs.length===1?'':'s'):'')
     +(zcen.oddCount
-    ? " \u2014 "+zcen.oddCount+" not "+zcen.want+" ("+zcen.detail+"). A trait has to divide into whole cells to line up."
+    ? " \u2014 "+zcen.oddCount+" not "+zcen.want+" ("+zcen.detail+"). A trait has to be a whole multiple of the cell count, or a whole division of it."
     : "")+rline);
 };
 buildLayerSelect();
@@ -5754,7 +5757,7 @@ function resizePreview(){
       ? now+"  \u00b7 not on the "+Math.max(1,projectGrid|0)+" cell grid"
       : now;
     n.title = off
-      ? "A trait has to divide into whole cells to line up. Fit to grid resizes it to the nearest one that does."
+      ? "A trait has to be a whole multiple of the cell count, or a whole division of it. Fit to grid resizes it to the nearest size that works."
       : "";
     return;
   }
@@ -7801,6 +7804,30 @@ function distributionOf(items,wipIncluded){
 /* How often a layer is drawn at all: every character for skins, and
    1 - emptyChance for anything that can be left empty. Named because three
    places ask it and a fourth is about to. */
+/* Whether a canvas side sits on a collection of `cells` cells.
+
+   A WHOLE MULTIPLE OF THE CELL COUNT, OR A WHOLE DIVISION OF IT - which is
+   exactly the ladder snapToGrid offers, so the control that keeps you on the
+   grid and the warning that says you are off it cannot contradict each
+   other. They did: snap handed back 40 on a 160-cell project and four
+   separate messages then called 40 wrong.
+
+   MEASURED rather than reasoned. Two traits at 1280, one at 40 and one at
+   1254, with drawImage intercepted to read the scale each is drawn at onto
+   the canvas autoCanvas picks: 1280 goes at x1, the 40 at x32 - whole, it
+   lands perfectly - and the 1254 at x1.0207, which smears. Only the last is
+   a problem, and autoCanvas already knew it: its own wholeness test is
+   s/gcd(C,s)===1, which a divisor satisfies.
+
+   Both directions, because a trait bigger than the cell count and one
+   smaller than it are both fine for the same reason - the scale between
+   them and any standard canvas is a whole number. */
+function onCellGrid(w,h,cells){
+  const g=Math.max(1,cells|0);
+  const fits=v=>{ v=v|0; return v>0 && (v%g===0 || g%v===0); };
+  return fits(w) && fits(h);
+}
+
 function layerPresence(layer){
   return ALWAYS_PRESENT.indexOf(layer)>=0 ? 1 : Math.max(0,1-emptyChance);
 }
@@ -8594,7 +8621,7 @@ async function drawSheet(count){
     (empties?", and note "+empties+" came out with nothing but a base":"")+
     ". Change any dropdown to go back to one character."+shortBy+missed+
     (scen.oddCount ? "  Not on the grid: "+scen.detail
-      +". Each of these has to divide into whole cells to line up." : "");
+      +". Each of these has to be a whole multiple of the cell count, or a whole division of it." : "");
   $("cdl").disabled=false;
 }
 
@@ -9341,8 +9368,7 @@ function gridFit(v){
    subjects. */
 function offGridNow(){
   if(typeof ctx==="undefined" || !ctx || !art || !art.width) return false;
-  const g=Math.max(1,projectGrid|0);
-  return (art.width%g)!==0 || (art.height%g)!==0;
+  return !onCellGrid(art.width,art.height,projectGrid);
 }
 
 function fitToGrid(){
@@ -9353,6 +9379,15 @@ function fitToGrid(){
      somebody's art because they had a chip selected they had forgotten. */
   const mode=chipVal("rsmode")==="art" ? "art" : "canvas";
   const nw=gridFit(art.width), nh=gridFit(art.height);
+  /* Asked of onCellGrid, not of gridFit's own answer. gridFit returns the
+     nearest whole MULTIPLE, so on a canvas that is a whole DIVISION it would
+     propose a change to something already fine - and this button exists to
+     answer the warning, which no longer fires there. */
+  if(onCellGrid(art.width,art.height,projectGrid)){
+    toast("Already "+art.width+"\u00d7"+art.height+", which is on the "
+      +Math.max(1,projectGrid|0)+" cell grid");
+    return;
+  }
   if(nw===art.width && nh===art.height){
     toast("Already "+art.width+"\u00d7"+art.height+", which is on the "
       +Math.max(1,projectGrid|0)+" cell grid");
@@ -12919,9 +12954,9 @@ function download(scale){
        as a bug in the message rather than a fact about the trait. */
     /* The same whole-cells question saveTrait asks, in the same words. */
     const dcells=Math.max(1,projectGrid|0);
-    const off = (art.width%dcells || art.height%dcells)
+    const off = !onCellGrid(art.width,art.height,dcells)
       ? " \u2014 not on the collection's "+dcells+" cell grid"
-        +". A trait has to divide into whole cells to line up." : "";
+        +". A trait has to be a whole multiple of the cell count, or a whole division of it." : "";
     toast('Downloaded '+W+'\u00d7'+H+off);
   },'image/png');
 }

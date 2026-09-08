@@ -4,14 +4,18 @@
    trait has to share one canvas size". That was true when the canvas was the
    biggest trait in the draw and paintTrait could only grow by whole numbers.
    autoCanvas picks a canvas now and scales everything into it, so two sizes
-   is two sizes. What still cannot work is a trait that does not divide into
-   the collection's cells - 40 pixels across a 160-cell grid is a quarter of a
-   cell, and a quarter of a pixel cannot be drawn.
+   is two sizes. What cannot work is a trait whose size does not divide the
+   canvas it is drawn onto by a whole number, because that is what smears it.
 
-   Every case below is unchanged by that: 40 was wrong before and is wrong
-   now, 160 was right and stays right. Only the sentences moved.
+   AND THE FIXTURES MOVED FROM 40 TO 100, which is the second correction. 40
+   IS on the grid of a 160-cell collection - it is a whole division of it, so
+   it draws at exactly x32 onto a 1280 canvas and lands perfectly. Measured, by
+   reading the scale drawImage is actually given. The rule is a whole MULTIPLE
+   of the cell count or a whole DIVISION of it, which is also exactly the
+   ladder snapToGrid offers, so the control and the warning agree. 100 is
+   neither, and is what every case below now uses.
 
-   They layer over each other and a mint lays them out on a grid, so a 40x40
+   They layer over each other and a mint lays them out on a grid, so a 100x100
    PNG in a folder of 160x160 ones is broken output rather than a preference.
    The app knew this in exactly ONE place - the character preview's note - and
    nowhere else: the shelf counted traits without mentioning their sizes, the
@@ -109,30 +113,30 @@ test.describe('collection size consistency', () => {
   test('an off-size trait is named when it is saved', async ({ page }) => {
     // At the moment it happens, while it is fresh and one undo away, rather
     // than only at the download when the reason has been forgotten.
-    await addTrait(page, 'hat', 40);
+    await addTrait(page, 'hat', 100);
     const said = await toastOf(page);
-    expect(said, 'the save must say the size').toContain('40');
+    expect(said, 'the save must say the size').toContain('100');
     expect(said, 'and what it should have been').toContain('160');
   });
 
   test('the shelf names which traits are the wrong size', async ({ page }) => {
     await addTrait(page, 'body', 160);
-    await addTrait(page, 'hat', 40);
+    await addTrait(page, 'hat', 100);
     const s = await shelf(page);
     expect(s.text, 'the count is still there').toContain('2 traits');
     expect(s.text, 'and the problem beside it').toContain('1 not');
     expect(s.title, 'the offender is named on hover').toContain('hat');
-    expect(s.title, 'with its actual size').toContain('40');
+    expect(s.title, 'with its actual size').toContain('100');
   });
 
   test('the download names them, because it is the last moment before a mint', async ({ page }) => {
     await addTrait(page, 'body', 160);
-    await addTrait(page, 'hat', 40);
+    await addTrait(page, 'hat', 100);
     await downloadAll(page);
     const said = await toastOf(page);
     expect(said, 'it still reports the download').toContain('2 traits');
     expect(said, 'and names the odd one').toContain('hat');
-    expect(said, 'and says why it matters').toMatch(/divide into whole cells/i);
+    expect(said, 'and says why it matters').toMatch(/whole division of it/i);
   });
 
   test('a collection that agrees with itself but not with the grid is still wrong', async ({ page }) => {
@@ -140,14 +144,14 @@ test.describe('collection size consistency', () => {
     // reason the census compares against the project grid rather than against
     // the first record. Two traits, both 40x40, agreeing perfectly - and the
     // collection is 160.
-    await addTrait(page, 'body', 40);
-    await addTrait(page, 'hat', 40);
+    await addTrait(page, 'body', 100);
+    await addTrait(page, 'hat', 100);
     const s = await shelf(page);
     expect(s.text, 'BOTH are wrong, not neither').toContain('2 not');
     expect(s.title, 'and both are named').toContain('body');
     expect(s.title).toContain('hat');
     await downloadAll(page);
     expect(await toastOf(page), 'and the download says so too')
-      .toMatch(/divide into whole cells/i);
+      .toMatch(/whole division of it/i);
   });
 });

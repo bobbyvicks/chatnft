@@ -1273,6 +1273,7 @@ footer .mono{color:var(--ink);}
     <p class="note" id="reviewnote" hidden></p>
     <input type="file" id="reviewfile" accept="application/json,.json" hidden>
     <div id="reviewbody" hidden>
+      <p class="note" id="revkeys">N next &middot; P previous &middot; U next unfinished &middot; A artwork &middot; S skip &middot; O open</p>
       <div class="revnow">
         <canvas id="revshot" width="8" height="8"></canvas>
         <div class="revmeta">
@@ -1291,6 +1292,8 @@ footer .mono{color:var(--ink);}
         <button class="mini" id="revnamed">Name is right</button>
         <button class="mini" id="revskip">Skip</button>
         <button class="mini" id="revnext">Next</button>
+        <button class="mini" id="revleft"
+          title="Jump to the next entry that still needs an answer, wrapping round at the end. Skipping marks an entry; this is how you come back to it.">Next unfinished</button>
       </div>
     </div>
   </section>
@@ -10879,9 +10882,14 @@ async function renderReview(){
     return;
   }
   body.hidden=false;
-  const done=REVIEW.entries.filter(e=>e.artworkAccepted&&e.nameAccepted).length;
+  const done=REVIEW.entries.filter(reviewDone).length;
   const i=reviewIndex(), e=REVIEW.entries[i];
-  count.textContent=(i+1)+" of "+REVIEW.entries.length+", "+done+" finished";
+  /* What is LEFT, not only what is done. At entry 200 of 317 the question
+     is how many are still to go, and subtracting two numbers in your head
+     is a thing a count should have saved you. */
+  const left=REVIEW.entries.length-done;
+  count.textContent=(i+1)+" of "+REVIEW.entries.length+", "+done+" finished"
+    +(left?", "+left+" left":"");
   $("revwhere").textContent=e.layer+" \u2014 "+reviewBase(e.currentName);
   const t=await traitForEntry(e);
   /* SAID, not guessed at. A queue entry with no trait here cannot be
@@ -10895,7 +10903,7 @@ async function renderReview(){
   $("revwas").textContent=marks.join(" \u00b7 ")
     +(reviewBase(e.originalName)!==reviewBase(e.currentName)
       ? " \u00b7 was "+reviewBase(e.originalName) : "");
-  $("revwas").className="note"+((e.artworkAccepted&&e.nameAccepted)?" revdone":"");
+  $("revwas").className="note"+(reviewDone(e)?" revdone":"");
   const nameBox=$("revname");
   if(document.activeElement!==nameBox)
     nameBox.value=e.finalName||reviewBase(t?t.name:e.currentName);
@@ -10910,6 +10918,36 @@ async function renderReview(){
 /* Moving through the queue. Written down on every step, so closing the tab
    and coming back opens the trait that was open - which over 317 of them is
    the difference between a pass and starting again. */
+/* The next entry still wanting an answer, in either direction.
+
+   Finished means BOTH answers are in, which is the same test the progress
+   count uses - one definition, so the count and the jump can never disagree
+   about what is left.
+
+   Wraps, because a pass done over several sittings starts wherever it left
+   off and the remaining work is on both sides of that. It SAYS when it
+   wrapped: silently reappearing at the top of a 317-entry queue looks like
+   the button did nothing. */
+const reviewDone=e=>!!(e&&e.artworkAccepted&&e.nameAccepted);
+async function reviewJump(dir){
+  if(!REVIEW||!REVIEW.entries.length) return false;
+  const n=REVIEW.entries.length, from=reviewIndex();
+  for(let k=1;k<=n;k++){
+    const i=((from+dir*k)%n+n)%n;
+    if(reviewDone(REVIEW.entries[i])) continue;
+    /* Came all the way round to where it started: this is the only one
+       left, and moving to it would look like nothing happened. */
+    if(i===from){ toast("This is the only one still unanswered"); return false; }
+    const wrapped = dir>0 ? i<from : i>from;
+    REVIEW.activeId=REVIEW.entries[i].id;
+    await saveReview();
+    await renderReview();
+    if(wrapped) toast("Wrapped round to the "+(dir>0?"start":"end"));
+    return true;
+  }
+  toast("Every entry has both answers");
+  return false;
+}
 async function reviewGo(delta){
   if(!REVIEW) return;
   const i=reviewIndex();
@@ -14717,6 +14755,31 @@ $('reviewfile').onchange=async e=>{
 };
 $('revprev').onclick=()=>reviewGo(-1);
 $('revnext').onclick=()=>reviewGo(1);
+$('revleft').onclick=()=>reviewJump(1);
+/* THE KEYBOARD, for a queue of 317.
+
+   Only while the panel is on screen, the editor is closed and the focus is
+   not in a field. The last is not optional: the name box lives inside this
+   panel, and a single-letter shortcut that swallows a keystroke mid-name is
+   worse than having no shortcut at all.
+
+   The editor's own handler returns as soon as #app is hidden, which is
+   exactly when this one is allowed to act, so the two cannot both fire. */
+document.addEventListener('keydown',e=>{
+  if(!REVIEW) return;
+  if(!$('app').hidden) return;
+  const body=$('reviewbody');
+  if(!body||body.hidden||!body.getBoundingClientRect().height) return;
+  if(e.metaKey||e.ctrlKey||e.altKey) return;
+  const typing=/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)||e.target.isContentEditable;
+  if(typing) return;
+  const k=e.key.toLowerCase();
+  const hit={n:()=>reviewGo(1), p:()=>reviewGo(-1), u:()=>reviewJump(1),
+    a:()=>$('revart').click(), s:()=>$('revskip').click(), o:()=>$('revopen2').click()}[k];
+  if(!hit) return;
+  e.preventDefault();
+  hit();
+});
 $('revskip').onclick=async()=>{
   if(!REVIEW) return;
   REVIEW.entries[reviewIndex()].skipped=true;
@@ -14947,7 +15010,7 @@ async function exportCollection(){
      is not "finished", it is "never begun", and the manifest says which. */
   const rev=REVIEW?{
     started:true, revision:REVIEW.revision||null, total:REVIEW.entries.length,
-    finished:REVIEW.entries.filter(e=>e.artworkAccepted&&e.nameAccepted).length,
+    finished:REVIEW.entries.filter(reviewDone).length,
     artworkOnly:REVIEW.entries.filter(e=>e.artworkAccepted&&!e.nameAccepted).length,
     nameOnly:REVIEW.entries.filter(e=>!e.artworkAccepted&&e.nameAccepted).length,
     skipped:REVIEW.entries.filter(e=>e.skipped).length,

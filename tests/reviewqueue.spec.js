@@ -92,7 +92,9 @@ test.describe('the final review pass', () => {
     const r = await load(page, QUEUE);
     expect(r.ok).toBe(true);
     const s = await shown(page);
-    expect(s.count).toBe('1 of 3, 0 finished');
+    /* The whole line, still pinned exactly - the count now carries what is
+       left as well as what is done. */
+    expect(s.count).toBe('1 of 3, 0 finished, 3 left');
     expect(s.where).toBe('backgrounds — Backrooms Hallway');
     expect(s.name).toBe('Backrooms Hallway');
   });
@@ -216,6 +218,110 @@ test.describe('the final review pass', () => {
     const first = await page.evaluate(() => REVIEW.entries[0]);
     expect(first.skipped).toBe(true);
   });
+
+  test('NEXT UNFINISHED IS HOW YOU COME BACK TO A SKIPPED ONE',
+    async ({ page }) => {
+      /* The handoff asks for "skip/revisit". Skip was built and revisit was
+         not: with 317 entries and a pass done over several sittings, finding
+         the next pending one meant pressing Next until it appeared. */
+      await load(page, QUEUE);
+      /* Finish entry 2 so it has to be stepped over. */
+      await page.click('#revnext');
+      await page.waitForTimeout(200);
+      await page.click('#revart');
+      await page.fill('#revname', 'Punk Eyes');
+      await page.click('#revnamed');
+      await page.waitForTimeout(500);
+      /* Back to the first, then jump: it must land on 3, not on the finished 2. */
+      await page.click('#revprev');
+      await page.waitForTimeout(200);
+      await page.click('#revleft');
+      await page.waitForTimeout(300);
+      expect((await shown(page)).where, 'stepped over the finished one')
+        .toBe('hats — Missing Cap');
+    });
+
+  test('and it says when it wrapped rather than looking like nothing happened',
+    async ({ page }) => {
+      /* Reappearing at the top of a 317-entry queue with no word is
+         indistinguishable from a dead button. */
+      await load(page, QUEUE);
+      await page.evaluate(() => { window.__said = [];
+        const real = window.toast;
+        window.toast = m => { window.__said.push(String(m)); if (real) real(m); }; });
+      /* From the last entry, the only way on is round the front. */
+      await page.click('#revnext'); await page.waitForTimeout(150);
+      await page.click('#revnext'); await page.waitForTimeout(150);
+      await page.click('#revleft'); await page.waitForTimeout(300);
+      const said = await page.evaluate(() => window.__said.join(' | '));
+      expect(said).toContain('Wrapped round to the start');
+      expect((await shown(page)).where).toBe('backgrounds — Backrooms Hallway');
+    });
+
+  test('and it does not pretend to move when the current one is the last left',
+    async ({ page }) => {
+      /* Landing back on the entry you are already looking at, with a message
+         saying it wrapped, is a button reporting a move it did not make. */
+      await load(page, QUEUE);
+      /* Finish the first two, then sit on the third and only unanswered one. */
+      await page.click('#revart');
+      await page.fill('#revname', 'Backrooms Hallway');
+      await page.click('#revnamed');
+      await page.waitForTimeout(500);
+      await page.click('#revnext'); await page.waitForTimeout(200);
+      await page.click('#revart');
+      await page.fill('#revname', 'Punk Eyes');
+      await page.click('#revnamed');
+      await page.waitForTimeout(500);
+      await page.click('#revnext'); await page.waitForTimeout(200);
+      expect((await shown(page)).where, 'on the last one').toBe('hats — Missing Cap');
+      await page.evaluate(() => { window.__said = [];
+        const real = window.toast;
+        window.toast = m => { window.__said.push(String(m)); if (real) real(m); }; });
+      await page.click('#revleft');
+      await page.waitForTimeout(300);
+      const said = await page.evaluate(() => window.__said.join(' | '));
+      expect(said, 'it says why it stayed put').toContain('the only one still unanswered');
+      expect(said, 'and does not claim to have wrapped').not.toContain('Wrapped');
+      expect((await shown(page)).where, 'still here').toBe('hats — Missing Cap');
+    });
+
+  test('and the count says how many are left', async ({ page }) => {
+    /* At entry 200 of 317 the question is how many remain, not how many are
+       done - subtracting in your head is a thing the count should have saved. */
+    await load(page, QUEUE);
+    expect((await shown(page)).count).toContain('3 left');
+    await page.click('#revart');
+    await page.fill('#revname', 'Backrooms Hallway');
+    await page.click('#revnamed');
+    await page.waitForTimeout(500);
+    expect((await shown(page)).count).toContain('2 left');
+  });
+
+  test('the keys work, and stop the moment you are typing a name',
+    async ({ page }) => {
+      /* THE GUARD THAT MATTERS. The name box sits inside this panel, so a
+         single-letter shortcut that swallows a keystroke mid-name is worse
+         than having no shortcut at all. */
+      await load(page, QUEUE);
+      await page.click('#revwhere');            // focus off any field
+      await page.keyboard.press('n');
+      await page.waitForTimeout(250);
+      expect((await shown(page)).where, 'n moved on').toBe('eyes — Punk Eyes');
+      await page.keyboard.press('p');
+      await page.waitForTimeout(250);
+      expect((await shown(page)).where, 'p went back')
+        .toBe('backgrounds — Backrooms Hallway');
+      /* Now type into the name box: the letters must land there and move nothing. */
+      await page.click('#revname');
+      await page.fill('#revname', '');
+      await page.type('#revname', 'snap');
+      await page.waitForTimeout(250);
+      const after = await shown(page);
+      expect(after.name, 'every letter went into the field').toBe('snap');
+      expect(after.where, 'and none of them navigated')
+        .toBe('backgrounds — Backrooms Hallway');
+    });
 
   test('the panel is on the project page and not the others', async ({ page }) => {
     await load(page, QUEUE);

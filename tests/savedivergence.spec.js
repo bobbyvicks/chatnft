@@ -15,6 +15,19 @@
    solid opaque rectangle, where every edge pixel touches off-canvas emptiness
    - which is not what a trait looks like.
 
+   SUPERSEDED, 2026-09-08. That last sentence was wrong about a fifth of the
+   collection: a solid opaque rectangle is exactly what a BACKGROUND looks
+   like, and 58 of the 317 traits fill all four canvas edges - every background
+   in the set. The user objected to the black frame this drew round one of them
+   during the final review, so an edge the art fills COMPLETELY is no longer
+   treated as an edge of the art. blackedge.spec.js holds that rule and both
+   directions of it.
+
+   The fixtures here are INSET as a result, so they still have an artwork edge
+   to measure at all, and 796 becomes 764 - the perimeter of the art rather
+   than of the canvas. What this file is about has not changed: a save says
+   what it repainted, and says nothing when it repainted nothing.
+
    WHAT WAS WRONG WAS THE SILENCE. blackenEdge returns how many pixels it
    touched; the extraction path records it, and traitCanvas - the one that
    builds the file being written - threw it away. So a save that repainted part
@@ -45,8 +58,13 @@ const saveAndCompare = (page, opts) => page.evaluate(async (o) => {
   g.clearRect(0, 0, S, S);
   /* Greyscale, so nothing in the open path reads it as a base render and
      cleans it away - a saturated fixture cost an afternoon once. */
-  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
-    const edge = (x === 0 || y === 0 || x === S - 1 || y === S - 1);
+  /* INSET leaves a transparent margin, so the artwork has an edge of its own
+     rather than borrowing the canvas's. Without it every fixture here is full
+     bleed, which is the one shape the border rule now leaves alone - and both
+     of the tests below would pass while measuring nothing. */
+  const M = o.inset || 0;
+  for (let y = M; y < S - M; y++) for (let x = M; x < S - M; x++) {
+    const edge = (x === M || y === M || x === S - 1 - M || y === S - 1 - M);
     const v = edge ? (o.blackEdge ? 0 : 200) : (60 + ((x * 7 + y * 11) % 120));
     g.fillStyle = 'rgb(' + v + ',' + v + ',' + v + ')';
     g.fillRect(x, y, 1, 1);
@@ -92,12 +110,13 @@ test.describe('a save that repaints says so', () => {
 
   test('a non-black edge is blackened, and the count is stated',
     async ({ page }) => {
-      /* 200 square at a 160 grid, edge drawn light grey. The border rule
-         repaints the ring and the save now says how much of the picture it
-         changed - 200*4-4 = 796. */
-      const r = await saveAndCompare(page, { size: 200, grid: 160, blackEdge: false });
-      expect(r.differing, 'the whole outer ring').toBe(796);
-      expect(r.said, 'and the save said so').toContain('796 edge pixels');
+      /* 200 square at a 160 grid, inset by 4 so the artwork has an edge of its
+         own, drawn light grey. The border rule repaints that ring and the save
+         says how much of the picture it changed - 192*4-4 = 764. */
+      const r = await saveAndCompare(page,
+        { size: 200, grid: 160, blackEdge: false, inset: 4 });
+      expect(r.differing, 'the whole outer ring of the ARTWORK').toBe(764);
+      expect(r.said, 'and the save said so').toContain('764 edge pixels');
       expect(r.said).toContain("collection's border rule");
     });
 
@@ -107,12 +126,28 @@ test.describe('a save that repaints says so', () => {
        must say nothing - a warning on every save is a warning nobody reads.
 
        Reporting the ring SIZE instead of what changed would fail here with
-       "796 edge pixels" on a save that altered not one. */
-    const r = await saveAndCompare(page, { size: 200, grid: 160, blackEdge: true });
+       "764 edge pixels" on a save that altered not one. */
+    const r = await saveAndCompare(page,
+      { size: 200, grid: 160, blackEdge: true, inset: 4 });
     expect(r.differing, 'the stored file is the visible canvas').toBe(0);
     expect(r.said, 'so nothing is said about a repaint').not.toContain('edge pixel');
     expect(r.said, 'it is still an ordinary save').toContain('Saved Probe');
   });
+
+  test('AND A BACKGROUND THAT FILLS THE CANVAS IS NOT REPAINTED AT ALL',
+    async ({ page }) => {
+      /* THE ONE THE USER OBJECTED TO, pinned in the file that used to record
+         the opposite. Full bleed, no inset: every canvas edge is filled, so
+         there is no edge of the art anywhere and the save must store exactly
+         what is on the screen. Before this rule it stored 796 black pixels
+         that nobody had drawn. */
+      const r = await saveAndCompare(page,
+        { size: 200, grid: 160, blackEdge: false });
+      expect(r.differing, 'the stored file is the visible canvas').toBe(0);
+      expect(r.said, 'and there was no repaint to report')
+        .not.toContain('edge pixel');
+      expect(r.said, 'it is still an ordinary save').toContain('Saved Probe');
+    });
 
   test('and below the grid the border rule does not run at all',
     async ({ page }) => {

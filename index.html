@@ -4325,6 +4325,22 @@ function alignToRef(subData,sw,sh,refData,W,H,f0,f1){
 const TRAIT_BLACK=[0,0,0];
 function blackenEdge(t,W,H){
   const m=maskOfImg(t,W*H,127);
+  /* AN EDGE THE CANVAS IS FILLED TO IS NOT AN EDGE OF THE ART.
+
+     Off-canvas counting as empty is deliberate and right for a trait cropped
+     at the frame - a hat cut off at the top still wants its outline there.
+     It is wrong for a background, which covers the whole canvas by
+     definition, so the rule found a boundary on all four sides and drew a
+     black rectangle round the picture. That frame is what the user objected
+     to in the final review.
+
+     Measured on the real 317 before changing this: 58 files fill all four
+     edges and they are exactly the 58 backgrounds; none fills some edges
+     but not all; the other 259 are untouched, 94 of them keeping perimeter
+     black where the art genuinely runs off the side. */
+  let fullT=true, fullB=true, fullL=true, fullR=true;
+  for(let x=0;x<W;x++){ if(!m[x]) fullT=false; if(!m[(H-1)*W+x]) fullB=false; }
+  for(let y=0;y<H;y++){ if(!m[y*W]) fullL=false; if(!m[y*W+W-1]) fullR=false; }
   const ring=[];
   for(let y=0;y<H;y++) for(let x=0;x<W;x++){
     const p=y*W+x;
@@ -4333,9 +4349,16 @@ function blackenEdge(t,W,H){
     for(let dy=-1;dy<=1&&!empty;dy++) for(let dx=-1;dx<=1;dx++){
       if(!dx&&!dy) continue;
       const xx=x+dx, yy=y+dy;
-      /* Off-canvas counts as empty: a trait running to the edge of the frame
-         still has a border there. */
-      if(xx<0||yy<0||xx>=W||yy>=H||!m[yy*W+xx]){ empty=true; break; }
+      if(xx<0||yy<0||xx>=W||yy>=H){
+        /* Off canvas. Empty only where the art does not fill the edge being
+           crossed - and a diagonal neighbour off the top AND the left
+           crosses two, so both have to be filled for it to count as
+           covered. */
+        const covered=(xx>=0||fullL)&&(xx<W||fullR)&&(yy>=0||fullT)&&(yy<H||fullB);
+        if(covered) continue;
+        empty=true; break;
+      }
+      if(!m[yy*W+xx]){ empty=true; break; }
     }
     if(empty) ring.push(p);
   }

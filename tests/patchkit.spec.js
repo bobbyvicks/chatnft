@@ -142,4 +142,38 @@ test.describe('the patch machinery', () => {
     expect(r.start).toBe(scoped.start);
     expect(r.end).toBe(scoped.end);
   });
+
+  test('and the runaway guard has room above the longest function here', () => {
+    /* THIS IS THE TEST ABOVE, FAILING EARLIER AND SAYING WHY.
+
+       run() stops scanning after a fixed number of lines so that a wrong
+       end-predicate cannot walk to the bottom of a 13,000-line file and report
+       whatever it hits. That number was 400, and bulkImport grew to 469 - so a
+       function whose end is perfectly findable started failing with "no end
+       found", which reads as a broken predicate rather than a cap set too low.
+
+       Measuring the real longest function turns the next occurrence into a
+       sentence somebody can act on. The guard is meant to be loose: it catches
+       a scan that has clearly gone wrong, not a big function. */
+    const doc = kit.load(INDEX);
+    let longest = 0, worst = '';
+    for (let i = 0; i < doc.lines.length; i++) {
+      const l = doc.lines[i];
+      if (!/^(async )?function [A-Za-z_$]/.test(l)) continue;
+      let depth = 0;
+      for (let j = i; j < doc.lines.length && j < i + 4000; j++) {
+        for (const ch of doc.lines[j]) {
+          if (ch === '{') depth++; else if (ch === '}') depth--;
+        }
+        if (j > i && depth <= 0) {
+          if (j - i + 1 > longest) { longest = j - i + 1; worst = l.trim().slice(0, 48); }
+          break;
+        }
+      }
+    }
+    expect(longest, 'something was measured').toBeGreaterThan(50);
+    expect(kit.RUN_MAX_LINES,
+      'the guard must clear the longest function (' + worst + ' at ' + longest + ' lines)')
+      .toBeGreaterThan(longest);
+  });
 });

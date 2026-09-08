@@ -123,12 +123,25 @@ function near(lines, exact, offset, neighbour, label) {
 /* A run of lines, found by its first and last, never by joining them. A
    multi-line search against this CRLF file matches nothing and writes it back
    unchanged, which reads as success. */
+/* A RUNAWAY GUARD, NOT A SIZE LIMIT, and it was set as though it were both.
+
+   It stops a wrong end-predicate scanning to the bottom of a 13,000-line file
+   and reporting whatever it eventually hits. At 400 it also refused the
+   largest real function here: bulkImport reached 469 lines and this started
+   failing with "no end found" for a function whose end is perfectly findable.
+
+   1200 keeps the guard meaningful - a scan that long is a broken predicate,
+   not a big function - while leaving room above anything in this file. The
+   message now names the distance searched, so the next time it fires the
+   reader can tell "my predicate is wrong" from "this needs raising". */
+const RUN_MAX_LINES = 1200;
 function run(lines, firstPred, lastPred, label, range) {
   const start = only(lines, firstPred, label + ' (start)', range);
-  for (let i = start; i < lines.length && i < start + 400; i++) {
+  for (let i = start; i < lines.length && i < start + RUN_MAX_LINES; i++) {
     if (i > start && lastPred(lines[i], i)) return { start, end: i };
   }
-  throw new Error(label + ': no end found within 400 lines of its start');
+  throw new Error(label + ': no end found within ' + RUN_MAX_LINES
+    + ' lines of its start (line ' + (start + 1) + ')');
 }
 
 /* ---- writing, with the checks that make it safe ------------------ */
@@ -159,7 +172,11 @@ function save(doc, checks) {
   return out.length - doc.original.length;
 }
 
-module.exports = { load, scriptOf, code, lines, inFunction, only, near, run, replace, save };
+/* RUN_MAX_LINES is exported so a test can check it still clears the longest
+   function in the file. It stopped doing that once and the symptom was a
+   cryptic "no end found" rather than "this needs raising". */
+module.exports = { load, scriptOf, code, lines, inFunction, only, near, run,
+  replace, save, RUN_MAX_LINES };
 
 /* ---- its own tests ---------------------------------------------- */
 /* Run this file directly. A tool that finds mistakes has to be able to show

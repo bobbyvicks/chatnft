@@ -1075,6 +1075,7 @@ footer .mono{color:var(--ink);}
         <button class="mini" id="cloudpull" hidden>Load from cloud</button>
         <button class="mini" id="cloudout" hidden>Sign out</button>
         <button class="mini" id="setpass" hidden>Set a password</button>
+        <button class="mini" id="setname" hidden>Change your name</button>
       </div>
     </div>
     <p class="note" id="cloudnote">Nothing uploads until you press Save to cloud.</p>
@@ -9982,9 +9983,13 @@ function agoWords(iso){
 /* Who the people in this group are, by the only name they have chosen.
 
    auth.users is not readable by a client, so without the RPC a uuid is all
-   anybody could see. It returns the username and NOTHING else - not the
+   anybody could see. It returns the name a person CHOSE, falling back to
+   their account name when they never picked one - and NOTHING else. Not the
    email, and not the part before the @, which was the obvious fallback and
    would have handed every teammate the local part of a real address.
+
+   It used to return the account name only, so three people who had all
+   chosen a name were listed by the handle they type to sign in.
 
    Cached per team: the answer changes only when somebody joins or leaves,
    and this is read once per row otherwise. A failure caches nothing, so a
@@ -10000,7 +10005,7 @@ async function teamNames(team){
         {method:"POST", headers:h, body:JSON.stringify({t:team})});
       if(r.ok){
         m=new Map();
-        for(const row of await r.json()) m.set(row.user_id, row.username||null);
+        for(const row of await r.json()) m.set(row.user_id, row.display_name||null);
       }
     }
   }catch(_){ m=null; }
@@ -10068,9 +10073,10 @@ async function renderUpdatesNow(sec){
     const el=document.createElement("div");
     el.className="urow"+(row.owner&&row.owner===me?" mine":"");
     const who=document.createElement("span"); who.className="uwho";
-    /* "you" for your own, the username for a teammate, and "someone" when
-       they have not chosen one - which is a gap worth showing as a gap
-       rather than filling with an email nobody agreed to share. */
+    /* "you" for your own, the name a teammate chose for themselves, and
+       "someone" when they have neither that nor an account name - a gap
+       worth showing as a gap rather than filling with an email nobody
+       agreed to share. */
     who.textContent = (row.owner&&row.owner===me) ? "you"
       : (names.get(row.owner) || "someone");
     const what=document.createElement("span"); what.className="uwhat";
@@ -11313,6 +11319,7 @@ async function cloudRender(){
      you keep your own work. The database refuses that outright as well. */
   $("teaminvite").hidden = !inn || !activeWs;
   $("setpass").hidden=!inn;
+  $("setname").hidden=!inn;
   if(inn) wsRender();
   if(!inn){ $("teamrow").hidden=true; $("teamnote").hidden=true; }
   if(inn) cloudStatus(u);
@@ -12649,6 +12656,10 @@ const USERNAME_RE=/^[a-z0-9_-]{3,20}$/;
 /* One number, in one place. It was written out five times, which is five
    chances for the rule you are told to differ from the rule you are held to. */
 const MIN_PASS=6;
+/* Same reason as the line above. Sign-up wrote this out as a literal, and a
+   second place to change it is a second chance for the rule you are told to
+   differ from the rule you are held to. */
+const MAX_NAME=40;
 /* An address typed with an @ is taken at face value: accounts made before
    usernames existed still sign in with the email they were made with. */
 const looksLikeUsername=id=>id.indexOf("@")<0;
@@ -12817,7 +12828,7 @@ async function gateSignUp(){
   const name=String($("supname").value||"").trim();
   const user=String($("supuser").value||"").trim().toLowerCase();
   const pass=String($("suppass").value||"");
-  if(!name || name.length>40){
+  if(!name || name.length>MAX_NAME){
     $("supnote").textContent="Put in a name - whatever you want people you share a project with to call you."; return; }
   if(!USERNAME_RE.test(user)){
     $("supnote").textContent="An account name is 3 to 20 characters, using letters, numbers, underscore or hyphen."; return; }
@@ -12842,6 +12853,47 @@ async function gateSignUp(){
     $("supnote").textContent="Account made, but this site confirms new accounts by email. Turn that setting off.";
   }catch(_){ $("supnote").textContent="Could not reach the server."; }
   finally{ gateBusy(false); }
+}
+
+/* The name your group sees.
+
+   Sign-up asks for it and then there was no way to change your mind, which
+   is a strange thing to be permanent about - it is the one piece of this
+   account that exists purely for other people to read.
+
+   THE ACCOUNT NAME IS NOT TOUCHED. It is the local part of the address this
+   account signs in with, so changing it here would leave somebody typing a
+   name the server has never heard of. Two fields that both look like a name
+   and only one of them is safe to edit afterwards. */
+async function setDisplayName(){
+  const h=await sbHeaders({"Content-Type":"application/json"});
+  if(!h){ toast("Sign in first"); return; }
+  const u=await sbUser();
+  const meta=(u&&u.user_metadata)||{};
+  const was=meta.name?String(meta.name):"";
+  /* Seeded with what it is now, so this is an edit rather than a quiz about
+     what you last typed. */
+  const typed=prompt("What should your group call you?",was);
+  if(typed===null) return;
+  const name=String(typed).trim();
+  if(!name){ toast("A name cannot be empty"); return; }
+  if(name.length>MAX_NAME){ toast("Keep it under "+MAX_NAME+" characters"); return; }
+  if(name===was){ toast("That is already your name"); return; }
+  try{
+    /* ONE FIELD, and the account name beside it survives. Measured against
+       the live server rather than assumed: an update of the metadata merges
+       key by key, so sending the name alone leaves the account name, and
+       everything else in there, exactly as it was. */
+    const r=await fetch(SB_URL+"/auth/v1/user",{method:"PUT",headers:h,
+      body:JSON.stringify({data:{name:name}})});
+    if(!r.ok){ const j=await r.json().catch(()=>({}));
+      toast(authSays(j,"Could not change your name")); return; }
+    /* This browser fetched who everybody is once and kept it. It is now
+       wrong about you, and nothing else would ever correct it. */
+    memberNames=null; memberNamesFor=null;
+    await cloudRender();
+    toast("Your group will see you as "+name);
+  }catch(_){ toast("Could not reach the server"); }
 }
 
 /* For anyone who got in by link and never set one. */
@@ -13194,6 +13246,7 @@ $('supgo').onclick=gateSignUp;
 for(const id of ['supname','supuser','suppass'])
   $(id).onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); gateSignUp(); } };
 $('setpass').onclick=setPassword;
+$('setname').onclick=setDisplayName;
 $('gatepass').onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); if(resetMode) saveNewPassword(); else gateSignIn(); } };
 $('gateuser').onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); $('gatepass').focus(); } };
 $('acctbtn').onclick=acctToggle;
@@ -13276,7 +13329,14 @@ function planFold(on,remember){
   const h=$("planfold"); if(!h) return;
   h.onclick=()=>planFold(!$("plan").classList.contains("folded"));
   const again=$("updrefresh");
-  if(again) again.onclick=()=>renderUpdates();
+  /* THE NAMES TOO, not just the rows. They are cached for the life of the
+     page - the right call while it is read once per row - but that makes a
+     teammate who renames themselves keep their old name until somebody
+     reloads. This button is the press that means go and ask. */
+  if(again) again.onclick=()=>{
+    memberNames=null; memberNamesFor=null;
+    renderUpdates();
+  };
   const seed=$("planseedall");
   if(seed) seed.onclick=async()=>{
     const items=await dbAll();

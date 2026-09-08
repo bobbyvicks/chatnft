@@ -12,9 +12,16 @@
    a uuid was all anybody could see. A team_member_names RPC resolves them:
    security definer, gated on the existing is_team_member so it answers only
    for a team you are in, granted to authenticated and revoked from anon and
-   public. It returns the username and NOTHING else - not the email, and not
+   public. It returns the name a person CHOSE, falling back to their account
+   name when they never picked one, and NOTHING else - not the email, and not
    the part before the @, which was the obvious fallback and would have handed
    every teammate the local part of a real address.
+
+   IT RETURNED THE WRONG ONE OF THE TWO at first. Sign-up asks for an account
+   name and for a name, in those words - "whatever you want people you share a
+   project with to call you" - and this listed all three members of the real
+   group by the handle they type to sign in, never showing the field written
+   for exactly this purpose.
 
    THE TEST THAT MATTERS MOST is the doubling one. Three rows on the server
    rendered as six on screen, under a heading correctly reading "the last 3" -
@@ -100,8 +107,13 @@ const ROWS = [
   { name: 'Punk Eyes', layer: 'eyes', status: 'approved', owner: 'u-nobody',
     updated_at: new Date(Date.now() - 3 * 86400e3).toISOString() },
 ];
-const NAMES = [{ user_id: 'u-wilson', username: 'wilson' },
-  { user_id: 'u-me', username: 'bobby' }];
+/* BOTH COLUMNS, DELIBERATELY DIFFERENT. The RPC returns the name a person
+   chose; it used to return the account name they type to sign in. Handing the
+   client both, disagreeing, is what makes this able to fail - a fixture
+   carrying only the right one would pass just as happily against code that
+   read the wrong one. */
+const NAMES = [{ user_id: 'u-wilson', display_name: 'Wilson', username: 'wilson-handle' },
+  { user_id: 'u-me', display_name: 'Bobby', username: 'bobby-handle' }];
 
 test.describe('what the group changed', () => {
   test.beforeEach(async ({ page }) => {
@@ -115,7 +127,7 @@ test.describe('what the group changed', () => {
     await page.waitForTimeout(700);
     const r = await readPanel(page);
     expect(r.rows).toEqual([
-      { who: 'wilson', what: 'Blue Gorilla in extras', when: '2 hours ago', mine: false },
+      { who: 'Wilson', what: 'Blue Gorilla in extras', when: '2 hours ago', mine: false },
       { who: 'you', what: 'Basic Blue Eyes in eyes (wip)', when: '30 minutes ago', mine: true },
       { who: 'someone', what: 'Punk Eyes in eyes', when: '3 days ago', mine: false },
     ]);
@@ -154,11 +166,39 @@ test.describe('what the group changed', () => {
       expect(r.calls.traits, 'and the overlapping press was refused').toBe(2);
     });
 
-  test('somebody with no username is "someone", never an email',
+  test('and Check again asks who everybody is, so a rename shows up',
     async ({ page }) => {
-      /* The RPC returns the username and nothing else. The obvious fallback -
-         the part of the address before the @ - would hand every teammate the
-         local part of a real email, so a missing name is shown as a gap. */
+      /* The names are fetched once and kept for the life of the page, which is
+         right while they are read once per row - but it meant somebody who
+         changed their name kept the old one on every teammate's screen until
+         they happened to reload. This button is the press that means go and
+         ask, and it was only asking for the rows. */
+      await inGroup(page, { group: true, rows: ROWS, names: NAMES });
+      await gotoPage(page, 'settings');
+      await page.waitForTimeout(700);
+      expect((await readPanel(page)).rows[0].who).toBe('Wilson');
+      await page.evaluate(() => {
+        const real = window.fetch;
+        window.fetch = (u, o) => {
+          if (String(u).indexOf('/rpc/team_member_names') >= 0)
+            return Promise.resolve(new Response(JSON.stringify(
+              [{ user_id: 'u-wilson', display_name: 'Wils' }]),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }));
+          return real(u, o);
+        };
+      });
+      await page.evaluate(() => $('updrefresh').click());
+      await page.waitForTimeout(700);
+      expect((await readPanel(page)).rows[0].who,
+        'it went and asked rather than reusing what it had').toBe('Wils');
+    });
+
+  test('somebody with no name at all is "someone", never an email',
+    async ({ page }) => {
+      /* The RPC returns a chosen name or an account name, and nothing else.
+         The obvious fallback - the part of the address before the @ - would
+         hand every teammate the local part of a real email, so somebody with
+         neither is shown as a gap. */
       await inGroup(page, { group: true, rows: ROWS, names: [] });
       await gotoPage(page, 'settings');
       await page.waitForTimeout(700);
@@ -190,7 +230,7 @@ test.describe('what the group changed', () => {
     }, NAMES);
     await page.evaluate(() => $('updrefresh').click());
     await page.waitForTimeout(700);
-    expect((await readPanel(page)).rows[0].who, 'and now it knows').toBe('wilson');
+    expect((await readPanel(page)).rows[0].who, 'and now it knows').toBe('Wilson');
   });
 
   test('on your own page it says there is nobody to hear from',

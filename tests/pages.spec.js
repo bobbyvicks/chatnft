@@ -214,8 +214,11 @@ test.describe('the app is three pages', () => {
          settings page and that every control came with them. */
       await gotoPage(page, 'settings');
       const r = await page.evaluate(() => {
+        /* rulesload was here until the v7 shortcut was removed - the button
+           and the module behind it, not the rule files, which Import rules
+           from a file still reads. */
         const ids = ['rulea', 'ruleb', 'ruleadd', 'rulelist', 'revtrait', 'revlayer',
-          'revopen', 'ruleimport', 'ruleexport', 'rulesload'];
+          'revopen', 'ruleimport', 'ruleexport', 'ruleclear'];
         return {
           inRules: ids.every(i => {
             const e = document.getElementById(i);

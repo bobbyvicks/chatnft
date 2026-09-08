@@ -14,7 +14,6 @@
   },
   "scripts": {
     "test": "playwright test",
-    "test:curated-rules": "node --test test/curated-rules.test.cjs",
     "test:ui": "playwright test --ui",
     "serve": "node tools/serve.cjs . 5288"
   }

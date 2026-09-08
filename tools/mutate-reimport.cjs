@@ -74,7 +74,7 @@ process.exit(runMutants({
     },
     {
       name: 'the same-picture check cannot see this run',
-      find: '          for(const old of artSoFar){',
+      find: '          for(const old of wroteThisRun){',
       with: '          for(const old of beforeTraits){',
       kills: ['two copies of one picture in a single folder are reported'],
     },

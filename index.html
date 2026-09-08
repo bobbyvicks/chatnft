@@ -9445,6 +9445,34 @@ function exportRules(traits){
    to one key on different layers there is no answer, and picking one would
    be a coin toss dressed as a lookup. Measured on the real file: 462 keys,
    zero collisions. */
+/* The three shapes that say where a trait belongs, as the one shape planSort
+   reads: [{layer, trait, previousName}].
+
+   A bare array is already it. A review queue carries the layer and both
+   names per entry, and originalName IS previousName - which is how a trait
+   that has been renamed since the queue was seeded still gets found. A
+   collection object carries names as {layer: [file names]}, an inventory
+   written the other way up.
+
+   Anything else is returned untouched, so planSort refuses it with the
+   message that names the real problem rather than one invented here. */
+function asInventory(doc){
+  if(Array.isArray(doc)) return doc;
+  if(doc&&Array.isArray(doc.traits))
+    return doc.traits.filter(e=>e&&e.layer&&(e.currentName||e.originalName))
+      .map(e=>({layer:String(e.layer), trait:String(e.currentName||e.originalName),
+                previousName:e.originalName||null}));
+  if(doc&&doc.names&&typeof doc.names==="object"&&!Array.isArray(doc.names)){
+    const out=[];
+    for(const layer of Object.keys(doc.names)){
+      const list=doc.names[layer];
+      if(!Array.isArray(list)) continue;
+      for(const n of list) if(n) out.push({layer:String(layer), trait:String(n)});
+    }
+    return out;
+  }
+  return doc;
+}
 function planSort(traits, inventory){
   const out={move:[], rename:[], both:[], unknown:[], settled:[], collisions:[], layers:[]};
   if(!Array.isArray(inventory)) throw new Error("That file is not a trait inventory.");
@@ -10130,12 +10158,22 @@ function decideOrder(){
    Returns null when there is nothing to do, so an unchanged order does not
    report itself as a change. */
 async function applyPaintOrder(order){
-  const want=[...new Set((order||[]).map(String))].filter(l=>LAYERS.indexOf(l)>=0);
+  /* A LAYER IS ITS NAME, so a list holding one twice is holding it once and
+     saying so twice. applyLayers refuses to adopt a name it already has, so
+     the app does not make this state - but rebuilding the list is the one
+     free chance to stop carrying it, and a migration probe found the old
+     code passing a duplicate straight through. */
+  const have=[...new Set(LAYERS)];
+  const want=[...new Set((order||[]).map(String))].filter(l=>have.indexOf(l)>=0);
   if(!want.length) return null;
   const named=new Set(want);
-  const rest=LAYERS.filter(l=>!named.has(l));
+  const rest=have.filter(l=>!named.has(l));
   const next=want.concat(rest);
-  if(next.length!==LAYERS.length) return null;
+  /* Against the DE-DUPLICATED list, not the raw one. The guarantee is the
+     same - every distinct layer that went in comes out - and comparing
+     against the raw length would make this refuse to run on exactly the
+     input it now repairs. */
+  if(next.length!==have.length) return null;
   if(next.join("\u0000")===LAYERS.join("\u0000")) return null;
   LAYERS=next;
   await saveLayers();
@@ -14737,14 +14775,24 @@ $('ruleexport').onclick=async()=>{
   note.textContent=bits.join(". ")+".";
   toast("Wrote "+r.rules.length+" conditions");
 };
+/* The paint order a sort file stated, applied once the layers it names
+   exist. */
+let sortOrder=null;
 $('sortopen').onclick=()=>$('sortfile').click();
 $('sortfile').onchange=async(e)=>{
   const f=e.target.files&&e.target.files[0];
   e.target.value="";
   if(!f) return;
   let items=[]; try{ items=await dbAll(); }catch(_){ }
-  try{ sortPlan=planSort(items.filter(i=>i.kind==="trait"), JSON.parse(await f.text())); }
-  catch(err){ toast("Could not read that file: "+((err&&err.message)||"not valid JSON")); return; }
+  try{
+    const doc=JSON.parse(await f.text());
+    /* Held for after the move: applying it before would order layers that
+       do not exist yet, because the ones this file is about to create are
+       created by sortApply. */
+    sortOrder=(doc&&Array.isArray(doc.order))?doc.order.map(String):null;
+    sortPlan=planSort(items.filter(i=>i.kind==="trait"), asInventory(doc));
+  }
+  catch(err){ sortOrder=null; toast("Could not read that file: "+((err&&err.message)||"not valid JSON")); return; }
   sortShow(sortPlan);
   $("sortscrim").hidden=false;
 };
@@ -14756,12 +14804,30 @@ $('sortgo').onclick=async()=>{
   const r=await sortApply(sortPlan);
   btn.textContent="Move them";
   $("sortscrim").hidden=true;
+  /* AFTER the move, because sortApply is what creates the layers the file
+     names - applyPaintOrder only orders layers that already exist, so
+     running it first would silently skip every new one. */
+  let painted=null;
+  try{ painted=await applyPaintOrder(sortOrder); }catch(_){ painted=null; }
+  sortOrder=null;
   await renderShelf();
   const bits=["Moved "+r.moved+" trait"+(r.moved===1?"":"s")];
   if(r.made) bits.push("made "+r.made+" layer"+(r.made===1?"":"s")+" - check the draw order in Layers");
   if(r.refused.length) bits.push(r.refused.length+" refused because the destination already had that name"
     +(r.refused.length<=3?" ("+r.refused.join("; ")+")":""));
   if(r.failed) bits.push(r.failed+" could not be written");
+  if(painted) bits.push("the paint order is now the file's ("+painted.moved
+    +" layers, back to front)");
+  /* NAMED, because an empty layer is the visible half of a migration: these
+     are the ones the old vocabulary left behind, and Layers is where they
+     are removed. */
+  {
+    let after=[]; try{ after=(await dbAll()).filter(i=>i.kind==="trait"); }catch(_){}
+    const used=new Set(after.map(t=>t.layer||"unsorted"));
+    const empty=LAYERS.filter(l=>l!=="unsorted"&&!used.has(l));
+    if(empty.length) bits.push(empty.length+" layer"+(empty.length===1?"":"s")
+      +" now hold nothing ("+empty.join(", ")+") and can be removed in Layers");
+  }
   $("bulknote").hidden=false;
   $("bulknote").textContent=bits.join(". ")+".";
   toast("Moved "+r.moved+" trait"+(r.moved===1?"":"s"));

@@ -151,6 +151,27 @@ test.describe('a collection file sets the paint order', () => {
     expect(r.note, 'and says so in the same breath').toContain('back to front');
   });
 
+  test('and a layer listed twice is collapsed to one', async ({ page }) => {
+    /* FOUND BY A MIGRATION PROBE against the real v11 file, where the fixture
+       had built LAYERS with unsorted in it twice. applyLayers refuses to adopt
+       a name it already holds, so the app does not create this state - but
+       rebuilding the list was carrying the duplicate straight through.
+
+       A layer IS its name: two entries with the same one are the same layer
+       written twice. The length guard that stops a reorder losing a layer now
+       compares against the de-duplicated list, or this would refuse to run on
+       exactly the input it repairs. */
+    await seed(page, ['hats', 'backgrounds']);
+    await page.evaluate(async () => {
+      LAYERS = ['backgrounds', 'unsorted', 'hats', 'unsorted'];
+      await saveLayers();
+    });
+    const r = await importDoc(page, { order: ['backgrounds', 'hats'], rules: RULES });
+    expect(r.layers, 'one unsorted, and the file order in front of it')
+      .toEqual(['backgrounds', 'hats', 'unsorted']);
+    expect(r.layers.filter(l => l === 'unsorted').length).toBe(1);
+  });
+
   test('a file with no order leaves the paint order alone', async ({ page }) => {
     /* The control. Without it, "always reorder" passes every test above while
        rearranging a project whose file said nothing about layers. */

@@ -1340,7 +1340,7 @@ footer .mono{color:var(--ink);}
         title="Remove every Never-together rule and every reviewed answer, so a new rules file can be imported over a clean project. Importing only ever adds, so without this a regenerated file lands on top of rules naming traits that have been renamed away. Your traits, layers and draw order are not touched.">Clear all rules</button>
     </div>
     <p class="note" id="ruleimportnote" hidden></p>
-    <input type="file" id="rulefile" accept="application/json,.json" hidden>
+    <input type="file" id="rulefile" accept="application/json,.json,.txt,text/plain" hidden>
   </section>
   <section class="proj pg-settings" id="layers" hidden>
     <div class="projhead">
@@ -15131,13 +15131,50 @@ async function importReviewQueue(f){
   say(bits.join(". ")+".");
   return true;
 }
+/* A layer order as a plain list, one name to a line.
+
+   IT HAS TO BE ABOUT THIS PROJECT. Any text file with a few bare words on
+   their own lines has this shape, and silently rearranging somebody's
+   layers because they opened the wrong file is worse than refusing the
+   right one. So: at least two of the names must be layers this project
+   actually has, and they must be most of what the file names.
+   applyPaintOrder does the rest of the defending - it moves only layers
+   that exist, and keeps the ones the file leaves out. */
+function parseLayerOrderText(text){
+  const lines=String(text||"").split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+  /* A layer name is one word. The sentence the file opens with ("Pixelbench
+     layer order (back to front)") is not, which is why this needs no
+     special case for a header. */
+  const names=lines.filter(l=>/^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/.test(l));
+  if(names.length<2) return null;
+  const have=new Set(LAYERS);
+  const known=names.filter(n=>have.has(n));
+  if(known.length<2) return null;
+  /* MOST OF THE FILE, OR MOST OF THE PROJECT - either is evidence enough.
+
+     The first test alone was wrong, and a test caught it: a project part of
+     the way through an import has only four of the thirteen layers the file
+     names, so requiring most of the FILE refused the order until the work it
+     saves had already been done by hand. The JSON path accepts that project
+     without complaint, and the same order in two file formats behaving
+     differently is not a rule anybody could hold in their head.
+
+     A text file that merely happens to contain two layer words passes
+     neither test: it names a small share of the file and a small share of
+     the project. */
+  if(known.length*2>=names.length) return names;
+  if(known.length*2>=have.size) return names;
+  return null;
+}
 async function importRuleFile(f){
   if(!f) return;
   const note=$("ruleimportnote"); note.hidden=false;
   note.textContent="Reading "+f.name+"...";
   let plan, fileOrder=null;
+  /* Read once, so the parse failure below still has the text to work with. */
+  const raw=await f.text();
   try{
-    const parsed=JSON.parse(await f.text());
+    const parsed=JSON.parse(raw);
     /* TWO SHAPES OF THE SAME THING. A bare array of rules, or the collection
        object { revision, order, names, rules } that the trait records ship.
        planRuleImport refuses anything that is not an array, so the second
@@ -15151,6 +15188,23 @@ async function importRuleFile(f){
     let items=[]; try{ items=await dbAll(); }catch(_){ }
     plan=planRuleImport(doc, items.filter(i=>i.kind==="trait"));
   }catch(err){
+    /* NOT JSON MIGHT STILL BE THE ORDER. The v12 upload file carries no
+       order at all; it ships beside LAYER-ORDER-v12-318-traits.txt. */
+    const order=parseLayerOrderText(raw);
+    if(order){
+      let painted=null;
+      try{ painted=await applyPaintOrder(order); }catch(_){ painted=null; }
+      await renderShelf();
+      note.textContent="Read "+f.name+" as a layer order. "+(painted
+        ? "The paint order is now the file's ("+painted.moved
+          +" layers, back to front)."
+          +(painted.unnamed.length ? " "+painted.unnamed.length+" layer"
+            +(painted.unnamed.length===1?"":"s")+" it does not mention "
+            +(painted.unnamed.length===1?"is":"are")+" painted last ("
+            +painted.unnamed.join(", ")+")." : "")
+        : "Nothing moved: that is the order this project already has.");
+      return;
+    }
     note.textContent="Could not read that file: "+(err&&err.message?err.message:"it is not valid JSON")+".";
     return;
   }
@@ -15178,6 +15232,10 @@ async function importRuleFile(f){
      is a project whose layers are not the ones the file names, and saying
      which layers are missing is the fix. */
   if(!plan.groups.length){
+    /* THE ORDER APPLIED AND THE SCREEN DID NOT SHOW IT. This return is the
+       commonest path for a file that is only an order, and it used to leave
+       the shelf grouping by the previous one until something else redrew. */
+    if(painted) await renderShelf();
     note.textContent="Nothing to import. "+(plan.missingLayers.length
       ? "This project has no layer called "+[...new Set(plan.missingLayers)].slice(0,5).join(", ")
         +" - import the trait folders first."

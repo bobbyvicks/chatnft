@@ -136,6 +136,13 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
   white-space:nowrap; font-size:13px;}
 .rrow .rlayer{color:var(--dim); font-size:11.5px;}
 .rrow .rwhen{color:var(--dim); font-size:11.5px; white-space:nowrap;}
+.revnow{display:flex; gap:12px; align-items:flex-start;}
+.revnow canvas{width:88px; height:88px; flex:none; border-radius:8px;
+  background:var(--panel); image-rendering:pixelated; object-fit:contain;
+  border:1px solid var(--line);}
+.revmeta{flex:1; min-width:0;}
+.revmeta b{display:block; font-size:13.5px;}
+.revdone{color:var(--accent);}
 .draftbar{display:flex; gap:10px; align-items:center; flex-wrap:wrap;
   padding:7px 12px; background:var(--panel); border-bottom:1px solid var(--line);
   font-size:12.5px; color:var(--muted);}
@@ -1251,6 +1258,40 @@ footer .mono{color:var(--ink);}
     </div>
     <div id="updbody"></div>
   </section>
+  <!-- The final review pass. On the project page and above the shelf: it is
+       about the traits, and it is the thing being done when it is running. -->
+  <section class="proj pg-project" id="review" hidden>
+    <div class="projhead">
+      <h2>Final review</h2>
+      <span class="count" id="reviewcount"></span>
+      <div class="acts">
+        <button class="mini" id="reviewload">Load a review queue</button>
+      </div>
+    </div>
+    <p class="note" id="reviewnote" hidden></p>
+    <input type="file" id="reviewfile" accept="application/json,.json" hidden>
+    <div id="reviewbody" hidden>
+      <div class="revnow">
+        <canvas id="revshot" width="8" height="8"></canvas>
+        <div class="revmeta">
+          <b id="revwhere"></b>
+          <span class="note" id="revwas"></span>
+          <div class="olrow" style="margin-top:6px">
+            <label for="revname">Name</label>
+            <input id="revname" type="text" style="flex:1;min-width:0" aria-label="Final name">
+          </div>
+        </div>
+      </div>
+      <div class="olrow" style="margin-top:8px">
+        <button class="mini" id="revprev">Previous</button>
+        <button class="mini" id="revopen2">Open in the editor</button>
+        <button class="mini" id="revart">Artwork is right</button>
+        <button class="mini" id="revnamed">Name is right</button>
+        <button class="mini" id="revskip">Skip</button>
+        <button class="mini" id="revnext">Next</button>
+      </div>
+    </div>
+  </section>
   <!-- The trait parameters. They lived inside Build a character, under the
        character preview, which is where they were written rather than where
        they belong: forty lines of rules under a picture. Moved whole, with
@@ -2245,6 +2286,11 @@ const GRID_ID='settings.grid';
    the app is scaled by it. */
 const EMPTY_ID='settings.emptychance';
 const RULES_ID='settings.rules';
+/* THE FINAL REVIEW PASS. One record holding the whole queue: the entries in
+   order, and which one is open. Metadata only - the pictures are the traits
+   themselves, which are already in the store. */
+const REVIEW_ID='settings.review';
+let REVIEW=null;
 /* WHEN THIS BROWSER LAST WROTE THE RULES, in milliseconds.
 
    Only ever compared against the same number on the server, to tell a
@@ -2707,7 +2753,8 @@ async function renderShelf(){
   /* Both early exits have to take the compose panel down with them, or
      clearing the project leaves it on screen listing traits that are gone. */
   try{ items=await dbAll(); }catch(_){ $('proj').hidden=true; $('compose').hidden=true;
-    $('layers').hidden=true; $('rules').hidden=true; $('recent').hidden=true; return; }
+    $('layers').hidden=true; $('rules').hidden=true; $('recent').hidden=true;
+    $('review').hidden=true; return; }
   /* Before anything groups by layer: the saved order is the authority, and
      the default list is only what it starts from. */
   applyLayers(items);
@@ -2729,6 +2776,7 @@ async function renderShelf(){
      mailbox was not being saved. */
   try{ mailShow(); }catch(_){}
   applyDecisions(items);
+  applyReview(items);
   const traits=items.filter(i=>i.kind==='trait');
   const visibility=currentShelfVisibility();
   const liveTraitKeys=new Set(traits.map(shelfCore.recordKey));
@@ -3103,6 +3151,9 @@ async function renderShelf(){
      here already means the project has something in it - the empty case
      returned above - so the condition is stated rather than borrowed. */
   $('rules').hidden=false;
+  /* Beside the rules, and for the same reason: both are about the collection
+     rather than one trait, and both are meaningless with nothing in it. */
+  renderReview();
   renderPlan(items);
   buildCompose(items);
 }
@@ -3239,6 +3290,10 @@ async function saveTrait(){
     if(openRec){
       if(typeof openRec.rarity==="number") rec.rarity=openRec.rarity;
       if(openRec.rowId) rec.rowId=openRec.rowId;
+      /* AND THE QUEUE ENTRY. The record key carries the name, so a rename
+         makes a different record - which is exactly the thing a review pass
+         must survive. Entry 12 is still entry 12 after it is renamed. */
+      if(openRec.reviewId) rec.reviewId=openRec.reviewId;
     }
     /* Captured before anything reassigns it. */
     const openWas = openRec;
@@ -10092,6 +10147,32 @@ async function applyPaintOrder(order){
 async function saveDecideOrder(){
   await dbPut({id:DECIDE_ID, kind:"settings", at:Date.now(), order:DECIDE_ORDER.slice()});
 }
+/* The queue as it was last left, or null when no pass has been started. */
+function applyReview(items){
+  const rec=(items||[]).find(i=>i.id===REVIEW_ID);
+  REVIEW=(rec&&Array.isArray(rec.entries)&&rec.entries.length)
+    ? {revision:rec.revision||null, activeId:rec.activeId||null,
+       entries:rec.entries.map(e=>Object.assign({},e))}
+    : null;
+}
+async function saveReview(){
+  if(!REVIEW) return;
+  await dbPut({id:REVIEW_ID, kind:"settings", at:Date.now(),
+    revision:REVIEW.revision, activeId:REVIEW.activeId,
+    entries:REVIEW.entries.map(e=>Object.assign({},e))});
+}
+/* A queue entry names its trait the way the folder does, with the extension.
+   The store does not. */
+const reviewBase=n=>String(n||"").replace(/\.png$/i,"");
+/* The entry a trait belongs to, by the id stamped on it. Falls back to layer
+   and name for a trait that has not been stamped yet - which is every trait
+   until the queue is first loaded. */
+function entryForTrait(t){
+  if(!REVIEW||!t) return null;
+  if(t.reviewId){ const byId=REVIEW.entries.find(e=>e.id===t.reviewId); if(byId) return byId; }
+  return REVIEW.entries.find(e=>(e.layer||"")===(t.layer||"")
+    && reviewBase(e.currentName)===t.name) || null;
+}
 function applyDecisions(items){
   const rec=items.find(i=>i.id===DECISIONS_ID);
   DECISIONS = (rec&&Array.isArray(rec.decisions)) ? mergeDecisions(rec.decisions,[]) : [];
@@ -10722,6 +10803,72 @@ async function renderUpdatesNow(sec){
   }
 }
 
+/* WHERE THE PASS IS, and what the trait in front of you still needs.
+
+   Reads REVIEW for the queue and the store for the picture, so a trait
+   renamed since the queue was seeded still draws: it is found by the id
+   stamped on it, not by the name the queue remembers. */
+function reviewIndex(){
+  if(!REVIEW) return -1;
+  const i=REVIEW.entries.findIndex(e=>e.id===REVIEW.activeId);
+  return i<0?0:i;
+}
+async function traitForEntry(e){
+  if(!e) return null;
+  let items=[]; try{ items=(await dbAll()).filter(i=>i.kind==="trait"); }catch(_){ return null; }
+  return items.find(t=>t.reviewId===e.id)
+    || items.find(t=>(t.layer||"")===e.layer && t.name===reviewBase(e.currentName))
+    || null;
+}
+async function renderReview(){
+  const sec=$("review"); if(!sec) return;
+  const body=$("reviewbody"), count=$("reviewcount");
+  sec.hidden=false;
+  if(!REVIEW){
+    body.hidden=true;
+    count.textContent="not started";
+    return;
+  }
+  body.hidden=false;
+  const done=REVIEW.entries.filter(e=>e.artworkAccepted&&e.nameAccepted).length;
+  const i=reviewIndex(), e=REVIEW.entries[i];
+  count.textContent=(i+1)+" of "+REVIEW.entries.length+", "+done+" finished";
+  $("revwhere").textContent=e.layer+" \u2014 "+reviewBase(e.currentName);
+  const t=await traitForEntry(e);
+  /* SAID, not guessed at. A queue entry with no trait here cannot be
+     reviewed, and drawing an empty box without saying why is how somebody
+     concludes the tool is broken. */
+  const marks=[];
+  marks.push(e.artworkAccepted?"artwork \u2713":"artwork pending");
+  marks.push(e.nameAccepted?"name \u2713":"name pending");
+  if(e.skipped) marks.push("skipped");
+  if(!t) marks.push("not in this project");
+  $("revwas").textContent=marks.join(" \u00b7 ")
+    +(reviewBase(e.originalName)!==reviewBase(e.currentName)
+      ? " \u00b7 was "+reviewBase(e.originalName) : "");
+  $("revwas").className="note"+((e.artworkAccepted&&e.nameAccepted)?" revdone":"");
+  const nameBox=$("revname");
+  if(document.activeElement!==nameBox)
+    nameBox.value=e.finalName||reviewBase(t?t.name:e.currentName);
+  const cv=$("revshot");
+  cv.width=t?Math.max(1,t.w||1):8; cv.height=t?Math.max(1,t.h||1):8;
+  const g=cv.getContext("2d"); g.clearRect(0,0,cv.width,cv.height);
+  if(t&&t.blob) createImageBitmap(t.blob).then(bm=>{
+    g.imageSmoothingEnabled=false; g.drawImage(bm,0,0);
+  }).catch(()=>{});
+  $("revopen2").disabled=!t;
+}
+/* Moving through the queue. Written down on every step, so closing the tab
+   and coming back opens the trait that was open - which over 317 of them is
+   the difference between a pass and starting again. */
+async function reviewGo(delta){
+  if(!REVIEW) return;
+  const i=reviewIndex();
+  const n=Math.max(0,Math.min(REVIEW.entries.length-1,i+delta));
+  REVIEW.activeId=REVIEW.entries[n].id;
+  await saveReview();
+  await renderReview();
+}
 /* ---- the section ------------------------------------------------- */
 /* Rebuilt from the records every time, like every other panel here. It
    decodes no images and runs no generator, so it is cheap enough to redraw
@@ -14506,6 +14653,67 @@ $('ruleadd').onclick=async()=>{
 };
 $('ruleimport').onclick=()=>$('rulefile').click();
 $('ruleclear').onclick=clearRules;
+$('reviewload').onclick=()=>$('reviewfile').click();
+$('reviewfile').onchange=async e=>{
+  const f=e.target.files&&e.target.files[0];
+  /* Cleared so choosing the same file twice fires again. */
+  e.target.value='';
+  if(f){ await importReviewQueue(f); await renderReview(); }
+};
+$('revprev').onclick=()=>reviewGo(-1);
+$('revnext').onclick=()=>reviewGo(1);
+$('revskip').onclick=async()=>{
+  if(!REVIEW) return;
+  REVIEW.entries[reviewIndex()].skipped=true;
+  await saveReview();
+  await reviewGo(1);
+};
+/* Opening goes through the same path the shelf uses, so the trait arrives
+   with its draft, its measured block and its brush exactly as it would from
+   anywhere else. */
+$('revopen2').onclick=async()=>{
+  if(!REVIEW) return;
+  const t=await traitForEntry(REVIEW.entries[reviewIndex()]);
+  if(!t){ toast('That trait is not in this project'); return; }
+  if(!await openTraitRecord(t)) toast('Could not open '+t.name);
+};
+$('revart').onclick=async()=>{
+  if(!REVIEW) return;
+  const e=REVIEW.entries[reviewIndex()];
+  e.artworkAccepted=!e.artworkAccepted;
+  await saveReview(); await renderReview();
+};
+/* ACCEPTING A NAME THAT CHANGED IS A RENAME, and it goes through saveTrait -
+   the one path that rewrites the id, moves the server row, retargets the
+   rules and carries the answers and the queue id across. Nothing here gets
+   its own way of moving a trait. */
+$('revnamed').onclick=async()=>{
+  if(!REVIEW) return;
+  /* THE ID, NOT THE OBJECT. saveTrait ends in renderShelf, which calls
+     applyReview, which replaces REVIEW with fresh objects read back from the
+     store - so an entry captured before a rename is an orphan afterwards,
+     and the flag set on it is written nowhere. */
+  const id=REVIEW.entries[reviewIndex()].id;
+  const want=String($('revname').value||'').trim();
+  if(!want){ toast('Give it a name first'); return; }
+  const t=await traitForEntry(REVIEW.entries[reviewIndex()]);
+  if(t && want!==t.name){
+    const opened=await openTraitRecord(t);
+    if(!opened){ toast('Could not open '+t.name); return; }
+    $('tname').value=want;
+    const ok=await saveTrait();
+    if(ok===false) return;   /* saveTrait already said why */
+    closeEditor();
+  }
+  /* Looked up again on the other side of everything that may have reloaded
+     the queue. */
+  const cur=REVIEW&&REVIEW.entries.find(x=>x.id===id);
+  if(!cur) return;
+  cur.finalName=want; cur.currentName=want+'.png'; cur.nameAccepted=true;
+  await saveReview();
+  await renderShelf();
+  await renderReview();
+};
 $('ruleexport').onclick=async()=>{
   const note=$("ruleimportnote"); note.hidden=false;
   let items=[]; try{ items=await dbAll(); }catch(_){ }
@@ -14590,6 +14798,85 @@ $('rulefile').onchange=async(e)=>{
   e.target.value="";
   return importRuleFile(f);
 };
+/* Starting a final review pass from the seeded queue.
+
+   The file is metadata: ids, order, names, hashes and a pending state. The
+   pictures are the traits already in this project, so the load is really a
+   matching problem - and it says how much of it failed rather than quietly
+   reviewing whatever it managed to pair up.
+
+   A name that two traits on one layer answer to is left unmatched, on the
+   same reasoning planRuleImport uses: a guess here attaches somebody's
+   review to the wrong artwork.
+
+   NOTHING IS APPROVED BY BEING LOADED. The handoff is explicit that earlier
+   approval is not final-pass approval, and the file arrives with 316 pending
+   for exactly that reason. */
+async function importReviewQueue(f){
+  if(!f) return false;
+  const note=$("reviewnote"); if(note) note.hidden=false;
+  const say=m=>{ if(note) note.textContent=m; };
+  say("Reading "+f.name+"\u2026");
+  let doc;
+  try{ doc=JSON.parse(await f.text()); }
+  catch(err){ say("Could not read that file: "+(err&&err.message||"it is not valid JSON")+"."); return false; }
+  const list=(doc&&Array.isArray(doc.traits))?doc.traits:(Array.isArray(doc)?doc:null);
+  if(!list||!list.length){ say("That file has no review queue in it."); return false; }
+  /* Ids are the whole point of the queue, so a file whose ids repeat is
+     refused rather than half-loaded. */
+  const ids=new Set();
+  for(const e of list){ if(!e||!e.id||ids.has(e.id)){
+    say("That queue has entries with missing or repeated ids, so it was not loaded."); return false; }
+    ids.add(e.id); }
+  let items=[]; try{ items=(await dbAll()).filter(i=>i.kind==="trait"); }catch(_){}
+  /* How many traits answer to each layer+name, so an ambiguous one can be
+     left alone rather than guessed at. */
+  const by=new Map(), dupes=new Set();
+  for(const t of items){
+    const k=(t.layer||"")+"/"+t.name;
+    if(by.has(k)) dupes.add(k); else by.set(k,t);
+  }
+  const entries=[], missing=[], ambiguous=[];
+  let stamped=0;
+  for(const e of list){
+    const layer=String(e.layer||"");
+    const name=reviewBase(e.currentName||e.originalName);
+    const k=layer+"/"+name;
+    const t=dupes.has(k)?null:by.get(k);
+    if(dupes.has(k)) ambiguous.push(k);
+    else if(!t) missing.push(k);
+    entries.push({id:e.id, sequence:e.sequence||entries.length+1, layer:layer,
+      originalName:e.originalName||e.currentName||name,
+      currentName:e.currentName||e.originalName||name,
+      finalName:e.finalName||null, sourceSha256:e.sourceSha256||null,
+      width:e.width||null, height:e.height||null,
+      /* Never carried over from the file: this pass starts unreviewed. */
+      artworkAccepted:false, nameAccepted:false, skipped:false});
+    if(t && t.reviewId!==e.id){
+      try{ await dbPut(Object.assign({},t,{reviewId:e.id})); stamped++; }catch(_){}
+    }
+  }
+  entries.sort((a,b)=>(a.sequence||0)-(b.sequence||0));
+  REVIEW={revision:(doc&&doc.collectionRevision)||null,
+    activeId:(doc&&doc.activeTraitId)||entries[0].id, entries:entries};
+  if(!REVIEW.entries.some(e=>e.id===REVIEW.activeId)) REVIEW.activeId=entries[0].id;
+  await saveReview();
+  /* The same order the rules file carries, applied the same way. */
+  let painted=null;
+  if(doc&&Array.isArray(doc.order)){
+    try{ painted=await applyPaintOrder(doc.order.map(String)); }catch(_){ painted=null; }
+  }
+  await renderShelf();
+  const bits=["Review pass started: "+entries.length+" trait"+(entries.length===1?"":"s")];
+  if(stamped) bits.push(stamped+" matched to what is here");
+  if(missing.length) bits.push(missing.length+" named by the queue "+(missing.length===1?"is":"are")
+    +" not in this project"+(missing.length<=4?" ("+missing.join(", ")+")":""));
+  if(ambiguous.length) bits.push(ambiguous.length+" name"+(ambiguous.length===1?"":"s")
+    +" matched more than one trait and "+(ambiguous.length===1?"was":"were")+" left unmatched");
+  if(painted) bits.push("the paint order is now the file's");
+  say(bits.join(". ")+".");
+  return true;
+}
 async function importRuleFile(f){
   if(!f) return;
   const note=$("ruleimportnote"); note.hidden=false;

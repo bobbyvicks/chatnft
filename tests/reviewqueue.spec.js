@@ -1,0 +1,230 @@
+/* The final review pass: 317 traits, one at a time.
+
+   The handoff seeds a queue with stable ids, a sequence, the layer, the
+   original and current names, and a pending final-pass state, and asks for a
+   pass that walks it.
+
+   THE STABLE ID IS THE PART THIS APP DID NOT HAVE. A trait's key here is
+   "t_"+name+"_"+layer+"_"+status, so renaming it makes a DIFFERENT record -
+   and the whole point of a queue is that entry 12 is still entry 12 after it
+   has been renamed. The queue's id rides on the record as reviewId and
+   saveTrait carries it across a rename, the same way it already carries the
+   rarity and the server row. The rename test below is the one that matters:
+   it renames a trait and then finds it again by id.
+
+   AND NOTHING ARRIVES APPROVED. The handoff is explicit that existing approval
+   is not final-pass approval, and the seeded file says 316 pending for that
+   reason. A load that carried the file's flags in would start the pass
+   pretending work had been done.
+*/
+import { test, expect } from '@playwright/test';
+import { gotoPage } from './helpers.js';
+
+/* Two traits and a small queue naming them, in the shape the real file uses. */
+const seed = (page) => page.evaluate(async () => {
+  try { authed = true; } catch (_) {}
+  try { gateShow(false); } catch (_) {}
+  activeWs = null;
+  await dbClear();
+  const png = async (v) => {
+    const c = document.createElement('canvas'); c.width = 16; c.height = 16;
+    const g = c.getContext('2d');
+    g.fillStyle = 'rgb(' + v + ',' + v + ',' + v + ')'; g.fillRect(0, 0, 16, 16);
+    return new Promise(r => c.toBlob(r, 'image/png'));
+  };
+  for (const [n, l, v] of [['Backrooms Hallway', 'backgrounds', 80],
+    ['Punk Eyes', 'eyes', 140]])
+    await dbPut({ id: 't_' + n + '_' + l + '_approved', kind: 'trait', name: n,
+      layer: l, status: 'approved', blob: await png(v), w: 16, h: 16, at: 1 });
+  await dbPut({ id: 'settings.layers', kind: 'settings',
+    layers: ['backgrounds', 'eyes', 'unsorted'], hidden: [], at: 1 });
+  await renderShelf();
+  await new Promise(r => setTimeout(r, 250));
+});
+
+const QUEUE = {
+  schemaVersion: 1, collectionRevision: 'strict-fit-v11',
+  activeTraitId: 'trait-aaa',
+  order: ['backgrounds', 'eyes'],
+  traits: [
+    { id: 'trait-aaa', sequence: 1, layer: 'backgrounds',
+      originalName: 'Backrooms Hallway.png', currentName: 'Backrooms Hallway.png',
+      finalName: null, width: 1280, height: 1280,
+      reviewStatus: 'in_review', artworkAccepted: false, nameAccepted: false },
+    { id: 'trait-bbb', sequence: 2, layer: 'eyes',
+      originalName: 'Punk Eyes.png', currentName: 'Punk Eyes.png',
+      finalName: null, width: 1280, height: 1280,
+      reviewStatus: 'pending', artworkAccepted: false, nameAccepted: false },
+    { id: 'trait-ccc', sequence: 3, layer: 'hats',
+      originalName: 'Missing Cap.png', currentName: 'Missing Cap.png',
+      finalName: null, reviewStatus: 'pending',
+      artworkAccepted: false, nameAccepted: false },
+  ],
+};
+
+const load = (page, doc) => page.evaluate(async (d) => {
+  const f = new File([JSON.stringify(d)], 'review-queue.json',
+    { type: 'application/json' });
+  const ok = await importReviewQueue(f);
+  await renderReview();
+  return { ok, note: document.getElementById('reviewnote').textContent };
+}, doc);
+
+const shown = (page) => page.evaluate(() => ({
+  count: document.getElementById('reviewcount').textContent,
+  where: document.getElementById('revwhere').textContent,
+  was: document.getElementById('revwas').textContent,
+  name: document.getElementById('revname').value,
+  bodyShown: !document.getElementById('reviewbody').hidden,
+  openDisabled: document.getElementById('revopen2').disabled,
+  activeId: REVIEW ? REVIEW.activeId : null,
+}));
+
+test.describe('the final review pass', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/index.html');
+    await page.waitForFunction(() => typeof importReviewQueue === 'function');
+    await seed(page);
+    await gotoPage(page, 'project');
+  });
+
+  test('loads the queue and opens at the first trait', async ({ page }) => {
+    const r = await load(page, QUEUE);
+    expect(r.ok).toBe(true);
+    const s = await shown(page);
+    expect(s.count).toBe('1 of 3, 0 finished');
+    expect(s.where).toBe('backgrounds — Backrooms Hallway');
+    expect(s.name).toBe('Backrooms Hallway');
+  });
+
+  test('AND NOTHING ARRIVES ALREADY APPROVED', async ({ page }) => {
+    /* The handoff says existing approval is not final-pass approval. A load
+       that honoured the file's own flags would start the pass claiming work
+       that nobody in it has done. */
+    const pre = JSON.parse(JSON.stringify(QUEUE));
+    pre.traits.forEach(t => { t.artworkAccepted = true; t.nameAccepted = true;
+      t.reviewStatus = 'approved'; });
+    await load(page, pre);
+    const flags = await page.evaluate(() =>
+      REVIEW.entries.map(e => (e.artworkAccepted ? 'a' : '-') + (e.nameAccepted ? 'n' : '-')));
+    expect(flags, 'every one starts unreviewed').toEqual(['--', '--', '--']);
+  });
+
+  test('and says which entries have no trait here', async ({ page }) => {
+    /* An entry with nothing behind it cannot be reviewed. Drawing an empty box
+       without saying why is how somebody concludes the tool is broken. */
+    const r = await load(page, QUEUE);
+    expect(r.note).toContain('not in this project');
+    expect(r.note).toContain('hats/Missing Cap');
+  });
+
+  test('next and previous walk it, and the place is remembered',
+    async ({ page }) => {
+      await load(page, QUEUE);
+      await page.click('#revnext');
+      await page.waitForTimeout(200);
+      expect((await shown(page)).where).toBe('eyes — Punk Eyes');
+      /* Written down, not held in a variable: this is what makes 317 traits a
+         pass rather than something you start again. */
+      const stored = await page.evaluate(async () =>
+        (await dbAll()).find(r => r.id === 'settings.review').activeId);
+      expect(stored).toBe('trait-bbb');
+      await page.click('#revprev');
+      await page.waitForTimeout(200);
+      expect((await shown(page)).where).toBe('backgrounds — Backrooms Hallway');
+    });
+
+  test('and it resumes there after a reload', async ({ page }) => {
+    await load(page, QUEUE);
+    await page.click('#revnext');
+    await page.waitForTimeout(250);
+    await page.reload();
+    await page.waitForFunction(() => typeof renderReview === 'function');
+    await page.evaluate(async () => {
+      try { authed = true; } catch (_) {}
+      try { gateShow(false); } catch (_) {}
+      await renderShelf();
+    });
+    await gotoPage(page, 'project');
+    await page.waitForTimeout(400);
+    expect((await shown(page)).where, 'the trait that was open').toBe('eyes — Punk Eyes');
+  });
+
+  test('artwork and name are two separate answers', async ({ page }) => {
+    /* A picture can be right under the wrong name and the reverse, which is
+       why the handoff asks for them tracked apart. */
+    await load(page, QUEUE);
+    await page.click('#revart');
+    await page.waitForTimeout(200);
+    let s = await shown(page);
+    expect(s.was).toContain('artwork ✓');
+    expect(s.was).toContain('name pending');
+    expect(s.count, 'not finished on one answer').toContain('0 finished');
+    await page.click('#revnamed');
+    await page.waitForTimeout(400);
+    s = await shown(page);
+    expect(s.was).toContain('name ✓');
+    expect(s.count).toContain('1 finished');
+  });
+
+  test('ACCEPTING A NEW NAME RENAMES THE TRAIT AND KEEPS ITS PLACE IN THE QUEUE',
+    async ({ page }) => {
+      /* THE ONE THAT MATTERS. The record key carries the name, so a rename
+         makes a different record - exactly what a queue has to survive. The id
+         rides on the record and saveTrait carries it across, so entry 1 is
+         still entry 1 afterwards and still finds its artwork. */
+      await load(page, QUEUE);
+      await page.fill('#revname', 'Backrooms Corridor');
+      await page.click('#revnamed');
+      await page.waitForTimeout(600);
+      const after = await page.evaluate(async () => {
+        const traits = (await dbAll()).filter(r => r.kind === 'trait');
+        return {
+          names: traits.map(t => t.name).sort(),
+          ids: traits.map(t => t.id).sort(),
+          reviewIds: traits.map(t => t.reviewId || null).sort(),
+          entry: REVIEW.entries[0],
+        };
+      });
+      expect(after.names, 'renamed, not duplicated')
+        .toEqual(['Backrooms Corridor', 'Punk Eyes']);
+      expect(after.ids).toContain('t_Backrooms Corridor_backgrounds_approved');
+      expect(after.reviewIds, 'and the queue id came with it').toContain('trait-aaa');
+      expect(after.entry.nameAccepted).toBe(true);
+      expect(after.entry.finalName).toBe('Backrooms Corridor');
+      /* And the panel still finds the artwork for entry 1 under its new name. */
+      const s = await shown(page);
+      expect(s.where).toBe('backgrounds — Backrooms Corridor');
+      expect(s.openDisabled, 'the trait is still reachable').toBe(false);
+    });
+
+  test('and a queue with repeated ids is refused rather than half-loaded',
+    async ({ page }) => {
+      const bad = JSON.parse(JSON.stringify(QUEUE));
+      bad.traits[1].id = 'trait-aaa';
+      const r = await load(page, bad);
+      expect(r.ok).toBe(false);
+      expect(r.note).toContain('repeated ids');
+      expect(await page.evaluate(() => REVIEW), 'nothing was started').toBe(null);
+    });
+
+  test('and skipping moves on and is remembered', async ({ page }) => {
+    await load(page, QUEUE);
+    await page.click('#revskip');
+    await page.waitForTimeout(300);
+    expect((await shown(page)).where).toBe('eyes — Punk Eyes');
+    const first = await page.evaluate(() => REVIEW.entries[0]);
+    expect(first.skipped).toBe(true);
+  });
+
+  test('the panel is on the project page and not the others', async ({ page }) => {
+    await load(page, QUEUE);
+    const tall = () => page.evaluate(() =>
+      document.getElementById('review').getBoundingClientRect().height > 0);
+    expect(await tall(), 'here').toBe(true);
+    await gotoPage(page, 'home');
+    expect(await tall(), 'not on the main page').toBe(false);
+    await gotoPage(page, 'settings');
+    expect(await tall(), 'nor in settings').toBe(false);
+  });
+});

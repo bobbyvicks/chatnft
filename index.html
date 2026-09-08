@@ -136,6 +136,9 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
   white-space:nowrap; font-size:13px;}
 .rrow .rlayer{color:var(--dim); font-size:11.5px;}
 .rrow .rwhen{color:var(--dim); font-size:11.5px; white-space:nowrap;}
+.draftbar{display:flex; gap:10px; align-items:center; flex-wrap:wrap;
+  padding:7px 12px; background:var(--panel); border-bottom:1px solid var(--line);
+  font-size:12.5px; color:var(--muted);}
 .urow{display:flex; gap:8px; align-items:baseline; padding:4px 0;
   border-bottom:1px solid var(--line); font-size:12px;}
 .urow:last-child{border-bottom:none;}
@@ -770,15 +773,16 @@ input[type=range]{width:100%; accent-color:var(--accent); cursor:pointer;}
    "sw" - so setColor's sweep wiped it and rcSummary had to keep restoring it.
    Two states on two attributes cannot overwrite each other. */
 .sw[data-rc="1"]{box-shadow:inset 0 0 0 2px #000000aa, inset 0 0 0 4px #ffffffcc;}
-.cur{display:flex; align-items:center; gap:9px; padding:5px; border-radius:8px;
+/* One row, sized by the well rather than by a stacked caption. Measured
+   before: 46px tall for a 28px swatch and a hex string, with the uppercase
+   caption the taller half of the text beside it. */
+.cur{display:flex; align-items:center; gap:8px; padding:3px 5px; border-radius:8px;
   background:var(--panel-2); border:1px solid var(--line);}
-.cur input[type=color]{width:28px; height:28px; padding:0; border:1px solid #ffffff24;
-  border-radius:7px; background:none; cursor:pointer; flex:none;}
-.cur small{display:block; color:var(--dim); font-size:10px; text-transform:uppercase;
-  letter-spacing:.09em; line-height:1.25;}
+.cur input[type=color]{width:22px; height:22px; padding:0; border:1px solid #ffffff24;
+  border-radius:6px; background:none; cursor:pointer; flex:none;}
 /* #curhex is otherwise unstyled and takes body's 14px/1.5, which is what
-   made the text column taller than the colour well it sits beside. */
-.cur .mono{font-size:12.5px; line-height:1.25;}
+   made the text taller than the colour well it sits beside. */
+.cur .mono{font-size:12.5px; line-height:1.2;}
 /* The transparent border is what makes .btn and .btn.ghost the same height.
    Ghost adds a 1px border; without this the two stood 42px and 44px tall in
    the same column, which reads as sloppiness rather than as two kinds. */
@@ -942,6 +946,11 @@ footer .mono{color:var(--ink);}
   .side .chips button{padding:7px 6px;}
   .side h2{line-height:1.5;}
   .side input[type=color]{height:30px;}
+  /* AND THE WIDTH, which the desktop rule sets to 38 and the narrower .cur
+     rule now overrides everywhere. Without this, shrinking the box on a
+     desktop took 16px off the touch target on a phone - the thing the
+     mobile pass was for. Square, so it is a target rather than a sliver. */
+  .cur input[type=color]{width:30px; height:30px;}
   .sw{min-height:30px;}
   .stack{gap:8px;}
   .rule{width:1px; height:26px; margin:2px 4px; align-self:center;}
@@ -1451,6 +1460,13 @@ footer .mono{color:var(--ink);}
     </div>
   </header>
 
+  <!-- Said inside the editor, because that is where the draft was restored.
+       The main page keeps its own bar for the unattached canvas. -->
+  <div class="draftbar" id="draftbar" hidden>
+    <span id="drafttext"></span>
+    <button class="mini" id="draftdiscard">Use the saved version</button>
+  </div>
+
   <nav class="tools" aria-label="Tools">
     <button class="tool" data-tool="pencil" aria-pressed="true" title="Pencil (B)"><svg viewBox="0 0 24 24"><path d="M4 20h4L20 8a2.8 2.8 0 0 0-4-4L4 16v4Z"/><path d="M14 6l4 4"/></svg><span class="k">B</span></button>
     <button class="tool" data-tool="eraser" aria-pressed="false" title="Eraser (E)"><svg viewBox="0 0 24 24"><path d="M6 18h12"/><path d="M9 18 4 13a2 2 0 0 1 0-3l7-7a2 2 0 0 1 3 0l5 5a2 2 0 0 1 0 3l-7 7Z"/></svg><span class="k">E</span></button>
@@ -1481,9 +1497,13 @@ footer .mono{color:var(--ink);}
   <aside class="side" id="sidepanel">
     <button class="grip" id="sidegrip" type="button" aria-controls="sidepanel"
       aria-expanded="true" title="Hide the tools">Tools</button>
+    <!-- One row. The caption that used to sit above the hex was the taller
+         half of a two-line column, saying what the well beside it shows. It
+         lives in the aria-label now, so nothing that could only hear it has
+         lost anything. -->
     <div class="cur">
-      <input type="color" id="picker" value="#000000" aria-label="Pick any colour">
-      <span><small>Current</small><span class="mono" id="curhex">#000000</span></span>
+      <input type="color" id="picker" value="#000000" aria-label="Current colour - pick any colour">
+      <span class="mono" id="curhex" title="The colour you are painting with">#000000</span>
     </div>
     <section id="brushsec">
       <h2>Colour</h2>
@@ -1496,7 +1516,10 @@ footer .mono{color:var(--ink);}
            maximum - which never applied and only misled. -->
       <div class="olrow"><label for="bslider">Size</label>
         <input id="bslider" type="range" min="1" max="128" step="1" value="1" aria-label="Brush size">
-        <span class="mono" id="bslab">1 × 1</span></div>
+        <span class="mono" id="bslab">1 × 1</span>
+        <button class="btn ghost" id="gsnap" aria-pressed="true"
+          style="width:auto;padding:6px 12px;font-size:12px;margin-left:4px"
+          title="Jump the brush from cell to cell on the grid the art was drawn on, instead of pixel by pixel. Art drawn one pixel at a time has no grid to snap to, so this does nothing there.">Snap</button></div>
       </div>
       <!-- Its own container, with the mirror condition. It lived inside
            #brushrows, which selectTool hides unless the tool is pencil or
@@ -1955,6 +1978,11 @@ let moveRedoWas=null, moveDropped=null;
    and one chance to pick the wrong target colour halfway through. */
 const rcPick=new Set();
 let autoPending=null; /* debounce handle for the working-canvas autosave */
+/* The undo depth the canvas was last SAVED at. Not "was it edited" - saving
+   does not empty the undo stack, so a canvas can be heavily edited and
+   perfectly saved at the same time, which is the normal state of a trait
+   somebody just pressed Save on. */
+let savedDepth=0;
 let undoStack=[], redoStack=[], original=null, painting=false, panMode=false, fileName='pixel-art.png';
 let brush=1;
 /* What the artist ASKED for, as opposed to what the canvas currently allows.
@@ -3254,6 +3282,19 @@ async function saveTrait(){
     /* The character preview decodes each trait once and keeps it forever, so
        without this it goes on compositing the version from before the edit. */
     cBitmaps.delete(id);
+    /* THE DRAFT IS NOW THE RECORD, so it stops being a draft. Left behind,
+       the next open would offer unsaved changes that were saved. Three keys
+       because a rename changes the id, and a canvas that had no record
+       drafted under the working key. */
+    for(const k of [draftKey(id), openWas?draftKey(openWas.id):null,
+                    openWas?null:AUTO_ID]){
+      if(k){ try{ await dbDel(k); }catch(_){} }
+    }
+    showDraftBar(null,null);
+    /* THE CANVAS IS NOW THE RECORD. Without this the next open flushes a
+       draft of work that was just saved, and re-opening this trait offers
+       changes that are not changes. */
+    savedDepth=undoStack.length;
     openRec=rec;
     await renderShelf();
     if(activeWs){
@@ -3373,6 +3414,10 @@ $('clearproj').onclick=async()=>{
   try{
     for(const rec of await dbAll()){
       if(rec.kind==="trait"||rec.kind==="ref"){ await dbDel(rec.id); removed++; }
+      /* A draft belongs to the trait it names. With the traits gone it can
+         never be opened again, and it would still be offered. The unattached
+         working draft has no trait and is left to the settings question. */
+      else if(rec.kind==="autosave"&&rec.traitId){ await dbDel(rec.id); }
       else kept++;
     }
   }catch(_){}
@@ -4846,27 +4891,73 @@ function analyse(im,file){
 
    Returns false rather than throwing, because both callers are click
    handlers and an unhandled rejection in one is silence. */
-async function openTraitRecord(t){
+async function openTraitRecord(t,opts){
   if(!t||!t.blob||!t.w||!t.h) return false;
+  opts=opts||{};
+  /* THE TRAIT ON SCREEN IS WRITTEN DOWN BEFORE THE NEXT ONE REPLACES IT.
+     The autosave debounce is 1.5s; without this, opening the next trait
+     inside that window lands the timer with the new trait open and the old
+     pixels still on the canvas.
+
+     Skipped only by the discard button, where the canvas IS the draft being
+     thrown away and flushing would write it back under the key just
+     deleted. */
+  if(!opts.ignoreDraft){ try{ await autosaveNow(); }catch(_){} }
+  /* A draft for THIS trait, newer than the record it belongs to. Older is
+     not a draft, it is a leftover from before the last save. */
+  let draft=null;
+  if(!opts.ignoreDraft){
+    try{
+      const got=(await dbAll()).find(i=>i.id===draftKey(t.id));
+      if(got&&got.blob&&got.w&&got.h&&(got.at||0)>(t.at||0)) draft=got;
+    }catch(_){}
+  }
+  /* Opened FROM the draft rather than opened and then replaced: two
+     startEditor calls would clear openRec twice and flash the saved pixels
+     on the way past. */
+  const src=draft||t;
   let d;
   try{
-    const bm=await createImageBitmap(t.blob);
-    const c=document.createElement("canvas"); c.width=t.w; c.height=t.h;
+    const bm=await createImageBitmap(src.blob);
+    const c=document.createElement("canvas"); c.width=src.w; c.height=src.h;
     const g=c.getContext("2d",{willReadFrequently:true});
     g.imageSmoothingEnabled=false; g.drawImage(bm,0,0);
-    d=g.getImageData(0,0,t.w,t.h);
+    d=g.getImageData(0,0,src.w,src.h);
   }catch(_){ return false; }
   fileName=t.name+".png";
-  startEditor(d.data,t.w,t.h,t.w,t.h,palette(d.data,t.w*t.h,24,64),false);
+  startEditor(d.data,src.w,src.h,src.w,src.h,palette(d.data,src.w*src.h,24,64),false);
   /* AFTER startEditor, which resets gridBlock to 1 and the brush to 1 by
      design - its comment says callers that measured a block set it here. */
-  adoptBlock(measuredBlock(d.data,t.w,t.h));
+  adoptBlock(measuredBlock(d.data,src.w,src.h));
   $("tname").value=t.name; $("tlayer").value=t.layer;
   setChip("tstatus",t.status||"wip");
   /* LAST, because startEditor clears it - its own comment says so: "set by
      callers that opened a saved record". */
   openRec=t;
+  showDraftBar(draft?t:null,draft);
   return true;
+}
+/* What the editor says when it opened a draft instead of the saved record.
+
+   Restoring silently would be the worse half of honest: the canvas would not
+   be what the shelf shows and nothing would explain why. */
+function showDraftBar(t,draft){
+  const bar=$("draftbar"); if(!bar) return;
+  if(!t||!draft){ bar.hidden=true; return; }
+  const when=new Date(draft.at);
+  $("drafttext").textContent="Unsaved changes from "
+    +when.toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})
+    +" were restored. They are not saved yet.";
+  bar.hidden=false;
+  $("draftdiscard").onclick=async()=>{
+    bar.hidden=true;
+    /* The pending timer first: it holds the draft being discarded and would
+       write it back after the delete. */
+    clearTimeout(autoPending); autoPending=null;
+    try{ await dbDel(draftKey(t.id)); }catch(_){}
+    await openTraitRecord(t,{ignoreDraft:true});
+    toast("Back to the saved "+t.name);
+  };
 }
 function startEditor(data,w,h,srcW,srcH,pal,recovered){
   if(!mayUse()) return;
@@ -4885,6 +4976,8 @@ function startEditor(data,w,h,srcW,srcH,pal,recovered){
   ctx.putImageData(id,0,0);
   original=ctx.getImageData(0,0,w,h);
   undoStack=[]; redoStack=[];
+  /* A freshly opened canvas is the record it came from. */
+  savedDepth=0;
   resizeBoxes();
   tboxShow();
   $('fname').textContent=fileName;
@@ -5949,10 +6042,33 @@ function resizeBoxes(){
   const n=$("rsnow"); if(n) n.textContent=art.width+" \u00d7 "+art.height;
   resizePreview();
 }
+/* The cell a brush stroke should land on, given the cell under the pointer.
+
+   dab centres a brush of n on the cell it is handed, offsetting by
+   floor((n-1)/2) - so to put a block-sized brush exactly over a block, the
+   answer is the block CORNER plus that same offset. Returning the bare
+   corner would paint half a cell out of place, which looks like snapping
+   and is not.
+
+   Nothing to do when a cell is a pixel, when the tool is not a brush, or
+   when the toggle is off. Clamped, because the readout reads a pixel at
+   this cell and a cell past the edge is not one. */
+function snapCell(c){
+  if(!c) return c;
+  const g=Math.max(1,Math.round(gridBlock));
+  if(g<2||!pressed("gsnap")) return c;
+  if(tool!=="pencil"&&tool!=="eraser") return c;
+  const off=Math.floor((brush-1)/2);
+  return {x:Math.min(art.width-1, Math.floor(c.x/g)*g+off),
+          y:Math.min(art.height-1, Math.floor(c.y/g)*g+off)};
+}
 function cellFrom(e){
   const r=art.getBoundingClientRect();
   const x=Math.floor((e.clientX-r.left)/zoom), y=Math.floor((e.clientY-r.top)/zoom);
-  return (x<0||y<0||x>=art.width||y>=art.height)?null:{x,y};
+  /* Bounds first, on the REAL pointer position: a pointer outside the art
+     is off the art whatever a snap would round it to. */
+  if(x<0||y<0||x>=art.width||y>=art.height) return null;
+  return snapCell({x,y});
 }
 function pixelAt(x,y){ const d=ctx.getImageData(x,y,1,1).data; return {r:d[0],g:d[1],b:d[2],a:d[3]}; }
 
@@ -6684,6 +6800,12 @@ function setupFolds(){
    a crash or a stray gesture takes the lot. This keeps the working canvas in
    the same store the project uses, under one fixed id, and offers it back. */
 const AUTO_ID="autosave.working";
+/* WHICH DRAFT THIS CANVAS BELONGS TO. A saved trait drafts under its own id;
+   anything else - an imported PNG, an extraction - keeps the single working
+   key it has always used, so nothing needs migrating and the boot restore
+   bar still finds exactly what it used to. */
+const draftKey=id=>"autosave."+id;
+function draftId(){ return openRec&&openRec.id ? draftKey(openRec.id) : AUTO_ID; }
 /* The debounced write, on its own, so closing can force it. Without this,
    closing within 1.5s of the last stroke left that stroke in a timeout
    that never fired - the one case where work really was lost. */
@@ -6694,10 +6816,23 @@ const AUTO_ID="autosave.working";
 function autosaveNow(){
   clearTimeout(autoPending); autoPending=null;
   if(!ctx) return Promise.resolve();
+  /* CAPTURED BEFORE THE ENCODE, not read after it. toBlob is asynchronous
+     and openRec can change while it runs, which would file this canvas
+     under whichever trait was opened in the meantime. */
+  const key=draftId(), of=openRec&&openRec.id?openRec.id:null;
+  /* A saved trait opened and closed without a stroke has nothing to keep -
+     the record already says it. startEditor empties undoStack, so a
+     non-empty one is exactly "edited since this was opened", and without
+     this every open would leave a draft identical to the record and the
+     next open would announce unsaved changes that do not exist.
+
+     The unattached canvas is unconditional as before: it is the only copy
+     of a picture that has never been saved anywhere. */
+  if(of && undoStack.length===savedDepth) return Promise.resolve();
   return new Promise(done=>{
     art.toBlob(b=>{
       if(!b){ done(); return; }
-      dbPut({id:AUTO_ID, kind:"autosave", name:fileName||"untitled.png",
+      dbPut({id:key, kind:"autosave", traitId:of, name:fileName||"untitled.png",
              w:art.width, h:art.height, blob:b, at:Date.now()})
         .then(done, done);
     },"image/png");
@@ -14626,6 +14761,9 @@ $('cdl').onclick=()=>{
 /* Passed explicitly. onclick=recolour would hand the click EVENT in as the
    first argument, and an event object is truthy - so Replace would erase. */
 $('bslider').oninput=e=>{ brushAuto=false; setBrush(+e.target.value); };
+/* paintCursor straight away, so the preview box jumps to the cell the
+   moment it is turned on rather than on the next mouse move. */
+$('gsnap').onclick=()=>{ toggle('gsnap'); paintCursor(); };
 $('rcgo').onclick=()=>recolour(false);
 $('rcerase').onclick=()=>recolour(true);
 $('rcnone').onclick=rcClear;

@@ -77,8 +77,19 @@ test.describe('rules reaching the group', () => {
     const patch = r.sent.find(s => s.method === 'PATCH' && s.url.indexOf('/collections') >= 0);
     expect(patch, 'the collection was patched').toBeTruthy();
     const body = JSON.parse(patch.body);
-    expect(Object.keys(body).sort(), 'all three travel together')
-      .toEqual(['decide_order', 'decisions', 'rules']);
+    /* FOUR NOW, and the list is asserted exactly rather than loosened to
+       "contains", because the point of it is that this PATCH sends the whole
+       shared bundle and nothing else - a field creeping in unnoticed is what
+       an exact list is for, and it did its job when the fourth arrived.
+
+       empty_chance rides here on purpose: shareRules already knows whether
+       there is a group and already carries a signature so an unchanged
+       project sends nothing, and a second sender would be a second copy of
+       both decisions. */
+    expect(Object.keys(body).sort(), 'all four travel together')
+      .toEqual(['decide_order', 'decisions', 'empty_chance', 'rules']);
+    expect(typeof body.empty_chance, 'the empty chance goes as a number')
+      .toBe('number');
     expect(JSON.stringify(body.rules), 'the rule is in it').toContain('hair/bob');
     expect(body.decisions.length, 'and so is the answer behind it').toBe(1);
     expect(body.decisions[0].ok, 'recorded as a no').toBe(false);

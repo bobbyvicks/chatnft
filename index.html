@@ -1266,6 +1266,8 @@ footer .mono{color:var(--ink);}
       <span class="count" id="reviewcount"></span>
       <div class="acts">
         <button class="mini" id="reviewload">Load a review queue</button>
+        <button class="mini" id="colexport"
+          title="Package the approved traits with a manifest of ids, names, hashes and canvas sizes, the paint order, both rule formats, the name mapping, and a plain statement of whether the review is finished.">Export the collection</button>
       </div>
     </div>
     <p class="note" id="reviewnote" hidden></p>
@@ -3584,6 +3586,16 @@ function sizeCensus(items){
     detail:odd.map(e=>e[0]+": "+e[1].join(", ")).join(" \u00b7 ") };
 }
 
+/* The SHA-256 of some bytes, as hex. Lifted out of bulkImport, where it was
+   a closure: two spellings of this is two chances for the manifest and the
+   importer to disagree about whether a file has changed. Null on failure,
+   never a wrong answer - the same rule the import already followed. */
+async function sha256Of(buf){
+  try{
+    const h=await crypto.subtle.digest("SHA-256",buf);
+    return [...new Uint8Array(h)].map(v=>v.toString(16).padStart(2,"0")).join("");
+  }catch(_){ return null; }
+}
 function zip(files){
   const enc=new TextEncoder(), parts=[], central=[];
   let off=0;
@@ -7829,12 +7841,11 @@ async function bulkImport(files){
      collection once per incoming file - 272 traits against 272 files is
      74,000 reads of the same blobs. */
   const sigCache=new Map();
+  /* Through the shared one, so the number in the manifest and the number
+     this compares against are the same number. */
   async function fileSig(b){
-    try{
-      const buf=await b.arrayBuffer();
-      const h=await crypto.subtle.digest("SHA-256",buf);
-      return [...new Uint8Array(h)].map(v=>v.toString(16).padStart(2,"0")).join("");
-    }catch(_){ return null; }   /* no hash means no match, never a false one */
+    try{ return await sha256Of(await b.arrayBuffer()); }
+    catch(_){ return null; }   /* no hash means no match, never a false one */
   }
   async function recSig(rec){
     if(sigCache.has(rec.id)) return sigCache.get(rec.id);
@@ -14692,6 +14703,12 @@ $('ruleadd').onclick=async()=>{
 $('ruleimport').onclick=()=>$('rulefile').click();
 $('ruleclear').onclick=clearRules;
 $('reviewload').onclick=()=>$('reviewfile').click();
+$('colexport').onclick=async()=>{
+  const b=$('colexport');
+  b.disabled=true; b.textContent='Packaging\u2026';
+  try{ await exportCollection(); }
+  finally{ b.disabled=false; b.textContent='Export the collection'; }
+};
 $('reviewfile').onchange=async e=>{
   const f=e.target.files&&e.target.files[0];
   /* Cleared so choosing the same file twice fires again. */
@@ -14878,6 +14895,114 @@ $('rulefile').onchange=async(e)=>{
    NOTHING IS APPROVED BY BEING LOADED. The handoff is explicit that earlier
    approval is not final-pass approval, and the file arrives with 316 pending
    for exactly that reason. */
+/* THE COLLECTION, PACKAGED.
+
+   traits/<layer>/<name>.png    approved only, exact bytes, nothing else
+   manifest.json                ids, names, hashes, sizes, order, progress
+   rules/launchmynft.json       the conditions, as LaunchMyNFT reads them
+   rules/never-together.json    the same rules in this app's own shape
+   names.csv                    original to final, for everything renamed
+   review-status.txt            whether this is finished, in words
+
+   The image tree holds images. Everything else sits beside it, which is what
+   the handoff means by keeping the launch tree clean. */
+const COLLECTION_FORMAT="chatnft-collection", COLLECTION_VERSION=1;
+async function exportCollection(){
+  const note=$("reviewnote");
+  const say=m=>{ if(note){ note.hidden=false; note.textContent=m; } };
+  let all=[]; try{ all=await dbAll(); }catch(_){ }
+  const traits=all.filter(i=>i.kind==="trait");
+  if(!traits.length){ say("There is nothing here to export."); return false; }
+  const approved=traits.filter(t=>(t.status||"wip")==="approved");
+  if(!approved.length){
+    say("No trait is approved, so there is no collection to package. Set a"
+      +" status on the shelf first.");
+    return false;
+  }
+  const safe=s=>String(s||"").replace(/[^a-z0-9._ -]+/gi,"-").trim()||"trait";
+  const files=[], rows=[], seen=new Set();
+  let unhashed=0;
+  for(const t of approved){
+    let bytes=null;
+    try{ bytes=new Uint8Array(await t.blob.arrayBuffer()); }catch(_){ continue; }
+    const dir="traits/"+safe(t.layer||"unsorted")+"/";
+    let path=dir+safe(t.name)+".png", k=2;
+    while(seen.has(path)) path=dir+safe(t.name)+"-"+(k++)+".png";
+    seen.add(path);
+    files.push({name:path, data:bytes});
+    const sha=await sha256Of(bytes.buffer);
+    if(!sha) unhashed++;
+    const e=entryForTrait(t);
+    rows.push({id:t.reviewId||null, name:t.name, layer:t.layer||"unsorted",
+      status:t.status||"wip", w:t.w||null, h:t.h||null, sha256:sha, path:path,
+      originalName:e?reviewBase(e.originalName):null,
+      artworkAccepted:!!(e&&e.artworkAccepted), nameAccepted:!!(e&&e.nameAccepted)});
+  }
+  /* EVERY TRAIT IS ACCOUNTED FOR, including the ones that did not go in the
+     image tree. Dropping them silently is how a collection ships short with
+     nothing to point at. */
+  const held=traits.filter(t=>(t.status||"wip")!=="approved")
+    .map(t=>({name:t.name, layer:t.layer||"unsorted", status:t.status||"wip"}));
+  /* Progress, from the queue when there is one. Without a pass started this
+     is not "finished", it is "never begun", and the manifest says which. */
+  const rev=REVIEW?{
+    started:true, revision:REVIEW.revision||null, total:REVIEW.entries.length,
+    finished:REVIEW.entries.filter(e=>e.artworkAccepted&&e.nameAccepted).length,
+    artworkOnly:REVIEW.entries.filter(e=>e.artworkAccepted&&!e.nameAccepted).length,
+    nameOnly:REVIEW.entries.filter(e=>!e.artworkAccepted&&e.nameAccepted).length,
+    skipped:REVIEW.entries.filter(e=>e.skipped).length,
+  }:{started:false, total:0, finished:0};
+  rev.complete = !!(rev.started && rev.total && rev.finished===rev.total);
+  const manifest={format:COLLECTION_FORMAT, version:COLLECTION_VERSION,
+    createdAt:new Date().toISOString(),
+    revision:(REVIEW&&REVIEW.revision)||null,
+    order:LAYERS.slice(), grid:projectGrid, emptyChance:emptyChance,
+    reviewComplete:rev.complete, review:rev,
+    counts:{packaged:rows.length, notPackaged:held.length, layers:
+      [...new Set(rows.map(r=>r.layer))].length},
+    traits:rows, notPackaged:held};
+  const enc=s=>new TextEncoder().encode(s);
+  files.push({name:"manifest.json", data:enc(JSON.stringify(manifest,null,2))});
+  /* Both rule shapes: the one LaunchMyNFT imports, and this app's own, so a
+     package can be read back without going through a converter. */
+  const rx=exportRules(traits);
+  if(rx.rules.length)
+    files.push({name:"rules/launchmynft.json", data:enc(JSON.stringify(rx.rules,null,2))});
+  if(RULES.length)
+    files.push({name:"rules/never-together.json",
+      data:enc(JSON.stringify(RULES.map(g=>g.slice()),null,2))});
+  /* The mapping, for everything whose name moved during the pass. */
+  const renamed=rows.filter(r=>r.originalName&&r.originalName!==r.name);
+  files.push({name:"names.csv", data:enc("layer,original,final\n"
+    +renamed.map(r=>[r.layer,r.originalName,r.name]
+      .map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(",")).join("\n")+"\n")});
+  /* IN WORDS, beside the manifest. Somebody opening this zip should not have
+     to read JSON to find out whether it is finished. */
+  const status = rev.complete
+    ? "REVIEW COMPLETE. All "+rev.total+" entries have both the artwork and the name accepted."
+    : rev.started
+      ? "REVIEW INCOMPLETE. "+rev.finished+" of "+rev.total+" entries are finished."
+        +" These files are NOT a finally approved collection."
+      : "NO REVIEW PASS HAS BEEN STARTED. Nothing here has been through the"
+        +" final pass, so no file in it is finally approved.";
+  files.push({name:"review-status.txt", data:enc(status+"\n"
+    +"Packaged: "+rows.length+" approved trait(s).\n"
+    +"Not packaged: "+held.length+" trait(s) that are not approved.\n")});
+  const b=zip(files), u=URL.createObjectURL(b), a=document.createElement("a");
+  a.href=u;
+  a.download="chatnft-collection"+((REVIEW&&REVIEW.revision)?"-"+safe(REVIEW.revision):"")+".zip";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(u),1500);
+  const bits=["Packaged "+rows.length+" approved trait"+(rows.length===1?"":"s")];
+  if(held.length) bits.push(held.length+" not approved "+(held.length===1?"was":"were")
+    +" listed but not included");
+  if(unhashed) bits.push(unhashed+" could not be hashed");
+  bits.push(rev.complete?"the review is complete"
+    :rev.started?("the review is NOT complete - "+rev.finished+" of "+rev.total+" finished")
+    :"no review pass has been started, so nothing here is finally approved");
+  say(bits.join(". ")+".");
+  return true;
+}
 async function importReviewQueue(f){
   if(!f) return false;
   const note=$("reviewnote"); if(note) note.hidden=false;

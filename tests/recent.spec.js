@@ -185,15 +185,35 @@ test.describe('the last edited list', () => {
     expect(page.url(), 'and the address follows, so back works').toContain('#/project');
   });
 
-  test('and a row opens the trait', async ({ page }) => {
+  test('and a row opens the trait, for real', async ({ page }) => {
+    /* THIS TEST USED TO STUB startEditor, WHICH IS WHY IT PASSED WHILE THE
+       FEATURE WAS BROKEN. The row called startEditor(t) - handing a record to
+       a function whose first three arguments are pixels, a width and a height
+       - so art.width became undefined, the editor opened 0x0, and the
+       try/catch around it said nothing. A stub that records its first argument
+       is happy either way.
+
+       Now it opens the real editor and reads the canvas that resulted, plus
+       the three fields and openRec, because those are what make a subsequent
+       save update this trait instead of minting a second one beside it. */
     await seed(page, TWELVE);
     await gotoPage(page, 'home');
-    await page.evaluate(() => { window.__opened = null;
-      window.__realStart = startEditor;
-      startEditor = (rec) => { window.__opened = rec && rec.name; }; });
     await page.click('#recentbody .rrow');
-    await page.waitForTimeout(150);
-    expect(await page.evaluate(() => window.__opened)).toBe('b-newest');
+    await page.waitForTimeout(300);
+    const r = await page.evaluate(() => ({
+      appShown: !document.getElementById('app').hidden,
+      w: document.getElementById('art').width,
+      h: document.getElementById('art').height,
+      name: document.getElementById('tname').value,
+      layer: document.getElementById('tlayer').value,
+      openRecName: (typeof openRec !== 'undefined' && openRec) ? openRec.name : null,
+    }));
+    expect(r.appShown, 'the editor actually opened').toBe(true);
+    expect([r.w, r.h], 'on a real canvas, not 0x0').toEqual([8, 8]);
+    expect(r.name, 'the newest one').toBe('b-newest');
+    expect(r.layer).toBe('eyes');
+    expect(r.openRecName, 'and a save will update it rather than duplicate it')
+      .toBe('b-newest');
   });
 
   test('and the list follows what the project actually holds',

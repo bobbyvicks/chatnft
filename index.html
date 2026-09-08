@@ -1965,6 +1965,11 @@ let brush=1;
    returned a 160 canvas with a slider running to 80 and a brush of 20 sitting
    under it. An operation the artist took back had resized their tool. */
 let brushWanted=1;
+/* Whether the brush still follows the art. True until the slider or the
+   bracket keys are used, because a size somebody chose on purpose must
+   survive moving to the next trait - otherwise every open would overrule
+   them, which in a 317-trait pass is 317 times. */
+let brushAuto=true;
 
 /* ================= measurement ==================================
    Ported from an audit of a real trait set. The key idea: a grid shows
@@ -1999,6 +2004,36 @@ function strength(p,q,B){
 }
 /* A perfect grid of period P also scores 1.0 at P/2, P/3 ... so the peak
    alone is ambiguous. The fundamental is the LARGEST B still near the max. */
+/* The block size of an image, in pixels, or 1 for native art.
+
+   The same two steps the analyse screen runs, in a function, because a
+   saved trait opened from the shelf needs the answer just as much and had
+   no way to ask. Wrapped, because this now runs on every open and a throw
+   in a measurement must not stop a trait opening. */
+function measuredBlock(d,W,H){
+  try{
+    const t=transitions(d,W,H);
+    /* The second axis only when the first has nothing to say. Measured on a
+       1280 trait: 28ms for x, 24ms more for a y that is never read when x
+       succeeded, on a path that now runs every time a trait is opened. */
+    const px=period(t.x.p,t.x.q,W);
+    const B=px?px.B:((py=>py?py.B:null)(period(t.y.p,t.y.q,H)));
+    /* The same threshold the analyse screen uses. Below it the honest
+       answer is native art: one cell is one pixel. */
+    return (B&&B>=1.5)?Math.round(B):1;
+  }catch(_){ return 1; }
+}
+/* Adopting a measured block: the grid the overlay draws, and the brush.
+
+   Both in one place so they cannot disagree about what the art is drawn in.
+   setBrush records it as brushWanted, so the existing ceiling logic pulls it
+   down on a small canvas and lets it back up on a big one, exactly as it
+   does for a size chosen by hand. */
+function adoptBlock(b){
+  gridBlock=(b&&b>=1.5)?Math.round(b):1;
+  if(brushAuto) setBrush(gridBlock);
+  return gridBlock;
+}
 function period(p,q,span){
   if(p.length<4) return null;
   const hi=Math.min(64,span/3);
@@ -3022,15 +3057,7 @@ async function renderShelf(){
       x.onclick=async ev=>{ ev.stopPropagation(); const gone=await dbDelShared(t); visibility.show(key); renderShelf(); toast(gone ? ('Removed '+t.name) : ('Removed '+t.name+' here, but the group still has it - it will come back')); };
       el.appendChild(x);
       el.onclick=async()=>{
-        const bm=await createImageBitmap(t.blob);
-        const c=document.createElement('canvas'); c.width=t.w; c.height=t.h;
-        const g=c.getContext('2d',{willReadFrequently:true});
-        g.imageSmoothingEnabled=false; g.drawImage(bm,0,0);
-        const d=g.getImageData(0,0,t.w,t.h);
-        fileName=t.name+'.png';
-        startEditor(d.data,t.w,t.h,t.w,t.h,palette(d.data,t.w*t.h,24,64),false);
-        $('tname').value=t.name; $('tlayer').value=t.layer; setChip('tstatus',t.status||'wip');
-        openRec=t;
+        if(!await openTraitRecord(t)) toast("Could not open "+(t.name||"that trait"));
       };
       grid.appendChild(el);
     }
@@ -3087,7 +3114,14 @@ function canvasDataUrl(){ return art.toDataURL('image/png'); }
    work in progress, not a trait leaving, and rewriting someone's pixels
    behind their back while they are still drawing is a different thing from
    holding what ships to a standard. */
-function traitCanvas(){
+/* `out`, when given, comes back carrying how many pixels the border rule
+   actually CHANGED - not how many are in the ring. On a normal trait the
+   ring is already black and the honest answer is zero; reporting the ring
+   size would warn about every save in the collection.
+
+   Optional because the two download paths do not ask, and the compare is a
+   full pass over the pixels. */
+function traitCanvas(out){
   const c=document.createElement("canvas");
   c.width=art.width; c.height=art.height;
   const g=c.getContext("2d"); g.imageSmoothingEnabled=false;
@@ -3112,7 +3146,17 @@ function traitCanvas(){
      shrinks the art inside it, so a small trait on a full canvas is still
      outlined - a 30x30 trait inside 160 loses about 13% of itself. Smaller
      than what is being fixed here, and a separate question. */
-  if(c.width>=projectGrid && c.height>=projectGrid) blackenEdge(im.data,c.width,c.height);
+  if(c.width>=projectGrid && c.height>=projectGrid){
+    const was = out ? im.data.slice() : null;
+    const ring = blackenEdge(im.data,c.width,c.height);
+    if(out){
+      let changed=0;
+      for(let i=0;i<was.length;i+=4)
+        if(was[i]!==im.data[i]||was[i+1]!==im.data[i+1]
+         ||was[i+2]!==im.data[i+2]||was[i+3]!==im.data[i+3]) changed++;
+      out.edgeRing=ring; out.edgeChanged=changed;
+    }
+  }
   g.putImageData(im,0,0);
   return c;
 }
@@ -3125,7 +3169,8 @@ async function saveTrait(){
   if(!ctx) return;
   const name=($('tname').value.trim()||fileName.replace(/\.png$/,'')||'trait').slice(0,60);
   const layer=$('tlayer').value||'unsorted';
-  const c=traitCanvas();
+  const edge={};
+  const c=traitCanvas(edge);
   const blob=await blobOf(c);
   try{
     /* Said at the moment it happens, when it is fresh and one undo away,
@@ -3141,6 +3186,14 @@ async function saveTrait(){
     const offGrid = !onCellGrid(art.width,art.height,gcells)
       ? " \u2014 saved at "+art.width+"\u00d7"+art.height+", which is not on the"
         +" collection's "+gcells+" cell grid"
+      : "";
+    /* SAID, because the file just written is not the canvas on screen.
+       The collection's border rule repaints the outermost opaque pixels
+       black, which on finished art is what they already were - so this is
+       silent on a normal save and speaks only when real colour changed. */
+    const edged = edge.edgeChanged
+      ? " \u2014 "+edge.edgeChanged+" edge pixel"+(edge.edgeChanged===1?"":"s")
+        +" set to black by the collection's border rule"
       : "";
     const status=chipVal('tstatus')||'wip';
     const id='t_'+name+'_'+layer+'_'+status;
@@ -3214,9 +3267,9 @@ async function saveTrait(){
          losing work because the network blinked would be worse than the stale
          copy it is meant to clean up. */
       toast((shared ? "Saved "+name+" and shared it with the group"
-        : "Saved "+name+" here only - could not reach the group. Press Save to cloud when you are back.")+offGrid);
+        : "Saved "+name+" here only - could not reach the group. Press Save to cloud when you are back.")+offGrid+edged);
     } else {
-      toast('Saved '+name+' to '+layer+'/'+status+offGrid);
+      toast('Saved '+name+' to '+layer+'/'+status+offGrid+edged);
     }
     return true;
   }catch(e){ toast('Could not save: '+(e&&e.name||'storage error')); return false; }
@@ -4686,7 +4739,10 @@ function analyse(im,file){
        block size in canvas cells and "snap: auto" has something real to use.
        Rebuilding makes one cell one pixel, where the only honest answer is 1. */
     const editRaw=()=>{ startEditor(d,w,h,w,h,pal,false);
-      gridBlock=(B&&B>=1.5)?Math.round(B):1; outlinePreview(); };
+      /* Through adoptBlock rather than assigning gridBlock, so the brush
+         follows the measurement here too - this screen has the number and
+         used to keep it to itself. */
+      adoptBlock(B); outlinePreview(); };
 
     // The measurement SUGGESTS a resolution, it does not decide. Telling
     // "already at native size" apart from "upscaled" proved unreliable on real
@@ -4776,6 +4832,42 @@ function analyse(im,file){
 /* ================= editor ======================================= */
 /* The gate is a picture; this is the lock. Without a session the editor
    does not open, whatever the scrim is doing. */
+/* OPENING A TRAIT THAT IS ALREADY SAVED, in one place.
+
+   Two callers: a shelf card and a Last edited row. The second was written
+   as startEditor(t) - handing the RECORD to a function whose first three
+   arguments are pixels, a width and a height - so the canvas opened 0x0 and
+   a try/catch around it said nothing.
+
+   Decoding the blob is the easy half. The half worth sharing is what must be
+   true afterwards: fileName, the three fields, and openRec - which is how
+   saveTrait knows it is updating something that exists rather than minting a
+   new trait beside it.
+
+   Returns false rather than throwing, because both callers are click
+   handlers and an unhandled rejection in one is silence. */
+async function openTraitRecord(t){
+  if(!t||!t.blob||!t.w||!t.h) return false;
+  let d;
+  try{
+    const bm=await createImageBitmap(t.blob);
+    const c=document.createElement("canvas"); c.width=t.w; c.height=t.h;
+    const g=c.getContext("2d",{willReadFrequently:true});
+    g.imageSmoothingEnabled=false; g.drawImage(bm,0,0);
+    d=g.getImageData(0,0,t.w,t.h);
+  }catch(_){ return false; }
+  fileName=t.name+".png";
+  startEditor(d.data,t.w,t.h,t.w,t.h,palette(d.data,t.w*t.h,24,64),false);
+  /* AFTER startEditor, which resets gridBlock to 1 and the brush to 1 by
+     design - its comment says callers that measured a block set it here. */
+  adoptBlock(measuredBlock(d.data,t.w,t.h));
+  $("tname").value=t.name; $("tlayer").value=t.layer;
+  setChip("tstatus",t.status||"wip");
+  /* LAST, because startEditor clears it - its own comment says so: "set by
+     callers that opened a saved record". */
+  openRec=t;
+  return true;
+}
 function startEditor(data,w,h,srcW,srcH,pal,recovered){
   if(!mayUse()) return;
   $('scrim').hidden=true; $('land').hidden=true; $('app').hidden=false;
@@ -5981,7 +6073,7 @@ function reclampBrush(){
 }
 /* One at a time. Walking a six-item list could not reach 5, 7 or anything
    above 8, and with a slider the exact number is the point. */
-function stepBrush(d){ setBrush(brush+d); }
+function stepBrush(d){ brushAuto=false; setBrush(brush+d); }
 /* Drawn from dab()'s own offset, not a second guess at it: if one changes the
    other has to, and a mismatch would be visible immediately. */
 function paintCursor(){
@@ -9020,13 +9112,43 @@ function applyRules(items){
    Takes {from,to} traitKeys so one trait and forty take the same path, and
    so the store is written once rather than once per trait. */
 async function retargetRules(pairs){
-  if(!RULES.length) return 0;
+  /* No early return on an empty RULES. A pair can have an ANSWER and no
+     rule - every "yes" is exactly that - and those are the ones with
+     nothing else keeping them reachable. The loop below over an empty
+     RULES is a no-op, which is all the guard ever bought. */
   const map=new Map();
   for(const p of (pairs||[])){
     if(!p||!p.from||!p.to||p.from===p.to) continue;
     map.set(p.from,p.to);
   }
   if(!map.size) return 0;
+  /* THE ANSWERS MOVE TOO, and they are not decoration: applyDecision mints
+     a rule from every "no" on load, so an answer left naming a dead key
+     rebuilds the rule this call just retargeted away. A "yes" is worse -
+     ok:true only REMOVES a rule and is recorded nowhere else, so a stranded
+     one is simply gone and the pair reads as never reviewed.
+
+     Same map, same call, same saveRules. Every gesture that moves a trait
+     already comes through here with its {from,to} pairs. */
+  let answers=0;
+  if(DECISIONS.length){
+    const moved=[];
+    for(const d of DECISIONS){
+      const a=map.get(d.a), b=map.get(d.b);
+      if(a===undefined&&b===undefined){ moved.push(d); continue; }
+      answers++;
+      const na=(a===undefined?d.a:a), nb=(b===undefined?d.b:b);
+      /* Both ends became the same trait. The pair no longer names two
+         things, so the answer has nothing left to be about - the same
+         reasoning by which a rule that collapses below two members stops
+         saying anything. */
+      if(na===nb) continue;
+      moved.push({a:na,b:nb,ok:d.ok,at:d.at,by:d.by,src:d.src});
+    }
+    /* Through mergeDecisions, because two answers can land on one pair once
+       their traits merge, and it already holds the policy for that. */
+    if(answers) DECISIONS=mergeDecisions(moved,[]);
+  }
   let touched=0;
   const next=[], seen=new Set();
   for(const g of RULES){
@@ -9048,8 +9170,10 @@ async function retargetRules(pairs){
     seen.add(id);
     next.push(grp);
   }
-  if(!touched) return 0;
-  RULES=next;
+  if(touched) RULES=next;
+  /* Either half is reason enough to write. Returning on !touched would drop
+     an answer remap that had just happened in memory. */
+  if(!touched&&!answers) return 0;
   await saveRules();
   return touched;
 }
@@ -10340,7 +10464,12 @@ function renderRecent(items){
     /* The whole row opens it, which is what a list of things you were just
        working on is for. */
     row.tabIndex=0; row.style.cursor="pointer";
-    const open=()=>{ try{ startEditor(t); }catch(_){} };
+    /* THE BUG THIS ROW SHIPPED WITH: startEditor(t) handed a record to a
+       function that wanted pixels, so the editor opened 0x0 and the catch
+       hid it. */
+    const open=async()=>{
+      if(!await openTraitRecord(t)) toast("Could not open "+(t.name||"that trait"));
+    };
     row.onclick=open;
     row.onkeydown=e=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); open(); } };
     body.appendChild(row);
@@ -14496,7 +14625,7 @@ $('cdl').onclick=()=>{
 };
 /* Passed explicitly. onclick=recolour would hand the click EVENT in as the
    first argument, and an event object is truthy - so Replace would erase. */
-$('bslider').oninput=e=>setBrush(+e.target.value);
+$('bslider').oninput=e=>{ brushAuto=false; setBrush(+e.target.value); };
 $('rcgo').onclick=()=>recolour(false);
 $('rcerase').onclick=()=>recolour(true);
 $('rcnone').onclick=rcClear;

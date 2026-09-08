@@ -348,6 +348,60 @@ test.describe('re-importing a folder you already imported', () => {
       expect(n, 'only the new one went up').toBe(1);
     });
 
+  test('and it asks who you are ONCE, not once per file', async ({ page }) => {
+    /* cloudSyncOne takes a ctx exactly so a caller holding the user and the
+       collection does not make it derive them again - its own comment measures
+       the cost of not passing one at 40% of a 60-trait push. Folder import
+       passed nothing, so every uploaded file bought its own sbUser() and
+       cloudCollection(). On the 317-trait v11 folder that is 634 round trips
+       asking two questions that cannot change while the import runs.
+
+       COUNTED, NOT TIMED. A duration is a different number every run and would
+       have to be given a threshold nobody can defend; the request count is the
+       thing that was actually wrong.
+
+       THE REAL cloudSyncOne RUNS. The first version of this test stubbed it,
+       which put the instrument on the wrong side of the thing being measured:
+       the per-file sbUser() and cloudCollection() live INSIDE cloudSyncOne, so
+       a stub made both counters read zero and the assertion passed just as
+       happily against the unfixed code. Here only the transport is stubbed -
+       the storage PUT and the two row requests - so the function does its own
+       lookups exactly as it would in a group. */
+    await page.evaluate(async () => { activeWs = 'team1'; await dbClear(); });
+    await page.evaluate(async () => {
+      localStorage.setItem('chatnft.session', JSON.stringify({
+        access_token: 'not-a-real-token', refresh_token: 'not-a-real-refresh',
+        expires_at: Math.floor(Date.now() / 1000) + 3600, user: { id: 'u-me' } }));
+      cloudTeamId = null;
+      window.__n = { user: 0, collections: 0, uploads: 0 };
+      const real = window.fetch;
+      const json = (x) => new Response(JSON.stringify(x),
+        { status: 200, headers: { 'Content-Type': 'application/json' } });
+      window.fetch = (u, o) => {
+        const s = String(u), m = (o && o.method) || 'GET';
+        if (s.indexOf('/auth/v1/user') >= 0) { window.__n.user++; return Promise.resolve(json({ id: 'u-me' })); }
+        if (s.indexOf('/rest/v1/collections') >= 0) { window.__n.collections++; return Promise.resolve(json([{ id: 'c1', layers: [] }])); }
+        if (s.indexOf('/rpc/my_team') >= 0) return Promise.resolve(json('team1'));
+        if (s.indexOf('/storage/v1/object/traits/') >= 0 && m === 'POST') {
+          window.__n.uploads++; return Promise.resolve(json({}));
+        }
+        if (s.indexOf('/rest/v1/traits') >= 0) return Promise.resolve(json([{ id: 'row-1' }]));
+        return real(u, o);
+      };
+    });
+    /* Six files, so "once per file" and "once per import" are different
+       numbers. Two would be too few to tell a constant from a small slope. */
+    const six = ['a', 'b', 'c', 'd', 'e', 'f'].map(n =>
+      ({ path: 'col/eyes/approved/' + n + '.png', seed: n }));
+    await importFiles(page, six);
+    const n = await page.evaluate(() => window.__n);
+    expect(n.uploads, 'all six went up').toBe(6);
+    expect(n.user, 'asked who is signed in once for the whole import')
+      .toBeLessThanOrEqual(1);
+    expect(n.collections, 'and which collection this is, once')
+      .toBeLessThanOrEqual(1);
+  });
+
   test('and an unchanged file keeps the server row it was already on',
     async ({ page }) => {
       // Losing rowId makes the next push delete and re-insert rather than

@@ -7561,6 +7561,30 @@ async function bulkImport(files){
     return s;
   }
   const writtenIds=new Set();
+  /* WHO AND WHERE, worked out ONCE for the whole import.
+
+     cloudSyncOne accepts a ctx so that a caller already holding these does
+     not make it derive them per record; its own comment measures the cost of
+     not passing one at 40% of a 60-trait push. This path passed nothing, so
+     every uploaded file bought its own sbUser() and cloudCollection() -
+     cloudTeam caches, those two do not. On a 317-trait folder that is 634
+     round trips asking two questions that cannot change while it runs.
+
+     u and c only. sbHeaders is deliberately left out: sbToken returns the
+     stored token with no request unless it is within a minute of expiring,
+     so asking each time is free and a long import cannot end up carrying a
+     header that went stale halfway through.
+
+     On first use rather than up front, because a re-import of an unchanged
+     folder uploads nothing and should not pay to find that out. */
+  let pushCtx=null;
+  async function uploadCtx(){
+    if(!pushCtx){
+      const u=await sbUser();
+      pushCtx={u:u, team:await cloudTeam(), c:u?await cloudCollection(u):null};
+    }
+    return pushCtx;
+  }
   /* Ids this import brought that were NOT in the project before. Only these
      can absorb an older record under the merge below: a rename means a new
      name arrived carrying artwork that is already here, and a file that was
@@ -7603,7 +7627,7 @@ async function bulkImport(files){
            hundred instead of one at a time - so in a group they go up too.
            Without this, importing a folder into a shared project put nothing
            anywhere anyone else could reach, and said "Imported 40 files". */
-        if(activeWs) await cloudSyncOne(rrec);
+        if(activeWs) await cloudSyncOne(rrec, await uploadCtx());
         refs++;
       }else{
         /* Before the id is built from it - the id is
@@ -7755,7 +7779,7 @@ async function bulkImport(files){
         supplied.push({name:info.name, layer:layer, status:status, id:trec.id});
         shelfItems.push(trec);
         wroteThisRun.push(trec);
-        if(activeWs) await cloudSyncOne(trec);
+        if(activeWs) await cloudSyncOne(trec, await uploadCtx());
         perLayer[layer]=(perLayer[layer]||0)+1;
       }
       ok++;
@@ -9771,6 +9795,38 @@ function decideOrder(){
   const named=[...new Set(DECIDE_ORDER)].filter(l=>LAYERS.indexOf(l)>=0);
   const seen=new Set(named);
   return named.concat(LAYERS.filter(l=>!seen.has(l)));
+}
+/* THE ORDER LAYERS ARE PAINTED IN, taken from a file that states it.
+
+   Not the same as the decide order beside it. decideOrder answers "which
+   layer picks first" and is worked out from the rules; this is LAYERS, the
+   back-to-front paint order, and until now nothing but the up and down
+   buttons could change it - fourteen layers being about forty presses.
+
+   ONLY LAYERS THIS PROJECT HAS. A name the file lists and the project does
+   not is left alone rather than created: the rules import already refuses
+   rules for a missing layer and tells you to import the trait folders
+   first, and inventing an empty layer here would disagree with that.
+
+   AND NONE IS DROPPED. A layer the file does not mention keeps its relative
+   place after the ones it does - which paints it last - and the count comes
+   back so the report can say so. The length check is not decoration: losing
+   a layer here would strand every trait on it.
+
+   Returns null when there is nothing to do, so an unchanged order does not
+   report itself as a change. */
+async function applyPaintOrder(order){
+  const want=[...new Set((order||[]).map(String))].filter(l=>LAYERS.indexOf(l)>=0);
+  if(!want.length) return null;
+  const named=new Set(want);
+  const rest=LAYERS.filter(l=>!named.has(l));
+  const next=want.concat(rest);
+  if(next.length!==LAYERS.length) return null;
+  if(next.join("\u0000")===LAYERS.join("\u0000")) return null;
+  LAYERS=next;
+  await saveLayers();
+  buildLayerSelect();
+  return {moved:want.length, unnamed:rest};
 }
 /* Written whenever something works out an order - today that is the rules
    import, which knows which layer is the condition and which is the target. */
@@ -14274,15 +14330,45 @@ async function importRuleFile(f){
   if(!f) return;
   const note=$("ruleimportnote"); note.hidden=false;
   note.textContent="Reading "+f.name+"...";
-  let plan;
+  let plan, fileOrder=null;
   try{
     const parsed=JSON.parse(await f.text());
+    /* TWO SHAPES OF THE SAME THING. A bare array of rules, or the collection
+       object { revision, order, names, rules } that the trait records ship.
+       planRuleImport refuses anything that is not an array, so the second
+       used to be readable only by the removed v7 button. Anything that is
+       neither is passed through unchanged, so its error message is still the
+       one that names the real problem. */
+    const doc = Array.isArray(parsed) ? parsed
+      : (parsed && Array.isArray(parsed.rules) ? parsed.rules : parsed);
+    if(parsed && !Array.isArray(parsed) && Array.isArray(parsed.order))
+      fileOrder=parsed.order.map(String).filter(Boolean);
     let items=[]; try{ items=await dbAll(); }catch(_){ }
-    plan=planRuleImport(parsed, items.filter(i=>i.kind==="trait"));
+    plan=planRuleImport(doc, items.filter(i=>i.kind==="trait"));
   }catch(err){
     note.textContent="Could not read that file: "+(err&&err.message?err.message:"it is not valid JSON")+".";
     return;
   }
+  /* THE ORDER APPLIES EVEN WHEN NO RULE DOES, so it happens before the
+     check below rather than after it.
+
+     planRuleImport matches rules by trait NAME, so a project that has the
+     right layers but not yet the right traits produces no groups at all -
+     which is exactly the state somebody is in when they follow the message
+     below and import the rules before the trait folders. A file saying
+     backgrounds paints behind hats is not made untrue by that.
+
+     Safe because applyPaintOrder only moves layers this project already
+     has: a file about a different collection still moves nothing. */
+  let painted=null;
+  try{ painted=await applyPaintOrder(fileOrder); }catch(_){ painted=null; }
+  const paintSaid = painted
+    ? " The paint order is now the file's ("+painted.moved+" layers, back to front)."
+      +(painted.unnamed.length ? " "+painted.unnamed.length+" layer"
+        +(painted.unnamed.length===1?"":"s")+" it does not mention "
+        +(painted.unnamed.length===1?"is":"are")+" painted last ("
+        +painted.unnamed.join(", ")+")." : "")
+    : "";
   /* NOTHING MATCHED IS NOT A SUCCESSFUL IMPORT OF NOTHING. The usual cause
      is a project whose layers are not the ones the file names, and saying
      which layers are missing is the fix. */
@@ -14290,7 +14376,8 @@ async function importRuleFile(f){
     note.textContent="Nothing to import. "+(plan.missingLayers.length
       ? "This project has no layer called "+[...new Set(plan.missingLayers)].slice(0,5).join(", ")
         +" - import the trait folders first."
-      : "The file named "+plan.actions+" restrictions and none of them applied to a trait in this project.");
+      : "The file named "+plan.actions+" restrictions and none of them applied to a trait in this project.")
+      +paintSaid;
     return;
   }
   const before=RULES.length;
@@ -14338,6 +14425,10 @@ async function importRuleFile(f){
   if(ordered) bits.push("layers now decide in the order "+DECIDE_ORDER.filter(l=>
     plan.edges.some(e=>e[0]===l||e[1]===l)).join(", "));
   else bits.push("the rules disagree about which layer decides first, so the decide order was left alone");
+  /* SAID, because it changes what every character looks like. A layer the
+     file did not mention is now painted over the ones it did. One sentence,
+     built once above, so the two messages cannot describe it differently. */
+  if(paintSaid) bits.push(paintSaid.trim().replace(/\.$/,"").replace(/^The /,"the "));
   const miss=[...new Set(plan.missingTraits)];
   if(miss.length) bits.push(miss.length+" trait"+(miss.length===1?"":"s")+" named by the file "+(miss.length===1?"is":"are")+" not in this project"
     +(miss.length<=6?" ("+miss.join(", ")+")":"")+", so nothing keeps them apart");

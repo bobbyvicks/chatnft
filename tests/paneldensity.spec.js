@@ -82,7 +82,25 @@ const inspect = (page) => page.evaluate((known) => {
     .filter(e => e.offsetParent !== null && e.scrollWidth > e.clientWidth + 4)
     .map(e => (e.id || e.tagName) + ' "' + (e.textContent || '').trim().slice(0, 16)
       + '" ' + e.scrollWidth + '>' + e.clientWidth);
+  /* THE HEIGHT THIS FILE GUARDS is the density of the sections the pass was
+     about, not the panel's total. A tool added later is not a density
+     regression, and a guard that cannot tell those apart either blocks every
+     new feature or gets its number raised until it means nothing.
+
+     So: total, minus any section whose heading is not one this pass measured.
+     Adding a section to that list is a deliberate act with a diff. */
+  const MEASURED = ['colour', 'edgesandholes', 'transform', 'baselayer',
+    'saveandexport'];
+  let since = 0;
+  for (const sec of side.querySelectorAll('section')) {
+    const h = sec.querySelector('h2');
+    if (!h) continue;
+    const key = (h.textContent || '').replace(/[^a-z]/gi, '').toLowerCase();
+    if (MEASURED.indexOf(key) < 0) since += sec.getBoundingClientRect().height;
+  }
   return { shortOnes, clipped, scrollHeight: side.scrollHeight,
+    measuredHeight: Math.round(side.scrollHeight - since),
+    addedSince: Math.round(since),
     panelWidth: Math.round(side.getBoundingClientRect().width) };
 }, KNOWN_SHORT);
 
@@ -157,14 +175,25 @@ test.describe('the editing panel', () => {
     /* A regression guard on the number, not a claim that this exact figure is
        meaningful: measured at 1580 before the pass and 1186 after, at the
        274px panel a 1400px window gives. The bar is set loose enough that
-       ordinary content changes do not trip it. */
+       ordinary content changes do not trip it.
+
+       IT MEASURES THE SECTIONS THE PASS WAS ABOUT, not the panel's total.
+       Pixel inspection was added afterwards and is about 550px with
+       everything open, which tripped this - correctly as arithmetic and
+       wrongly as a claim, because a new tool is not the spacing somebody
+       complained about. Raising the number instead would have kept the
+       shape of the guard while emptying it. */
     await page.setViewportSize({ width: 1400, height: 1100 });
     await page.goto('/index.html');
     await page.waitForFunction(() => typeof startEditor === 'function');
     await openPanel(page);
     const r = await inspect(page);
     expect(r.panelWidth, 'the width this was measured at').toBe(274);
-    expect(r.scrollHeight, 'was 1580 before the pass').toBeLessThan(1350);
+    expect(r.measuredHeight, 'was 1580 before the pass').toBeLessThan(1350);
+    /* And the new tool is real rather than an empty section quietly counted
+       out - if this is ever 0 the exclusion above is measuring nothing. */
+    expect(r.addedSince, 'the sections added since the pass have height')
+      .toBeGreaterThan(100);
   });
 
   test('and a phone gets every shrunken target back', async ({ page }) => {

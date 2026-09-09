@@ -98,6 +98,8 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
   font-size:12px; line-height:1.45; white-space:pre; margin:8px 0;}
 .agjob{display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:6px 0;}
 .agjob code{font-size:12px; color:var(--muted);}
+#agswatches{display:flex; flex-wrap:wrap; gap:2px; margin:6px 0;}
+.agsw{width:14px; height:14px; border-radius:2px; border:1px solid var(--line);}
 .pagenav{display:flex; gap:6px; flex-wrap:wrap; justify-content:center;}
 .pgtab{font:inherit; font-size:13px; color:var(--muted); background:var(--panel);
   border:1px solid var(--line); border-radius:999px; padding:7px 15px; cursor:pointer;}
@@ -702,6 +704,12 @@ canvas{display:block; image-rendering:pixelated; cursor:crosshair; touch-action:
 /* Above the outline preview, and never in the way of a brush stroke. */
 #qapv{position:absolute; left:0; top:0; display:none; pointer-events:none; z-index:3;
   image-rendering:pixelated;}
+/* Above everything, because the whole point is to hide what is under it. */
+#cmppv{position:absolute; left:0; top:0; display:none; pointer-events:none; z-index:4;
+  image-rendering:pixelated;}
+#aglog{display:flex; flex-direction:column; gap:2px; margin:6px 0; font-size:12px;}
+.agstep{color:var(--muted);}
+.agstep b{color:var(--ink); font-weight:600;}
 #qalist{display:flex; flex-direction:column; gap:2px; margin:4px 0;}
 .qafind{display:flex; align-items:center; gap:6px;}
 .qafind button{flex:1; text-align:left;}
@@ -1165,6 +1173,12 @@ footer .mono{color:var(--ink);}
       <span class="note">stage a PNG from this site's imports folder, then
         <code>PB.openLinked()</code> to open it as it is</span>
     </div>
+    <div class="rule"></div>
+    <h2>Collection rules</h2>
+    <p class="note">Settled once, read by every job. The palette is fixed.</p>
+    <p class="note mono" id="agrules">-</p>
+    <div id="agswatches" aria-label="The fixed palette"></div>
+    <div class="rule"></div>
     <p class="note mono" id="agstatus">Nothing run yet.</p>
     <div id="agout" hidden></div>
     <div class="btnrow">
@@ -1602,7 +1616,7 @@ footer .mono{color:var(--ink);}
   </nav>
 
   <main class="stage" id="stage">
-    <div class="frame" id="frame"><canvas id="base"></canvas><canvas id="art"></canvas><div id="grid"></div><canvas id="olpv"></canvas><canvas id="qapv"></canvas><div id="bcur"></div>
+    <div class="frame" id="frame"><canvas id="base"></canvas><canvas id="art"></canvas><div id="grid"></div><canvas id="olpv"></canvas><canvas id="qapv"></canvas><canvas id="cmppv"></canvas><div id="bcur"></div>
       <div id="tbox" aria-hidden="true">
         <div class="tline"></div><div class="tang" id="tang"></div>
         <div class="th tc" data-h="nw"></div><div class="th" data-h="n"></div><div class="th tc" data-h="ne"></div>
@@ -1770,6 +1784,21 @@ footer .mono{color:var(--ink);}
       </div>
       <p class="note"><span class="mono" id="rsnow">-</span></p>
       <p class="note"><span class="mono" id="blknow">-</span></p>
+    </section>
+    <section>
+      <h2>Agent</h2>
+      <div class="stack">
+        <p class="note mono" id="agwork">Nothing open.</p>
+        <button class="btn ghost" id="agspec">Check against the spec</button>
+        <button class="btn ghost" id="agplace">Check the placement</button>
+        <p class="note mono" id="agplaceout"></p>
+        <p class="note mono" id="agspecout"></p>
+        <button class="btn ghost" id="agbefore"
+          title="Hold to see the trait as it arrived. Nothing is changed by looking.">Hold to see before</button>
+        <div id="aglog"></div>
+        <p class="note">Every step that changes pixels writes itself here with
+          its own count, so the log cannot drift from what was done.</p>
+      </div>
     </section>
     <section>
       <h2>Pixel inspection</h2>
@@ -2233,7 +2262,17 @@ function measuredBlock(d,W,H){
 function adoptBlock(b){
   gridBlock=(b&&b>=1.5)?Math.round(b):1;
   if(brushAuto) setBrush(gridBlock);
-  try{ buildPixelSizes(gridBlock); pixelSizeReport(); }catch(_){ }
+  /* THE RULE FIRST, THE MEASUREMENT WHERE THERE IS NONE. A trait on a layer
+     the collection has already decided about should arrive set to that
+     decision; a measurement that is right about the art and silent about the
+     collection is how somebody ends up repeating a settled parameter. */
+  let wantBlock=gridBlock;
+  try{
+    const ruled=ruleGridFor($("tlayer")?$("tlayer").value:"");
+    if(ruled) wantBlock=ruled;
+  }catch(_){ }
+  try{ buildPixelSizes(wantBlock); pixelSizeReport(); }catch(_){ }
+  try{ agentWorkShow(); }catch(_){ }
   /* The inspection grid offers the measured size too, and defaults to it. */
   try{ qaBuildCells(); }catch(_){ }
   return gridBlock;
@@ -2980,6 +3019,7 @@ async function renderShelf(){
   try{ mailShow(); }catch(_){}
   applyDecisions(items);
   applyReview(items);
+  applyAgentRules(items);
   const traits=items.filter(i=>i.kind==='trait');
   const visibility=currentShelfVisibility();
   const liveTraitKeys=new Set(traits.map(shelfCore.recordKey));
@@ -5234,12 +5274,28 @@ async function openTraitRecord(t,opts){
     g.imageSmoothingEnabled=false; g.drawImage(bm,0,0);
     d=g.getImageData(0,0,src.w,src.h);
   }catch(_){ return false; }
+  /* A new trait is a new pass. Carrying the previous trait's log over would
+     credit this one with work done to something else. */
+  AGENT_LOG=[];
+  try{ agentLogShow(); }catch(_){ }
   fileName=t.name+".png";
   startEditor(d.data,src.w,src.h,src.w,src.h,palette(d.data,src.w*src.h,24,64),false);
+  /* THE IDENTITY FIRST, because the block that follows reads it.
+
+     adoptBlock looks up the collection rule for this trait's LAYER, and
+     these three lines used to come after it - so the lookup asked about
+     whatever buildLayerSelect had just defaulted the select to, which is
+     "unsorted". Unsorted has no exemption, so it returned the body grid and
+     the answer looked right. It would have forced a chains or eyes trait
+     onto the 8px grid the standing decision keeps them off, and the panel
+     would have said so in the wrong layer's name.
+
+     They cannot move any earlier: startEditor resets these fields by
+     design. This is the first moment they can hold the truth. */
+  $("tname").value=t.name; $("tlayer").value=t.layer;
   /* AFTER startEditor, which resets gridBlock to 1 and the brush to 1 by
      design - its comment says callers that measured a block set it here. */
   adoptBlock(measuredBlock(d.data,src.w,src.h));
-  $("tname").value=t.name; $("tlayer").value=t.layer;
   setChip("tstatus",t.status||"wip");
   /* LAST, because startEditor clears it - its own comment says so: "set by
      callers that opened a saved record". */
@@ -6343,10 +6399,34 @@ function resizePreview(){
   const why = moved
     ? "  \u00b7 snap moved "+t.askedW+" to "+t.nw+"; turn Snap off for "+t.askedW
     : "";
-  n.textContent = now+"  \u2192  "+target+why;
+  /* CRISP OR NOT, SAID BEFORE THE PRESS. Nearest neighbour duplicates each
+     pixel a whole number of times only when the ratio is a whole number; at
+     1.25x it doubles some rows and not others, so an even grid stops being
+     even and a one-pixel line is one pixel in places and two in others. The
+     resampler is right - that is what nearest neighbour is - and the panel
+     used to say nothing about which of the two you were about to do. */
+  n.textContent = now+"  \u2192  "+target+why+growNote(t);
   n.title = moved
     ? "Sizes snap to whole parts of the "+projectGrid+" cell grid. Turn Snap off to use any size."
     : "";
+}
+/* Whether this resize multiplies the canvas by a whole number, and what the
+   nearest ones are when it does not.
+
+   Only for GROWING. Shrinking cannot duplicate anything, and its own
+   trade-offs are already covered by the resampler and the border rule. */
+function growNote(t){
+  if(!t||t.mode==="inside") return "";
+  const from=Math.max(1,art.width|0), to=t.nw|0;
+  if(to<=from) return "";
+  const k=to/from;
+  if(Number.isInteger(k)) return "  \u00b7  \u00d7"+k+" exactly: every pixel becomes "+k+"\u00d7"+k;
+  const lo=Math.floor(k), hi=Math.ceil(k);
+  /* Named, not just refused: the two sizes either side are what somebody
+     actually wants when the number they typed is not a whole multiple. */
+  const near=[lo>=2?from*lo:0, from*hi].filter(v=>v&&v<=MAX_SIDE);
+  return "  \u00b7  \u00d7"+(Math.round(k*100)/100)+", uneven: some rows double and others do not"
+    +(near.length?"  \u00b7  whole multiples near it: "+near.join(", "):"");
 }
 function resizeBoxes(){
   if(!art||!$("rsw")) return;
@@ -10166,9 +10246,13 @@ function buildResizePresets(){
     o.textContent=px+" (1/"+(projectGrid/px)+"\u00d7)";
     sel.appendChild(o);
   }
-  for(const k of [1,2,3,4,6,8,10,12,16]){
+  /* EVERY WHOLE MULTIPLE THAT FITS, not nine chosen ones. The old list ran
+     1,2,3,4,6,8,10,12,16 and simply had no 5, 7, 9, 11, 13, 14 or 15 in it,
+     while the ceiling allows 25 of them on a 160 cell grid. The field beside
+     this always took any number, so the menu was the only thing making the
+     choice look small. */
+  for(let k=1;projectGrid*k<=MAX_SIDE;k++){
     const px=projectGrid*k;
-    if(px>4096) continue;
     const o=document.createElement("option");
     o.value=String(px);
     /* The cell count is in the Cells field two rows down; repeating it on
@@ -10179,6 +10263,115 @@ function buildResizePresets(){
   if([...sel.options].some(o=>o.value===keep)) sel.value=keep;
 }
 
+/* ================= the agent workspace =========================== */
+/* WHAT WAS DONE TO THIS TRAIT, in order. Not a narration: every entry is
+   written by the operation that did the work, with the count that operation
+   already reports, so the log cannot claim something the pixels do not. */
+let AGENT_LOG=[];
+function agentStep(what,detail){
+  AGENT_LOG.push({at:Date.now(), what:what, detail:detail||""});
+  agentLogShow();
+}
+function agentLogShow(){
+  const box=$("aglog"); if(!box) return;
+  box.replaceChildren();
+  /* Newest last, like a transcript: this is a record of a pass, and reading
+     it backwards makes the order of operations unrecoverable. */
+  for(const s of AGENT_LOG.slice(-12)){
+    const p=document.createElement("p");
+    p.className="agstep";
+    const b=document.createElement("b");
+    b.textContent=s.what;
+    p.appendChild(b);
+    if(s.detail) p.appendChild(document.createTextNode(" \u00b7 "+s.detail));
+    box.appendChild(p);
+  }
+}
+/* Which trait, and what the collection has already decided about its layer.
+   The rules are the settings nobody should have to repeat, so the panel says
+   them rather than making somebody go and look. */
+function agentWorkShow(){
+  const el=$("agwork"); if(!el) return;
+  if(!art||!art.width){ el.textContent="Nothing open."; return; }
+  const layer=$("tlayer")?$("tlayer").value:"";
+  let ruled=0; try{ ruled=ruleGridFor(layer); }catch(_){ }
+  el.textContent=(fileName||"untitled")+"  \u00b7  "+art.width+"\u00d7"+art.height
+    +(layer?"  \u00b7  "+layer:"")
+    +"  \u00b7  "+(ruled?"grid "+ruled+"px by the collection rules"
+      :"no grid rule for this layer");
+}
+/* HOLD TO SEE BEFORE. The editor already keeps the opening image so Reset
+   can work, which means the comparison is against exactly what arrived -
+   nothing is copied, re-encoded or reconstructed to show it.
+
+   Held rather than toggled: a toggle left on is a canvas showing the old
+   pixels while somebody paints, and there is no way to tell from looking. */
+/* Run on the open trait, and said in the order somebody acts on: how many
+   colours against the budget, then what is off palette, then alpha. */
+function agentSpec(){
+  const el=$("agspecout"); if(!el) return null;
+  if(!art||!art.width||!ctx){ el.textContent="Open a trait first."; return null; }
+  const layer=$("tlayer")?$("tlayer").value:"";
+  const im=ctx.getImageData(0,0,art.width,art.height);
+  const r=specCheck(im.data,art.width,art.height,layer);
+  const bits=[r.colours+" colours"+(r.budget?" of "+r.budget+" allowed":"")];
+  if(r.overBudget) bits.push(r.overBudget+" over");
+  bits.push(r.offPaletteColours
+    ? r.offPaletteColours+" off palette ("+r.offPalettePixels+" px)"
+    : "all on palette");
+  bits.push(r.partialAlpha ? r.partialAlpha+" partial-alpha pixels"
+    : "no partial alpha");
+  /* The worst offender by pixels, with somewhere to go. A list of nine hex
+     codes in a status line is not read; one with a repair beside it is. */
+  if(r.offPalette.length){
+    const w=r.offPalette[0];
+    bits.push("worst "+w.hex+" \u2192 "+w.nearest+" (distance "+w.distance+")");
+  }
+  el.textContent=bits.join("  \u00b7  ");
+  agentStep("Checked against the spec",
+    r.colours+" colours, "+r.offPaletteColours+" off palette");
+  return r;
+}
+/* Said as an offset from the reference, because that is what it is. The
+   rule categories get a verdict because the brief gives them one. */
+function agentPlacement(){
+  const el=$("agplaceout"); if(!el) return null;
+  if(!art||!art.width||!ctx){ el.textContent="Open a trait first."; return null; }
+  const layer=$("tlayer")?$("tlayer").value:"";
+  const im=ctx.getImageData(0,0,art.width,art.height);
+  const r=placementCheck(im.data,art.width,art.height,layer);
+  const bits=[];
+  if(!r.box) bits.push("nothing visible on the canvas");
+  else bits.push("art "+(r.box[2]-r.box[0])+"\u00d7"+(r.box[3]-r.box[1])
+    +" at "+r.box[0]+","+r.box[1]);
+  if(r.verdict) bits.push(r.verdict);
+  else if(r.delta){
+    const d=r.delta;
+    const worst=Math.max(Math.abs(d.left),Math.abs(d.top),Math.abs(d.right),Math.abs(d.bottom));
+    /* An offset, never a pass or a fail: most of these references are one
+       example and the briefs say the silhouette may vary. */
+    bits.push(worst===0 ? "exactly on the reference for "+r.layer
+      : "off the "+r.layer+" reference by L"+d.left+" T"+d.top
+        +" R"+d.right+" B"+d.bottom+" px");
+  }else if(!PLACEMENT_REF[r.layer]) bits.push("no reference for this category");
+  el.textContent=bits.join("  \u00b7  ");
+  agentStep("Checked the placement", r.verdict||(r.delta
+    ? "off by up to "+Math.max(Math.abs(r.delta.left),Math.abs(r.delta.top),
+      Math.abs(r.delta.right),Math.abs(r.delta.bottom))+"px" : "no reference"));
+  return r;
+}
+function agentBefore(on){
+  const cv=$("cmppv"); if(!cv||!art||!art.width) return;
+  if(!on||!original){ cv.style.display="none"; return; }
+  if(cv.width!==original.width||cv.height!==original.height){
+    cv.width=original.width; cv.height=original.height;
+  }
+  cv.style.width=art.style.width||""; cv.style.height=art.style.height||"";
+  const g=cv.getContext("2d");
+  g.clearRect(0,0,cv.width,cv.height);
+  g.putImageData(original,0,0);
+  cv.style.display="block";
+}
 /* ================= pixel inspection: the panel ==================== */
 let QA=null, QA_SEL=new Set(), QA_AT=-1, QA_BUSY=false, QA_RECTS=[], QA_LAST=null;
 const QA_COLOURS={speck:"#ff7c3b", thin:"#ff4aa0", narrow:"#c880ff",
@@ -15288,6 +15481,258 @@ cloudRender().then(()=>{ if(cameFromEmail && sbRecovery) enterResetMode(); });
    The hash is the page, so back and forward work and a refresh stays where
    you were. An unknown hash is the main page rather than an error: a stale
    link should land somewhere useful. */
+/* ================= the collection rules ========================== */
+/* Mrkt Mkrs 256, Resurrect expansion, every colour, in order.
+
+   Baked in rather than fetched: the palette is a settled decision, the site
+   works with no network and no file, and an agent needs no path to it. The
+   authority it came from is recorded beside it, and the hash is of THESE
+   colours in THIS order rather than of the file they were read out of. */
+const PALETTE_HEX=
+  "2e222f3e3546625565966c6cab947a694f627f708a9babb2c7dcd0ffffff6e2727b33831ea4f36f57d4aae2334e83b3b"
+  +"fb6b1df79617f9c22b7a30459e4539cd683de6904efbb9544c3e24676633a2a947d5e04bfbff86165a4c2390631ebc73"
+  +"91db69cddf6c313638374e4a547e6492a984b2ba900b5e650b8a8f0eaf9b30e1b98ff8e2323353484a774d65b44d9be6"
+  +"8fd3ff45293f6b3e75905ea9a884f3eaaded753c54a24b6fcf657fed8099831c5dc32454f04f78f68181fca790fdcbb0"
+  +"0000000b070c1c131d3c2d3b4b38485045555a43557f5d67706277a180738d8d9eb3a68fbab8a4b1c3c1c1cabae3ede7"
+  +"47262d5b272b7629287f2b2a872d2b90302c98322ea1342faa3630c03e32ce4334dc4935ed5b3bf06740f37245fa966e"
+  +"602933862935bc2936cb2f38d23239d93539ed4936f25530f66028fa771cfa811bf88c19f8a11cf9ac22f9b726face64"
+  +"4c2938632d3e8335438c3b4095403da4493aaa4e3ab5563cc15f3cd37241da7c45e0864aeb9a50f1a451f6af53fcc679"
+  +"3a2d2c4336295348285a522c605c2f6e6e367576387d7e3b84873d9398429aa045afb648bbc44ac8d24ae8ef6afbffa8"
+  +"2c383b26494318614f1967521b6e551c74581e7b5b20825d229b6722a66b20b16f49c47164cc6f7cd36cb1dd6bd6e58a"
+  +"302a33303035333c3c3442413648453b544d3e5a514260544566574d725e50786164896c739374829e7ca2b18abfc6a4"
+  +"2c3a44244c540b696f0c747a0b7f840b93920c9c950da69818bba21dc1a621c8aa29d4b151e7c368edcd7df2d8a7fae7"
+  +"30293d312e4837395c3d3e6542446e4a51864b57954c5ea44e72c04f80cd4e8dd955a2e95ea9ec6eb7f37fc5f9a5dbff"
+  +"3725353e273a4e2e4c5833596139677446827d4e8f87569c9667bb9c71cda27ae0b089f3b88ff2c899f1d9a3efeebcf1"
+  +"4a2d3d5f344980405b8b4461974768a84e71ad5173b35575b85877be5b79c45e7bc9627dd66c85de728ce57992f398ab"
+  +"50244169224f921f5ca2215ab32357ce305dd93b66e5456ff25d7af36a7df5767ff88b85f99488fb9e8cfdb9a0fed4be";
+const PALETTE_SOURCE={name:"Mrkt Mkrs 256 - Resurrect Expansion",
+  edition:"Edition 03",
+  from:"resurrect-expansion-256/mrkt-mkrs-resurrect-256.json",
+  colours:"1ddf5cbdf68f8eb9aa345d79b1c4b3103ee36f3bf718f80edd1eaf02e77ff089"};
+function paletteList(){
+  const out=[];
+  for(let i=0;i+6<=PALETTE_HEX.length;i+=6) out.push("#"+PALETTE_HEX.slice(i,i+6));
+  return out;
+}
+/* The standing decisions, as the defaults a project starts from. */
+const AGRULES_ID="settings.agentrules";
+/* The Creator Kit brief: "at most 16 palette colours (8 for clothing),
+   including black #000000 outlines". */
+const AGRULES_DEFAULT={version:1, bodyGrid:8, detailGrid:4,
+  gridExempt:["chains","eyes"], cleanupExcluded:["skins","backgrounds"],
+  colourBudget:16, colourBudgetBy:{clothing:8},
+  perLayer:{}};
+let AGENT_RULES=Object.assign({},AGRULES_DEFAULT);
+function applyAgentRules(items){
+  const rec=(items||[]).find(i=>i.id===AGRULES_ID);
+  AGENT_RULES=Object.assign({},AGRULES_DEFAULT,{perLayer:{}});
+  if(!rec) return;
+  for(const k of ["bodyGrid","detailGrid","colourBudget"])
+    if(Number.isInteger(rec[k])&&rec[k]>=1&&rec[k]<=256) AGENT_RULES[k]=rec[k];
+  if(rec.colourBudgetBy&&typeof rec.colourBudgetBy==="object")
+    AGENT_RULES.colourBudgetBy=Object.assign({},rec.colourBudgetBy);
+  for(const k of ["gridExempt","cleanupExcluded"])
+    if(Array.isArray(rec[k])) AGENT_RULES[k]=rec[k].map(String);
+  if(rec.perLayer&&typeof rec.perLayer==="object")
+    AGENT_RULES.perLayer=Object.assign({},rec.perLayer);
+}
+/* WHAT GRID THIS LAYER IS ON, or 0 for "the rules do not say".
+
+   0 is not a refusal and not a quiet 8. Chains and eyes are exempt on
+   purpose, and answering 8 for them would force the grid the decision says
+   to leave alone. Where the rules are silent the measurement is the honest
+   answer, which is what the caller falls back to. */
+function ruleGridFor(layer){
+  const l=String(layer||"");
+  /* NO CATEGORY IS NOT A CATEGORY. "unsorted" is the shelf saying nobody
+     has decided what this is, so the collection cannot have decided
+     anything about it either - and the standing rule is about "suitable
+     bodies", which is a judgement somebody has to have made.
+
+     Measured, before this line existed: a trait drawn at 10px blocks and
+     left on unsorted opened at the 8px body grid and offered to tidy 9,220
+     pixels onto a grid the art is not on. That is the exempt case again in
+     different clothes - where the rules are silent, the measurement is the
+     honest answer. */
+  if(!l||l==="unsorted") return 0;
+  if((AGENT_RULES.gridExempt||[]).indexOf(l)>=0) return 0;
+  const own=AGENT_RULES.perLayer?AGENT_RULES.perLayer[l]:undefined;
+  if(Number.isInteger(own)) return own>=1?own:0;
+  return AGENT_RULES.bodyGrid||0;
+}
+/* WHERE THE EXAMPLE SITS, per category, on the kit's 1024 working frame.
+   Taken from the Creator Kit spec rather than retyped, and scaled to
+   whatever canvas a trait is actually on. */
+const PLACEMENT_FRAME=1024;
+const PLACEMENT_REF={
+  "backgrounds":[0,0,1024,1024],
+  "chains":[384,752,616,1016],
+  "clothing":[104,784,896,1024],
+  "costumes":[112,104,888,1024],
+  "ears":[320,512,384,632],
+  "extras":[640,664,936,1024],
+  "eyes":[440,464,752,528],
+  "glasses":[272,408,768,536],
+  "hair":[264,128,776,488],
+  "hats":[280,136,856,464],
+  "masks":[384,224,776,760],
+  "mouth":[552,648,648,656],
+  "skins":[109,173,890,1024]};
+/* The two the brief states as requirements rather than as an example. */
+const PLACEMENT_RULES={backgrounds:"fill", eyes:"pair"};
+/* The artwork's own box: the smallest rectangle holding every visible
+   pixel. Empty art has no box, which is not the same as a box at 0,0. */
+function artBox(d,W,H){
+  let l=W, t=H, r=-1, b=-1;
+  for(let y=0;y<H;y++) for(let x=0;x<W;x++){
+    if(!d[(y*W+x)*4+3]) continue;
+    if(x<l) l=x; if(y<t) t=y; if(x>r) r=x; if(y>b) b=y;
+  }
+  return r<0 ? null : [l,t,r+1,b+1];
+}
+/* The visible components, largest first, for the pair check. Eight-way,
+   like the pixel inspection, so a diagonal join is one thing. */
+function artPieces(d,W,H,cap){
+  const n=W*H, seen=new Uint8Array(n), q=new Int32Array(n), out=[];
+  for(let p=0;p<n;p++){
+    if(seen[p]||!d[p*4+3]) continue;
+    let head=0, tail=1; q[0]=p; seen[p]=1;
+    let l=W,t=H,r=-1,b=-1;
+    while(head<tail){
+      const c=q[head++], x=c%W, y=(c-x)/W;
+      if(x<l) l=x; if(y<t) t=y; if(x>r) r=x; if(y>b) b=y;
+      for(let dy=-1;dy<=1;dy++) for(let dx=-1;dx<=1;dx++){
+        if(!dx&&!dy) continue;
+        const xx=x+dx, yy=y+dy;
+        if(xx<0||yy<0||xx>=W||yy>=H) continue;
+        const v=yy*W+xx;
+        if(!seen[v]&&d[v*4+3]){ seen[v]=1; q[tail++]=v; }
+      }
+    }
+    out.push({box:[l,t,r+1,b+1], area:tail});
+    if(cap&&out.length>cap*40) break;
+  }
+  out.sort((a,b)=>b.area-a.area);
+  return out;
+}
+/* A DISTANCE, NOT A VERDICT - except where the brief states a rule.
+
+   Most reference boxes are one example and the briefs say the silhouette
+   may vary, so the general answer is how far each edge is from it and
+   nothing more. Backgrounds filling the square and eyes being an equal
+   pair on the same plane are stated as requirements, and those are the
+   only two this reports as pass or fail. */
+function placementCheck(d,W,H,layer){
+  const l=String(layer||"");
+  const box=artBox(d,W,H);
+  const scale=W/PLACEMENT_FRAME;
+  const out={layer:l, canvas:[W,H], scale:+scale.toFixed(4), box:box,
+    reference:null, expected:null, delta:null, rule:null, verdict:null};
+  const ref=PLACEMENT_REF[l];
+  if(ref){
+    out.reference=ref.slice();
+    out.expected=ref.map(v=>Math.round(v*scale));
+    if(box) out.delta={left:box[0]-out.expected[0], top:box[1]-out.expected[1],
+      right:box[2]-out.expected[2], bottom:box[3]-out.expected[3]};
+  }
+  const rule=PLACEMENT_RULES[l];
+  if(rule==="fill"){
+    /* "Create only the background on the full square canvas." A background
+       with a transparent corner is not one. */
+    let clear=0;
+    for(let i=3;i<d.length;i+=4) if(!d[i]) clear++;
+    out.rule="fill";
+    out.clearPixels=clear;
+    out.verdict=clear?"does not fill the canvas":"fills the canvas";
+  }else if(rule==="pair"){
+    /* "Both eyes are 136 x 64... Same top, bottom and outer shape." */
+    const pieces=artPieces(d,W,H,2);
+    out.rule="pair";
+    out.pieces=pieces.length;
+    if(pieces.length<2){ out.verdict="only "+pieces.length+" shape, so there is no pair"; }
+    else{
+      const a=pieces[0].box, b=pieces[1].box;
+      const left=a[0]<=b[0]?a:b, right=a[0]<=b[0]?b:a;
+      out.pair={left:left, right:right,
+        widths:[left[2]-left[0], right[2]-right[0]],
+        heights:[left[3]-left[1], right[3]-right[1]],
+        tops:[left[1], right[1]], bottoms:[left[3], right[3]]};
+      const dW=Math.abs(out.pair.widths[0]-out.pair.widths[1]);
+      const dH=Math.abs(out.pair.heights[0]-out.pair.heights[1]);
+      const dT=Math.abs(out.pair.tops[0]-out.pair.tops[1]);
+      const dB=Math.abs(out.pair.bottoms[0]-out.pair.bottoms[1]);
+      out.pair.offBy={width:dW, height:dH, top:dT, bottom:dB};
+      /* WHICH MEASUREMENT DIFFERS, BY HOW MUCH. The first wording said
+         "12px wider, 10px higher, 10px lower" about the same pair, which
+         reads as a contradiction and names no eye: wider than what, and
+         how is one pair both higher and lower. It is two shapes and four
+         measurements, so the sentence says which measurement. */
+      out.verdict=(dW||dH||dT||dB)
+        ? "not an equal pair on the same plane: "
+          +[dW?"widths differ by "+dW+"px":"",
+            dH?"heights by "+dH+"px":"",
+            dT?"tops by "+dT+"px":"",
+            dB?"bottoms by "+dB+"px":""].filter(Boolean).join(", ")
+        : "equal pair on the same plane";
+    }
+  }
+  return out;
+}
+/* How many colours this category is allowed. */
+function ruleColourBudget(layer){
+  const by=AGENT_RULES.colourBudgetBy||{};
+  const own=by[String(layer||"")];
+  return Number.isInteger(own)&&own>=1 ? own : (AGENT_RULES.colourBudget||0);
+}
+/* THE SPEC, MEASURED. Colours used, colours outside the fixed palette, and
+   partial alpha - the three things the Creator Kit brief is explicit about
+   and the site could never answer.
+
+   Fully transparent pixels are not a colour. Alpha is not part of the
+   colour identity here, unlike the pixel inspection: the brief counts
+   COLOURS, and the same red at two opacities is one colour used wrongly,
+   which the partial-alpha number says on its own. */
+function specCheck(data,W,H,layer){
+  const used=new Map();
+  let partial=0, opaque=0;
+  for(let i=0;i<data.length;i+=4){
+    const a=data[i+3];
+    if(!a) continue;
+    if(a<255) partial++;
+    opaque++;
+    const k=(data[i]<<16)|(data[i+1]<<8)|data[i+2];
+    used.set(k,(used.get(k)||0)+1);
+  }
+  const hex=k=>"#"+((k>>>0)&0xffffff).toString(16).padStart(6,"0");
+  const allowed=new Set(paletteList().map(h=>h.toLowerCase()));
+  const off=[];
+  for(const [k,n] of used){
+    const h=hex(k);
+    if(allowed.has(h)) continue;
+    /* NAMED WITH A WAY OUT. A count sends somebody hunting; a nearest
+       colour and its distance is the start of a repair. Squared RGB, which
+       is not perceptual and does not pretend to be - the distance is shown
+       so an obviously wrong suggestion looks wrong. */
+    const r=(k>>16)&255, g=(k>>8)&255, b=k&255;
+    let best=null, bestD=Infinity;
+    for(const p of paletteList()){
+      const pr=parseInt(p.slice(1,3),16), pg=parseInt(p.slice(3,5),16), pb=parseInt(p.slice(5,7),16);
+      const d=(r-pr)*(r-pr)+(g-pg)*(g-pg)+(b-pb)*(b-pb);
+      if(d<bestD){ bestD=d; best=p; }
+    }
+    off.push({hex:h, pixels:n, nearest:best, distance:Math.round(Math.sqrt(bestD))});
+  }
+  off.sort((a,b)=>b.pixels-a.pixels);
+  const budget=ruleColourBudget(layer);
+  return {layer:String(layer||""), colours:used.size, budget:budget,
+    overBudget:budget?Math.max(0,used.size-budget):0,
+    offPalette:off, offPaletteColours:off.length,
+    offPalettePixels:off.reduce((a,c)=>a+c.pixels,0),
+    partialAlpha:partial, opaque:opaque};
+}
+function ruleCleanupAllowed(layer){
+  return (AGENT_RULES.cleanupExcluded||[]).indexOf(String(layer||""))<0;
+}
 /* ================= the agent surface ============================= */
 /* One namespace, so the names an agent depends on are a decision rather
    than whatever an internal function happened to be called. Everything
@@ -15296,6 +15741,28 @@ const PB={version:1, busy:false, progress:null, last:null, stop:false,
   jobs:["grids","colours"]};
 /* The way in for something without a mouse. PB.linked() says what is staged,
    PB.openLinked() is the press. */
+/* The settled parameters, readable and settable without a screen. */
+PB.rules=function(){ return JSON.parse(JSON.stringify(AGENT_RULES)); };
+PB.palette=function(){ return {source:PALETTE_SOURCE, hexes:paletteList()}; };
+PB.gridFor=function(layer){ return ruleGridFor(layer); };
+PB.budgetFor=function(layer){ return ruleColourBudget(layer); };
+/* The spec check on whatever is open, as data. */
+PB.spec=function(){ return agentSpec(); };
+/* Where it sits against the reference for its category. */
+PB.placement=function(){ return agentPlacement(); };
+PB.reference=function(layer){
+  const r=PLACEMENT_REF[String(layer||"")];
+  return r?{frame:PLACEMENT_FRAME, box:r.slice(),
+    rule:PLACEMENT_RULES[String(layer||"")]||null}:null;
+};
+PB.cleanupAllowed=function(layer){ return ruleCleanupAllowed(layer); };
+PB.setRules=async function(patch){
+  const next=Object.assign({},AGENT_RULES,patch||{});
+  await dbPut(Object.assign({id:AGRULES_ID, kind:"settings", at:Date.now()},next));
+  applyAgentRules(await dbAll());
+  try{ agRules(); }catch(_){ }
+  return PB.rules();
+};
 PB.linked=function(){ return LINKED?{name:LINKED.name, url:LINKED.url}:null; };
 PB.openLinked=function(how){ return linkOpen(how); };
 PB.stageLinked=function(href){ return linkStage(href); };
@@ -15426,6 +15893,24 @@ PB.colours=async function(opts){
 };
 try{ window.PB=PB; }catch(_){ }
 function agSay(m){ const el=$("agstatus"); if(el) el.textContent=m; }
+/* The rules, and the palette as colours rather than as a number. 256 hexes
+   in a list is a fact nobody checks; 256 swatches is one you can look at. */
+function agRules(){
+  const el=$("agrules"); if(!el) return;
+  const p=paletteList();
+  el.textContent=PALETTE_SOURCE.name+" ("+p.length+" colours)"
+    +"  \u00b7  bodies "+AGENT_RULES.bodyGrid+"px, detail "+AGENT_RULES.detailGrid+"px"
+    +"  \u00b7  not forced onto a grid: "+((AGENT_RULES.gridExempt||[]).join(", ")||"none")
+    +"  \u00b7  left out of cleanup: "+((AGENT_RULES.cleanupExcluded||[]).join(", ")||"none");
+  const box=$("agswatches"); if(!box) return;
+  if(box.childElementCount===p.length) return;
+  box.replaceChildren();
+  for(const hex of p){
+    const s=document.createElement("span");
+    s.className="agsw"; s.style.background=hex; s.title=hex;
+    box.appendChild(s);
+  }
+}
 /* Shown as the same data an agent gets. A summary line first, because a
    thousand lines of JSON is not a report anybody reads. */
 function agShow(out){
@@ -15492,6 +15977,7 @@ function showPage(p,push){
     catch(e){ agSay((e&&e.message)||"That job could not finish."); }
     finally{ if(stop) stop.hidden=true; }
   };
+  try{ agRules(); }catch(_){ }
   if($("aggrids")) $("aggrids").onclick=()=>run(()=>PB.grids());
   if($("linkopen")) $("linkopen").onclick=()=>linkOpen();
   if($("linkoptions")) $("linkoptions").onclick=()=>linkOpen("options");
@@ -15672,6 +16158,20 @@ $('filltol').addEventListener('input',()=>{
    that matters most - it is the answer to "why did it not use my number" and
    the note is the only thing that points at it. */
 $('rssnap').onclick=()=>{ toggle('rssnap'); resizePreview(); };
+/* Pointer, not click: it is held. up and leave both let go, because a
+   pointer that leaves the button never sends up and the before image
+   would stay on screen over live pixels. */
+if($("agspec")) $("agspec").onclick=()=>agentSpec();
+if($("agplace")) $("agplace").onclick=()=>agentPlacement();
+const bfr=$("agbefore");
+if(bfr){
+  bfr.onpointerdown=e=>{ e.preventDefault(); agentBefore(true); };
+  bfr.onpointerup=()=>agentBefore(false);
+  bfr.onpointerleave=()=>agentBefore(false);
+  bfr.onpointercancel=()=>agentBefore(false);
+  /* And for a keyboard: space and enter fire click, which has no hold. */
+  bfr.onclick=()=>{ agentBefore(true); setTimeout(()=>agentBefore(false),900); };
+}
 if($('qascan')) $('qascan').onclick=()=>qaRunScan();
 if($('qafilter')) $('qafilter').onchange=()=>{ QA_AT=-1; qaRender(); };
 if($('qahi')) $('qahi').onchange=()=>qaDraw();
@@ -15722,6 +16222,8 @@ if($('qaapply')) $('qaapply').onclick=()=>{
   const n=out.changedPixels;
   toast("Repaired "+out.changes.length+" finding"+(out.changes.length===1?"":"s")
     +": "+n+" pixel"+(n===1?"":"s")+" changed");
+  agentStep("Repaired "+out.changes.length+" finding"
+    +(out.changes.length===1?"":"s"), n+" pixels");
   /* The report now describes the canvas as it was BEFORE the repair, so it
      is dropped rather than left to be applied twice. */
   qaInvalidate('Repairs applied - scan again to see what is left.');
@@ -15753,6 +16255,8 @@ if($('blktidy')) $('blktidy').onclick=()=>{
   refreshStats(); repalette(); resizeBoxes();
   toast("Tidied "+r.blocks+" block"+(r.blocks===1?"":"s")+" to the "+n
     +"px grid: "+r.pixels+" pixel"+(r.pixels===1?"":"s")+" changed");
+  agentStep("Tidied to the "+n+"px grid",
+    r.blocks+" blocks, "+r.pixels+" pixels");
 };
 $('rsgo').onclick=applyResize;
 $('rsfit').onclick=fitToGrid;

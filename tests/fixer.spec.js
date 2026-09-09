@@ -330,4 +330,155 @@ test.describe('the Fix pixels tab', () => {
       expect(r.said, 'so nothing is suggested').not.toContain('Try ');
       expect(r.said, 'and nothing is called too small').not.toContain('too small');
     });
+
+  /* A picture with an honest 8px grid, left on window.__file. The type is an
+     argument so a test can hand over the one a browser does not always give. */
+  const shot = (page, n, hue, name, type) => page.evaluate(async ({ n, hue, name, type }) => {
+    const c = document.createElement('canvas'); c.width = n; c.height = n;
+    const g = c.getContext('2d');
+    for (let y = 0; y < n; y += 8) for (let x = 0; x < n; x += 8) {
+      g.fillStyle = 'hsl(' + ((hue + x * 3 + y * 5) % 360) + ' 70% 50%)';
+      g.fillRect(x, y, 8, 8);
+    }
+    const b = await new Promise(res => c.toBlob(res, 'image/png'));
+    window.__file = type ? new File([b], name, { type }) : new File([b], name, {});
+    return true;
+  }, { n, hue, name, type });
+
+  test('A SECOND IMAGE GOES IN EVEN WHEN THE BROWSER WILL NOT NAME ITS TYPE',
+    async ({ page }) => {
+      /* "when i go to add a new image it doesnt let me add another bc it doesnt
+         change out the last one". Measured on the page as it was: a File with
+         type "" and one with application/octet-stream were both refused, and
+         the refusal left the PREVIOUS image on screen with its Fix it button
+         live. An empty type is what a phone gives for a file picked out of
+         Files rather than Photos, and octet-stream is what many desktop
+         dialogs give for anything they do not recognise.
+
+         The type was never the question: whether a file is an image is
+         answered by decoding it. */
+      await page.evaluate(() => showPage('fixer', false));
+      await shot(page, 64, 0, 'first.png', 'image/png');
+      await page.evaluate(async () => { await fixLoad(window.__file); });
+      const first = await page.evaluate(() => ({ name: FIX.name, w: FIX.src.width }));
+      expect(first, 'the first one loaded').toEqual({ name: 'first', w: 64 });
+
+      for (const [label, type] of [['no type at all', ''],
+        ['octet-stream', 'application/octet-stream']]) {
+        await shot(page, 96, 120, 'second.png', type);
+        const r = await page.evaluate(async () => {
+          const ok = await fixLoad(window.__file);
+          return { ok, name: FIX.name, w: FIX.src.width,
+            said: document.getElementById('fixout').textContent };
+        });
+        expect(r.ok, label + ': it is taken').toBe(true);
+        expect(r.name, label + ': and it replaces the one before it').toBe('second');
+        expect(r.w, label + ': at its own size').toBe(96);
+        expect(r.said, label + ': and nothing is refused').not.toContain('not an image');
+        /* Back to the first, so the next case is a real replacement again. */
+        await shot(page, 64, 0, 'first.png', 'image/png');
+        await page.evaluate(async () => { await fixLoad(window.__file); });
+      }
+    });
+
+  test('and something that really is not an image still says so', async ({ page }) => {
+    /* THE CONTROL. Dropping the type check must not become taking anything. */
+    await page.evaluate(() => showPage('fixer', false));
+    const r = await page.evaluate(async () => {
+      const ok = await fixLoad(new File(['not a picture'], 'notes.txt', { type: 'text/plain' }));
+      return { ok, said: document.getElementById('fixout').textContent };
+    });
+    expect(r.ok, 'it is refused').toBe(false);
+    expect(r.said, 'and says why').toContain('not an image');
+  });
+
+  test('A PILE OF IMAGES GOES THROUGH IN ONE GO', async ({ page }) => {
+    await page.evaluate(() => showPage('fixer', false));
+    const r = await page.evaluate(async () => {
+      const png = async (n, hue) => {
+        const c = document.createElement('canvas'); c.width = n; c.height = n;
+        const g = c.getContext('2d');
+        for (let y = 0; y < n; y += 8) for (let x = 0; x < n; x += 8) {
+          g.fillStyle = 'hsl(' + ((hue + x * 3 + y * 5) % 360) + ' 70% 50%)';
+          g.fillRect(x, y, 8, 8);
+        }
+        return new Promise(res => c.toBlob(res, 'image/png'));
+      };
+      const files = [];
+      for (let i = 0; i < 6; i++) {
+        const b = await png(128, i * 40);
+        /* Two with no type, which is the case that used to be refused. */
+        files.push(i < 2 ? new File([b], 'untyped' + i + '.png', {})
+          : new File([b], 'shot' + i + '.png', { type: 'image/png' }));
+      }
+      files.push(new File(['not a picture'], 'notes.txt', { type: 'text/plain' }));
+      await fixBatch(files);
+      return { done: fixBatchFiles.length,
+        names: fixBatchFiles.map(f => f.name),
+        sizes: [...new Set(fixBatchFiles.map(f => f.w + 'x' + f.h))],
+        said: document.getElementById('fixbatchout').textContent,
+        dlOn: !document.getElementById('fixbatchdl').disabled,
+        stopHidden: document.getElementById('fixbatchstop').hidden,
+        shown: !document.getElementById('fixbatch').hidden };
+    });
+    expect(r.done, 'every image is done, the untyped ones included').toBe(6);
+    expect(r.sizes, 'each at its own native size').toEqual(['16x16']);
+    expect(r.names[0], 'named after what went in').toBe('untyped0-fixed.png');
+    expect(r.said, 'and the one that is not an image is named, not skipped in silence')
+      .toContain('notes');
+    expect(r.shown, 'the batch panel is up').toBe(true);
+    expect(r.dlOn, 'and there is something to download').toBe(true);
+    expect(r.stopHidden, 'and it is finished').toBe(true);
+  });
+
+  test('the cap is said rather than silently applied', async ({ page }) => {
+    /* 500 is about TIME, not quality and not memory: the work is serial and
+       what is kept is the output, a few kilobytes an image. A pile past the cap
+       has to be told about rather than quietly shortened.
+
+       Driven with files that are not images, so this tests the counting without
+       spending a second an image on the engine. */
+    await page.evaluate(() => showPage('fixer', false));
+    const r = await page.evaluate(async () => {
+      const files = [];
+      for (let i = 0; i < FIX_BATCH_MAX + 3; i++)
+        files.push(new File(['x'], 'f' + i + '.txt', { type: 'text/plain' }));
+      await fixBatch(files);
+      return { cap: FIX_BATCH_MAX, said: document.getElementById('fixbatchout').textContent };
+    });
+    expect(r.cap, 'the cap is the number that was asked for').toBe(500);
+    expect(r.said, 'and the three past it are named').toContain('3 past the limit of 500');
+    expect(r.said, 'against the number it did take').toContain('of 500');
+  });
+
+  test('and Stop keeps what is already done', async ({ page }) => {
+    /* A batch is a long job. Throwing away four hundred good answers because
+       the four hundred and first was not wanted would make Stop a thing nobody
+       dares press. */
+    await page.evaluate(() => showPage('fixer', false));
+    const r = await page.evaluate(async () => {
+      const png = async (n, hue) => {
+        const c = document.createElement('canvas'); c.width = n; c.height = n;
+        const g = c.getContext('2d');
+        for (let y = 0; y < n; y += 8) for (let x = 0; x < n; x += 8) {
+          g.fillStyle = 'hsl(' + ((hue + x) % 360) + ' 70% 50%)'; g.fillRect(x, y, 8, 8);
+        }
+        return new Promise(res => c.toBlob(res, 'image/png'));
+      };
+      const files = [];
+      for (let i = 0; i < 14; i++)
+        files.push(new File([await png(128, i * 30)], 's' + i + '.png', { type: 'image/png' }));
+      const run = fixBatch(files);
+      await new Promise(res => setTimeout(res, 60));
+      document.getElementById('fixbatchstop').click();
+      await run;
+      return { done: fixBatchFiles.length, of: files.length,
+        said: document.getElementById('fixbatchout').textContent,
+        dlOn: !document.getElementById('fixbatchdl').disabled };
+    });
+    expect(r.done, 'it stopped before the end').toBeLessThan(r.of);
+    expect(r.done, 'and kept what it had finished').toBeGreaterThan(0);
+    expect(r.said, 'and says that is what happened').toContain('stopped');
+    expect(r.dlOn, 'and the part that is done can be downloaded').toBe(true);
+  });
 });

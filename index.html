@@ -75,7 +75,29 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
 #land[data-page="project"] .pg-home,
 #land[data-page="project"] .pg-settings,
 #land[data-page="settings"] .pg-home,
-#land[data-page="settings"] .pg-project{display:none;}
+#land[data-page="settings"] .pg-project,
+/* The fourth page. These rules are pairwise on purpose - one line per
+   (page, section) pair rather than a clever selector - because the failure
+   they prevent is a section appearing on a page nobody meant it to. */
+#land[data-page="home"] .pg-agent,
+#land[data-page="project"] .pg-agent,
+#land[data-page="settings"] .pg-agent,
+#land[data-page="agent"] .pg-home,
+#land[data-page="agent"] .pg-project,
+#land[data-page="agent"] .pg-settings{display:none;}
+/* The same box the extractor sits in, under its own name. Sharing the
+   class instead cost two tests: querySelector(".extract") returns the
+   first match in the document, so a second one earlier in the page became
+   the answer to a question about the extractor. */
+.panelbox{width:min(1180px,92vw); text-align:left; padding:18px;
+  border-radius:13px; background:var(--panel); border:1px solid var(--line);}
+.panelbox h2{font-size:13px; text-transform:uppercase; letter-spacing:.1em;
+  color:var(--good);}
+#agout{max-height:340px; overflow:auto; background:var(--panel);
+  border:1px solid var(--line); border-radius:8px; padding:10px;
+  font-size:12px; line-height:1.45; white-space:pre; margin:8px 0;}
+.agjob{display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:6px 0;}
+.agjob code{font-size:12px; color:var(--muted);}
 .pagenav{display:flex; gap:6px; flex-wrap:wrap; justify-content:center;}
 .pgtab{font:inherit; font-size:13px; color:var(--muted); background:var(--panel);
   border:1px solid var(--line); border-radius:999px; padding:7px 15px; cursor:pointer;}
@@ -1080,6 +1102,8 @@ footer .mono{color:var(--ink);}
   <nav class="pagenav" id="pagenav" aria-label="Pages">
     <button type="button" class="pgtab" data-page="home">Main</button>
     <button type="button" class="pgtab" data-page="project">Project</button>
+    <button type="button" class="pgtab" data-page="agent"
+      title="Questions about the whole collection at once, for you and for an agent">Agent</button>
     <button type="button" class="pgjump pg-project" id="tosettings"
       data-page="settings">Project settings</button>
     <button type="button" class="pgjump pg-settings" id="toproject"
@@ -1120,6 +1144,34 @@ footer .mono{color:var(--ink);}
   </section>
   </div>
   <p class="tag pg-home">Edit pixel art on the grid it was <b>actually drawn on</b>. Nothing leaves your device.</p>
+  <section class="panelbox pg-agent">
+    <h2>Agent</h2>
+    <p class="note">Questions about the whole collection at once. Every job here
+      is a function an agent can call and a button you can press, and they give
+      the same answer - so you can check what was done rather than take it on
+      trust. Nothing leaves your device.</p>
+    <div class="agjob">
+      <button class="btn ghost" id="aggrids">Grid census</button>
+      <code>PB.grids()</code>
+      <span class="note">what block size each trait is really drawn at</span>
+    </div>
+    <div class="agjob">
+      <button class="btn ghost" id="agcolours">Colour census</button>
+      <code>PB.colours()</code>
+      <span class="note">every colour, rarest first - where drift shows up</span>
+    </div>
+    <div class="agjob">
+      <code>?source=/imports/x.png&amp;name=X</code>
+      <span class="note">stage a PNG from this site's imports folder, then
+        <code>PB.openLinked()</code> to open it as it is</span>
+    </div>
+    <p class="note mono" id="agstatus">Nothing run yet.</p>
+    <div id="agout" hidden></div>
+    <div class="btnrow">
+      <button class="btn ghost" id="agsave" disabled>Download the answer</button>
+      <button class="btn ghost" id="agstop" hidden>Stop</button>
+    </div>
+  </section>
   <section class="extract pg-home">
     <h2>Pull a trait off a character</h2>
     <p class="lead">Drop the character wearing the trait beside the bare one. What differs comes back on transparency.</p>
@@ -1191,6 +1243,14 @@ footer .mono{color:var(--ink);}
     <span id="restoretext"></span>
     <span class="acts"><button class="mini go" id="restoreyes">Pick up where you left off</button>
     <button class="mini" id="restoreno">Discard</button></span>
+  </div>
+  <div class="restore pg-home" id="linkbar" hidden>
+    <p><strong>Linked trait ready:</strong> <span id="linkname" class="mono"></span></p>
+    <div class="btnrow">
+      <button class="btn" id="linkopen">Open as it is</button>
+      <button class="btn ghost" id="linkoptions">Open with options</button>
+      <button class="btn ghost" id="linkdrop">Forget it</button>
+    </div>
   </div>
   <div class="drop pg-home" id="drop" tabindex="0" role="button" aria-label="Choose a PNG to open">
     <strong>Drop a PNG here</strong>
@@ -2252,6 +2312,74 @@ drop.addEventListener('drop',e=>{ const f=e.dataTransfer.files[0]; if(f) load(f)
 addEventListener('dragover',e=>e.preventDefault());
 addEventListener('drop',e=>e.preventDefault());
 
+/* ================= a linked source ============================== */
+/* WHAT A LINK IS ALLOWED TO NAME. Ported from the integration copy's
+   local-source-import.js, rules unchanged, because they are the part that
+   matters: a page that fetches whatever path a link names is a page that
+   reads files on behalf of whoever wrote the link.
+
+   Same origin, /imports/ only, one path segment, .png only, and nothing
+   else in the URL at all - no query, no hash, no credentials. */
+const LINK_DIR=/^\/imports\/[a-z0-9._-]+\.png$/i;
+const LINK_MAX=25*1024*1024;
+function linkResolve(href){
+  let page; try{ page=new URL(href); }catch(_){ return null; }
+  const source=page.searchParams.get("source");
+  if(!source) return null;
+  let target; try{ target=new URL(source,page); }catch(_){ throw Error("That link does not name a file on this site."); }
+  if(target.origin!==page.origin||!LINK_DIR.test(target.pathname)
+    ||target.search||target.hash||target.username||target.password)
+    throw Error("A linked source has to be a PNG staged in this site's imports folder.");
+  const named=page.searchParams.get("name")||target.pathname.split("/").pop();
+  return {url:target.href, name:String(named).replace(/[\\/]/g,"-")};
+}
+/* Fetched, checked, and handed over as a File - the same thing the drop zone
+   produces, so nothing downstream needs to know where it came from. */
+async function linkFetch(link){
+  const res=await fetch(link.url,{credentials:"same-origin",redirect:"error",cache:"no-store"});
+  if(!res.ok) throw Error("That linked file could not be loaded.");
+  const type=String(res.headers.get("Content-Type")||"").split(";")[0];
+  if(type!=="image/png") throw Error("A linked source has to be a PNG.");
+  if(Number(res.headers.get("Content-Length"))>LINK_MAX) throw Error("That file is over 25 MB.");
+  const blob=await res.blob();
+  if(blob.size>LINK_MAX) throw Error("That file is over 25 MB.");
+  return new File([blob],link.name.replace(/\.png$/i,"")+".png",{type:"image/png"});
+}
+/* Staged, not opened. Entering the editor does not recolour, outline or
+   remove a base colour, and a link that did any of that by arriving would
+   break the one rule this whole review pass rests on. */
+let LINKED=null;
+function linkShow(){
+  const bar=$("linkbar"); if(!bar) return;
+  bar.hidden=!LINKED;
+  const n=$("linkname"); if(n) n.textContent=LINKED?LINKED.name:"";
+}
+async function linkStage(href){
+  let link=null;
+  try{ link=linkResolve(href===undefined?location.href:href); }
+  catch(e){ $("err").textContent=(e&&e.message)||"That link could not be read."; return null; }
+  if(!link) return null;
+  try{ LINKED={name:link.name, url:link.url, file:await linkFetch(link)}; }
+  catch(e){ LINKED=null; $("err").textContent=(e&&e.message)||"That linked file could not be loaded."; }
+  linkShow();
+  return LINKED;
+}
+/* The press, for something without a mouse. Opens to "as it is", which is
+   the choice that leaves every pixel where it is. */
+async function linkOpen(how){
+  if(!LINKED||!LINKED.file) throw Error("Nothing is linked.");
+  const file=LINKED.file;
+  load(file);
+  if(how==="options") return true;
+  /* analyse() decodes before it draws the choices, so the button is not
+     there yet on the tick load() returns. */
+  for(let i=0;i<200;i++){
+    const b=$("openraw");
+    if(b){ b.click(); return true; }
+    await new Promise(r=>setTimeout(r,25));
+  }
+  throw Error("The open choices did not appear.");
+}
 function load(file){
   if(!mayUse()) return;
   $('err').textContent='';
@@ -3383,6 +3511,22 @@ async function saveTrait(){
       return false;
     }
     await dbPut(rec);
+    /* THE ONE MOMENT A TRAIT'S PIXELS CHANGE, which is why the check lives
+       here and not in a render. Sweeping 317 traits means decoding 317 PNGs
+       and about ten seconds; one fingerprint per save costs 20ms and keeps
+       the count right without ever sweeping.
+
+       The acceptance is NOT cleared. "Accepted, then edited" is the thing
+       worth seeing, and a tick that un-ticks itself reads as lost work. */
+    try{
+      if(REVIEW&&rec.reviewId){
+        const e=REVIEW.entries.find(x=>x.id===rec.reviewId);
+        if(e&&e.artworkAccepted&&e.artHash){
+          const fp=await traitFingerprint(rec);
+          if(fp&&fp.hash){ e.artHashNow=fp.hash; await saveReview(); }
+        }
+      }
+    }catch(_){ }
     /* Everything a move has to carry with it, in one place. */
     if(moved){
       /* Changing the name, layer or status changes the id, and the id IS the
@@ -5005,6 +5149,9 @@ function analyse(im,file){
     ch.appendChild(pxBtn);
 
     const raw=document.createElement('button');
+    /* Named so it can be pressed by something other than a mouse: the linked
+       entry opens straight to this choice, and a test has to reach it too. */
+    raw.id='openraw';
     raw.className='big'+((B||opaque)?'':' primary');
     raw.innerHTML=`<strong>Open as it is (${w}×${h})</strong><span>Leave every pixel exactly where it is</span>`;
     raw.onclick=editRaw;
@@ -11482,6 +11629,44 @@ function reviewIndex(){
   const i=REVIEW.entries.findIndex(e=>e.id===REVIEW.activeId);
   return i<0?0:i;
 }
+/* A fingerprint of what is actually on the canvas.
+
+   FNV-1a twice, with different offset bases, joined into sixteen hex
+   characters. Synchronous on purpose: sha256Of returns null when
+   crypto.subtle is missing, and a fingerprint that can be null has to be
+   read as a match or a mismatch by a caller with no way to tell which.
+
+   Over the RGBA, not the stored PNG bytes, so re-encoding the same picture
+   cannot read as an edit. Costs about 20ms on a 1280 trait, which is why
+   nothing calls it in a render. */
+function artFingerprint(data){
+  if(!data||!data.length) return null;
+  let a=0x811c9dc5, b=0x01000193;
+  for(let i=0;i<data.length;i++){
+    const v=data[i];
+    a=(Math.imul(a^v,0x01000193))>>>0;
+    b=(Math.imul(b^v,0x01000193))>>>0;
+  }
+  return (a>>>0).toString(16).padStart(8,"0")+(b>>>0).toString(16).padStart(8,"0");
+}
+/* The fingerprint of a stored trait, decoded the way the editor would. */
+async function traitFingerprint(t){
+  if(!t||!t.blob) return null;
+  try{
+    const bm=await createImageBitmap(t.blob);
+    const c=document.createElement("canvas"); c.width=t.w||bm.width; c.height=t.h||bm.height;
+    const g=c.getContext("2d",{willReadFrequently:true});
+    g.imageSmoothingEnabled=false; g.drawImage(bm,0,0);
+    const d=g.getImageData(0,0,c.width,c.height);
+    return {hash:artFingerprint(d.data), w:c.width, h:c.height};
+  }catch(_){ return null; }
+}
+/* Accepted, and still true. An entry with no fingerprint behind its
+   acceptance is from before this existed and is taken at its word - the
+   alternative is invalidating work somebody really did. */
+function artworkStale(e){
+  return !!(e&&e.artworkAccepted&&e.artHash&&e.artHashNow&&e.artHash!==e.artHashNow);
+}
 async function traitForEntry(e){
   if(!e) return null;
   let items=[]; try{ items=(await dbAll()).filter(i=>i.kind==="trait"); }catch(_){ return null; }
@@ -11520,7 +11705,8 @@ async function renderReview(){
   $("revwas").textContent=marks.join(" \u00b7 ")
     +(reviewBase(e.originalName)!==reviewBase(e.currentName)
       ? " \u00b7 was "+reviewBase(e.originalName) : "");
-  $("revwas").className="note"+(reviewDone(e)?" revdone":"");
+  $("revwas").className="note"+(reviewDone(e)?" revdone":"")
+    +(artworkStale(e)?" revstale":"");
   const nameBox=$("revname");
   if(document.activeElement!==nameBox)
     nameBox.value=e.finalName||reviewBase(t?t.name:e.currentName);
@@ -11545,7 +11731,9 @@ async function renderReview(){
    off and the remaining work is on both sides of that. It SAYS when it
    wrapped: silently reappearing at the top of a 317-entry queue looks like
    the button did nothing. */
-const reviewDone=e=>!!(e&&e.artworkAccepted&&e.nameAccepted);
+/* AND NOT EDITED SINCE. Without this clause the count says a trait is
+   finished on the strength of a tick that stopped being true. */
+const reviewDone=e=>!!(e&&e.artworkAccepted&&e.nameAccepted&&!artworkStale(e));
 async function reviewJump(dir){
   if(!REVIEW||!REVIEW.entries.length) return false;
   const n=REVIEW.entries.length, from=reviewIndex();
@@ -15100,7 +15288,163 @@ cloudRender().then(()=>{ if(cameFromEmail && sbRecovery) enterResetMode(); });
    The hash is the page, so back and forward work and a refresh stays where
    you were. An unknown hash is the main page rather than an error: a stale
    link should land somewhere useful. */
-const PAGES=["home","project","settings"];
+/* ================= the agent surface ============================= */
+/* One namespace, so the names an agent depends on are a decision rather
+   than whatever an internal function happened to be called. Everything
+   returns plain data: no DOM, no promises of a rendered page. */
+const PB={version:1, busy:false, progress:null, last:null, stop:false,
+  jobs:["grids","colours"]};
+/* The way in for something without a mouse. PB.linked() says what is staged,
+   PB.openLinked() is the press. */
+PB.linked=function(){ return LINKED?{name:LINKED.name, url:LINKED.url}:null; };
+PB.openLinked=function(how){ return linkOpen(how); };
+PB.stageLinked=function(href){ return linkStage(href); };
+/* Walks every trait, decoded one at a time.
+
+   ONE AT A TIME AND YIELDING. 317 traits at 1280x1280 is 1.6 million pixels
+   each; holding them all would be about two gigabytes, and running straight
+   through them without yielding is a tab that looks hung for a minute. */
+async function pbEach(job,fn){
+  if(PB.busy) throw Error("A job is already running");
+  /* CLAIMED BEFORE THE FIRST AWAIT, not after. Setting it after reading the
+     store leaves a window the width of that read in which a second job
+     checks the flag, finds it clear and starts anyway - which a test caught
+     by launching two in the same tick and getting no error at all. */
+  PB.busy=true; PB.stop=false;
+  let items=[];
+  try{ items=(await dbAll()).filter(i=>i.kind==="trait"&&i.blob); }
+  catch(_){ items=[]; }
+  PB.progress={job:job, done:0, total:items.length};
+  const c=document.createElement("canvas");
+  const g=c.getContext("2d",{willReadFrequently:true});
+  g.imageSmoothingEnabled=false;
+  const skipped=[];
+  try{
+    for(const t of items){
+      if(PB.stop) break;
+      try{
+        const bm=await createImageBitmap(t.blob);
+        c.width=t.w||bm.width; c.height=t.h||bm.height;
+        g.clearRect(0,0,c.width,c.height);
+        g.drawImage(bm,0,0);
+        await fn(t,g.getImageData(0,0,c.width,c.height));
+      }catch(_){ skipped.push(traitKey(t)); }
+      PB.progress.done++;
+      /* Every eight, not every one: a yield per trait doubles the wall clock
+         and the screen cannot show 317 updates anyone can read. */
+      if(PB.progress.done%8===0){
+        agSay(job+": "+PB.progress.done+" of "+PB.progress.total);
+        await new Promise(r=>setTimeout(r,0));
+      }
+    }
+  }finally{ PB.busy=false; }
+  return {total:items.length, done:PB.progress.done,
+    stopped:PB.stop, skipped:skipped};
+}
+/* WHAT GRID IS EACH TRAIT ACTUALLY ON.
+
+   Measured across the real 317 in a throwaway script before this existed:
+   151 at 10px, 34 at 8px - every skin - and 42 with no block structure at
+   all. Two grids that cannot both be right, and nothing in the app said so
+   because nothing in the app had ever looked at more than one trait. */
+PB.grids=async function(){
+  const rows=[], byBlock={};
+  const run=await pbEach("grids",(t,im)=>{
+    const b=measuredBlock(im.data,im.width,im.height);
+    const plan=b>1?blockPlan(im.data,im.width,im.height,b):null;
+    rows.push({layer:t.layer||"", name:t.name, w:im.width, h:im.height,
+      block:b, share:plan?+(plan.share.toFixed(4)):1,
+      /* DOES IT EVEN FIT THE CANVAS. measuredBlock estimates a period from
+         the transitions and rounds it, so it can answer 11 on a 1280 canvas -
+         and 11 divides 1280 no times at all. Real, on this collection: Basic
+         Blue Eyes came back as 11px. A census that prints that without saying
+         so is inviting somebody to tidy a trait onto a grid that cannot
+         exist. The estimate is left alone, because the brush depends on it
+         and it is right about the shape; what is added is whether to
+         believe the number. */
+      divides:b>1&&im.width%b===0&&im.height%b===0,
+      offGrid:plan?plan.blocks-plan.flat:0});
+    byBlock[b]=(byBlock[b]||0)+1;
+  });
+  const out={job:"grids", at:Date.now(), traits:rows.length, byBlock:byBlock,
+    /* The two the collection work keeps asking about. */
+    onTen:rows.filter(r=>r.block%10===0).length,
+    onEight:rows.filter(r=>r.block%8===0).length,
+    noGrid:rows.filter(r=>r.block<2).length,
+    /* Measured at a size that cannot tile the canvas: the estimate is off,
+       not the art. */
+    oddBlocks:rows.filter(r=>r.block>1&&!r.divides)
+      .map(r=>({trait:r.layer+"/"+r.name, block:r.block, canvas:r.w+"x"+r.h})),
+    /* Drawn on a grid and not keeping to it: the repairable ones. */
+    drifted:rows.filter(r=>r.block>1&&r.share<0.999)
+      .sort((a,b)=>a.share-b.share)
+      .map(r=>({trait:r.layer+"/"+r.name, block:r.block, share:r.share,
+        offGrid:r.offGrid})),
+    rows:rows, run:run};
+  PB.last=out; agShow(out); return out;
+};
+/* EVERY COLOUR IN THE COLLECTION, RAREST FIRST.
+
+   A trait using #2b2b2b where the other 316 use #2a2a2a is invisible one
+   trait at a time and a seam once they are composited. The rare tail is
+   where drift, mis-picked shades and anti-alias residue collect, so the
+   answer is sorted to put them first rather than buried under the blacks.
+
+   Fully transparent pixels are not a colour and are not counted. */
+PB.colours=async function(opts){
+  const o=opts||{}, limit=o.limit===undefined?40:o.limit;
+  const seen=new Map();
+  const run=await pbEach("colours",(t,im)=>{
+    const key=traitKey(t), d=im.data, here=new Map();
+    for(let i=0;i<d.length;i+=4){
+      if(!d[i+3]) continue;
+      const k=(d[i]<<16)|(d[i+1]<<8)|d[i+2];
+      here.set(k,(here.get(k)||0)+1);
+    }
+    for(const [k,n] of here){
+      let rec=seen.get(k);
+      if(!rec){ rec={n:0, traits:[]}; seen.set(k,rec); }
+      rec.n+=n;
+      /* The names, not a count of them: "which trait has this" is the
+         question, and a count cannot be clicked. Capped so one colour used
+         everywhere does not carry 317 strings. */
+      if(rec.traits.length<8) rec.traits.push(key);
+      rec.in=(rec.in||0)+1;
+    }
+  });
+  const hex=k=>"#"+((k>>>0)&0xffffff).toString(16).padStart(6,"0");
+  const all=[...seen].map(([k,v])=>({hex:hex(k), pixels:v.n, traits:v.in,
+    where:v.traits}));
+  all.sort((a,b)=>a.pixels-b.pixels||a.hex.localeCompare(b.hex));
+  const out={job:"colours", at:Date.now(), distinct:all.length,
+    /* Used by ONE trait: the shape drift takes. */
+    inOneTrait:all.filter(c=>c.traits===1).length,
+    rarest:all.slice(0,limit),
+    commonest:all.slice(-10).reverse(),
+    run:run};
+  PB.last=out; agShow(out); return out;
+};
+try{ window.PB=PB; }catch(_){ }
+function agSay(m){ const el=$("agstatus"); if(el) el.textContent=m; }
+/* Shown as the same data an agent gets. A summary line first, because a
+   thousand lines of JSON is not a report anybody reads. */
+function agShow(out){
+  const box=$("agout"); if(!box) return;
+  box.hidden=false;
+  box.textContent=JSON.stringify(out,(k,v)=>k==="rows"?undefined:v,1);
+  const s=$("agsave"); if(s) s.disabled=false;
+  if(out.job==="grids")
+    agSay(out.traits+" traits \u00b7 "+Object.keys(out.byBlock).sort((a,b)=>b-a)
+      .map(k=>k+"px x"+out.byBlock[k]).join(", ")+" \u00b7 "+out.drifted.length
+      +" drawn on a grid they do not keep to"
+      +(out.oddBlocks.length?" · "+out.oddBlocks.length
+        +" measured at a size that does not tile the canvas":""));
+  else if(out.job==="colours")
+    agSay(out.distinct+" colours \u00b7 "+out.inOneTrait
+      +" used by a single trait \u00b7 rarest "
+      +(out.rarest[0]?out.rarest[0].hex+" ("+out.rarest[0].pixels+" px)":"none"));
+}
+const PAGES=["home","project","settings","agent"];
 function pageFromHash(){
   const h=String(location.hash||"").replace(/^#\/?/,"");
   return PAGES.indexOf(h)>=0 ? h : "home";
@@ -15140,6 +15484,34 @@ function showPage(p,push){
      the server, and the page it is on is the only one that shows it. */
   if(want==="settings") renderUpdates();
 }
+(function(){
+  const run=async(fn)=>{
+    const stop=$("agstop");
+    if(stop) stop.hidden=false;
+    try{ await fn(); }
+    catch(e){ agSay((e&&e.message)||"That job could not finish."); }
+    finally{ if(stop) stop.hidden=true; }
+  };
+  if($("aggrids")) $("aggrids").onclick=()=>run(()=>PB.grids());
+  if($("linkopen")) $("linkopen").onclick=()=>linkOpen();
+  if($("linkoptions")) $("linkoptions").onclick=()=>linkOpen("options");
+  if($("linkdrop")) $("linkdrop").onclick=()=>{ LINKED=null; linkShow(); };
+  /* Staged on arrival, so the bar is there before anybody presses anything.
+     Nothing is decoded or drawn until they do. */
+  try{ linkStage(); }catch(_){ }
+  if($("agcolours")) $("agcolours").onclick=()=>run(()=>PB.colours());
+  /* A long job on 317 traits has to be interruptible, or the only way out
+     of one started by mistake is closing the tab. */
+  if($("agstop")) $("agstop").onclick=()=>{ PB.stop=true; agSay("Stopping..."); };
+  if($("agsave")) $("agsave").onclick=()=>{
+    if(!PB.last) return;
+    const url=URL.createObjectURL(new Blob([JSON.stringify(PB.last,null,2)],
+      {type:"application/json"}));
+    const a=document.createElement("a");
+    a.href=url; a.download="collection-"+PB.last.job+".json"; a.click();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+  };
+})();
 (function(){
   /* Tabs and jumps alike: both are "go to this page", and binding only the
      tabs is how the settings button would have looked broken. */
@@ -15498,6 +15870,13 @@ $('revart').onclick=async()=>{
   if(!REVIEW) return;
   const e=REVIEW.entries[reviewIndex()];
   e.artworkAccepted=!e.artworkAccepted;
+  /* WHAT WAS ACCEPTED, not just that something was. Taken here rather than
+     at save time because this is the moment somebody looked at it. */
+  if(e.artworkAccepted){
+    const t=await traitForEntry(e);
+    const fp=await traitFingerprint(t);
+    if(fp){ e.artHash=fp.hash; e.artHashNow=fp.hash; e.artAt=Date.now(); }
+  }else{ e.artHash=null; e.artHashNow=null; e.artAt=null; }
   await saveReview(); await renderReview();
 };
 /* ACCEPTING A NAME THAT CHANGED IS A RENAME, and it goes through saveTrait -
@@ -15765,6 +16144,25 @@ async function exportCollection(){
   say(bits.join(". ")+".");
   return true;
 }
+/* THE FINAL PASS LEAVES A RECORD; A COLLECTION STATUS DOES NOT.
+
+   reviewStatus:"approved" is the collection saying a trait is good, which is
+   the thing this pass exists to re-decide. approvedRevision is the pass's
+   own receipt - when, the sha of what was approved, where it went, and the
+   words the person used. Only the receipt is evidence.
+
+   Measured on the two real queues: the packaged handoff carries 0 of these
+   across 317 traits, the live one carries 1. The old rule threw away nothing
+   in the first case and the wrong thing in the second. */
+function reviewDecided(e){
+  const r=e&&e.approvedRevision;
+  if(!r||typeof r!=="object") return null;
+  /* A receipt with nothing in it is not a receipt. */
+  if(!r.approvedAt&&!r.approvedSha256&&!r.userApproval) return null;
+  return {artwork:e.artworkAccepted!==false, name:e.nameAccepted!==false,
+    said:(typeof r.userApproval==="string"&&r.userApproval)||null,
+    at:r.approvedAt||null};
+}
 async function importReviewQueue(f){
   if(!f) return false;
   const note=$("reviewnote"); if(note) note.hidden=false;
@@ -15789,13 +16187,15 @@ async function importReviewQueue(f){
     const k=(t.layer||"")+"/"+t.name;
     if(by.has(k)) dupes.add(k); else by.set(k,t);
   }
-  const entries=[], missing=[], ambiguous=[];
+  const entries=[], missing=[], ambiguous=[], already=[];
   let stamped=0;
   for(const e of list){
     const layer=String(e.layer||"");
     const name=reviewBase(e.currentName||e.originalName);
     const k=layer+"/"+name;
     const t=dupes.has(k)?null:by.get(k);
+    const decided=reviewDecided(e);
+    if(decided) already.push({name:name, said:decided.said});
     if(dupes.has(k)) ambiguous.push(k);
     else if(!t) missing.push(k);
     entries.push({id:e.id, sequence:e.sequence||entries.length+1, layer:layer,
@@ -15803,8 +16203,13 @@ async function importReviewQueue(f){
       currentName:e.currentName||e.originalName||name,
       finalName:e.finalName||null, sourceSha256:e.sourceSha256||null,
       width:e.width||null, height:e.height||null,
-      /* Never carried over from the file: this pass starts unreviewed. */
-      artworkAccepted:false, nameAccepted:false, skipped:false});
+      /* CARRIED OVER ONLY FROM A RECEIPT. A bare status still starts this
+         pass unreviewed, which is what the handoff asked for; a recorded
+         final-pass decision is work somebody already did. */
+      artworkAccepted:!!(decided&&decided.artwork),
+      nameAccepted:!!(decided&&decided.name),
+      approvedRevision:decided?e.approvedRevision:null,
+      skipped:false});
     if(t && t.reviewId!==e.id){
       try{ await dbPut(Object.assign({},t,{reviewId:e.id})); stamped++; }catch(_){}
     }
@@ -15822,6 +16227,13 @@ async function importReviewQueue(f){
   await renderShelf();
   const bits=["Review pass started: "+entries.length+" trait"+(entries.length===1?"":"s")];
   if(stamped) bits.push(stamped+" matched to what is here");
+  /* SAID, not silent. Starting a pass with entries already ticked, without
+     saying which or why, is the same failure the old rule guarded against
+     pointing the other way. */
+  if(already.length) bits.push(already.length+" already decided in the file"
+    +(already.length<=3
+      ? " ("+already.map(a=>a.name+(a.said?": \u201c"+a.said+"\u201d":"")).join("; ")+")"
+      : ""));
   if(missing.length) bits.push(missing.length+" named by the queue "+(missing.length===1?"is":"are")
     +" not in this project"+(missing.length<=4?" ("+missing.join(", ")+")":""));
   if(ambiguous.length) bits.push(ambiguous.length+" name"+(ambiguous.length===1?"":"s")

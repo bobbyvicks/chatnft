@@ -99,7 +99,7 @@ test.describe('the final review pass', () => {
     expect(s.name).toBe('Backrooms Hallway');
   });
 
-  test('AND NOTHING ARRIVES ALREADY APPROVED', async ({ page }) => {
+  test('AND A BARE STATUS STILL ARRIVES UNREVIEWED', async ({ page }) => {
     /* The handoff says existing approval is not final-pass approval. A load
        that honoured the file's own flags would start the pass claiming work
        that nobody in it has done. */
@@ -110,6 +110,52 @@ test.describe('the final review pass', () => {
     const flags = await page.evaluate(() =>
       REVIEW.entries.map(e => (e.artworkAccepted ? 'a' : '-') + (e.nameAccepted ? 'n' : '-')));
     expect(flags, 'every one starts unreviewed').toEqual(['--', '--', '--']);
+  });
+
+  test('BUT A RECORDED DECISION IS NOT WORK TO DO TWICE', async ({ page }) => {
+    /* THE CASE THAT CHANGED, and the difference is a field rather than a
+       mood. reviewStatus is the collection calling a trait good, which is the
+       thing this pass exists to re-decide. approvedRevision is the pass's own
+       receipt: when, the sha of what was approved, and the words the person
+       used. Measured on the two real queues - the packaged handoff carries 0
+       of these across 317 traits and the live one carries 1, against The
+       Backrooms, reading “name is good and edit is good”. */
+    const doc = JSON.parse(JSON.stringify(QUEUE));
+    doc.traits[0].reviewStatus = 'approved';
+    doc.traits[0].artworkAccepted = true;
+    doc.traits[0].nameAccepted = true;
+    doc.traits[0].approvedRevision = {
+      approvedAt: '2026-09-08T17:01:32.928Z',
+      userApproval: 'name is good and edit is good',
+      approvedSha256: 'c59593b42aa6560546c5680fdacbc5787d72876b297594498400dd583991f682',
+    };
+    /* And a second entry that CLAIMS approval with no receipt behind it. */
+    doc.traits[1].reviewStatus = 'approved';
+    doc.traits[1].artworkAccepted = true;
+    doc.traits[1].nameAccepted = true;
+    const r = await load(page, doc);
+    const flags = await page.evaluate(() => REVIEW.entries.map(e =>
+      (e.artworkAccepted ? 'a' : '-') + (e.nameAccepted ? 'n' : '-')));
+    expect(flags, 'the receipt is honoured, the bare claim is not')
+      .toEqual(['an', '--', '--']);
+    expect(r.note, 'and it says so rather than starting quietly ahead')
+      .toContain('1 already decided in the file');
+    expect(r.note, 'naming it, in the words that were used')
+      .toContain('name is good and edit is good');
+  });
+
+  test('and an empty receipt is not a receipt', async ({ page }) => {
+    /* A guard that accepts any object called approvedRevision would let an
+       empty one through, which is how a file with the right shape and no
+       content ticks a whole pass. */
+    const doc = JSON.parse(JSON.stringify(QUEUE));
+    doc.traits[0].artworkAccepted = true;
+    doc.traits[0].nameAccepted = true;
+    doc.traits[0].approvedRevision = { note: 'moved some files' };
+    await load(page, doc);
+    const flags = await page.evaluate(() => REVIEW.entries.map(e =>
+      (e.artworkAccepted ? 'a' : '-') + (e.nameAccepted ? 'n' : '-')));
+    expect(flags).toEqual(['--', '--', '--']);
   });
 
   test('and says which entries have no trait here', async ({ page }) => {
@@ -198,6 +244,105 @@ test.describe('the final review pass', () => {
       const s = await shown(page);
       expect(s.where).toBe('backgrounds — Backrooms Corridor');
       expect(s.openDisabled, 'the trait is still reachable').toBe(false);
+    });
+
+  test('ACCEPTED MEANS THESE PIXELS: EDITING AFTERWARDS UN-FINISHES IT',
+    async ({ page }) => {
+      /* THE HOLE THIS CLOSES IS A LAUNCH HOLE. Artwork and name are two
+         booleans that know nothing about the picture, so across 317 traits
+         you accept one, come back, nudge two pixels, and the tick stays
+         green - which makes "284 finished" a number that cannot be trusted
+         at exactly the moment it is being used to decide the set is done.
+
+         The acceptance is NOT cleared. "Accepted, then edited" is the thing
+         worth seeing, and a tick that un-ticks itself reads as lost work. */
+      await load(page, QUEUE);
+      await page.click('#revart');
+      await page.waitForTimeout(300);
+      const after = await page.evaluate(() => {
+        const e = REVIEW.entries[0];
+        return { accepted: e.artworkAccepted, hash: e.artHash, now: e.artHashNow };
+      });
+      expect(after.accepted).toBe(true);
+      expect(after.hash, 'what was accepted, not just that something was')
+        .toMatch(/^[0-9a-f]{16}$/);
+      expect(after.now, 'and it matches right now').toBe(after.hash);
+      await page.fill('#revname', 'Backrooms Hallway');
+      await page.click('#revnamed');
+      await page.waitForTimeout(500);
+      expect((await shown(page)).count, 'finished, for now').toContain('1 finished');
+
+      /* Now edit the artwork the way a person would: open it, paint, save. */
+      await page.evaluate(async () => {
+        const rec = (await dbAll()).find(r => r.kind === 'trait'
+          && r.reviewId === 'trait-aaa');
+        await openTraitRecord(rec);
+        await new Promise(r => setTimeout(r, 300));
+        snapshot();
+        ctx.fillStyle = 'rgb(3,3,3)';
+        ctx.fillRect(1, 1, 2, 2);
+        await saveTrait();
+        await new Promise(r => setTimeout(r, 400));
+      });
+      await page.waitForTimeout(400);
+      const drifted = await page.evaluate(() => {
+        const e = REVIEW.entries[0];
+        return { accepted: e.artworkAccepted, same: e.artHash === e.artHashNow,
+          stale: artworkStale(e), done: reviewDone(e) };
+      });
+      expect(drifted.accepted, 'still shows it was accepted').toBe(true);
+      expect(drifted.same, 'but not these pixels').toBe(false);
+      expect(drifted.stale).toBe(true);
+      expect(drifted.done, 'so it is not finished any more').toBe(false);
+    });
+
+  test('and accepting it again makes it true again', async ({ page }) => {
+    /* The way out has to be one press, or the flag is a trap rather than a
+       measurement. */
+    await load(page, QUEUE);
+    await page.click('#revart');
+    await page.waitForTimeout(300);
+    await page.evaluate(async () => {
+      const rec = (await dbAll()).find(r => r.kind === 'trait'
+        && r.reviewId === 'trait-aaa');
+      await openTraitRecord(rec);
+      await new Promise(r => setTimeout(r, 300));
+      snapshot();
+      ctx.fillStyle = 'rgb(3,3,3)';
+      ctx.fillRect(1, 1, 2, 2);
+      await saveTrait();
+      await new Promise(r => setTimeout(r, 400));
+      /* Back out of the editor the way a person does: the review panel is on
+         the project page, underneath it, and its buttons are not clickable
+         while the editor is over the top. */
+      await closeEditor();
+      await new Promise(r => setTimeout(r, 300));
+    });
+    await page.waitForTimeout(300);
+    expect(await page.evaluate(() => artworkStale(REVIEW.entries[0]))).toBe(true);
+    /* Off, then on: the second press records what is there now. */
+    await page.click('#revart');
+    await page.waitForTimeout(250);
+    await page.click('#revart');
+    await page.waitForTimeout(400);
+    expect(await page.evaluate(() => artworkStale(REVIEW.entries[0])),
+      'accepted again, and true again').toBe(false);
+  });
+
+  test('an acceptance from before this existed is taken at its word',
+    async ({ page }) => {
+      /* A queue saved by an older version has accepted flags and no
+         fingerprint behind them. Treating those as stale would invalidate
+         work somebody really did, on no evidence at all. */
+      await load(page, QUEUE);
+      const held = await page.evaluate(() => {
+        const e = REVIEW.entries[0];
+        e.artworkAccepted = true; e.nameAccepted = true;
+        e.artHash = null; e.artHashNow = null;
+        return { stale: artworkStale(e), done: reviewDone(e) };
+      });
+      expect(held.stale).toBe(false);
+      expect(held.done, 'and it still counts as finished').toBe(true);
     });
 
   test('and a queue with repeated ids is refused rather than half-loaded',

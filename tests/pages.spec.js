@@ -46,7 +46,16 @@ const onScreen = (page) => page.evaluate(() => {
   };
   return {
     page: document.getElementById('land').getAttribute('data-page'),
-    extract: document.querySelector('.extract').getBoundingClientRect().height > 0,
+    /* BY ID, NOT BY CLASS. querySelector('.extract') returns the first
+       match in the document, so the Agent page's panel - added later and
+       sitting earlier in the markup - became the answer to a question about
+       the extractor, and this test failed on a page that was fine. The
+       panel has its own class now; asking by id is what makes that
+       unrepeatable. */
+    extract: document.getElementById('extract')
+      ? document.getElementById('extract').getBoundingClientRect().height > 0
+      : [...document.querySelectorAll('.extract')]
+        .some(e => e.getBoundingClientRect().height > 0),
     drop: document.getElementById('drop').getBoundingClientRect().height > 0,
     compose: tall('compose'), proj: tall('proj'),
     layers: tall('layers'), plan: tall('plan'),
@@ -54,7 +63,7 @@ const onScreen = (page) => page.evaluate(() => {
   };
 });
 
-test.describe('the app is three pages', () => {
+test.describe('the app is four pages', () => {
   test.beforeEach(async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto('/index.html');
@@ -162,7 +171,10 @@ test.describe('the app is three pages', () => {
       await gotoPage(page, 'project');
       const r = await page.evaluate(() => [...document.querySelectorAll('.pgtab')]
         .map(b => [b.dataset.page, b.getAttribute('aria-current')]));
-      expect(r, 'two tabs, not three').toEqual([['home', null], ['project', 'page']]);
+      /* THREE TABS NOW: Agent joined them. Settings is still not one - it is
+         a room inside the project, reached by a jump. */
+      expect(r, 'three tabs, and only the one you are on is current')
+        .toEqual([['home', null], ['project', 'page'], ['agent', null]]);
     });
 
   test('and the project stays lit while you are in its settings',
@@ -182,7 +194,10 @@ test.describe('the app is three pages', () => {
           current: b.getAttribute('aria-current'),
         })),
       }));
-      expect(r.tabs).toEqual([['home', null], ['project', 'page']]);
+      /* Agent is a tab and stays unlit: settings is a room inside the
+         PROJECT, so the project keeps the highlight and nothing else claims
+         it. */
+      expect(r.tabs).toEqual([['home', null], ['project', 'page'], ['agent', null]]);
       expect(r.jumps.filter(j => j.shown).map(j => j.to),
         'only the way back is offered from here').toEqual(['project']);
       expect(r.jumps.every(j => j.current === null),

@@ -63,7 +63,10 @@ const onScreen = (page) => page.evaluate(() => {
   };
 });
 
-test.describe('the app is four pages', () => {
+/* NOT A COUNT IN THE NAME EITHER. This read "the app is four pages" while
+   there were four, then five when Fix pixels arrived - and a title that has
+   to be edited every time a page is added is a title that will be wrong. */
+test.describe('the app is several pages, and the tabs say which one you are on', () => {
   test.beforeEach(async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto('/index.html');
@@ -171,10 +174,17 @@ test.describe('the app is four pages', () => {
       await gotoPage(page, 'project');
       const r = await page.evaluate(() => [...document.querySelectorAll('.pgtab')]
         .map(b => [b.dataset.page, b.getAttribute('aria-current')]));
-      /* THREE TABS NOW: Agent joined them. Settings is still not one - it is
-         a room inside the project, reached by a jump. */
-      expect(r, 'three tabs, and only the one you are on is current')
-        .toEqual([['home', null], ['project', 'page'], ['agent', null]]);
+      /* THE PROPERTY, NOT THE ROSTER. This pinned the exact list - three
+         entries, in order - and so it went red when Agent was added, and
+         again when Fix pixels was, both times for a page that was working
+         perfectly. What it is actually protecting is that EXACTLY ONE tab
+         claims to be where you are standing, and that it is the right one.
+         Settings is still not a tab: it is a room inside the project,
+         reached by a jump, which the next test covers. */
+      const lit = r.filter(([, c]) => c === 'page').map(([p]) => p);
+      expect(lit, 'exactly one tab is current, and it is this one').toEqual(['project']);
+      expect(r.map(([p]) => p), 'and the tab you asked for is among them').toContain('project');
+      expect(r.length, 'there are tabs to choose between').toBeGreaterThan(1);
     });
 
   test('and the project stays lit while you are in its settings',
@@ -194,10 +204,13 @@ test.describe('the app is four pages', () => {
           current: b.getAttribute('aria-current'),
         })),
       }));
-      /* Agent is a tab and stays unlit: settings is a room inside the
-         PROJECT, so the project keeps the highlight and nothing else claims
-         it. */
-      expect(r.tabs).toEqual([['home', null], ['project', 'page'], ['agent', null]]);
+      /* Every other tab stays unlit: settings is a room inside the PROJECT,
+         so the project keeps the highlight and nothing else claims it.
+         Counted rather than listed, for the reason above. */
+      expect(r.tabs.filter(([, c]) => c === 'page').map(([p]) => p),
+        'the project is lit, and only the project').toEqual(['project']);
+      expect(r.tabs.map(([p]) => p), 'settings never becomes a tab of its own')
+        .not.toContain('settings');
       expect(r.jumps.filter(j => j.shown).map(j => j.to),
         'only the way back is offered from here').toEqual(['project']);
       expect(r.jumps.every(j => j.current === null),

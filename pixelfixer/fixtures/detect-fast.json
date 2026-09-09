@@ -1,0 +1,51 @@
+{
+ "tiny": {
+  "cols": 16,
+  "rows": 16,
+  "step_x": 3.0,
+  "step_y": 3.0,
+  "consensus": "fast:ac+rl(S)"
+ },
+ "small": {
+  "cols": 24,
+  "rows": 24,
+  "step_x": 4.666666666666667,
+  "step_y": 4.666666666666667,
+  "consensus": "fast:ac+rl(S)"
+ },
+ "mid": {
+  "cols": 32,
+  "rows": 32,
+  "step_x": 6.375,
+  "step_y": 6.375,
+  "consensus": "fast:ac+rl(S)"
+ },
+ "dragon": {
+  "cols": 364,
+  "rows": 268,
+  "step_x": 3.979040909537205,
+  "step_y": 4.053412442678924,
+  "consensus": "fastmode:ac+ss"
+ },
+ "frog": {
+  "cols": 121,
+  "rows": 118,
+  "step_x": 10.33693026075329,
+  "step_y": 10.648521642524559,
+  "consensus": "fastmode:lowconf"
+ },
+ "koi-pond": {
+  "cols": 115,
+  "rows": 116,
+  "step_x": 10.927687867314667,
+  "step_y": 10.83075797408406,
+  "consensus": "fastmode:ac+ss"
+ },
+ "lighthouse": {
+  "cols": 104,
+  "rows": 138,
+  "step_x": 10.442307692307692,
+  "step_y": 10.492753623188406,
+  "consensus": "fast:ac+rl(S)"
+ }
+}

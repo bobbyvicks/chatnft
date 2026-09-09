@@ -1,0 +1,9 @@
+# Regenerable by tools/parity-endtoend.py and the other parity-*.py scripts,
+# and far too big to carry: the decoded inputs, the reference's answers, and
+# the per-module parity dumps run to about 283MB. The three source PNGs and
+# detect-fast.json stay, because they are small and they are the inputs.
+fixtures/raw/
+fixtures/fresh/
+fixtures/recon/
+fixtures/*-parity.json
+fixtures/*.json.prior-run*

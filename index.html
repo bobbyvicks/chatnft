@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
 <title>ChatNFT — pixel art editor on the true grid</title>
 <meta name="description" content="A pixel art editor that works on your art's true grid. Drop in a PNG, rebuild it at its native resolution, edit cell by cell, download clean.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23121016'/><rect x='6' y='6' width='8' height='8' fill='%23f5a524'/><rect x='18' y='6' width='8' height='8' fill='%233ddc97'/><rect x='6' y='18' width='8' height='8' fill='%233ddc97'/><rect x='18' y='18' width='8' height='8' fill='%23f5a524'/></svg>">
@@ -312,6 +312,18 @@ button.planhead:focus-visible{outline:2px solid var(--accent); outline-offset:2p
   border:2px dashed var(--line); background:var(--panel);
   transition:border-color .16s,background .16s;}
 .drop:hover,.drop.hot{border-color:var(--accent); background:var(--panel-2);}
+/* .drop is 92vw, which is right on the home page where it is a centred child
+   of .land and wrong inside a panel that is itself 92vw and padded: measured
+   at 375x812, the Fix pixels dropzone ran 34..379 inside a panel running
+   15..360, so about 19px of it hung past the panel on each side and its
+   dashed border was cut off.
+
+   SUPERSEDES "hung 36px past the right edge of the screen, and was the only
+   horizontal overflow on the site at 375px", which I took from a finding and
+   did not check. It stopped exactly AT the viewport edge, not past it, and
+   body carries overflow-x:hidden so nothing here scrolls the page sideways
+   in any case. The overflow was of the panel, not the screen. */
+#fixdrop{width:100%;}
 .drop strong{display:block; font-size:16.5px; margin-bottom:5px;}
 .drop span{color:var(--muted); font-size:13.5px;}
 /* No height until there is something to say. The reserved 20px plus the grid
@@ -495,6 +507,20 @@ button.planhead:focus-visible{outline:2px solid var(--accent); outline-offset:2p
 .item .x{position:absolute; top:3px; right:3px; width:19px; height:19px; border-radius:5px;
   background:#0b0910cc; color:var(--muted); font-size:13px; line-height:1; display:none;}
 .item:hover .x{display:grid; place-items:center;}
+/* WITHOUT A HOVER THERE IS NO REMOVE BUTTON AT ALL. The rule above is the
+   only thing that shows it, so on a touch screen it never appeared once and
+   nothing else on the tile removes a trait. (hover:none) rather than a
+   width: a tablet at 1024px has the same problem and a narrow desktop
+   window does not. 30px is the size this file already picked for a target a
+   thumb has to hit. */
+@media (hover:none){
+  .item .x{display:grid; place-items:center; width:30px; height:30px; font-size:17px;}
+}
+/* Why a trait says "never", on the tile. It was in a title attribute, on an
+   element with pointer-events:none, which is unreadable with a finger and
+   awkward with a mouse. Only the excluded minority of tiles carry one. */
+.item .whynot{display:block; margin-top:3px; font-size:9.5px; line-height:1.25;
+  color:var(--bad); white-space:normal; text-wrap:pretty;}
 .item .x:hover{background:var(--bad); color:#fff;}
 .empty{color:var(--dim); font-size:13px; padding:10px 0;}
 .mini.filt[aria-pressed="true"]{background:var(--accent-soft); border-color:var(--accent); color:var(--accent);}
@@ -1096,6 +1122,17 @@ footer .mono{color:var(--ink);}
     overflow-x:auto; overflow-y:hidden; scrollbar-width:none;
     padding:8px 10px; border-right:none; border-bottom:1px solid var(--line);}
   .tools::-webkit-scrollbar{display:none;}
+  /* SEVEN OF TWENTY-FIVE FIT, and undo was the eleventh. Ordered rather
+     than moved: the rail is a flex row at this width, so order puts the
+     three controls a finger reaches for while drawing at the front without
+     touching the markup, the ids or a single handler. Save keeps its place -
+     it is a deliberate press, and the fade below now says the row goes on. */
+  .tools #undo{order:-3;} .tools #redo{order:-2;} .tools #panbtn{order:-1;}
+  /* AND THAT THERE IS MORE. A scrolling row with no scrollbar and no edge
+     looks like the whole toolbar, which is how eighteen controls became
+     invisible rather than merely off-screen. */
+  .tools{-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 26px),transparent);
+    mask-image:linear-gradient(90deg,#000 calc(100% - 26px),transparent);}
   /* A flex item shrinks to fit by default, which would squeeze forty-two
      pixel buttons into twenty rather than let the row scroll. */
   .tools .tool{flex:none;}
@@ -1126,11 +1163,66 @@ footer .mono{color:var(--ink);}
   .opts .savebar input,.card .savebar input{padding-right:9px;}
   .opts .chips button,.card .chips button{padding:7px 6px;}
   .opts input[type=color],.card input[type=color]{height:30px;}
+  /* SIXTEEN PIXELS OR IOS ZOOMS THE PAGE IN AND DOES NOT COME BACK.
+
+     Measured at 375px: 69 of 69 focusable fields were under 16px, starting
+     with the username box on the sign-in card - so the page was zoomed
+     before anybody was signed in, on an app that fits artwork to the
+     viewport. Twelve of them matched no rule in this file at all and sat at
+     the browser default in 19px boxes.
+
+     !important, and deliberately. The density pass this block undoes is a
+     DESKTOP pass - the comment above says so - and its sizes are set
+     through .savebar input (0,1,1) and .item .rar (0,2,0), which both beat
+     a plain input,select,textarea at 0,0,1. The choice is between this and
+     restating every one of those selectors here and keeping the two lists
+     in step forever, which is the failure the pair-must-match comment above
+     already records happening once.
+
+     Colour, range, checkbox and radio are left out: they take no caret, so
+     they never trigger the zoom, and their size is set by width and height
+     a few lines up. */
+  input:not([type=color]):not([type=range]):not([type=checkbox]):not([type=radio]),
+  select,textarea{font-size:16px!important;}
+  /* And the one box that was sized around its old 10px text. Left at 36px
+     it would clip the weight it exists to show; the percentage beside it
+     moves over by the same amount. */
+  .item .rar{width:46px; padding:4px 3px;}
+  .item .pct{left:53px;}
   /* AND THE WIDTH, which the desktop rule sets to 38 and the narrower .cur
      rule now overrides everywhere. Without this, shrinking the box on a
      desktop took 16px off the touch target on a phone - the thing the
      mobile pass was for. Square, so it is a target rather than a sliver. */
+  /* MATCHES NOTHING TODAY. The colour well was an input when this was
+     written and is a button now (#clbtn, sized just below), so .cur holds no
+     input at all - read off the markup, not assumed: .cur contains #clbtn
+     and #curhex and nothing else. Kept rather than deleted because it
+     records what the control used to be, and labelled so nobody leans on
+     it for a size the button gets from its own rule. */
   .cur input[type=color]{width:30px; height:30px;}
+  /* AND THE BUTTON BESIDE IT, which is the well now. #clbtn is the only door
+     to the palette, Replace, Erase colour and Clean up colours, and its
+     keyboard shortcut needs a hardware key - so at 22x22 it was a quarter of
+     a touch target guarding every colour operation on the page. */
+  #clbtn{width:30px; height:30px;}
+  /* FIVE ACROSS IS 24px EACH. Two rows of three is about 40 wide and 36
+     tall.
+
+     WHAT A MISS COSTS, measured rather than asserted: a tap in the 6px gap
+     between two of these lands on the .shelftools container, which stops
+     nothing, so it reaches the tile's own handler and can open the trait.
+     One of three gap taps opened the editor in the run. SUPERSEDES "a miss
+     here opens the trait rather than doing nothing", which said always and
+     meant sometimes. */
+  .shelftools{grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px;}
+  .shelftools button,.shelftools .dup{padding:10px 2px; font-size:10.5px;}
+  /* AND THE COMPOSE ROWS, which are fourteen dropdowns stacked six pixels
+     apart and were the browser default: 19px tall on a 25px pitch. .crow
+     select carries only flex and min-width, so every rule that gives a
+     control a floor here missed it - it is in neither .opts nor .card. Sized
+     rather than added to those lists, because the list rule also sets
+     appearance:none and the chevron that replaces it is drawn elsewhere. */
+  .crow select{min-height:30px; padding:6px 7px;}
   .sw{min-height:30px;}
   .stack{gap:8px;}
   .rule{width:1px; height:26px; margin:2px 4px; align-self:center;}
@@ -1519,7 +1611,7 @@ footer .mono{color:var(--ink);}
           <span class="note" id="revwas"></span>
           <div class="olrow" style="margin-top:6px">
             <label for="revname">Name</label>
-            <input id="revname" type="text" style="flex:1;min-width:0" aria-label="Final name">
+            <input id="revname" type="text" style="flex:1;min-width:0" aria-label="Final name" autocapitalize="none" autocorrect="off" spellcheck="false">
           </div>
         </div>
       </div>
@@ -1585,7 +1677,7 @@ footer .mono{color:var(--ink);}
       <h2>Layers</h2>
       <span class="count" id="layercount"></span>
       <div class="acts">
-        <input id="newlayer" type="text" placeholder="new layer name" aria-label="New layer name">
+        <input id="newlayer" type="text" placeholder="new layer name" aria-label="New layer name" autocapitalize="none" autocorrect="off" spellcheck="false">
         <button class="mini" id="addlayer">Add</button>
       </div>
     </div>
@@ -1955,15 +2047,15 @@ footer .mono{color:var(--ink);}
       <input type="number" id="txol" value="0" min="0" max="8" step="1" style="width:56px">
       <input type="color" id="txolc" value="#000000" aria-label="Outline colour"></div>
     <div class="olrow"><button class="btn" id="txsh" aria-pressed="false" title="A copy of the letters behind them">Shadow</button>
-      <input type="number" id="txshx" value="1" min="-64" max="64" step="1" style="margin-left:auto; width:52px" aria-label="Shadow across">
-      <input type="number" id="txshy" value="1" min="-64" max="64" step="1" style="width:52px" aria-label="Shadow down">
+      <input type="number" inputmode="text" id="txshx" value="1" min="-64" max="64" step="1" style="margin-left:auto; width:52px" aria-label="Shadow across">
+      <input type="number" inputmode="text" id="txshy" value="1" min="-64" max="64" step="1" style="width:52px" aria-label="Shadow down">
       <input type="color" id="txshc" value="#000000" aria-label="Shadow colour"></div>
     <div class="olrow"><label for="txlean">Slant</label>
-      <input type="number" id="txlean" value="0" min="-64" max="64" step="1" style="margin-left:auto; width:52px" title="Lean the letters sideways">
-      <input type="number" id="txslope" value="0" min="-64" max="64" step="1" style="width:52px" aria-label="Slope down the line">
+      <input type="number" inputmode="text" id="txlean" value="0" min="-64" max="64" step="1" style="margin-left:auto; width:52px" title="Lean the letters sideways">
+      <input type="number" inputmode="text" id="txslope" value="0" min="-64" max="64" step="1" style="width:52px" aria-label="Slope down the line">
       <label for="txwx">Bend</label>
-      <input type="number" id="txwx" value="0" min="-64" max="64" step="1" style="width:52px">
-      <input type="number" id="txwy" value="0" min="-64" max="64" step="1" style="width:52px" aria-label="Bend down"></div>
+      <input type="number" inputmode="text" id="txwx" value="0" min="-64" max="64" step="1" style="width:52px">
+      <input type="number" inputmode="text" id="txwy" value="0" min="-64" max="64" step="1" style="width:52px" aria-label="Bend down"></div>
     <div class="olrow"><label for="txx">Place</label>
       <input type="number" id="txx" value="0" step="1" style="margin-left:auto; width:56px">
       <input type="number" id="txy" value="0" step="1" style="width:56px" aria-label="Down">
@@ -2078,7 +2170,7 @@ footer .mono{color:var(--ink);}
         <button class="tool" id="rotr" title="Turn a quarter to the right"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/></svg></button>
       </div>
       <div class="olrow" style="margin-top:8px"><label for="rotdeg">Turn by</label>
-        <input id="rotdeg" type="number" min="-360" max="360" step="0.1" value="0" style="width:64px"
+        <input id="rotdeg" type="number" inputmode="text" min="-360" max="360" step="0.1" value="0" style="width:64px"
           title="Degrees, clockwise. Shown on the art while you type; Turn commits it. The round handle above the box on the canvas is the same turn, by dragging.">
         <div class="chips" id="rotalg" role="group" aria-label="How a turn samples the pixels">
           <button type="button" data-v="nearest" aria-pressed="true"
@@ -2165,7 +2257,7 @@ footer .mono{color:var(--ink);}
     <p class="sub">Name it, put it on a layer, save it to the project or download it.</p>
       <div class="stack">
         <div class="savebar">
-          <input id="tname" type="text" placeholder="trait name" aria-label="Trait name">
+          <input id="tname" type="text" placeholder="trait name" aria-label="Trait name" autocapitalize="none" autocorrect="off" spellcheck="false">
           <select id="tlayer" aria-label="Layer"></select>
           <div class="chips" id="tstatus" role="group" aria-label="Status">
             <button type="button" data-v="wip" aria-pressed="true">wip</button>
@@ -3511,15 +3603,20 @@ async function idHolder(id,exceptId){
    with no useful divisor - 1279 - falls through to a plain scale rather
    than dividing by 1279 and arriving at one pixel. */
 const SHELF_THUMB=192;
-function thumbSize(w,h){
+/* THE SAME RULE AT A DIFFERENT CAP. thumbSize was written for the shelf and
+   the sheet wants exactly its arithmetic at 320 rather than 192, so the cap
+   became an argument. thumbSize keeps its name and its answers. */
+const SHEET_CELL=320;
+function fitSize(w,h,cap){
   w=Math.max(1,Math.round(w)||1); h=Math.max(1,Math.round(h)||1);
   const long=Math.max(w,h);
-  if(long<=SHELF_THUMB) return {w:w,h:h};
-  const lo=Math.ceil(long/SHELF_THUMB), hi=Math.floor(long/Math.round(SHELF_THUMB*0.6));
+  if(long<=cap) return {w:w,h:h};
+  const lo=Math.ceil(long/cap), hi=Math.floor(long/Math.round(cap*0.6));
   for(let n=lo;n<=hi;n++) if(w%n===0&&h%n===0) return {w:w/n,h:h/n};
-  const k=SHELF_THUMB/long;
+  const k=cap/long;
   return {w:Math.max(1,Math.round(w*k)),h:Math.max(1,Math.round(h*k))};
 }
+function thumbSize(w,h){ return fitSize(w,h,SHELF_THUMB); }
 /* Decode, draw at the thumbnail size, and CLOSE the bitmap.
 
    The close is not tidiness. A decoded 1280x1280 bitmap is 6.5 MB, every
@@ -3734,7 +3831,10 @@ async function renderShelf(){
       const nm=document.createElement('b'); nm.textContent=t.name; el.appendChild(nm);
       const x=document.createElement('button'); x.className='x'; x.textContent='×';
       x.title='Remove reference';
-      x.onclick=async ev=>{ ev.stopPropagation(); const gone=await dbDelShared(t); renderShelf(); toast(gone ? ('Removed '+t.name) : ('Removed '+t.name+' here, but the group still has it - it will come back')); };
+      /* ASKS FIRST. See the trait tile below for why this is here now. */
+      x.onclick=async ev=>{ ev.stopPropagation();
+        if(!confirm('Remove the reference "'+t.name+'"?')) return;
+        const gone=await dbDelShared(t); renderShelf(); toast(gone ? ('Removed '+t.name) : ('Removed '+t.name+' here, but the group still has it - it will come back')); };
       el.appendChild(x); rg.appendChild(el);
     }
     rw.appendChild(rg); body.appendChild(rw);
@@ -3886,7 +3986,18 @@ async function renderShelf(){
         if(ch.pct===null){
           pct.classList.add("never");
           pct.textContent="never";
+          /* KEPT for a mouse, and said out loud for everything else. A title
+             cannot be read with a finger, and .item .pct refuses the pointer
+             anyway - so on a phone this was a red "never" with no reason
+             obtainable at all. The layer-switched-off case is the one that
+             matters: the trait is approved, correctly weighted, and excluded
+             by a control somewhere else on the page. */
           pct.title=ch.why;
+          if(ch.why){
+            const why=document.createElement("span");
+            why.className="whynot"; why.textContent=ch.why;
+            el.appendChild(why);
+          }
         } else {
           /* "~" when it came from running the generator rather than from
              arithmetic. Printing an estimate to the same precision as an exact
@@ -3960,7 +4071,16 @@ async function renderShelf(){
       el.appendChild(tools);
       const x=document.createElement('button'); x.className='x'; x.textContent='×';
       x.title='Remove'; x.setAttribute('aria-label','Remove '+t.name);
-      x.onclick=async ev=>{ ev.stopPropagation(); const gone=await dbDelShared(t); visibility.show(key); renderShelf(); toast(gone ? ('Removed '+t.name) : ('Removed '+t.name+' here, but the group still has it - it will come back')); };
+      /* ASKS FIRST, and this is a change on every pointer, not only touch.
+         Removing a trait is irreversible and was the one destructive action
+         in this file that did not confirm - the layer, the whole project,
+         the server copy, leaving a group and two more all do. That was
+         survivable while the button could only be reached by hovering it on
+         purpose. The rule above now shows it permanently on a touch screen,
+         beside the artwork, on a shelf being scrolled with a thumb. */
+      x.onclick=async ev=>{ ev.stopPropagation();
+        if(!confirm('Remove "'+t.name+'" from '+(t.layer||"unsorted")+'?')) return;
+        const gone=await dbDelShared(t); visibility.show(key); renderShelf(); toast(gone ? ('Removed '+t.name) : ('Removed '+t.name+' here, but the group still has it - it will come back')); };
       el.appendChild(x);
       el.onclick=async()=>{
         if(!await openTraitRecord(t)) toast("Could not open "+(t.name||"that trait"));
@@ -4162,7 +4282,7 @@ async function saveTrait(){
          t_bugtest_eyes_wip and t_bugtest_eyes_approved in the shelf. The shelf's
          own status and layer buttons already do this properly; the editor did not. */
       try{ await dbDel(openWas.id); }catch(_){}
-      cBitmaps.delete(openWas.id);
+      cBitmapDrop(openWas.id);
       /* A hidden trait stays hidden through a rename. The visibility set is
          keyed by record key - rowId || id - and the id carries the name, layer
          and status, so all three of those give the trait a new key. The status
@@ -4181,8 +4301,11 @@ async function saveTrait(){
       await retargetRules([{from:traitKey(openWas), to:traitKey(rec)}]);
     }
     /* The character preview decodes each trait once and keeps it forever, so
-       without this it goes on compositing the version from before the edit. */
-    cBitmaps.delete(id);
+       without this it goes on compositing the version from before the edit.
+       SUPERSEDED IN PART: the cache has a budget now, so "forever" is only
+       true up to 96 MB - but a record whose artwork just changed has to go
+       whatever the budget says, and its pixel block with it. */
+    cBitmapDrop(id);
     /* THE DRAFT IS NOW THE RECORD, so it stops being a draft. Left behind,
        the next open would offer unsaved changes that were saved. Three keys
        because a rename changes the id, and a canvas that had no record
@@ -8266,11 +8389,80 @@ function flip(horizontal){
    onto a character without being repositioned. Nothing so far actually did
    that stacking, so nothing checked it. This does. */
 const cBitmaps=new Map();   /* record id -> ImageBitmap, decoded once */
+/* HOW MUCH DECODED ARTWORK THE CHARACTER VIEWS MAY HOLD.
+
+   This Map had no bound. Every trait ever composited into a character was
+   kept at full size for the life of the page, and a twelve-character sheet
+   reaches about 120 of them - 780 MB at 1280x1280, measured by size rather
+   than guessed. On a phone that is the tab.
+
+   96 MB is roughly fourteen traits at the collection size, and a single
+   character is about ten, so the view that matters most never evicts
+   anything mid-draw. The sheet will evict and re-decode as it goes, which
+   is the trade this exists to make.
+
+   LEAST RECENTLY USED, and the Map is the queue: it iterates in insertion
+   order, and a hit below deletes and re-inserts so the oldest key really is
+   the first one out. Safe only because every caller fetches a bitmap and
+   draws it with no await in between, so nothing can be holding one that
+   gets closed underneath it. */
+const CBITMAP_BUDGET=96*1048576;
+/* One full-size canvas the review tiles composite into, shared because they
+   are painted one at a time, and given back by revBuild when the grid is
+   built. */
+let revScratch=null;
+/* RESCANNED, NEVER KEPT AS A RUNNING TOTAL, which is what historyBytes says
+   a few hundred lines up and what this was written as anyway. A total here
+   drifts for a reason worth naming: revBuild fires a paint per tile without
+   awaiting, so two calls for one record can be in flight together, both miss
+   the lookup, both decode, and the second set() replaces the first - one
+   credit per decode, one debit per eviction, and the difference never comes
+   back. The budget was then permanently exceeded and the cache evicted
+   itself to one entry. The Map holds about a dozen bitmaps, so summing it is
+   cheaper than being wrong about it. */
+function cBitmapBytes(){
+  let t=0;
+  for(const bm of cBitmaps.values()) t+=bm.width*bm.height*4;
+  if(!Number.isFinite(t)) throw new Error("the bitmap cache accounting is not a number");
+  return t;
+}
 async function cBitmap(rec){
-  if(cBitmaps.has(rec.id)) return cBitmaps.get(rec.id);
+  const had=cBitmaps.get(rec.id);
+  if(had){ cBitmaps.delete(rec.id); cBitmaps.set(rec.id,had); return had; }
   const bm=await createImageBitmap(rec.blob);
+  /* A RACE ARRIVES HERE, and it is the ordinary case rather than the exotic
+     one: revBuild starts a paint per tile and they all reach this line for
+     the same base trait. Whoever stored first wins, so no bitmap already
+     handed to a caller is closed underneath it, and this one goes. */
+  const now=cBitmaps.get(rec.id);
+  if(now){ if(bm.close) bm.close(); return now; }
   cBitmaps.set(rec.id,bm);
+  while(cBitmapBytes()>CBITMAP_BUDGET && cBitmaps.size>1){
+    const oldest=cBitmaps.keys().next().value;
+    const gone=cBitmaps.get(oldest);
+    cBitmaps.delete(oldest);
+    if(gone.close) gone.close();
+  }
   return bm;
+}
+/* ONE RECORD OUT, when its artwork has changed or it is gone.
+
+   Three places did this with cBitmaps.delete, which since the budget above
+   would leave the byte count claiming memory that had been released and
+   quietly shrink the cache to nothing. It also does the two things those
+   places always meant and never said: the record's cached PIXEL BLOCK is
+   dropped, and the memoised canvas side is forced to recompute. blockOf was
+   never cleared by any of them, and autoKey is built from ids and SIZES -
+   so re-saving a trait with different artwork at the same size left
+   autoCanvas answering from the picture before the edit, for the rest of
+   the session. */
+function cBitmapDrop(id){
+  const bm=cBitmaps.get(id);
+  if(bm){
+    cBitmaps.delete(id);
+    if(bm.close) bm.close();
+  }
+  try{ blockOf.delete(id); autoKey=""; autoSide=null; }catch(_){}
 }
 let cItems=[];
 /* The two pickers and the current list.
@@ -8434,16 +8626,33 @@ async function revPaint(cv,cond,cand){
      the picks is what made the preview change size between draws. */
   { const S=await autoCanvas(cItems); W=S; H=S; }
   if(!W||!H){ W=160; H=160; }
-  cv.width=W; cv.height=H;
+  /* THE TILE IS 108 TO 140 PIXELS AND WAS GIVEN THE COLLECTION CANVAS.
+     1280x1280 is 6.25 MB of backing store per tile, and revBuild builds one
+     per candidate - so a layer with twenty of them asked for 125 MB at once.
+     Same answer as the shelf and the sheet: composite at the full size into
+     one reused scratch, so paintTrait is handed exactly the canvas it always
+     was, and copy that down to the tile.
+
+     The scratch is shared, which is only sound because revBuild awaits each
+     of these in turn. It did not before this patch, and the check in
+     patches/patch377-review-and-counter.cjs pins that it does now. */
+  const cell=fitSize(W,H,SHELF_THUMB);
+  cv.width=cell.w; cv.height=cell.h;
   const g=cv.getContext("2d");
   g.imageSmoothingEnabled=false;
-  g.clearRect(0,0,W,H);
+  g.clearRect(0,0,cv.width,cv.height);
+  if(!revScratch) revScratch=document.createElement("canvas");
+  if(revScratch.width!==W||revScratch.height!==H){ revScratch.width=W; revScratch.height=H; }
+  const sg=revScratch.getContext("2d");
+  sg.imageSmoothingEnabled=false;
+  sg.clearRect(0,0,W,H);
   /* Paint order, not decide order - this is a picture of the character. */
   const at=l=>{ const i=LAYERS.indexOf(l); return i<0?LAYERS.length:i; };
   const two=[cond,cand].sort((a,b)=>at(a.layer||"unsorted")-at(b.layer||"unsorted"));
   for(const p of (base?[base]:[]).concat(two)){
-    try{ paintTrait(g,await cBitmap(p),0,0,W,H); }catch(_){ }
+    try{ paintTrait(sg,await cBitmap(p),0,0,W,H); }catch(_){ }
   }
+  g.drawImage(revScratch,0,0,cv.width,cv.height);
 }
 async function revBuild(){
   const grid=$("revgrid"); if(!grid) return;
@@ -8483,8 +8692,14 @@ async function revBuild(){
     tile.appendChild(ans);
     grid.appendChild(tile);
     revMark(tile,revCond,k);
-    if(cond) revPaint(cv,cond,t);
+    /* AWAITED. It was not, which is what let twenty full-size decodes start
+       in one frame, and the shared scratch above depends on it. The grid is
+       also genuinely finished when this function resolves now, which it was
+       not before - the paints were still in flight. */
+    if(cond) await revPaint(cv,cond,t);
   }
+  /* Handed back rather than left at the collection size. */
+  if(revScratch){ revScratch.width=1; revScratch.height=1; }
 }
 /* The state on the tile, from the rules and the answers rather than from
    what the click did - so a rule changed anywhere else shows up here. */
@@ -9897,13 +10112,17 @@ function weightedPick(recs){
    A WeakMap so a bitmap that is closed and dropped takes its answer with
    it. */
 const blockCache=new WeakMap();
+let blockScratch=null;   /* borrowed by pixelBlock, given back by autoCanvas */
 function pixelBlock(bm){
   const had=blockCache.get(bm);
   if(had!==undefined) return had;
   let n=1;
   try{
     const w=bm.width, h=bm.height;
-    const c=document.createElement("canvas");
+    /* ONE scratch canvas for the whole collection, not one per trait. At
+       1280x1280 a fresh canvas each time is 6.5 MB and this is called once
+       per trait; setting width below clears it, so nothing carries over. */
+    const c=blockScratch||(blockScratch=document.createElement("canvas"));
     c.width=w; c.height=h;
     const g=c.getContext("2d",{willReadFrequently:true});
     g.imageSmoothingEnabled=false;
@@ -9967,6 +10186,7 @@ async function autoCanvas(recs){
   const key=list.map(r=>r.id+":"+(r.w|0)+"x"+(r.h|0)).sort().join("|");
   if(autoKey===key && autoSide) return autoSide;
   const seen=[];
+  let scanned=0;   /* records this call actually had to decode */
   for(const r of list){
     const s=Math.max(r.w||0,r.h||0);
     if(!s) continue;
@@ -9976,11 +10196,30 @@ async function autoCanvas(recs){
          kept. A bitmap that will not decode counts as block 1, which is the
          cautious answer - it lands whole on nothing and cannot make a
          candidate look better than it is. */
-      try{ blk=pixelBlock(await cBitmap(r)); }catch(_){ blk=1; }
+      /* MEASURED, THEN LET GO. This went through cBitmap, whose Map keeps
+         every bitmap it decodes for the life of the page and is only ever
+         emptied one record at a time. So asking the collection what size it
+         is decoded all 318 traits at 1280x1280 and held them - 1,988 MB,
+         measured, on every load - to arrive at one small integer each,
+         which blockOf already remembers. The number is what is wanted here.
+         The bitmap is closed, which is exactly what the WeakMap over
+         blockCache was written for. */
+      let bm=null;
+      try{ bm=await createImageBitmap(r.blob); blk=pixelBlock(bm); }
+      catch(_){ blk=1; }
+      if(bm&&bm.close) bm.close();
       blockOf.set(r.id,blk);
+      /* A BREATH BETWEEN RECORDS. The scan in pixelBlock is the only long
+         synchronous run on this path and 318 of them back to back is a
+         frozen page: about 15 seconds, measured at a sixth of a desktop
+         CPU. This does not make it faster, it makes it interruptible. */
+      if((++scanned%8)===0) await new Promise(res=>setTimeout(res,0));
     }
     seen.push({s:s,blk:blk});
   }
+  /* The 6.5 MB pixelBlock borrows to read a trait is not wanted between
+     sweeps, and a collection is swept once. */
+  if(blockScratch){ blockScratch.width=1; blockScratch.height=1; }
   if(!seen.length) return CANVAS_SIDE;
   let best=null;
   for(const C of [...new Set(seen.map(x=>x.s))]){
@@ -10305,17 +10544,34 @@ async function drawSheet(count){
      back leaves a band of empty canvas that reads as a rendering fault. */
   const cols=Math.min(4,got), rows=Math.ceil(got/cols), GAP=2;
   const cv=$("ccanvas");
-  cv.width=cols*(W+GAP)-GAP; cv.height=rows*(H+GAP)-GAP;
+  /* THE SHEET IS AN OVERVIEW, SO IT IS DRAWN AT OVERVIEW SIZE. This sized
+     the canvas to twelve full traits and reached 5126x3844 - 75.2 MB,
+     measured - for a picture the CSS shows at min(900px,72vw). A 320 cell
+     is 5.0 MB and is still being scaled DOWN at 900px, so the screen this
+     set is judged on loses nothing.
+
+     Each character is still composited at the FULL canvas size, into one
+     scratch tile reused across the sheet, so paintTrait is handed exactly
+     the canvas it was handed before and every whole-number scale it works
+     out is unchanged. Only the copy onto the sheet is smaller. */
+  const cell=fitSize(W,H,SHEET_CELL);
+  cv.width=cols*(cell.w+GAP)-GAP; cv.height=rows*(cell.h+GAP)-GAP;
   const g=cv.getContext("2d");
   g.imageSmoothingEnabled=false;
   g.clearRect(0,0,cv.width,cv.height);
+  const tile=document.createElement("canvas"); tile.width=W; tile.height=H;
+  const tg=tile.getContext("2d"); tg.imageSmoothingEnabled=false;
   for(let i=0;i<combos.length;i++){
-    const ox=(i%cols)*(W+GAP), oy=Math.floor(i/cols)*(H+GAP);
+    tg.clearRect(0,0,W,H);
     for(const r of combos[i]){
       const bm=await cBitmap(r);
-      paintTrait(g,bm,ox,oy,W,H);
+      paintTrait(tg,bm,0,0,W,H);
     }
+    const ox=(i%cols)*(cell.w+GAP), oy=Math.floor(i/cols)*(cell.h+GAP);
+    g.drawImage(tile,ox,oy,cell.w,cell.h);
   }
+  /* Handed back rather than left at the collection size. */
+  tile.width=1; tile.height=1;
   sheetMode=true;
   const empties=combos.filter(c=>c.length<=1).length;
   /* drawSheet computes the same max W,H that drawCompose does and drew every
@@ -12679,7 +12935,11 @@ async function traitFingerprint(t){
     const g=c.getContext("2d",{willReadFrequently:true});
     g.imageSmoothingEnabled=false; g.drawImage(bm,0,0);
     const d=g.getImageData(0,0,c.width,c.height);
-    return {hash:artFingerprint(d.data), w:c.width, h:c.height};
+    /* Closed before the answer leaves, or one call per trait in a sweep
+       leaves the whole collection decoded behind it. */
+    const out={hash:artFingerprint(d.data), w:c.width, h:c.height};
+    if(bm.close) bm.close();
+    return out;
   }catch(_){ return null; }
 }
 /* Accepted, and still true. An entry with no fingerprint behind its
@@ -13557,7 +13817,11 @@ async function collectionPalette(cap){
     const g=c.getContext("2d",{willReadFrequently:true});
     g.imageSmoothingEnabled=false; g.drawImage(bm,0,0);
     const d=g.getImageData(0,0,bm.width,bm.height).data;
-    for(let p=0;p<bm.width*bm.height;p++){
+    /* The pixels are out; the bitmap is not wanted for the rest of the loop
+       and forty of them at the collection size is 250 MB. */
+    const bw=bm.width, bh=bm.height;
+    if(bm.close) bm.close();
+    for(let p=0;p<bw*bh;p++){
       if(d[p*4+3]<128) continue;
       const k=(d[p*4]<<16)|(d[p*4+1]<<8)|d[p*4+2];
       counts.set(k,(counts.get(k)||0)+1);
@@ -13959,6 +14223,11 @@ async function sbUser(){
    and a flicker. */
 /* Compared by value to decide whether to take the message down, so the two
    live side by side rather than being retyped at each site. */
+/* How long the boot handshake may take before it is treated as unreachable.
+   Six seconds is long enough that a slow-but-working connection is not cut
+   off, and short enough that somebody on a phone is not looking at a wall
+   wondering whether to reload. */
+const CLOUD_DEADLINE_MS=6000;
 const CLOUD_UNREACHABLE="Cannot reach the server just now, so this still shows what it last said. Your collection is on this device and nothing has been lost.";
 const CLOUD_DEFAULT_NOTE="Nothing uploads until you press Save to cloud.";
 /* Said when an action could not even ask whether it was allowed. "Nothing
@@ -13980,7 +14249,17 @@ function bootLocal(){
 }
 
 async function cloudRender(){
-  const a=await sbAuthState();
+  /* A DEADLINE. Nothing in this file has one - no AbortController, no
+     signal: anywhere - and a phone's ordinary network failure is a request
+     that never answers rather than one that is refused. Without this the
+     page is a sign-in wall for as long as the browser is willing to wait,
+     which is minutes, with no shelf and nothing said.
+
+     It resolves to the state this function already handles and already has
+     a message for, so a timeout is not a new outcome - it is the existing
+     one, arriving in six seconds instead of never. */
+  const a=await Promise.race([sbAuthState(),
+    new Promise(r=>setTimeout(()=>r({state:"unknown"}),CLOUD_DEADLINE_MS))]);
   /* NEVER DOWNGRADE ON A FAILED QUESTION. Measured before this: one dropped
      request to /auth/v1/user set authed=false and raised the gate, and
      gateShow(true) calls forgetLocalView - so six shelf cards, the project
@@ -14516,7 +14795,7 @@ async function cloudDropOne(rec){
    unaffected - activeWs is null there and nothing leaves the browser. */
 async function dbDelShared(rec){
   /* Or the character preview keeps compositing a trait that is gone. */
-  try{ cBitmaps.delete(rec.id); }catch(_){}
+  try{ cBitmapDrop(rec.id); }catch(_){}
   /* Returns what actually happened, so the message can be honest: "removed"
      and "removed here but the group still has it" are different events and
      were being reported identically. */
@@ -15872,6 +16151,20 @@ stage.addEventListener('pointerdown',e=>{
   if(pts.size===2){
     /* Whatever the first finger was about to do, it was not this. */
     pendingTouch=null; painting=false; lastCell=null;
+    /* AND WHATEVER A REGISTERED TOOL HAD BEGUN. The two above are the
+       built-in strokes; a shape, a selection, a gradient or the shader
+       keeps its state in TOOL_HOOKS and was left live here - so lifting the
+       pinch committed a rectangle from where the first finger landed to
+       wherever the second one ended. Sent as a pointercancel, which all
+       four hooks treat as an abandon, carrying this event's position and
+       modifiers so a hook that reads them gets real ones. */
+    if(hookTool){
+      const T=TOOL_HOOKS[hookTool]; hookTool=null;
+      if(T&&T.up) try{ T.up({type:"pointercancel", clientX:e.clientX, clientY:e.clientY,
+        shiftKey:!!e.shiftKey, altKey:!!e.altKey, ctrlKey:!!e.ctrlKey, metaKey:!!e.metaKey,
+        pointerId:e.pointerId, pointerType:e.pointerType, button:0, buttons:0,
+        preventDefault(){}, stopPropagation(){}}); }catch(_){}
+    }
     const [a,b]=[...pts.values()]; const m0=mid(a,b);
     pinch={d:dist(a,b),z:zoom,mx:m0.clientX,my:m0.clientY};
     hoverCell=null; paintCursor(); return; }
@@ -16041,8 +16334,15 @@ $('gridbtn').onclick=e=>{ const on=$('grid').classList.toggle('on'); e.currentTa
    only snapshot() enforced. */
 $('undo').onclick=()=>{ if(!undoStack.length) return; redoStack.push(ctx.getImageData(0,0,art.width,art.height)); trimHistory(); restoreImage(undoStack.pop()); refreshStats(); resizeBoxes(); repalette(); };
 $('redo').onclick=()=>{ if(!redoStack.length) return; undoStack.push(ctx.getImageData(0,0,art.width,art.height)); trimHistory(); restoreImage(redoStack.pop()); refreshStats(); resizeBoxes(); repalette(); };
-$('zin').onclick=()=>setZoom(zoom+1);
-$('zout').onclick=()=>setZoom(zoom-1);
+/* PROPORTIONAL BELOW 1x, which is what zoomNotch says about the wheel a few
+   lines up and what these were never given. A phone fits a 1280 trait at
+   about 0.28, where a flat -1 clamps to the 0.05 floor and a flat +1 lands
+   on 1 - so the whole range a phone lives in could not be reached with the
+   two controls the mobile pass deliberately grew to thumb size for exactly
+   this job. Whole steps at 1x and up are kept: that is what keeps the cells
+   square, and it is the reason the buttons snap where the wheel does not. */
+$('zin').onclick=()=>{ if(zoom>=1) setZoom(zoom+1); else setZoom(Math.min(1,zoom*1.25),null,true); };
+$('zout').onclick=()=>{ if(zoom>1) setZoom(zoom-1); else setZoom(zoom/1.25,null,true); };
 $('zfit').onclick=fitZoom;
 /* One source of truth: this presses the Pan tool rather than keeping a second
    copy of whether panning is on, which would drift the moment either one was
@@ -16879,7 +17179,13 @@ async function pbEach(job,fn){
         c.width=t.w||bm.width; c.height=t.h||bm.height;
         g.clearRect(0,0,c.width,c.height);
         g.drawImage(bm,0,0);
-        await fn(t,g.getImageData(0,0,c.width,c.height));
+        /* Closed BEFORE fn runs, not after: the pixels are already out in
+           the ImageData, fn can be slow, and the catch below would skip a
+           close placed after it. The comment above this loop already says
+           one canvas is reused for this reason; the bitmaps were not. */
+        const px=g.getImageData(0,0,c.width,c.height);
+        if(bm.close) bm.close();
+        await fn(t,px);
       }catch(_){ skipped.push(traitKey(t)); }
       PB.progress.done++;
       /* Every eight, not every one: a yield per trait doubles the wall clock
@@ -20866,7 +21172,12 @@ registerTool("gradient",{
   /* rawCell, not the clipped cell: the drag end may leave the canvas, as
      Pixelorama's Vector2i pos does, and the ramp follows it out. */
   move(e){ if(!gdDrag) return; const rc=rawCell(e); gdMove(rc.x,rc.y,e); },
-  up(e){ if(!gdDrag) return; const rc=rawCell(e); gdCommit(rc.x,rc.y,e); },
+  /* A CANCEL ABANDONS, which is the contract the shapes and the selection
+     already keep and this one did not - so a pinch begun over a live
+     gradient still laid the ramp down. gdCancel is what deselect uses. */
+  up(e){ if(!gdDrag) return;
+    if(e&&e.type==='pointercancel'){ gdCancel(); return; }
+    const rc=rawCell(e); gdCommit(rc.x,rc.y,e); },
   select(){ const r=$("gdrows"); if(r) r.hidden=false; },
   deselect(){ gdCancel(); const r=$("gdrows"); if(r) r.hidden=true; },
 });
@@ -21597,7 +21908,55 @@ addEventListener('keydown',e=>{
   }
 });
 addEventListener('keyup',e=>{ if(e.code==='Space'){ spaceHeld=false; if(!pan) stage.style.cursor=panMode?'grab':''; } });
-addEventListener('resize',()=>{ if(!$('app').hidden&&zoom<=1) fitZoom(); });
+/* COALESCED INTO A FRAME. fitZoom reaches contentBox, which reads the whole
+   canvas with getImageData - 6.25 MB at the collection size, measured at
+   3.3 ms a call here. A burst of resizes becomes one call rather than one
+   each. Same condition as before, evaluated when the frame runs.
+
+   SUPERSEDES "a phone fires resize repeatedly as the URL bar collapses
+   during an ordinary scroll". Measured, and false for the only screen this
+   listener does anything on: the guard is !$("app").hidden, .app is
+   height:100dvh under html,body{height:100%}, and the editor document does
+   not scroll at all at 375x812 - so there is no page scroll there to
+   collapse a URL bar. On the shelf, where you do scroll, the guard returns
+   immediately. What is left is rotation and the keyboard, which fire resize
+   for real and are worth one frame instead of several. Smaller than the
+   sentence it replaces claimed, and still the right shape. */
+let fitPending=0;
+addEventListener('resize',()=>{
+  cancelAnimationFrame(fitPending);
+  fitPending=requestAnimationFrame(()=>{ if(!$('app').hidden&&zoom<=1) fitZoom(); });
+});
+/* THE WRITE THAT WAS STILL IN A TIMER WHEN THE TAB WENT AWAY.
+
+   autosave() debounces by 1500 ms and nothing in this file listened for the
+   tab leaving, so a stroke put down and followed by switching apps was lost:
+   a frozen tab runs no timers and a discarded one never comes back. Both
+   events, because they answer different questions - visibilitychange fires
+   when you switch away and is the one a phone actually delivers, pagehide
+   covers the navigation case. autosaveNow clears the pending timer itself,
+   so firing twice writes once.
+
+   This is a best effort and worth saying so: the encode is asynchronous, and
+   a tab can be killed before toBlob comes back. It is strictly more than a
+   1500 ms timer that will never run. */
+addEventListener('pagehide',()=>{ try{ autosaveNow(); }catch(_){} });
+document.addEventListener('visibilitychange',()=>{
+  if(document.visibilityState==='hidden'){ try{ autosaveNow(); }catch(_){} }
+});
+/* AND ASK TO KEEP THE COLLECTION. Everything is in IndexedDB, which is
+   best-effort by default: iOS Safari clears script-writable storage after
+   seven days without a visit, and any browser may evict under pressure. This
+   asks for the durable kind. It is a request - Chromium grants it on
+   engagement, Safari on a bookmark or Add to Home Screen - so the answer is
+   recorded rather than relied on, and Save to cloud remains the real
+   backup. */
+try{
+  if(navigator.storage&&navigator.storage.persist)
+    navigator.storage.persist().then(ok=>{
+      if(!ok) console.info("Storage is best-effort here: the browser may clear this collection. Save to cloud is the backup.");
+    }).catch(()=>{});
+}catch(_){}
 </script>
 <!-- Retro Diffusion's Pixel Art Fixer, ported to JavaScript. type="text/plain"
      so the browser does NOT execute it here: the Fix pixels tab reads this

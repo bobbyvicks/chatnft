@@ -122,10 +122,16 @@ test('the resize is nearest neighbour, so no colour is invented', async ({ page 
 
 test('the readout says which of the two sizes you are about to get', async ({ page }) => {
   await ready(page);
+  /* SNAP OFF. This test is about the readout for a DETECTED pixel size -
+     what you are told when you type one in. Snapping is on by default now and
+     answers a different question (the grid decides the count), so leaving it
+     on would test that instead and quietly stop covering this. */
   const hint = (w, step, on) => page.evaluate(({ w, step, on }) => {
+    document.getElementById('fixsnap').checked = false;
     FIX.src = { width: w, height: w };
     document.getElementById('fixgrid').checked = on;
     const f = document.getElementById('fixforce');
+    f.disabled = false;
     f.value = String(step);
     fixSizeHint();
     return document.getElementById('fixsize').textContent;
@@ -165,9 +171,13 @@ test('an image that cannot land on the grid is told so, not given a number', asy
   /* 1021 is prime, so no whole pixel size divides it onto a count that
      divides 1280. Naming one anyway would be worse than saying nothing. */
   const said = await page.evaluate(() => {
+    /* Snap off for the same reason as above: this asks what a TYPED size is
+       told, and snapping does not take one. */
+    document.getElementById('fixsnap').checked = false;
     FIX.src = { width: 1021, height: 1021 };
     document.getElementById('fixgrid').checked = true;
     const f = document.getElementById('fixforce');
+    f.disabled = false;
     f.value = '12';
     fixSizeHint();
     return document.getElementById('fixsize').textContent;
@@ -215,5 +225,27 @@ test('the batch and the single save go through the same canvas', async ({ page }
   expect(src.download).toContain('fixGridCanvas(');
   expect(src.batch).toContain('fixGridCanvas(');
   expect(src.download).not.toContain('drawImage');
-  expect(src.batch).not.toMatch(/drawImage\([^)]*,\s*0\s*,\s*0\s*,/);
+
+  /* WAS a blanket "no scaling drawImage anywhere in fixBatch". That went red
+     when the batch grew its result tiles, and it was right to fire and wrong
+     to fail: the tile IS a scaling drawImage, and it is not a second answer
+     to what a save is - it draws FROM the saved canvas, at thumbnail size,
+     for the preview.
+
+     So the guard says what it always meant. The bytes that are kept must come
+     off the canvas fixGridCanvas made, and nothing in the batch may build a
+     second canvas at the collection size. A batch that resized the result
+     itself would still be caught; a batch that makes a small picture of it
+     is not what this was ever about. */
+  expect(src.batch, 'the saved bytes come off the fixGridCanvas canvas')
+    .toMatch(/const oc=fixGridCanvas\(out\);[\s\S]*oc\.toBlob\(/);
+  const draws = src.batch.match(/\w+\.drawImage\([^)]*\)/g) || [];
+  for (const d of draws) {
+    const scaling = /,\s*0\s*,\s*0\s*,/.test(d);
+    if (!scaling) continue;
+    expect(d, 'the only scaling draw in the batch is the tile, drawn from oc')
+      .toMatch(/drawImage\(oc,0,0,t\.w,t\.h\)/);
+  }
+  expect(src.batch, 'nothing in the batch sizes a second canvas to the collection')
+    .not.toMatch(/\.width\s*=\s*CANVAS_SIDE/);
 });

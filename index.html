@@ -125,6 +125,28 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
 .fixprog{display:flex; align-items:center; gap:10px; margin:8px 0;}
 .fixbar{flex:1; height:6px; border-radius:3px; background:var(--panel-2); overflow:hidden;}
 .fixbar i{display:block; height:100%; width:0; background:var(--accent); transition:width .15s;}
+/* THE BATCH, SEEN. Same shape as the shelf: a grid that fills the width
+   with whatever tiles fit, capped in height so a run of five hundred does
+   not push the buttons off the screen. */
+.fixgridout{display:grid; grid-template-columns:repeat(auto-fill,minmax(104px,1fr));
+  gap:9px; margin-top:10px; max-height:52dvh; overflow-y:auto; padding:2px;}
+.fixtile{display:flex; flex-direction:column; gap:4px; padding:0; border:0;
+  background:transparent; font:inherit; color:inherit; cursor:pointer; text-align:center;}
+/* Pixelated, and on the same chequer the pair uses, or transparency in a
+   trait reads as white and a white trait reads as empty. */
+/* height:auto MATTERS HERE. The tile carries width= and height= attributes
+   so the grid does not jump as each image loads, and those map to real CSS
+   declarations that beat aspect-ratio - measured on the page, the tile came
+   out 105 wide and 160 tall, stretched. auto hands the sizing back. */
+.fixtile img{width:100%; height:auto; aspect-ratio:1; object-fit:contain;
+  image-rendering:pixelated;
+  background:repeating-conic-gradient(#ffffff10 0 25%,transparent 0 50%) 0 0/12px 12px;
+  border:1px solid var(--line); border-radius:8px;}
+.fixtile:hover img{border-color:var(--accent);}
+.fixtile:focus-visible{outline:2px solid var(--accent); outline-offset:2px; border-radius:8px;}
+.fixtile b{font-weight:600; font-size:11px; overflow:hidden; text-overflow:ellipsis;
+  white-space:nowrap;}
+.fixtile span{font-size:10px; color:var(--dim);}
 .fixpair{display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:10px;}
 .fixpair figure{margin:0; text-align:center;}
 .fixpair canvas{width:100%; max-width:420px; image-rendering:pixelated; background:
@@ -952,6 +974,27 @@ input[type=range]{width:100%; accent-color:var(--accent); cursor:pointer;}
 /* Moves WITH the column count above, never on its own: at 26px the floor
    binds at nine columns and swallows the change. */
 .sw{aspect-ratio:1; min-height:22px; border-radius:4px; border:1px solid #ffffff1a; padding:0;}
+/* WHICH RING THIS COLOUR IS. The line under the grid spells the order out,
+   and that is the sentence; this is the same fact on the swatch itself, so
+   picking a fourth colour does not mean counting along a line to find out
+   where it went. Only in the outline grid: a number on a painting swatch
+   would mean nothing.
+   Both a light and a dark shadow, because the number sits on whatever
+   colour was chosen and one of the two always separates it. */
+/* ITS OWN CLASS, NOT .sw, AND THAT IS NOT COSMETIC. setColor sweeps every
+   .sw on the page and writes aria-pressed on it to show the painting
+   colour - which is the same attribute this grid uses to mark a colour as
+   chosen for the outline. Sharing the class means painting silently
+   rewrites the outline selection. And .swatches means "a view of the
+   trait palette", which this is not: it is a chooser, and it is empty
+   until the panel opens. */
+.olsw{display:grid; grid-template-columns:repeat(8,1fr); gap:4px;}
+.olchip{aspect-ratio:1; min-height:22px; border-radius:4px; padding:0;
+  border:1px solid #ffffff1a; position:relative; cursor:pointer;}
+.olchip[data-n]::after{content:attr(data-n); position:absolute; inset:0;
+  display:grid; place-items:center; font-size:10px; font-weight:700;
+  color:#fff; text-shadow:0 0 2px #000,0 0 3px #000,0 1px 0 #0009;}
+.olchip[aria-pressed="true"]{outline:2px solid var(--accent); outline-offset:1px;}
 .sw[aria-pressed="true"]{outline:2px solid var(--accent); outline-offset:1px;}
 /* SEVEN CONTROLS THAT LIT UP NOTHING. .tool, .chips and .mini all had a
    pressed rule; .btn never did, so gsnap, rcnear, oltidy, olpatch, rslock,
@@ -1450,6 +1493,12 @@ footer .mono{color:var(--ink);}
       title="Write the result onto the collection's own 1280x1280 canvas instead of at its native size. The whole picture is scaled, so nothing moves relative to anything else.">
       <input type="checkbox" id="fixgrid" checked>
       <span>Save at 1280×1280</span></label>
+    <!-- THE GRID IS KNOWN, so it is not detected. See patch406 for what
+         the detectors landed on instead and what that cost. -->
+    <label class="olrow" style="gap:6px"
+      title="Use the collection's own cell grid instead of working it out. Every pixel comes out the same size and lands on the grid, and it is several times faster because nothing has to be detected.">
+      <input type="checkbox" id="fixsnap" checked>
+      <span id="fixsnaplab">Snap to the grid</span></label>
     <button class="btn" id="fixrun" disabled>Fix it</button>
     <button class="btn ghost" id="fixstop" hidden>Stop</button>
   </div>
@@ -1469,6 +1518,9 @@ footer .mono{color:var(--ink);}
   <div id="fixbatch" hidden>
     <p class="note mono" id="fixbatchout"></p>
     <p class="note mono" id="fixsaveout"></p>
+    <!-- Filled as each one finishes, so a long run is watched rather than
+         waited on. Tiles are thumbnails: see patch405. -->
+    <div class="fixgridout" id="fixresults" hidden></div>
     <div class="btnrow">
       <button class="btn" id="fixbatchdl" disabled>Download all as a zip</button>
       <button class="btn" id="fixbatchsave" disabled title="Put all of them on the shelf, each in the category its folder names.">Save all to project</button>
@@ -2380,19 +2432,40 @@ footer .mono{color:var(--ink);}
 <div class="scrim pop" id="olscrim" hidden>
   <div class="card" role="dialog" aria-modal="true" aria-labelledby="oltitle">
     <h2 id="oltitle">Outline</h2>
-    <p class="sub">Draws a border around the artwork. The collection's own
-      black border is applied on save and export whatever you set here.</p>
+    <p class="sub">Makes all the outer pixels a colour you choose. Pick up
+      to twelve from the trait's own colours and they run from the inside
+      out, one to each ring. The collection's own black border is applied
+      on save and export whatever you set here.</p>
       <div class="stack">
         <div class="olrow"><label for="olthick">Thickness</label>
-          <input id="olthick" type="range" min="0" max="6" step="1" value="1" aria-label="Outline thickness">
+          <input id="olthick" type="range" min="0" max="12" step="1" value="1" aria-label="Outline thickness">
           <span class="mono" id="olthicklab">1 cell</span></div>
-        <div class="olrow"><label for="olcol">Colour</label>
-          <input type="color" id="olcol" value="#000000" aria-label="Outline colour"
-            style="margin-left:auto; width:54px">
-          <button class="mini" id="olcurrent" title="Use the colour you are painting with">match brush</button></div>
+        <!-- THE TRAIT'S OWN COLOURS, in the order they are picked. The old
+             colour input is gone: the ask was to choose from the palette,
+             and two ways to say what the colour is would be two answers. -->
+        <!-- THE OPERATION, not a setting on it: one changes the trait's own
+             pixels, the other adds pixels around it. See patch408. -->
+        <div class="olrow">
+          <label class="olchk" style="margin-left:0"><input type="checkbox" id="olinward" checked>
+            Change the trait's own outer pixels</label></div>
+        <div class="olrow"><label for="olsides">Outside is</label>
+          <select id="olsides" aria-label="Which sides count as outside" style="margin-left:auto">
+            <option value="new" selected>above, left and right</option>
+            <option value="all">all four sides</option></select></div>
+        <div class="olrow" style="align-items:flex-start">
+          <label for="olpal" style="padding-top:4px">Colour</label>
+          <div style="margin-left:auto; width:min(240px,60%)">
+            <div class="olsw" id="olpal" role="group"
+              aria-label="Colours to outline with"></div>
+            <p class="note mono" id="olpicked" style="margin:6px 0 0"></p>
+          </div></div>
+        <div class="olrow">
+          <button class="mini" id="olcurrent" title="Add the colour you are painting with, in case it is not in the trait yet">add brush colour</button>
+          <button class="mini" id="olclear" title="Start the list again">clear</button></div>
         <div class="olrow"><label for="olsnap">Snap to</label>
           <select id="olsnap" aria-label="Snap grid">
-            <option value="auto">auto</option><option value="1" selected>1 cell</option>
+            <option value="grid" selected>the collection grid</option>
+            <option value="auto">auto</option><option value="1">1 cell</option>
             <option value="2">2 cells</option><option value="3">3 cells</option>
             <option value="4">4 cells</option><option value="6">6 cells</option>
             <option value="8">8 cells</option></select></div>
@@ -6301,8 +6374,10 @@ function startEditor(data,w,h,srcW,srcH,pal,recovered){
      came with a one-cell outline already promised and a block size chosen for
      a different image entirely. */
   $("olthick").value=0;
-  $("olsnap").value="auto";
-  $("olcol").value="#000000";
+  $("olsnap").value="grid";
+  /* The list, not a colour box. A trait opens with nothing chosen, which
+     means black - the same outline an untouched panel always gave. */
+  olPick=[]; olBuildPal();
   /* The brush belongs in this block for the same reason as the rest of it,
      and it now matters more than it did: a size chosen on a 1280 canvas is
      a quarter of a 160 one, and the first click would paint a block. */
@@ -8155,11 +8230,97 @@ function dropSpecksB(m,w,hh){
   return out;
 }
 
+/* THE COLLECTION'S CELL, IN THE PIXELS THIS TRAIT IS OPEN AT. A trait saved
+   at 1280 on a 160 cell grid has 8-pixel cells; the fixer's own output of
+   the same trait is 160 across and has 1. Same cell either way, which is
+   the point of asking for it by name rather than by a number. */
+function gridCellPx(){
+  const cells=Math.max(1,projectGrid|0);
+  const w=(typeof art!=="undefined"&&art&&art.width)?art.width:cells;
+  return Math.max(1,Math.round(w/cells));
+}
 function snapValue(){ const v=$("olsnap").value;
+  if(v==="grid") return Math.max(1,Math.min(64,gridCellPx()));
   return v==="auto" ? Math.max(1,Math.min(16,Math.round(gridBlock))) : (parseInt(v,10)||1); }
 
 /* The cells the outline would occupy and, when asked, the cells a crop ate out
    of the middle together with the colour to put back into them. */
+/* THE COLOURS CHOSEN FOR THE OUTLINE, innermost ring first.
+
+   Order is the order they were clicked, because that is the only order a
+   person can see themselves making. Twelve is the cap and it is the same
+   twelve the thickness allows, so every colour picked can land somewhere.
+
+   Empty means black: that is what the tool did with an untouched colour
+   input, and it is the collection's border colour, so an outline nobody
+   configured comes out the way it always did. */
+const OL_MAX_COLOURS=12;
+let olPick=[];
+function olColours(){ return olPick.length?olPick.slice():["#000000"]; }
+/* Which colour ring k takes, counting from 1 at the art. Fewer colours
+   than rings is ordinary, so the last one fills the rest rather than the
+   outline stopping short of the thickness that was asked for. */
+/* WHICH OPERATION. Changing the trait's own edge, or adding a ring around
+   it - not two settings on one thing, which is why it reads as a switch
+   rather than a direction. */
+function olInward(){ const b=$("olinward"); return !b||b.checked; }
+/* WHICH SIDES COUNT AS OUTSIDE, as offsets. Above, left and right by
+   default: a trait that runs off the bottom of the frame has no silhouette
+   there, and outlining the cut draws a line across the character. */
+function olSides(){
+  const v=$("olsides")?$("olsides").value:"new";
+  return v==="all" ? [[0,-1],[1,0],[-1,0],[0,1]] : [[0,-1],[1,0],[-1,0]];
+}
+function olColourFor(k,list){
+  const c=list||olColours();
+  return c[Math.min(k,c.length)-1];
+}
+/* The palette, as something to choose from. These are not palette swatches
+   - a click here means "outline with this", not "paint with this" - so
+   they are built here rather than through buildPalette, and they are fed
+   from what the palette SHOWS so the two cannot list different colours. */
+function olBuildPal(){
+  const wrap=$("olpal"); if(!wrap) return;
+  const hexes=[...document.querySelectorAll("#pal .sw")].map(s=>s.dataset.hex);
+  wrap.innerHTML="";
+  for(const h of hexes){
+    const b=document.createElement("button");
+    b.className="olchip"; b.dataset.hex=h; b.style.background=h;
+    b.title=h; b.setAttribute("aria-label","Outline with "+h);
+    const at=olPick.indexOf(h);
+    b.setAttribute("aria-pressed",String(at>=0));
+    if(at>=0) b.dataset.n=String(at+1);
+    b.onclick=()=>{ olToggle(h); };
+    wrap.appendChild(b);
+  }
+  olSaid();
+}
+function olToggle(h){
+  const at=olPick.indexOf(h);
+  if(at>=0) olPick.splice(at,1);
+  else if(olPick.length<OL_MAX_COLOURS) olPick.push(h);
+  else { toast("Twelve is the most an outline can use"); return; }
+  olBuildPal(); outlinePreview();
+}
+/* WHICH RING GETS WHAT, before the button is pressed. Two colours over
+   three rings is not a surprise if it is written down. */
+function olSaid(){
+  const el=$("olpicked"); if(!el) return;
+  const t=+($("olthick")&&$("olthick").value||0);
+  if(!olPick.length){ el.textContent=t?"black":""; return; }
+  if(!t){ el.textContent=olPick.length+" chosen \u00b7 thickness is off"; return; }
+  const per=[];
+  /* Written outside-in when that is the order the colours land in, so the
+     line reads the way the picture will look from the edge inwards. */
+  for(let k=1;k<=t;k++) per.push(olColourFor(k,olPick));
+  const runs=[];
+  for(const c of per){
+    if(runs.length&&runs[runs.length-1].c===c) runs[runs.length-1].n++;
+    else runs.push({c:c,n:1});
+  }
+  el.textContent=runs.map(r=>r.c+(r.n>1?" \u00d7"+r.n:"")).join(" \u2192 ")
+    +(olPick.length>t?" \u00b7 "+(olPick.length-t)+" past the thickness, unused":"");
+}
 function outlinePlan(){
   if(!ctx) return null;
   const W=art.width,H=art.height,NP=W*H;
@@ -8173,10 +8334,66 @@ function outlinePlan(){
   const filled=fillHolesB(sil,bw,bh);
   /* The outline hugs the repaired silhouette with its holes closed, or it would
      be drawn around the inside of every hole as well. */
+  /* THE TRAIT'S OWN OUTER CELLS, and how far in each one sits.
+
+     Depth is measured by walking OUT from a cell in each chosen direction
+     until the silhouette ends, and taking the shortest of those walks. So
+     depth 1 is a cell with empty space immediately above, left or right of
+     it, depth 2 is the cell behind that one, and the band is everything up
+     to the thickness. Capped at t+1 steps because nothing deeper is used,
+     which is what keeps this cheap on a 160-cell grid. */
+  if(olInward()){
+    const dirs=olSides();
+    const inB=new Uint8Array(bw*bh);
+    for(let by=0;by<bh;by++) for(let bx=0;bx<bw;bx++){
+      const p=by*bw+bx;
+      if(!filled[p]) continue;
+      let best=t+1;
+      for(const [dx,dy] of dirs){
+        let n=1, x=bx+dx, y=by+dy;
+        while(n<=t){
+          if(x<0||y<0||x>=bw||y>=bh||!filled[y*bw+x]) break;
+          n++; x+=dx; y+=dy;
+        }
+        if(n<best) best=n;
+      }
+      if(best<=t) inB[p]=best;
+    }
+    const band=new Uint8Array(W*H), dep=new Uint8Array(W*H);
+    for(let y=0;y<H;y++) for(let x=0;x<W;x++){
+      const k=inB[((y/B)|0)*bw+((x/B)|0)];
+      if(!k) continue;
+      const p=y*W+x;
+      /* ONLY WHERE THERE IS ART. The block grid is coarser than the
+         pixels, so an edge block covers empty pixels too, and colouring
+         those would grow the trait - which is the thing this exists not
+         to do. */
+      if(d[p*4+3]<128) continue;
+      band[p]=1; dep[p]=k;
+    }
+    let bn=0; for(let p=0;p<NP;p++) if(band[p]) bn++;
+    return {ring:band,depth:dep,n:bn,holes:null,hcol:null,hn:0,
+      W:W,H:H,B:B,t:t,src:d,inward:true};
+  }
   const grown=dilateB(filled,bw,bh,t);
   const ringB=new Uint8Array(bw*bh);
   for(let p=0;p<bw*bh;p++) ringB[p]=(grown[p]&&!filled[p])?1:0;
   const ring=fromBlocks(ringB,bw,bh,B,W,H);
+  /* WHICH RING, not just whether. Ring 1 touches the art and ring t is the
+     outermost, so a list of colours can be laid onto them from the inside
+     out. Built by growing one step at a time and taking what each step
+     added - the same dilation the ring above uses, so the two cannot
+     disagree about where the outline is. */
+  const depth=new Uint8Array(W*H);
+  { let prev=filled;
+    for(let k=1;k<=t;k++){
+      const cur=dilateB(filled,bw,bh,k);
+      const stepB=new Uint8Array(bw*bh);
+      for(let p=0;p<bw*bh;p++) stepB[p]=(cur[p]&&!prev[p])?1:0;
+      const step=fromBlocks(stepB,bw,bh,B,W,H);
+      for(let p=0;p<W*H;p++) if(step[p]&&!depth[p]) depth[p]=k;
+      prev=cur;
+    } }
   let n=0;
   /* Never over the art: snapping can put a ring block on top of a cell that is
      genuinely drawn, and overwriting it would be the tool eating the artwork. */
@@ -8207,7 +8424,7 @@ function outlinePlan(){
     for(let p=0;p<NP;p++){ if(!holes[p]) continue; if(src[p]<0) holes[p]=0; else hn++; }
   }
   if(holes){ for(let p=0;p<NP;p++) if(holes[p]&&ring[p]){ ring[p]=0; n--; } }
-  return {ring:ring,n:n,holes:holes,hcol:hcol,hn:hn,W:W,H:H,B:B,t:t,src:d};
+  return {ring:ring,depth:depth,n:n,holes:holes,hcol:hcol,hn:hn,W:W,H:H,B:B,t:t,src:d};
 }
 
 /* rAF does not fire while the tab is not compositing, so a flag cleared inside
@@ -8224,7 +8441,15 @@ function outlinePreview(){
      or quietly weaken the black rule, say which is about to happen. */
   (function(){
     const note=$("olnote"); if(!note) return;
-    const col=($("olcol").value||"#000000").toLowerCase();
+    /* THE OUTERMOST RING is the one the collection's border rule replaces,
+       so that is the colour this is about - it used to be the only one. */
+    const list=olColours();
+    /* OUTERMOST, and the two operations count in opposite directions:
+       adding a ring puts colour 1 against the art and colour t furthest
+       out, while changing the trait's own edge makes colour 1 the outer
+       pixel. The border rule replaces whichever one is on the outside. */
+    const col=String(olColourFor(olInward()?1:(t||1),list)||"#000000").toLowerCase();
+    olSaid();
     /* The same words as the markup. outlinePreview rewrites this element on
        every redraw, so a copy that drifts puts the old text back the first
        time anything moves. */
@@ -8249,18 +8474,22 @@ function outlinePreview(){
       const plan=outlinePlan(); if(!plan){ pv.style.display="none"; return; }
       pv.width=plan.W; pv.height=plan.H;
       const g=pv.getContext("2d"); g.clearRect(0,0,plan.W,plan.H);
-      const im=g.createImageData(plan.W,plan.H), o=im.data, rgb=hx2($("olcol").value);
+      const im=g.createImageData(plan.W,plan.H), o=im.data;
+      const list=olColours();
+      const byRing=[]; for(let k=1;k<=plan.t;k++) byRing[k]=hx2(olColourFor(k,list));
       for(let p=0;p<plan.W*plan.H;p++){
-        if(plan.ring[p]){ o[p*4]=rgb[0];o[p*4+1]=rgb[1];o[p*4+2]=rgb[2];o[p*4+3]=255; }
+        if(plan.ring[p]){ const rgb=byRing[plan.depth[p]]||byRing[1]||[0,0,0];
+          o[p*4]=rgb[0];o[p*4+1]=rgb[1];o[p*4+2]=rgb[2];o[p*4+3]=255; }
         else if(plan.holes&&plan.holes[p]){ const s=plan.hcol[p]*4;
           o[p*4]=plan.src[s];o[p*4+1]=plan.src[s+1];o[p*4+2]=plan.src[s+2];o[p*4+3]=255; }
       }
       g.putImageData(im,0,0);
       pv.style.width=(plan.W*zoom)+"px"; pv.style.height=(plan.H*zoom)+"px";
       pv.style.display="block";
+      const verb=$("oladd").dataset.verb||"Add outline";
       $("oladd").textContent = (plan.n||plan.hn)
-        ? "Add outline ("+plan.n.toLocaleString()+" cells"+(plan.hn?", patch "+plan.hn:"")+")"
-        : "Add outline";
+        ? verb+" ("+plan.n.toLocaleString()+" cells"+(plan.hn?", patch "+plan.hn:"")+")"
+        : verb;
     } finally { olBusy=false; }
   },40);
 }
@@ -8268,9 +8497,13 @@ function applyOutline(){
   const plan=outlinePlan();
   if(!plan||(!plan.n&&!plan.hn)){ toast("Nothing to outline"); return; }
   snapshot();
-  const img=ctx.getImageData(0,0,plan.W,plan.H), d=img.data, rgb=hx2($("olcol").value);
+  const img=ctx.getImageData(0,0,plan.W,plan.H), d=img.data;
+  /* One rgb per ring, worked out once rather than per pixel. */
+  const list=olColours();
+  const byRing=[]; for(let k=1;k<=plan.t;k++) byRing[k]=hx2(olColourFor(k,list));
   for(let p=0;p<plan.W*plan.H;p++){
-    if(plan.ring[p]){ d[p*4]=rgb[0];d[p*4+1]=rgb[1];d[p*4+2]=rgb[2];d[p*4+3]=255; }
+    if(plan.ring[p]){ const rgb=byRing[plan.depth[p]]||byRing[1]||[0,0,0];
+      d[p*4]=rgb[0];d[p*4+1]=rgb[1];d[p*4+2]=rgb[2];d[p*4+3]=255; }
     else if(plan.holes&&plan.holes[p]){ const s=plan.hcol[p]*4;
       d[p*4]=plan.src[s];d[p*4+1]=plan.src[s+1];d[p*4+2]=plan.src[s+2];d[p*4+3]=255; }
   }
@@ -8279,7 +8512,8 @@ function applyOutline(){
      the one colour you just drew with is the one you cannot click. Measured
      with #ff00ff, which was in the artwork and absent from the row. */
   repalette();
-  toast("Outlined "+plan.n.toLocaleString()+" cells"+(plan.hn?", patched "+plan.hn:""));
+  toast("Outlined "+plan.n.toLocaleString()+" cells in "+list.length
+    +" colour"+(list.length===1?"":"s")+(plan.hn?", patched "+plan.hn:""));
 }
 
 /* ================= base layer ==================================== */
@@ -17837,6 +18071,50 @@ function fixEvenSizes(){
 /* WHICH OF THE THREE THIS IS. "full" is still unbuilt and the select does
    not offer it; it stays here because the worker takes it and a saved
    settings file may carry it. */
+/* THE COLLECTION'S CELL COUNT, and whether it can be honoured on this
+   canvas. A grid that does not divide CANVAS_SIDE cannot give equal
+   blocks, and saying so is better than writing uneven ones and calling it
+   snapped. */
+function fixGridCells(){
+  const g=Math.max(1,projectGrid|0);
+  return {cells:g, exact:Number.isInteger(CANVAS_SIDE/g), per:CANVAS_SIDE/g};
+}
+function fixSnapping(){
+  const b=$("fixsnap");
+  return !!(b&&b.checked)&&fixMode()==="fast";
+}
+/* HOW MUCH SOURCE ONE CELL NEEDS BEFORE SNAPPING MEANS ANYTHING.
+
+   Snapping says "this picture is a trait drawn on the collection grid".
+   That is a statement about the SOURCE, and it stops being true when the
+   source is too small to carry the grid: 160 cells out of a 48-pixel
+   image is a step of 0.3, which is not a pixel size at all, and out of a
+   512 it is 3.2 - fine enough to slice the real blocks in half and invent
+   detail that is not there. Four real pixels a cell is the floor, so the
+   collection canvas at 1280 gives 8 and the old 1254 gives 7.8, while
+   anything under 640 falls through to the detectors, which is what they
+   are for. */
+const SNAP_MIN_STEP=4;
+/* THE STEP FOR ONE PICTURE. Snapped, it is the width over the cell count -
+   so any source size lands on exactly that many cells and the size
+   difference is normalised rather than depended on. Not snapped, it is
+   whatever was typed, and 0 still means "work it out". */
+function fixSnapStep(w){
+  if(!w||w<=0) return 0;
+  const g=fixGridCells();
+  if(!g.exact) return 0;
+  const s=w/g.cells;
+  return s>=SNAP_MIN_STEP ? s : 0;
+}
+function fixStepFor(w){
+  if(fixSnapping()){
+    const s=fixSnapStep(w);
+    if(s>0) return s;
+    /* Too small for the grid: fall through to what was typed, which is
+       usually 0 and means the detectors answer it. */
+  }
+  return +$("fixforce").value||0;
+}
 function fixMode(){
   const v=$("fixmode")?$("fixmode").value:"fast";
   return v==="scale"?"scale":(v==="full"?"full":"fast");
@@ -17846,9 +18124,18 @@ function fixMode(){
    control that lies. */
 function fixModeUI(){
   const scale=fixMode()==="scale";
+  /* SNAPPED, THE FIELD DECIDES NOTHING EITHER. A live box that changes no
+     answer is a control that lies, which is why scale already turns it
+     off and why this has to as well. */
+  const snap=fixSnapping()&&fixSnapStep(FIX.src?FIX.src.width:0)>0;
+  const g=fixGridCells();
+  const lab=$("fixsnaplab");
+  if(lab) lab.textContent="Snap to the "+g.cells+" cell grid";
   const b=$("fixrun"); if(b) b.textContent=scale?"Scale it":"Fix it";
-  const f=$("fixforce"); if(f){ f.disabled=scale; f.title=scale
+  const f=$("fixforce"); if(f){ f.disabled=scale||snap; f.title=scale
     ? "Not used in scale only - the picture is already one pixel per cell."
+    : snap
+    ? "Not used while Snap is on - the pixel size comes from the "+g.cells+" cell grid."
     : f.title; }
 }
 function fixSizeHint(){
@@ -17857,10 +18144,29 @@ function fixSizeHint(){
      readout works without the field and says the same thing about the
      grid that it says for a fixed result. */
   const scale=fixMode()==="scale";
+  /* THE READOUT FOLLOWS THE SAME RULE AS THE RUN. Saying 160 while the run
+     falls through to the detectors - because the picture is too small to
+     carry the grid - would describe a different answer than the one about
+     to be produced. */
+  const wantSnap=fixSnapping();
+  const snap=wantSnap&&fixSnapStep(FIX.src?FIX.src.width:0)>0;
+  const g=fixGridCells();
+  /* BEFORE THE BAIL-OUT BELOW, and that is the whole reason it sits here.
+     An impossible grid produces no step, so the "nothing to say" line
+     further down returns an empty readout and the warning never runs -
+     silence in exactly the case that most needs a sentence. */
+  if(FIX.src&&wantSnap&&!g.exact){
+    el.textContent="\u2192 the "+g.cells+" cell grid does not divide "+CANVAS_SIDE
+      +" evenly, so blocks would come out uneven - turn Snap off, or set a grid that divides it";
+    return;
+  }
   const step=+$("fixforce").value||0;
-  if(!FIX.src||(!scale&&step<=0)){ el.textContent=""; return; }
-  const cols=scale?FIX.src.width:Math.max(1,Math.round(FIX.src.width/step));
-  const rows=scale?FIX.src.height:Math.max(1,Math.round(FIX.src.height/step));
+  if(!FIX.src||(!scale&&!snap&&step<=0)){ el.textContent=""; return; }
+  /* SNAPPED, THE COUNT IS THE GRID, whatever the source measures - that is
+     the whole point of it. g is declared above, with the check that has to
+     run before the bail-out. */
+  const cols=scale?FIX.src.width:(snap?g.cells:Math.max(1,Math.round(FIX.src.width/step)));
+  const rows=scale?FIX.src.height:(snap?g.cells:Math.max(1,Math.round(FIX.src.height/step)));
   /* AND WHETHER IT LANDS ON THE COLLECTION GRID. 1280/128 is 10 and every
      pixel comes out identical; 1280/85 is 15.06 and they differ by one.
      That is the difference between a trait that sits on the grid and one
@@ -17883,7 +18189,7 @@ function fixRun(){
   if(!FIX.src){ fixSay("Choose an image first."); return Promise.resolve(null); }
   fixStop();
   const mode=fixMode();
-  const forced=+$("fixforce").value||0;
+  const forced=fixStepFor(FIX.src?FIX.src.width:0);
   const src=FIX.src;
   /* NOTHING TO ASK. The picture is already one pixel per cell, so there is
      no worker, no detector and no quantiser between it and the save - the
@@ -18022,6 +18328,8 @@ async function fixBatch(files){
   const all=[...files];
   const list=all.slice(0,FIX_BATCH_MAX);
   const over=all.length-list.length;
+  /* BEFORE the list is replaced: it is what holds the urls to revoke. */
+  fixTilesClear();
   fixBatchFiles=[]; fixBatchStop=false;
   $("fixbatch").hidden=false;
   $("fixbatchdl").disabled=true;
@@ -18038,7 +18346,9 @@ async function fixBatch(files){
     try{ w=fixWorker(); }catch(e){ fixBatchSay(e.message); $("fixbatchstop").hidden=true; return; }
     fixBatchWorker=w;
   }
-  const forced=+$("fixforce").value||0;
+  /* Read per file below, not once here: snapped, the step is the width
+     over the cell count, so a batch of mixed sizes has a different step
+     for each one and still lands them all on the same grid. */
   const t0=performance.now();
   for(let i=0;i<list.length;i++){
     if(fixBatchStop) break;
@@ -18066,12 +18376,23 @@ async function fixBatch(files){
     /* The same bytes, untouched, when there is nothing to ask. */
     const r=scale ? {ok:{data:px, width:W, height:H, stepX:1, stepY:1}}
       : await fixAsk(w,{data:new Uint8ClampedArray(px), width:W, height:H,
-        mode:mode, forceStep:forced>0?forced:null});
+        mode:mode, forceStep:(()=>{ const s=fixStepFor(W); return s>0?s:null; })()});
     if(!r||r.error){ failed.push(name+" ("+((r&&r.error)||"no answer")+")"); continue; }
     const out=r.ok;
     /* The same canvas the single save uses, so the switch means one thing. */
     const oc=fixGridCanvas(out);
     const blob=await new Promise(res=>oc.toBlob(res,"image/png"));
+    /* THE TILE, TAKEN HERE because oc is about to be released and this is
+       the only moment the picture exists as a canvas. A 1280 result is
+       6.5 MB decoded and five hundred of them is the shelf crash again,
+       so what the grid keeps is 160x160 - fitSize at the shelf cap, whole
+       divisor where there is one, so it stays true pixel art. */
+    const t=fitSize(oc.width,oc.height,SHELF_THUMB);
+    const tc=document.createElement("canvas"); tc.width=t.w; tc.height=t.h;
+    const tg=tc.getContext("2d"); tg.imageSmoothingEnabled=false;
+    tg.drawImage(oc,0,0,t.w,t.h);
+    const tb=await new Promise(res=>tc.toBlob(res,"image/png"));
+    tc.width=1; tc.height=1;
     /* Kept as bytes rather than as a canvas: five hundred canvases would be
        five hundred backing stores, and the bytes are what the zip wants. */
     /* TWO NAMES ON PURPOSE. `name` is what the zip calls it, folders and
@@ -18080,8 +18401,10 @@ async function fixBatch(files){
     fixBatchFiles.push({name:fixZipName(rel,name),
       rel:rel,
       data:new Uint8Array(await blob.arrayBuffer()),
+      thumb:URL.createObjectURL(tb), tw:t.w, th:t.h,
       w:oc.width, h:oc.height});
     oc.width=1; oc.height=1; c.width=1; c.height=1;
+    fixTile(fixBatchFiles[fixBatchFiles.length-1]);
   }
   /* Guarded together: scale mode never built one, and reaching into
      w._url on null threw into a catch that hid it. */
@@ -18153,6 +18476,49 @@ async function fixSaveOne(){
 async function fixSaveBatch(){
   const list=fixBatchFiles||[];
   await fixSaveFiles(list.map(f=>fileWithPath(f.data,f.rel||f.name)),fixBatchSay);
+}
+/* ONE TILE. Appended as its image finishes, so the grid fills while the run
+   is still going and a wrong pixel size is visible on tile three rather
+   than after three hundred. */
+function fixTile(f){
+  const grid=$("fixresults"); if(!grid||!f) return;
+  grid.hidden=false;
+  const b=document.createElement("button");
+  b.className="fixtile"; b.type="button";
+  b.title="Open "+f.name+" in the editor";
+  const im=document.createElement("img");
+  im.src=f.thumb; im.alt=f.name; im.loading="lazy";
+  im.width=f.tw; im.height=f.th;
+  const nm=document.createElement("b"); nm.textContent=f.name.split("/").pop();
+  const sz=document.createElement("span"); sz.textContent=f.w+"\u00d7"+f.h;
+  b.append(im,nm,sz);
+  b.onclick=()=>fixOpenOne(f);
+  grid.appendChild(b);
+}
+/* THE ONLY PLACE A RESULT IS DECODED AT FULL SIZE, and one at a time. The
+   grid never does this - it would be five hundred decodes of 1280x1280. */
+async function fixOpenOne(f){
+  if(!f||!f.data) return;
+  if(typeof mayUse==="function"&&!mayUse()) return;
+  let bm;
+  try{ bm=await createImageBitmap(new Blob([f.data],{type:"image/png"})); }
+  catch(_){ fixBatchSay("That one could not be opened."); return; }
+  const W=bm.width, H=bm.height;
+  const c=document.createElement("canvas"); c.width=W; c.height=H;
+  const g=c.getContext("2d",{willReadFrequently:true});
+  g.drawImage(bm,0,0);
+  if(bm.close) bm.close();
+  const d=g.getImageData(0,0,W,H).data;
+  c.width=1; c.height=1;
+  fileName=f.name.split("/").pop();
+  startEditor(new Uint8ClampedArray(d),W,H,W,H,palette(d,W*H,24,64),false);
+}
+/* A SECOND RUN MUST NOT KEEP THE FIRST ONE'S BLOBS. Nothing points at them
+   once the grid is emptied, and an object URL is not collected on its own. */
+function fixTilesClear(){
+  for(const f of (fixBatchFiles||[])) if(f&&f.thumb) try{ URL.revokeObjectURL(f.thumb); }catch(_){ }
+  const grid=$("fixresults");
+  if(grid){ grid.innerHTML=""; grid.hidden=true; }
 }
 function fixBatchDownload(){
   if(!fixBatchFiles||!fixBatchFiles.length){ fixBatchSay("Nothing to download yet."); return; }
@@ -18233,6 +18599,13 @@ function fixDownload(){
   /* The mode decides what the readout means and what the button does, so
      both follow it rather than being set once at load. */
   $("fixmode").addEventListener("change",()=>{ fixModeUI(); fixSizeHint(); });
+  $("fixsnap").addEventListener("change",()=>{ fixModeUI(); fixSizeHint(); });
+  /* ONCE AT THE START TOO. Everything fixModeUI writes - the button, the
+     disabled box, the grid in the label - was only ever written when
+     something CHANGED, so on a fresh page the switch read "Snap to the
+     grid" without saying which and the box looked live while snapping
+     decided the size. The state has to be drawn before it is touched. */
+  fixModeUI();
   $("fixstop").onclick=fixStop;
   /* Stop keeps what is finished. A batch is a long job and throwing away
      four hundred good answers because the four hundred and first was not
@@ -19412,8 +19785,20 @@ $('basedrop').onclick=()=>{
   $(id).onclick=function(){ toggle(id); outlinePreview(); };
 });
 $('oladd').onclick=applyOutline;
-$('olcol').oninput=outlinePreview;
-$('olcurrent').onclick=()=>{ $('olcol').value=color; outlinePreview(); };
+/* The button says which of the two it is about to do, and the readout
+   follows the switch as well as the thickness. */
+$("olinward").addEventListener("change",()=>{ olBtnText(); outlinePreview(); });
+$("olsides").addEventListener("change",outlinePreview);
+function olBtnText(){
+  const b=$("oladd"); if(!b) return;
+  b.dataset.verb = olInward() ? "Change outer pixels" : "Add outline";
+}
+olBtnText();
+/* ADDS the brush colour rather than replacing everything, because the list
+   is the point now. It is the one way to outline in a colour the trait
+   does not contain yet. */
+$("olcurrent").onclick=()=>{ olToggle(color); };
+$("olclear").onclick=()=>{ olPick=[]; olBuildPal(); outlinePreview(); };
 
 $('fillholes').onclick=()=>{
   const r=fillInteriorHoles();
@@ -20301,6 +20686,9 @@ addEventListener("pointerdown",e=>{
   }
 },true);
 function outlinePanel(on){
+  /* Filled on open: the palette changes with the trait, and a grid built
+     once at load would offer the colours of whatever was open first. */
+  if(on) olBuildPal();
   $('olscrim').hidden=!on;
   $('olbtn').setAttribute('aria-expanded',String(!!on));
   /* The preview is what the panel is for: it has to be current the moment

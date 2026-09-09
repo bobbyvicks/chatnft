@@ -211,8 +211,13 @@ test.describe('the outline panel', () => {
        would be a second element with the same id, and getElementById would
        answer with whichever came first while the other did nothing. */
     const r = await page.evaluate(() => {
-      const ids = ['olthick', 'olthicklab', 'olcol', 'olcurrent', 'olsnap',
-        'oltidy', 'olpatch', 'oladd', 'olnote'];
+      /* olcol was the single colour input. It is gone: the outline takes its
+         colours from the trait's own palette now, up to twelve of them, so
+         the grid and the line that says which ring gets which colour are what
+         stand in its place. The point of this test is unchanged - one of each
+         control, all of them inside the panel. */
+      const ids = ['olthick', 'olthicklab', 'olpal', 'olpicked', 'olcurrent',
+        'olclear', 'olsnap', 'oltidy', 'olpatch', 'oladd', 'olnote'];
       const panel = document.getElementById('olscrim');
       return ids.map(id => ({ id,
         n: document.querySelectorAll('[id="' + id + '"]').length,

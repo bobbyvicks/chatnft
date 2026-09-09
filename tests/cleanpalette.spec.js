@@ -259,7 +259,13 @@ test.describe('Clean up colours leaves the swatches describing the new image', (
       const offered = () => [...document.querySelectorAll('#pal button.sw')]
         .map(b => b.dataset.hex.toLowerCase());
       const before = offered().includes('#ff00ff');
-      document.getElementById('olcol').value = '#ff00ff';
+      /* The outline used to take one colour from a colour input. It takes
+         its colours from the trait palette now, and the one way to outline in
+         a colour the trait does not contain is the brush - which is exactly
+         the case this test is about, a colour absent from the row. Same
+         defect, same direction, through the control that now does it. */
+      setColor('#ff00ff');
+      document.getElementById('olcurrent').click();
       document.getElementById('olthick').value = '2';
       const realToast = window.toast;
       const said = [];

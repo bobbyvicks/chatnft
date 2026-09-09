@@ -149,6 +149,10 @@ test('the fixing mode still offers other sizes, so the silence above means somet
   await loadFinished(page, 85, 85);
   await setMode(page, 'fast');
   const hint = await page.evaluate(() => {
+    /* SNAP OFF: this asks what a TYPED pixel size is told. Snapping is on
+       by default and answers a different question - the grid decides the
+       count - so leaving it on would quietly stop covering this. */
+    document.getElementById('fixsnap').checked = false;
     FIX.src = { width: 1020, height: 1020 };
     const f = document.getElementById('fixforce');
     f.disabled = false; f.value = '12';
@@ -211,6 +215,10 @@ test('the fractions that are OUTPUTS keep their decimals', async ({ page }) => {
      readout exists to say so - rounding that away would hide the warning
      this whole feature turns on. */
   const said = await page.evaluate(() => {
+    /* SNAP OFF: this asks what a TYPED pixel size is told. Snapping is on
+       by default and answers a different question - the grid decides the
+       count - so leaving it on would quietly stop covering this. */
+    document.getElementById('fixsnap').checked = false;
     FIX.src = { width: 1020, height: 1020 };
     document.getElementById('fixgrid').checked = true;
     const f = document.getElementById('fixforce');

@@ -43,7 +43,11 @@ const CONTROLS = ['picker', 'curhex', 'brushrows', 'bslider',
      swatch meant, and the two mouse buttons say it without one. */
   'pal', 'rcfrom', 'rcnear', 'rctol',
   'rcgo', 'rcerase', 'rcnone', 'rcclean', 'debg', 'bgtol', 'fillholes', 'holemax',
-  'olthick', 'olthicklab', 'olcol', 'olcurrent', 'olsnap', 'oltidy', 'olpatch',
+  /* olcol was the single outline colour input. The outline takes its
+     colours from the trait palette now, so the grid and the line naming
+     which ring gets which colour stand in its place. */
+  'olthick', 'olthicklab', 'olpal', 'olpicked', 'olcurrent', 'olclear',
+  'olsnap', 'oltidy', 'olpatch',
   'oladd', 'olnote', 'fliph', 'flipv', 'rotl', 'rotr', 'rsw', 'rsh', 'rslock',
   'rsmode', 'rspreset', 'rsgrid', 'rssnap', 'rsgo', 'rsnow', 'basepick', 'basedrop',
   'baseop', 'baseoplab', 'basefile', 'baseoutline', 'tname', 'tlayer', 'tstatus',

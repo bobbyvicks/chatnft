@@ -125,7 +125,6 @@ test.describe('one trait must not overwrite another', () => {
       for (let i = 0; i < w * h; i++) { d[i*4] = 200; d[i*4+3] = 255; }
       fileName = 'probe';
       startEditor(d, w, h, w, h, palette(d, w * h, 24, 64), false);
-      document.querySelectorAll('.side section').forEach(s => s.classList.remove('folded'));
       $('tname').value = 'onlyone';
       $('tlayer').value = 'skins';
     });

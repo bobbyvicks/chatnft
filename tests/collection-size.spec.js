@@ -37,7 +37,7 @@
    the first record it sees.
 */
 import { test, expect } from '@playwright/test';
-import { openTrait, openAllSections, setSelect, setField, resizeGo, openPanel } from './helpers.js';
+import { openTrait, setSelect, setField, resizeGo, openPanel } from './helpers.js';
 
 const BLOCK = new Function('set', 'W', 'H',
   'for (let y = 20; y < 140; y++) for (let x = 20; x < 140; x++) set(x, y, [226, 146, 116]);');
@@ -54,7 +54,6 @@ const toastOf = (page) => page.evaluate(() => (($('toast') || {}).textContent) |
    test that did that would be checking one trait twice. */
 async function addTrait(page, name, size) {
   await openTrait(page, { w: 160, h: 160, draw: BLOCK });
-  await openAllSections(page);
   if (size !== 160) {
     await page.evaluate(() => { const b = $('rssnap'); if (b.getAttribute('aria-pressed') === 'true') b.click(); });
     await setSelect(page, 'rsmode', 'art');

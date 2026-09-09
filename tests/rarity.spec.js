@@ -17,7 +17,7 @@
    the wip one they have not approved yet.
 */
 import { test, expect } from '@playwright/test';
-import { openTrait, openAllSections } from './helpers.js';
+import { openTrait } from './helpers.js';
 
 const BLOCK = new Function('set', 'W', 'H',
   'for (let y = 20; y < 140; y++) for (let x = 20; x < 140; x++) set(x, y, [226, 146, 116]);');
@@ -55,7 +55,6 @@ test.describe('what a rarity weight comes to', () => {
     // The property that makes these a distribution rather than four independent
     // guesses. Weights 5,1,1,1 in a layer left empty 35% of the time.
     await openTrait(page, { w: 160, h: 160, draw: BLOCK });
-    await openAllSections(page);
     await shelf(page, [
       { name: 'gold', layer: HATS, rarity: 5, status: 'approved' },
       { name: 'red', layer: HATS, rarity: 1, status: 'approved' },
@@ -73,7 +72,6 @@ test.describe('what a rarity weight comes to', () => {
     // skins is in ALWAYS_PRESENT, so the empty chance does not apply to it. If
     // this read 65% the empty chance would be being applied to every layer.
     await openTrait(page, { w: 160, h: 160, draw: BLOCK });
-    await openAllSections(page);
     await shelf(page, [
       { name: 'tan', layer: 'skins', rarity: 1, status: 'approved' },
       { name: 'pale', layer: 'skins', rarity: 3, status: 'approved' },
@@ -88,7 +86,6 @@ test.describe('what a rarity weight comes to', () => {
     // in this layer" it would take more than half the share and quietly shrink
     // everything else. It is not a candidate, so it takes none.
     await openTrait(page, { w: 160, h: 160, draw: BLOCK });
-    await openAllSections(page);
     await shelf(page, [
       { name: 'gold', layer: HATS, rarity: 5, status: 'approved' },
       { name: 'red', layer: HATS, rarity: 1, status: 'approved' },
@@ -103,7 +100,6 @@ test.describe('what a rarity weight comes to', () => {
 
   test('a wip trait follows the include-wip box, both ways', async ({ page }) => {
     await openTrait(page, { w: 160, h: 160, draw: BLOCK });
-    await openAllSections(page);
     await shelf(page, [
       { name: 'gold', layer: HATS, rarity: 5, status: 'approved' },
       { name: 'red', layer: HATS, rarity: 1, status: 'approved' },
@@ -127,7 +123,6 @@ test.describe('what a rarity weight comes to', () => {
   test('changing how often a layer is empty changes every figure', async ({ page }) => {
     // The empty chance decides all of these and used to redraw none of them.
     await openTrait(page, { w: 160, h: 160, draw: BLOCK });
-    await openAllSections(page);
     await shelf(page, [
       { name: 'gold', layer: HATS, rarity: 5, status: 'approved' },
       { name: 'red', layer: HATS, rarity: 1, status: 'approved' },
@@ -161,7 +156,6 @@ test.describe('what a rarity weight comes to', () => {
     // print 1%, and rounding down would print 0% - and "0%" and "never" are
     // different things a rarity system exists to keep apart.
     await openTrait(page, { w: 160, h: 160, draw: BLOCK });
-    await openAllSections(page);
     await shelf(page, [
       { name: 'common', layer: HATS, rarity: 99, status: 'approved' },
       { name: 'rare', layer: HATS, rarity: 1, status: 'approved' },
@@ -215,7 +209,6 @@ test.describe('how many characters the set can make', () => {
 
   test('with even weights, possible and effective are the same number', async ({ page }) => {
     await openTrait(page, { w: 160, h: 160, draw: BLOCK });
-    await openAllSections(page);
     await put(page, UNIFORM);
     await setEmpty(page, 25);   // makes the four eye outcomes 25% each
     const s = await stats(page);
@@ -227,14 +220,12 @@ test.describe('how many characters the set can make', () => {
     // Three eyes in a layer that can be empty is four outcomes, not three. A
     // count that ignored it would say 6 here.
     await openTrait(page, { w: 160, h: 160, draw: BLOCK });
-    await openAllSections(page);
     await put(page, UNIFORM);
     expect((await stats(page)).distinct).toBe(8);
   });
 
   test('skewing the weights lowers what it behaves like, and says so', async ({ page }) => {
     await openTrait(page, { w: 160, h: 160, draw: BLOCK });
-    await openAllSections(page);
     await put(page, UNIFORM);
     await setEmpty(page, 25);
     const even = await stats(page);
@@ -251,7 +242,6 @@ test.describe('how many characters the set can make', () => {
 
   test('an even set does not print a second number', async ({ page }) => {
     await openTrait(page, { w: 160, h: 160, draw: BLOCK });
-    await openAllSections(page);
     await put(page, UNIFORM);
     await setEmpty(page, 25);
     const text = await page.evaluate(() => $('ccount').textContent);
@@ -263,7 +253,6 @@ test.describe('how many characters the set can make', () => {
     // An impossible claim, and the one an inverted formula would make. Checked
     // across empty chances, because that term enters both numbers differently.
     await openTrait(page, { w: 160, h: 160, draw: BLOCK });
-    await openAllSections(page);
     await put(page, [...UNIFORM, { n: 'e4', l: 'eyes', r: 40 }, { n: 's3', l: 'skins', r: 7 }]);
     for (const pct of [0, 20, 35, 60, 90]) {
       await setEmpty(page, pct);
@@ -277,7 +266,6 @@ test.describe('how many characters the set can make', () => {
     // The same population rule as the shares and the generator. A rejected trait
     // counted here would promise combinations that can never be generated.
     await openTrait(page, { w: 160, h: 160, draw: BLOCK });
-    await openAllSections(page);
     await put(page, UNIFORM);
     const before = await stats(page);
     await put(page, [{ n: 'junk', l: 'eyes', r: 5, s: 'rejected' }]);
@@ -349,7 +337,6 @@ test.describe('the prediction agrees with the generator', () => {
   };
   const ready = async (page, rows) => {
     await openTrait(page, { w: 160, h: 160, draw: BLOCK });
-    await openAllSections(page);
     await shelf(page, rows);
   };
 

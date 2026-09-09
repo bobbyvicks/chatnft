@@ -74,13 +74,12 @@ export async function openTrait(page, { w = 80, h = 80, draw, name = 'test.png',
   return errors;
 }
 
-/** Open every folded section, for tests that need controls in more than one. */
-export async function openAllSections(page) {
-  await page.evaluate(() => {
-    document.querySelectorAll('.side section').forEach(s => s.classList.remove('folded'));
-  });
-  await page.waitForTimeout(120);
-}
+/* openAllSections is gone with the side column. It unfolded every
+   `.side section`, and there is no .side - so it would have found nothing
+   and succeeded silently at every one of its 71 call sites. Its absence is
+   recorded here rather than left as a deletion nobody can account for.
+   openSection below still works and still throws on a name that is not
+   there; it just has nothing in the editor left to open. */
 
 /** Press Resize.
 

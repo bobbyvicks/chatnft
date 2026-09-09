@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { openTrait, openAllSections, art } from './helpers.js';
+import { openTrait, art } from './helpers.js';
 
 const flat = (set, W, H) => { for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) set(x, y, [200, 120, 90]); };
 
@@ -17,7 +17,6 @@ const slider = page => page.evaluate(() => ({
 test.describe('the brush', () => {
   test('paints exactly size-squared cells, at every size', async ({ page }) => {
     await openTrait(page, { w: 240, h: 240, draw: flat });
-    await openAllSections(page);
     await page.evaluate(() => selectTool('eraser'));
     /* Well apart and clear of every edge, so nothing is clipped or overlapping -
        a clipped block counts short and reads as a bug in the brush. */
@@ -35,7 +34,6 @@ test.describe('the brush', () => {
 
   test('the ceiling follows the canvas and the readouts agree', async ({ page }) => {
     await openTrait(page, { w: 240, h: 240, draw: flat });
-    await openAllSections(page);
     expect((await slider(page)).max, 'half the shorter side').toBe(120);
     for (const n of [3, 17, 64, 120]) {
       await page.evaluate(v => {
@@ -53,7 +51,6 @@ test.describe('the brush', () => {
     /* Letting shortcuts through for range inputs is what made this work; before
        that, touching the slider killed every keyboard shortcut in the app. */
     await openTrait(page, { w: 240, h: 240, draw: flat });
-    await openAllSections(page);
     await page.focus('#bslider');
     await page.evaluate(() => {
       const s = document.getElementById('bslider');
@@ -72,7 +69,6 @@ test.describe('the brush', () => {
        was let through for range inputs it became reachable from the one control
        you have just been dragging. */
     await openTrait(page, { w: 120, h: 120, draw: flat });
-    await openAllSections(page);
     await page.focus('#bslider');
     await page.keyboard.press('Backspace');
     await page.waitForTimeout(300);
@@ -96,7 +92,6 @@ test.describe('the brush', () => {
        at 128: open a small trait after a big one and the first click paints a
        block. */
     await openTrait(page, { w: 240, h: 240, draw: flat });
-    await openAllSections(page);
     await page.evaluate(() => {
       const s = document.getElementById('bslider');
       s.value = '100'; s.dispatchEvent(new Event('input', { bubbles: true }));

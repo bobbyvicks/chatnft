@@ -48,7 +48,6 @@ const run = (page, opts) => page.evaluate(async (o) => {
   fileName = 'char';
   startEditor(d, S, S, S, S, palette(d, S * S, 24, 64), false);
   await new Promise(r => setTimeout(r, 300));
-  document.querySelectorAll('.side section').forEach(s => s.classList.remove('folded'));
 
   const pix = () => {
     const c = document.createElement('canvas');

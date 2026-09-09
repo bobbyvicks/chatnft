@@ -22,7 +22,7 @@
    is right about 120 and wrong about 64 passes every case test written for 120.
 */
 import { test, expect } from '@playwright/test';
-import { openTrait, openAllSections, pressed, resizeGo } from './helpers.js';
+import { openTrait, pressed, resizeGo } from './helpers.js';
 
 const TRAIT = (set, W, H) => {
   for (let y = 16; y < 72; y++) for (let x = 24; x < 136; x++) set(x, y, [226, 146, 116]);
@@ -62,7 +62,6 @@ const traitSize = (page) => page.evaluate(() => {
 test.describe('the resize panel says what it will do', () => {
   test('a size snap will move is called out, with both numbers and the way out', async ({ page }) => {
     await openTrait(page, { w: 160, h: 160, draw: TRAIT });
-    await openAllSections(page);
     expect(await pressed(page, 'rssnap'), 'snap ships on').toBe('true');
     const said = await promise(page, { mode: 'art', snap: true, size: 120 });
     expect(said, 'the size it will actually use').toContain('80 × 80');
@@ -74,7 +73,6 @@ test.describe('the resize panel says what it will do', () => {
     // The control. Without it the test above passes against a note that shouts
     // on every keystroke, which is the same as saying nothing.
     await openTrait(page, { w: 160, h: 160, draw: TRAIT });
-    await openAllSections(page);
     const said = await promise(page, { mode: 'art', snap: true, size: 80 });
     expect(said, '80 is on the ladder').not.toContain('snap moved');
     expect(said, 'and it still says where it is going').toContain('80 × 80');
@@ -82,14 +80,12 @@ test.describe('the resize panel says what it will do', () => {
 
   test('at the size it already is, the note stays out of the way', async ({ page }) => {
     await openTrait(page, { w: 160, h: 160, draw: TRAIT });
-    await openAllSections(page);
     const said = await promise(page, { mode: 'art', snap: true, size: 160 });
     expect(said, 'nothing would happen, so nothing is promised').toBe('160 × 160');
   });
 
   test('turning snap off drops the warning and promises the typed size', async ({ page }) => {
     await openTrait(page, { w: 160, h: 160, draw: TRAIT });
-    await openAllSections(page);
     const said = await promise(page, { mode: 'art', snap: false, size: 120 });
     expect(said).toContain('120 × 120');
     expect(said).not.toContain('snap moved');
@@ -103,7 +99,6 @@ test.describe('the resize panel says what it will do', () => {
     // preview and the button computing DIFFERENT things; only the ordering
     // stops them computing the same thing at moments when the inputs differ.
     await openTrait(page, { w: 160, h: 160, draw: TRAIT });
-    await openAllSections(page);
     expect(await pressed(page, 'rslock'), 'keep-shape ships on').toBe('true');
     const said = await promise(page, { mode: 'art', snap: false, size: 120 });
     expect(said, 'the height followed the width').toContain('120 × 120');
@@ -117,7 +112,6 @@ test.describe('the resize panel says what it will do', () => {
     // because the mirror divided the canvas by itself and a square canvas
     // cannot tell the trait apart from itself.
     await openTrait(page, { w: 160, h: 160, draw: TRAIT });   // 112 x 56 trait
-    await openAllSections(page);
     const box = async (mode) => {
       await page.evaluate((m) => {
         document.querySelector('#rsmode button[data-v="' + m + '"]').click();
@@ -156,7 +150,6 @@ test.describe('the resize panel says what it will do', () => {
     // synchronous block, value already set. So they all passed with the width
     // field's own listener removed. This touches nothing but the field.
     await openTrait(page, { w: 160, h: 160, draw: TRAIT });
-    await openAllSections(page);
     const before = await note(page);
     const after = await page.evaluate(async () => {
       const w = document.getElementById('rsw');
@@ -188,7 +181,6 @@ test.describe('the resize panel says what it will do', () => {
     ];
     for (const c of CASES) {
       await openTrait(page, { w: 160, h: 160, draw: TRAIT });
-      await openAllSections(page);
       const said = await promise(page, c);
       // The promise is the part after the arrow, or the plain size if there is
       // no arrow (nothing would change).

@@ -69,7 +69,6 @@ const renameInEditor = (page, to) => page.evaluate(async (name) => {
   fileName = 'cap';
   startEditor(d, 16, 16, 16, 16, palette(d, 256, 24, 64), false);
   openRec = rec;                       // AFTER startEditor, which resets it
-  document.querySelectorAll('.side section').forEach(s => s.classList.remove('folded'));
   $('tname').value = name; $('tlayer').value = 'hats';
   setChip('tstatus', 'approved');
   const realToast = window.toast;
@@ -154,7 +153,6 @@ test.describe('a hidden trait stays hidden when it is renamed', () => {
       fileName = 'tan';
       startEditor(d, 16, 16, 16, 16, palette(d, 256, 24, 64), false);
       openRec = rec;
-      document.querySelectorAll('.side section').forEach(s => s.classList.remove('folded'));
       $('tname').value = 'olive'; $('tlayer').value = 'skins';
       setChip('tstatus', 'approved');
       const realToast = window.toast;

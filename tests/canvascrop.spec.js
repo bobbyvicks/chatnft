@@ -51,7 +51,6 @@ const resize = (page, opts) => page.evaluate(async (o) => {
   fileName = 'probe';
   startEditor(d, size, size, size, size, palette(d, size * size, 24, 64), false);
   await new Promise(r => setTimeout(r, 300));
-  document.querySelectorAll('.side section').forEach(s => s.classList.remove('folded'));
 
   /* `art` is a CANVAS, not ImageData - traitCanvas draws it and reads back. */
   const pix = () => {
@@ -188,7 +187,6 @@ test.describe('what Canvas mode does to the artwork', () => {
       fileName = 'full';
       startEditor(d, s, s, s, s, palette(d, s * s, 24, 64), false);
       await new Promise(x => setTimeout(x, 400));
-      document.querySelectorAll('.side section').forEach(e => e.classList.remove('folded'));
       setChip('rsmode', 'canvas');
 
       const handle = document.querySelector('#tbox .th[data-h="se"]');

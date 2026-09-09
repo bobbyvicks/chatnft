@@ -35,7 +35,6 @@ const open = (page) => page.evaluate(async () => {
   fileName = 'live';
   startEditor(d, S, S, S, S, palette(d, S * S, 24, 64), false);
   await new Promise(x => setTimeout(x, 600));
-  document.querySelectorAll('.side section').forEach(s => s.classList.remove('folded'));
   return true;
 });
 
@@ -54,8 +53,15 @@ test.describe('the resize tool', () => {
        character is both, so it meant swapping buttons between adjustments. */
     const rail = await page.evaluate(() =>
       [...document.querySelectorAll('.tools .tool[data-tool]')].map(b => b.dataset.tool));
-    expect(rail, 'one button where there were two')
-      .toEqual(['pencil', 'eraser', 'fill', 'transform', 'pick']);
+    /* NOT the whole list. This used to pin every tool by name, which turned a
+       test about Move and Resize merging into a test that fails whenever any
+       tool is added anywhere - and tools are about to be added. The claim is
+       narrower than the old assertion made it: transform is there once, move
+       is not there at all, and the pair kept their place before the picker. */
+    expect(rail.filter(t => t === 'transform'), 'one button where there were two').toEqual(['transform']);
+    expect(rail, 'and the old name is not a second button').not.toContain('move');
+    expect(rail.indexOf('transform'), 'kept its place after fill').toBe(rail.indexOf('fill') + 1);
+    expect(rail.indexOf('pick'), 'and before the eyedropper').toBeGreaterThan(rail.indexOf('transform'));
     /* BOTH NAMES STILL REACH IT. Deleting a name is how a shortcut somebody
        has in their fingers stops working with no message. */
     const both = await page.evaluate(() => {

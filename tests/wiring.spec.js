@@ -120,7 +120,6 @@ test.describe('the buttons are connected to the work', () => {
       for (let y = 16; y < 72; y++) for (let x = 24; x < 136; x++) set(x, y, [226, 146, 116]);
       fileName = 'probe';
       startEditor(d, w, h, w, h, palette(d, w * h, 24, 64), false);
-      document.querySelectorAll('.side section').forEach(s => s.classList.remove('folded'));
       /* And the panel the Resize button now lives in. This file stays free of
          the shared helpers on purpose - it is the control that proves the
          harness, so it says out loud what it does. */

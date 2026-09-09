@@ -67,7 +67,10 @@ const openOne = (page) => page.evaluate(async () => {
       document.getElementById(id).getBoundingClientRect().width === 0),
     labelsGone: [...f.querySelectorAll('.ptronly')]
       .every(e => getComputedStyle(e).display === 'none'),
-    sideDown: document.querySelector('.side').classList.contains('down'),
+    /* sideDown is gone with the side column it read. Left as a note rather
+       than silently dropped: every measurement above survived, because the
+       header, rail, stage and footer are still there and the 214px the column
+       took on a phone is stage now. */
   };
 });
 
@@ -129,62 +132,18 @@ test.describe('editing on a phone', () => {
     expect(rail, 'and the one in the tool rail is still there').not.toBe('none');
   });
 
-  test('the panel closes on a swipe down, not only on the handle',
-    async ({ page }) => {
-      /* It always dragged, by a 34px handle in a panel of several hundred.
-         The gesture existed and nothing pointed at it. */
-      await openOne(page);
-      const r = await page.evaluate(async () => {
-        const side = document.getElementById('sidepanel');
-        side.classList.remove('down');
-        side.scrollTop = 0;
-        /* Somewhere in the body of the panel that is not a control. */
-        const at = side.querySelector('h2') || side;
-        const box = at.getBoundingClientRect();
-        const opts = { bubbles: true, clientX: box.left + 20, clientY: box.top + 4 };
-        side.dispatchEvent(new PointerEvent('pointerdown', opts));
-        side.dispatchEvent(new PointerEvent('pointermove',
-          Object.assign({}, opts, { clientY: box.top + 90 })));
-        side.dispatchEvent(new PointerEvent('pointerup', opts));
-        await new Promise(r2 => setTimeout(r2, 60));
-        return { down: side.classList.contains('down') };
-      });
-      expect(r.down, 'a downward drag on the sheet closed it').toBe(true);
-    });
+  /* THE TWO BOTTOM-SHEET TESTS ARE GONE WITH THE SHEET.
 
-  test('but a swipe does not fight the panel scrolling', async ({ page }) => {
-    /* THE CONTROL, and the reason the guard is there. A sheet that closes on
-       any downward drag is one you cannot scroll, and scrolling is what the
-       panel is mostly for. Only a drag that starts at the very top can have
-       meant "close" rather than "scroll up". */
-    await openOne(page);
-    const r = await page.evaluate(async () => {
-      const side = document.getElementById('sidepanel');
-      side.classList.remove('down');
-      /* Every section open, or the panel is shorter than its own box and there
-         is nothing to scroll - foldDefaults closes most of them on a phone by
-         design. Scrolling is the thing this guard exists to protect, so the
-         fixture has to be in a state where scrolling is possible. */
-      side.querySelectorAll('section').forEach(sec => sec.classList.remove('folded'));
-      await new Promise(r2 => setTimeout(r2, 60));
-      side.scrollTop = 40;
-      /* PROVE IT SCROLLED. Setting scrollTop on a panel with nothing to scroll
-         leaves it at 0, and then this test would be asserting the guard while
-         standing in the one state the guard does not apply to - it would pass
-         for the wrong reason and keep passing if the guard were deleted. */
-      if (side.scrollTop === 0) return { unscrollable: true };
-      const box = side.getBoundingClientRect();
-      const opts = { bubbles: true, clientX: box.left + 20, clientY: box.top + 60 };
-      side.dispatchEvent(new PointerEvent('pointerdown', opts));
-      side.dispatchEvent(new PointerEvent('pointermove',
-        Object.assign({}, opts, { clientY: box.top + 200 })));
-      side.dispatchEvent(new PointerEvent('pointerup', opts));
-      await new Promise(r2 => setTimeout(r2, 60));
-      return { down: side.classList.contains('down'), scrollTop: side.scrollTop };
-    });
-    expect(r.unscrollable, 'the panel really can scroll, or this proves nothing')
-      .toBeUndefined();
-    expect(r.down, 'scrolled down, so the drag was a scroll and not a dismissal')
-      .toBe(false);
-  });
+     They covered a drag on #sidepanel: down to dismiss it, and down-while-
+     scrolled to NOT dismiss it. The side panel has been deleted - its six
+     sections became pop-outs on the tool rail and the three controls left
+     became a strip under the header - so there is no sheet, no drag handle
+     and no sideDown to guard.
+
+     Recorded rather than silently removed, because the pair was a guard and
+     its control, and a control that disappears without a word is how the
+     next person concludes the behaviour was never tested. If a draggable
+     sheet ever comes back, these two are the shape its tests should take:
+     one that it closes on a deliberate drag, one that it does NOT close on
+     a drag that was a scroll. */
 });

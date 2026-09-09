@@ -110,7 +110,6 @@ test.describe('the history is bounded in bytes', () => {
   test('undo across a resize restores the old dimensions', async ({ page }) => {
     await openTrait(page, { w: 120, h: 120, draw: flat });
     await page.evaluate(() => {
-      document.querySelectorAll('.side section').forEach(s => s.classList.remove('folded'));
       document.getElementById('rssnap').setAttribute('aria-pressed', 'false');
       /* A chip group now, not a select - assigning .value to a div is legal
          and does nothing, so this drove nothing and the test still passed. */

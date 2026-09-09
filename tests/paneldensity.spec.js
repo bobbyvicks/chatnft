@@ -33,7 +33,12 @@ import { test, expect } from '@playwright/test';
 
 /* Every id in the panel when this pass was written. A density change that
    drops one fails here rather than in somebody's project. */
-const CONTROLS = ['sidegrip', 'picker', 'curhex', 'brushsec', 'brushrows', 'bslider',
+/* sidegrip and brushsec are NOT in this list, and their absence is the point.
+   sidegrip was the handle of the phone bottom sheet and brushsec was the
+   Colour section's wrapper; the side column they belonged to has been
+   deleted, so they were removed rather than moved. Everything else here did
+   move, and has to still exist. */
+const CONTROLS = ['picker', 'curhex', 'brushrows', 'bslider',
   'bslab', 'fillrows', 'filltol', /* palmode is gone: Draw and Replace were a mode deciding what a click on a
      swatch meant, and the two mouse buttons say it without one. */
   'pal', 'rcfrom', 'rcnear', 'rctol',
@@ -68,54 +73,39 @@ const openPanel = (page) => page.evaluate(async () => {
   fileName = 'dense';
   startEditor(d, S, S, S, S, palette(d, S * S, 24, 64), false);
   await new Promise(x => setTimeout(x, 800));
-  document.querySelectorAll('.side section').forEach(s => s.classList.remove('folded'));
-  /* The outline moved out of the sidebar and into a panel the tool rail
-     opens. This test is about nothing being DROPPED and nothing hiding
-     behind a reveal you cannot find - a button in the rail is the reveal,
-     so the panel is opened and its controls are still counted. */
+  /* Every section became a panel the tool rail opens, and the three controls
+     that stayed became the strip under the header. This file is about nothing
+     being DROPPED and nothing hiding behind a reveal you cannot find - a
+     button in the rail IS the reveal - so everything is opened and everything
+     is still counted. */
   try { outlinePanel(true); } catch (_) {}
-  try { for (const id of ['cl', 'tx', 'tf', 'bl', 'sv']) railPanel(id, true); } catch (_) {}
+  try { for (const id of ['cl', 'tx', 'eh', 'qa', 'tf', 'bl', 'sv']) railPanel(id, true); } catch (_) {}
   await new Promise(x => setTimeout(x, 400));
-  const side = document.getElementById('sidepanel');
-  return {
-    panelWidth: Math.round(side.getBoundingClientRect().width),
-    scrollHeight: side.scrollHeight,
-    missing: null,
-  };
+  return { missing: null };
 });
 
-const inspect = (page) => page.evaluate((known) => {
-  const side = document.getElementById('sidepanel');
-  const shortOnes = [...side.querySelectorAll('button,input,select')]
+/* WHERE THE CONTROLS LIVE NOW: the strip, plus the card of every open panel.
+   One selector, used by every measurement below, so a control cannot be in
+   the population for one check and out of it for the next. */
+const CHROME = '.opts, .scrim.pop:not([hidden]) .card';
+
+const inspect = (page) => page.evaluate(({ known, sel }) => {
+  const boxes = [...document.querySelectorAll(sel)];
+  const all = (q) => boxes.flatMap(b => [...b.querySelectorAll(q)]);
+  const shortOnes = all('button,input,select')
     .filter(e => e.offsetParent !== null && e.type !== 'file')
     .map(e => ({ id: e.id || e.className, h: Math.round(e.getBoundingClientRect().height) }))
     .filter(e => e.h > 0 && e.h < 22 && known.indexOf(e.id) < 0);
   /* Real clipping only: a sub-pixel rounding difference is not a defect. */
-  const clipped = [...side.querySelectorAll('button,select,input,label,span')]
+  const clipped = all('button,select,input,label,span')
     .filter(e => e.offsetParent !== null && e.scrollWidth > e.clientWidth + 4)
     .map(e => (e.id || e.tagName) + ' "' + (e.textContent || '').trim().slice(0, 16)
       + '" ' + e.scrollWidth + '>' + e.clientWidth);
-  /* THE HEIGHT THIS FILE GUARDS is the density of the sections the pass was
-     about, not the panel's total. A tool added later is not a density
-     regression, and a guard that cannot tell those apart either blocks every
-     new feature or gets its number raised until it means nothing.
-
-     So: total, minus any section whose heading is not one this pass measured.
-     Adding a section to that list is a deliberate act with a diff. */
-  const MEASURED = ['colour', 'edgesandholes', 'transform', 'baselayer',
-    'saveandexport'];
-  let since = 0;
-  for (const sec of side.querySelectorAll('section')) {
-    const h = sec.querySelector('h2');
-    if (!h) continue;
-    const key = (h.textContent || '').replace(/[^a-z]/gi, '').toLowerCase();
-    if (MEASURED.indexOf(key) < 0) since += sec.getBoundingClientRect().height;
-  }
-  return { shortOnes, clipped, scrollHeight: side.scrollHeight,
-    measuredHeight: Math.round(side.scrollHeight - since),
-    addedSince: Math.round(since),
-    panelWidth: Math.round(side.getBoundingClientRect().width) };
-}, KNOWN_SHORT);
+  /* The height figures went with the column - see the note where the height
+     guard used to be. What is left is what this file was always really for:
+     no control dropped, none clipped, none too small to hit. */
+  return { shortOnes, clipped, boxes: boxes.length };
+}, { known: KNOWN_SHORT, sel: CHROME });
 
 test.describe('the editing panel', () => {
   test('still holds every control it did', async ({ page }) => {
@@ -139,7 +129,7 @@ test.describe('the editing panel', () => {
       const e = document.getElementById(id);
       if (!e) return true;
       if (e.type === 'file') return false;               // #basefile is hidden by design
-      if (e.id === 'sidegrip') return false;             // phone-only
+      /* #basefile stays hidden by design; nothing else may. */
       if (e.closest('#fillrows,#brushrows')) return false; // shown per tool
       return e.offsetParent === null;
     }), CONTROLS);
@@ -184,30 +174,21 @@ test.describe('the editing panel', () => {
     expect(r.shortOnes, 'everything except the three sliders clears 22px').toEqual([]);
   });
 
-  test('and it is a lot shorter than it was', async ({ page }) => {
-    /* A regression guard on the number, not a claim that this exact figure is
-       meaningful: measured at 1580 before the pass and 1186 after, at the
-       274px panel a 1400px window gives. The bar is set loose enough that
-       ordinary content changes do not trip it.
+  /* THE HEIGHT GUARD IS GONE WITH THE COLUMN IT MEASURED.
 
-       IT MEASURES THE SECTIONS THE PASS WAS ABOUT, not the panel's total.
-       Pixel inspection was added afterwards and is about 550px with
-       everything open, which tripped this - correctly as arithmetic and
-       wrongly as a claim, because a new tool is not the spacing somebody
-       complained about. Raising the number instead would have kept the
-       shape of the guard while emptying it. */
-    await page.setViewportSize({ width: 1400, height: 1100 });
-    await page.goto('/index.html');
-    await page.waitForFunction(() => typeof startEditor === 'function');
-    await openPanel(page);
-    const r = await inspect(page);
-    expect(r.panelWidth, 'the width this was measured at').toBe(274);
-    expect(r.measuredHeight, 'was 1580 before the pass').toBeLessThan(1350);
-    /* And the new tool is real rather than an empty section quietly counted
-       out - if this is ever 0 the exclusion above is measuring nothing. */
-    expect(r.addedSince, 'the sections added since the pass have height')
-      .toBeGreaterThan(100);
-  });
+     It pinned the side panel at 274px wide and under 1350px of content, and
+     had a positive control on top: the sections added since the density pass
+     must have real height, "if this is ever 0 the exclusion above is
+     measuring nothing". That control fired. Pixel inspection and Edges and
+     holes left for pop-out panels, and the exclusion was measuring nothing.
+
+     Raising or relaxing the numbers would have kept the shape of a guard
+     while emptying it - which is exactly what the control existed to catch,
+     so the honest answer is to let it go rather than to argue with it. The
+     density it was protecting is still covered by the four tests around it:
+     every control exists, every control is reachable, nothing is clipped,
+     and nothing is too small to hit. Those measure controls, which moved,
+     rather than a column, which did not survive. */
 
   test('and a phone gets every shrunken target back', async ({ page }) => {
     /* THE CONTROL THAT MATTERS MOST. On a phone the panel is a bottom sheet
@@ -230,17 +211,13 @@ test.describe('the editing panel', () => {
     await page.goto('/index.html');
     await page.waitForFunction(() => typeof startEditor === 'function');
     await openPanel(page);
-    const r = await page.evaluate(() => {
-      const side = document.getElementById('sidepanel');
-      side.classList.remove('down');
-      /* THE PANELS TOO. Transform, Base layer and Save moved out of the
-         column and into cards the tool rail opens, so measuring only the
-         column now finds no .tool at all and reports null rather than a
-         size. They are still surfaces a thumb has to hit, and the shrink
-         rules these restores undo are .side-scoped as well - so a control
-         in a card should be at its original size, and this is what says
-         whether it is. */
-      const where = [side, ...document.querySelectorAll('.scrim:not([hidden]) .card')];
+    const r = await page.evaluate((sel) => {
+      /* THE STRIP AND EVERY OPEN CARD. Every section left the column for a
+         panel and the column itself is gone; the shrink rules and the phone
+         restores that undo them were renamed with the controls, from .side
+         to .opts, so what has to be checked is that a thumb-sized target
+         still comes out thumb-sized wherever a control now lives. */
+      const where = [...document.querySelectorAll(sel)];
       const smallest = (sel) => {
         const hs = where.flatMap(w => [...w.querySelectorAll(sel)])
           .filter(e => e.offsetParent !== null)
@@ -249,7 +226,7 @@ test.describe('the editing panel', () => {
       };
       return { btn: smallest('.btn'), mini: smallest('.mini'), tool: smallest('.tool'),
         select: smallest('select'), chip: smallest('.chips button') };
-    });
+    }, CHROME);
     for (const [what, h] of Object.entries(r)) {
       expect(h, what + ' exists on the phone layout').not.toBeNull();
       /* Measured with the restore in place: btn 28, mini 34.75, tool 42,

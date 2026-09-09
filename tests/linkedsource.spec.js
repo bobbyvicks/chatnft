@@ -31,7 +31,14 @@ const stage = (page, href) => page.evaluate(async (h) => {
     shown: document.getElementById('linkname').textContent };
 }, href);
 
-const origin = 'http://127.0.0.1:5771';
+/* THE SAME PORT THE CONFIG SERVES ON, not a number written twice. This was a
+   bare 5771 while playwright.config.js gained PB_PORT so two clones can run on
+   one machine - and with the suite on 5772, these six tests quietly navigated
+   to whatever was listening on 5771, which was another clone's server, and
+   failed with "Failed to fetch" against a page that was not ours. A test that
+   can be pointed at somebody else's build by an environment variable it does
+   not read is a test of nothing in particular. */
+const origin = 'http://127.0.0.1:' + (Number(process.env.PB_PORT) || 5771);
 
 test.describe('a linked source', () => {
   test.beforeEach(async ({ page }) => {

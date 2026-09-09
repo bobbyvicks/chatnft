@@ -13,7 +13,7 @@
    else would notice.
 */
 import { test, expect } from '@playwright/test';
-import { openTrait, openAllSections } from './helpers.js';
+import { openTrait } from './helpers.js';
 
 const BLOCK = new Function('set', 'W', 'H',
   'for (let y = 20; y < 140; y++) for (let x = 20; x < 140; x++) set(x, y, [226, 146, 116]);');
@@ -51,7 +51,6 @@ const note = (page) => page.evaluate(() => $('cnote').textContent);
 test.describe('generating a sheet', () => {
   test('asks for twelve, draws every different character there is, and says why', async ({ page }) => {
     await openTrait(page, { w: 160, h: 160, draw: BLOCK });
-    await openAllSections(page);
     await put(page, EIGHT);
     await page.waitForTimeout(300);
 
@@ -74,7 +73,6 @@ test.describe('generating a sheet', () => {
     // The silence case. A shortfall note on a healthy set is noise, and noise
     // is how the real one comes to be ignored.
     await openTrait(page, { w: 160, h: 160, draw: BLOCK });
-    await openAllSections(page);
     await put(page, [...EIGHT, ...Array.from({ length: 12 }, (_, i) => ({ n: 'c' + i, l: 'clothing' }))]);
     await page.waitForTimeout(300);
 
@@ -97,7 +95,6 @@ test.describe('generating a sheet', () => {
     // independent draw picks it, so twelve memoryless draws produced a handful
     // of characters over and over.
     await openTrait(page, { w: 160, h: 160, draw: BLOCK });
-    await openAllSections(page);
     await put(page, [
       { n: 's1', l: 'skins', r: 99 }, { n: 's2', l: 'skins', r: 1 },
       { n: 'e1', l: 'eyes', r: 99 }, { n: 'e2', l: 'eyes', r: 1 }, { n: 'e3', l: 'eyes', r: 1 },
@@ -128,7 +125,6 @@ test.describe('generating a sheet', () => {
     // make it quietly refuse to show a common combination twice, and nothing
     // else in the suite would notice.
     await openTrait(page, { w: 160, h: 160, draw: BLOCK });
-    await openAllSections(page);
     await put(page, [{ n: 's1', l: 'skins' }]);   // exactly one character exists
     await page.waitForTimeout(300);
     const keys = await page.evaluate(() => {
@@ -174,7 +170,6 @@ test.describe('the generated collection', () => {
 
   test('every image has its metadata, and nothing is orphaned', async ({ page }) => {
     await openTrait(page, { w: 160, h: 160, draw: BLOCK });
-    await openAllSections(page);
     await put(page, SET);
     await page.waitForTimeout(300);
     const r = await build(page, 12);
@@ -189,7 +184,6 @@ test.describe('the generated collection', () => {
   test('the images are real PNGs with something drawn in them', async ({ page }) => {
     // A zip of empty or malformed files would pass every naming check above.
     await openTrait(page, { w: 160, h: 160, draw: BLOCK });
-    await openAllSections(page);
     await put(page, SET);
     await page.waitForTimeout(300);
     const r = await build(page, 6);
@@ -199,7 +193,6 @@ test.describe('the generated collection', () => {
 
   test('the metadata names the layer and the trait', async ({ page }) => {
     await openTrait(page, { w: 160, h: 160, draw: BLOCK });
-    await openAllSections(page);
     await put(page, SET);
     await page.waitForTimeout(300);
     const r = await build(page, 12);
@@ -223,7 +216,6 @@ test.describe('the generated collection', () => {
     // "Hair: " on four hundred items is worse than showing nothing at all, and
     // an empty layer is common - it is what makes characters differ.
     await openTrait(page, { w: 160, h: 160, draw: BLOCK });
-    await openAllSections(page);
     await put(page, SET);
     await page.waitForTimeout(300);
     const r = await build(page, 12);
@@ -243,7 +235,6 @@ test.describe('the generated collection', () => {
     // Unpadded, a directory sorts 1, 10, 11, 2 - and the file a person opens
     // first is not the character they think it is.
     await openTrait(page, { w: 160, h: 160, draw: BLOCK });
-    await openAllSections(page);
     await put(page, SET);
     await page.waitForTimeout(300);
     const r = await build(page, 12);
@@ -255,7 +246,6 @@ test.describe('the generated collection', () => {
   test('asking for more than the set holds returns what exists', async ({ page }) => {
     // The same fact the sheet reports: a limit of the set, not a failure.
     await openTrait(page, { w: 160, h: 160, draw: BLOCK });
-    await openAllSections(page);
     await put(page, [{ n: 'tan', l: 'skins' }, { n: 'pale', l: 'skins' }]);
     await page.waitForTimeout(300);
     const r = await build(page, 50);
@@ -304,7 +294,6 @@ test.describe('never together', () => {
 
   const ready = async (page) => {
     await openTrait(page, { w: 160, h: 160, draw: BLOCK });
-    await openAllSections(page);
     await put(page, SET);
     await page.waitForTimeout(300);
   };
@@ -397,7 +386,6 @@ test.describe('never together', () => {
 
   test('a draw that would break a rule is redrawn, not emitted', async ({ page }) => {
     await openTrait(page, { w: 160, h: 160, draw: BLOCK });
-    await openAllSections(page);
     await put(page, CORNER);
     await page.waitForTimeout(300);
 
@@ -417,7 +405,6 @@ test.describe('never together', () => {
     // character at all. Retrying forever would hang, so it gives up at a bound
     // and reports - a silently broken rule would be worse than a reported one.
     await openTrait(page, { w: 160, h: 160, draw: BLOCK });
-    await openAllSections(page);
     await put(page, CORNER);
     await page.waitForTimeout(300);
     await addRule(page, 'backgrounds/sky', 'skins/tan');
@@ -447,7 +434,6 @@ test.describe('never together', () => {
     // stop applying at that exact moment, which is when the collection starts
     // being generated for real, and nothing on screen would say so.
     await openTrait(page, { w: 160, h: 160, draw: BLOCK });
-    await openAllSections(page);
     await page.evaluate(async () => {
       const png = async hue => { const c = document.createElement('canvas'); c.width = 160; c.height = 160;
         const g = c.getContext('2d'); g.fillStyle = 'hsl(' + hue + ',70%,55%)'; g.fillRect(20, 20, 120, 120);
@@ -504,7 +490,6 @@ test.describe('never together', () => {
        hundred million. This draws far more than any earlier test so the old
        bound would fail it reliably rather than 4% of the time. */
     await openTrait(page, { w: 160, h: 160, draw: BLOCK });
-    await openAllSections(page);
     await put(page, CORNER);
     await page.waitForTimeout(300);
     await addRule(page, 'backgrounds/sky', 'skins/tan');
@@ -519,7 +504,6 @@ test.describe('never together', () => {
        worse than a reported one. With the background never skipped there is no
        legal character here at all. */
     await openTrait(page, { w: 160, h: 160, draw: BLOCK });
-    await openAllSections(page);
     await put(page, CORNER);
     await page.waitForTimeout(300);
     await addRule(page, 'backgrounds/sky', 'skins/tan');

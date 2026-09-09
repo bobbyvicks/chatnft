@@ -226,7 +226,9 @@ test.describe('the outline panel', () => {
 
   test('and the sidebar no longer carries it', async ({ page }) => {
     const inSide = await page.evaluate(() =>
-      !!document.querySelector('.side #oladd'));
+      /* The strip, which is what the side column became. A check against
+         .side would pass forever for the empty reason that nothing matches. */
+      !!document.querySelector('.opts #oladd'));
     expect(inSide).toBe(false);
   });
 

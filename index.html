@@ -603,11 +603,11 @@ body.shelf-dragging,body.shelf-dragging *{cursor:grabbing!important;}
 .big span{font-size:12.5px; opacity:.8;}
 
 /* ---------- editor ---------- */
-.app{display:grid; grid-template-columns:auto auto 1fr; grid-template-rows:auto 1fr auto;
-  /* tools, then the panel, then the canvas. The panel used to be on the far
-     side with the canvas between them, which put the controls in two places
-     with the artwork in the middle. */
-  grid-template-areas:"head head head" "tools side stage" "foot foot foot"; height:100dvh;}
+.app{display:grid; grid-template-columns:auto 1fr; grid-template-rows:auto auto 1fr auto;
+  /* The rail, then the canvas, and nothing across from it. The 244px column
+     that used to sit between them is a strip under the header now, because
+     what it still held is looked at rather than gone to. */
+  grid-template-areas:"head head" "opts opts" "tools stage" "foot foot"; height:100dvh;}
 header{grid-area:head; display:flex; align-items:center; gap:13px; flex-wrap:wrap;
   padding:5px 16px; border-bottom:1px solid var(--line); background:var(--panel);}
 header .brand h1{font-size:15px;}
@@ -719,7 +719,11 @@ canvas{display:block; image-rendering:pixelated; cursor:crosshair; touch-action:
   image-rendering:pixelated;}
 /* Above the others: text is placed against everything else on screen, so
    nothing may sit on top of it while it is being positioned. */
-#txpv{position:absolute; left:0; top:0; display:none; pointer-events:none; z-index:5;
+/* The effect preview sits over the art and under pending text, which is
+   still placed against everything else on screen. */
+#fxpv{position:absolute; left:0; top:0; display:none; pointer-events:none; z-index:5;
+  image-rendering:pixelated;}
+#txpv{position:absolute; left:0; top:0; display:none; pointer-events:none; z-index:6;
   image-rendering:pixelated;}
 #aglog{display:flex; flex-direction:column; gap:2px; margin:6px 0; font-size:12px;}
 .agstep{color:var(--muted);}
@@ -732,7 +736,11 @@ canvas{display:block; image-rendering:pixelated; cursor:crosshair; touch-action:
    you have to hit. Scoped to the editing column so the project page keeps
    its own sizing. This is the first checkbox in here, which is why the
    floor had never been tested against one. */
-.side .olchk input[type=checkbox]{width:22px; height:22px; flex:none;}
+/* .card as well. The rename carried this rule from .side to .opts with the
+   rest, and every .olchk checkbox is in a pop-out card rather than the strip
+   - so it matched nothing and they fell to the browser default. Measured at
+   13px against the 22 a thumb needs, caught by the density census. */
+.opts .olchk input[type=checkbox],.card .olchk input[type=checkbox]{width:22px; height:22px; flex:none;}
 input[type=range]{width:100%; accent-color:var(--accent); cursor:pointer;}
 /* Wrap rather than overflow. The panel is 252px and some rows carry a label,
    two number boxes and a button; when they do not fit, a second line is right
@@ -744,15 +752,15 @@ input[type=range]{width:100%; accent-color:var(--accent); cursor:pointer;}
    place to start. */
 /* .card as well, for the same reason the fields below carry it: the colour
    wells in the text and colour panels are not in the side column. */
-.side input[type=color],.card input[type=color]{appearance:none; -webkit-appearance:none; width:38px; height:24px;
+.opts input[type=color],.card input[type=color]{appearance:none; -webkit-appearance:none; width:38px; height:24px;
   padding:0; border:1px solid var(--line); border-radius:6px; background:var(--panel-2); cursor:pointer;}
-.side input[type=color]::-webkit-color-swatch-wrapper{padding:2px;}
-.side input[type=color]::-webkit-color-swatch{border:none; border-radius:4px;}
+.opts input[type=color]::-webkit-color-swatch-wrapper{padding:2px;}
+.opts input[type=color]::-webkit-color-swatch{border:none; border-radius:4px;}
 /* .card as well: three sections moved into panels the tool rail opens, and
    a control that matches neither this nor the phone restore below falls
    through to the browser default - measured at 19px on a phone, under the
    27 a thumb needs and smaller than either rule intended. */
-.side select,.side input[type=number],.side input[type=text],
+.opts select,.opts input[type=number],.opts input[type=text],
 .card select,.card input[type=number],.card input[type=text],.card textarea{
   appearance:none; -webkit-appearance:none;
   background:var(--panel-2); border:1px solid var(--line); color:var(--ink);
@@ -762,11 +770,11 @@ input[type=range]{width:100%; accent-color:var(--accent); cursor:pointer;}
      is a separate declaration and survives. */
   border-radius:6px; padding:2px 7px; font:inherit; font-size:11.5px;
   line-height:1.4; min-height:22px;}
-.side select,.card select{padding-right:22px;
+.opts select,.card select{padding-right:22px;
   background-image:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><path d="M2.5 4.5L6 8l3.5-3.5" fill="none" stroke="%23a09aab" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>');
   background-repeat:no-repeat; background-position:right 6px center; background-size:11px;}
-.side select:hover,.side input:hover{border-color:var(--muted);}
-.side select:focus-visible,.side input:focus-visible{outline:2px solid var(--accent); outline-offset:1px;}
+.opts select:hover,.opts input:hover{border-color:var(--muted);}
+.opts select:focus-visible,.opts input:focus-visible{outline:2px solid var(--accent); outline-offset:1px;}
 .olrow select,.olrow input[type=number]{margin-left:auto;}
 /* A flex item will not shrink below its min-content width, and for a select
    that is its longest option - which is why flex:1 was not enough and the
@@ -776,33 +784,20 @@ input[type=range]{width:100%; accent-color:var(--accent); cursor:pointer;}
 .olchk input{accent-color:var(--good); cursor:pointer;}
 #bcur.tiny::after{content:""; position:absolute; inset:-4px; border-radius:3px;
   border:1px solid color-mix(in srgb, var(--accent) 80%, transparent);}
-.side{grid-area:side; width:244px; padding:10px; border-right:1px solid var(--line); overflow-x:hidden;
-  background:var(--panel); overflow-y:auto; display:flex; flex-direction:column; gap:8px;}
-/* The handle is a phone thing. On a wide screen the panel is a column beside
-   the art and is not in the way of anything. */
-.grip{display:none;}
-.side h2{font-size:9.5px; text-transform:uppercase; letter-spacing:.12em; color:var(--muted);
-  display:flex; align-items:center; gap:8px;}
-.side h2::after{content:""; flex:1; height:1px; background:var(--line); order:1;}
-/* The panel is 1445px of content. On a phone it gets a 356px window onto it,
-   so anything past the third section may as well not exist. Folding is the
-   difference between "scroll and hope" and "see what is there". */
-.side h2{cursor:pointer; user-select:none;}
-.side h2 .fold{order:2; font-size:13px; line-height:1; color:var(--dim);
-  transition:transform .15s; flex:none;}
-.side section.folded h2 .fold{transform:rotate(-90deg);}
-.side section.folded > *:not(h2){display:none;}
-.side h2:hover{color:var(--ink);}
-.side h2:focus-visible{outline:2px solid var(--accent); outline-offset:3px; border-radius:4px;}
-/* 252px held about half of the panel at a time - 2,318px of content in a
-   1,185px window - on a screen with room to spare. The sheet that folds away
-   is a phone answer to a phone problem; on a wide screen the answer is to use
-   the width that is already there. */
-@media (min-width:1100px){ .side{width:286px;} }
+/* One line of controls, wrapping to a second if it must. Height rather than
+   width, because a 1280 trait is short of width and has height to spare. */
+.opts{grid-area:opts; display:flex; align-items:center; flex-wrap:wrap; gap:8px 18px;
+  padding:5px 12px; background:var(--panel); border-bottom:1px solid var(--line);}
+.opts #brushrows,.opts #fillrows{display:flex; align-items:center;}
+.opts .olrow{margin:0; gap:6px; line-height:1.3;}
+/* Wide enough to aim with. In the column it filled whatever was left over,
+   and in a row that would push everything after it off the end. */
+.opts .olrow input[type=range]{flex:none; width:150px; margin:0;}
+.opts .olrow input[type=range]+.mono{flex:none; min-width:44px; text-align:right;}
 @media (min-width:1280px){
   /* ONE column here. Two at this width made every label-plus-control row wrap
      and the panel got TALLER - measured, 1367px to 1761px. */
-  .side{width:274px;}
+  .opts{width:274px;}
 }
 @media (min-width:1520px){
   /* Two columns, paid for out of dead space rather than out of the artwork.
@@ -815,8 +810,6 @@ input[type=range]{width:100%; accent-color:var(--accent); cursor:pointer;}
      Spending it on the panel costs the artwork nothing - the zoom and the
      rendered size are identical before and after - and 500px is 250 a column,
      which is where the rows stop wrapping. */
-  .side{width:500px; display:grid; grid-template-columns:repeat(2,minmax(0,1fr));
-    gap:11px 12px; align-content:start;}
 }
 /* Segmented: one rounded group, hairlines between, the chosen one filled. */
 .chips{display:flex; flex:1; min-width:0; border:1px solid var(--line); border-radius:6px; overflow:hidden;}
@@ -892,7 +885,7 @@ input[type=range]{width:100%; accent-color:var(--accent); cursor:pointer;}
 .note{font-size:11.5px; color:var(--dim); line-height:1.5; margin-top:2px;}
 
 /* ================= DENSITY PASS =================================
-   Everything below is scoped to .side, because each of these selectors also
+   Everything below is scoped to .opts, because each of these selectors also
    styles something outside the editor panel - .btn and .mini are used across
    the whole page, .tool is the vertical tool rail, .rule is a divider in
    both, and .olrow appears in four rows outside the panel.
@@ -903,21 +896,21 @@ input[type=range]{width:100%; accent-color:var(--accent); cursor:pointer;}
 
 /* The single biggest line in the panel: twelve full-width buttons, each set
    by a line box of 12px x the inherited 1.5 plus 14px of padding. */
-.side .btn,.card .btn{padding:4px 10px; line-height:1.3;}
+.opts .btn,.card .btn{padding:4px 10px; line-height:1.3;}
 /* A <p> keeps the UA margin-block-end of 1em - 11.5px - on four visible
    notes, under a rule that only ever set margin-top. */
-.side .note{margin-bottom:0;}
-/* Matched to .side .btn on purpose, so a row holding one of each lands on a
+.opts .note{margin-bottom:0;}
+/* Matched to .opts .btn on purpose, so a row holding one of each lands on a
    single line rather than being set by the taller of the two. */
-.side .mini,.card .mini{padding:4px 10px; font-size:12px; line-height:1.3;}
+.opts .mini,.card .mini{padding:4px 10px; font-size:12px; line-height:1.3;}
 /* Four hairlines, each 11px tall of which 10 is margin. */
-.side .rule{margin:3px 2px;}
+.opts .rule{margin:3px 2px;}
 /* The four flip and turn buttons, which are the only .tool inside the panel -
    the rail keeps its 46px squares. 20px icons leave 9px of clearance. */
-.side .tool,.card .tool{width:38px; height:38px;}
+.opts .tool,.card .tool{width:38px; height:38px;}
 /* flex-wrap stays. A smaller gap lowers the pressure to wrap rather than
    turning a wrap into an overflow, which is what the note on .olrow is about. */
-.side .olrow{gap:5px; line-height:1.3;}
+.opts .olrow{gap:5px; line-height:1.3;}
 
 /* THE STATUS CHIPS GET THEIR OWN LINE.
 
@@ -933,14 +926,14 @@ input[type=range]{width:100%; accent-color:var(--accent); cursor:pointer;}
 #tstatus{flex:1 1 100%;}
 
 /* The save bar's own fields are 36.75px while the same select outside one is
-   27.25px. Longhand padding, NOT the shorthand: `.side select` sets
+   27.25px. Longhand padding, NOT the shorthand: `.opts select` sets
    padding-right:22px to keep option text off the inline chevron, and a
    shorthand here is more specific and would reset it to 8px - the chevron sits
    6px to 17px in from the right edge, and #basepick and #tlayer both carry
    runtime text long enough to reach it. */
-.side .savebar input,.side .savebar select{
+.opts .savebar input,.opts .savebar select{
   padding-block:2px; padding-left:8px; font-size:11.5px; line-height:1.4;}
-.side .savebar input{padding-right:8px;}
+.opts .savebar input{padding-right:8px;}
 
 /* A slider now sits in the row that labels it, so it has to take the slack
    rather than the whole line. min-width:0 because a flex item will not
@@ -950,18 +943,18 @@ input[type=range]{width:100%; accent-color:var(--accent); cursor:pointer;}
    the line: measured, the row came out THREE lines and 56px tall - taller than
    the two rows it replaced. At basis 0 it takes only what is left over and the
    row cannot be forced to wrap by it. */
-.side .olrow input[type=range]{flex:1 1 0; min-width:60px; margin:0;}
+.opts .olrow input[type=range]{flex:1 1 0; min-width:60px; margin:0;}
 /* The readout after it keeps its own width instead of being pushed to the
    far edge - the inline margin-left:auto that used to do that is gone with
    the row it lived on. */
-.side .olrow input[type=range]+.mono{flex:none; text-align:right; min-width:44px;}
+.opts .olrow input[type=range]+.mono{flex:none; text-align:right; min-width:44px;}
 
 /* The two number boxes on the Transform Size row carried an inline 72px,
    which pushed that row to about 262px against 253px of content and dropped
    the Shape toggle onto a line by itself. 66px holds five digits at the
    density pass's padding - checked in a browser against #holemax, whose max
    is 99999, rather than worked out on paper. */
-.side .olrow input[type=number]{width:66px;}
+.opts .olrow input[type=number]{width:66px;}
 /* ================= end density pass ============================= */
 
 /* THE REVIEW SHEET. A tile is a picture, a name and two answers.
@@ -1014,8 +1007,8 @@ footer .mono{color:var(--ink);}
     right:0; bottom:0; background:#0b0910e0; backdrop-filter:blur(3px);
     display:grid; place-items:center; padding:16px; pointer-events:auto;}
   .scrim.pop>.card{width:min(560px,94vw); max-height:90dvh;}
-  .app{grid-template-columns:1fr; grid-template-rows:auto auto minmax(0,1fr) auto auto;
-    grid-template-areas:"head" "tools" "stage" "foot" "side";}
+  .app{grid-template-columns:1fr; grid-template-rows:auto auto auto minmax(0,1fr) auto;
+    grid-template-areas:"head" "tools" "opts" "stage" "foot";}
   .spec{width:100%; margin-left:0; gap:11px; font-size:9.5px;}
   /* .spec wraps to its own row here, which would carry the close button
      down with it. It stays in the top-right corner instead. */
@@ -1040,28 +1033,27 @@ footer .mono{color:var(--ink);}
   .tool{width:42px; height:42px;}
   /* THE DENSITY PASS IS A DESKTOP PASS. Here the panel is a bottom sheet
      somebody draws on with a thumb, so every target the pass shrinks goes
-     back. Each selector carries .side because the rules it is undoing do,
+     back. Each selector carries .opts because the rules it is undoing do,
      and a bare one would lose on specificity. */
   /* THE PAIR HAS TO MATCH THE SAME ELEMENTS. Every selector above gained
      .card when three sections moved into panels; if these had not, the
      restore would undo a shrink that never applied and leave the moved
      controls at the browser default on a phone. */
-  .side .btn,.card .btn{padding:8px 11px; line-height:1.5;}
-  .side .mini,.card .mini{padding:7px 12px; font-size:12.5px; line-height:1.5;}
-  .side .tool,.card .tool{width:42px; height:42px;}
-  .side .olrow{gap:6px; line-height:1.5;}
-  .side .rule{margin:5px 2px;}
-  .side select,.side input[type=number],.side input[type=text],
+  .opts .btn,.card .btn{padding:8px 11px; line-height:1.5;}
+  .opts .mini,.card .mini{padding:7px 12px; font-size:12.5px; line-height:1.5;}
+  .opts .tool,.card .tool{width:42px; height:42px;}
+  .opts .olrow{gap:6px; line-height:1.5;}
+  .opts .rule{margin:5px 2px;}
+  .opts select,.opts input[type=number],.opts input[type=text],
   .card select,.card input[type=number],.card input[type=text]{
     padding:6px 7px; line-height:1.5; min-height:30px;}
-  .side select,.card select{padding-right:22px;}
-  .side .savebar input,.side .savebar select,
+  .opts select,.card select{padding-right:22px;}
+  .opts .savebar input,.opts .savebar select,
   .card .savebar input,.card .savebar select{
     padding-block:6px; padding-left:9px; font-size:12.5px; line-height:1.5;}
-  .side .savebar input,.card .savebar input{padding-right:9px;}
-  .side .chips button,.card .chips button{padding:7px 6px;}
-  .side h2{line-height:1.5;}
-  .side input[type=color],.card input[type=color]{height:30px;}
+  .opts .savebar input,.card .savebar input{padding-right:9px;}
+  .opts .chips button,.card .chips button{padding:7px 6px;}
+  .opts input[type=color],.card input[type=color]{height:30px;}
   /* AND THE WIDTH, which the desktop rule sets to 38 and the narrower .cur
      rule now overrides everywhere. Without this, shrinking the box on a
      desktop took 16px off the touch target on a phone - the thing the
@@ -1076,24 +1068,6 @@ footer .mono{color:var(--ink);}
      drags out of the way now. The transition is on max-height rather than
      transform so the stage above genuinely grows into the space instead of
      the sheet sliding over it. */
-  .side{width:auto; max-height:44dvh; border-right:none; border-top:1px solid var(--line);
-    padding-top:0; transition:max-height .22s ease;}
-  .grip{display:flex; align-items:center; justify-content:center; gap:9px;
-    position:sticky; top:0; z-index:3; height:34px; flex:none; width:100%;
-    background:var(--panel); border:0; padding:0; cursor:grab;
-    color:var(--dim); font-size:9.5px; text-transform:uppercase; letter-spacing:.12em;
-    /* the browser must not claim the vertical drag for scrolling */
-    touch-action:none;}
-  .grip::before{content:""; width:34px; height:4px; border-radius:2px; background:var(--line);}
-  .grip:focus-visible{outline:2px solid var(--accent); outline-offset:-2px;}
-  /* Collapsed to the handle and nothing else, so there is always something
-     left to grab. A sheet that closes completely cannot be reopened. */
-  /* env() is zero on anything without an inset, so this costs nothing on a
-     phone that does not need it. The extra 2px is slack: the handle is 34
-     and a container of exactly 34 clips it by a subpixel. */
-  .side.down{max-height:calc(36px + env(safe-area-inset-bottom,0px));
-    overflow:hidden; padding-bottom:env(safe-area-inset-bottom,0px);}
-  .side{padding-bottom:calc(14px + env(safe-area-inset-bottom,0px));}
   .swatches{grid-template-columns:repeat(10,1fr);} .sw{min-height:30px;}
   footer{gap:11px; padding:7px 14px; flex-wrap:wrap;} .hint{display:none;}
   /* ONE ROW, not two. #pos and #under read out the cell under the POINTER,
@@ -1696,6 +1670,120 @@ footer .mono{color:var(--ink);}
 <!-- Lettering. Everything here shapes one sprite that floats over the art
      until Add puts it in, because text you cannot see against the artwork
      is text you place twice. -->
+<!-- The same controls, in the panel the rail button opens. Lifted whole:
+     nothing about what any of them does is changed. -->
+<!-- The same controls, in the panel the rail button opens. Lifted whole:
+     nothing about what any of them does is changed. -->
+<!-- The agent pass, in a panel rather than a section nobody outside an
+     agent pass ever wanted on screen. -->
+<div class="scrim pop" id="agscrim" hidden>
+  <div class="card" role="dialog" aria-modal="true" aria-labelledby="agtitle">
+    <h2 id="agtitle">Agent pass</h2>
+    <p class="sub">What is open, what the rules say about it, and every step that changed pixels.</p>
+<div id="agentsec">
+      <h2>Agent</h2>
+      <div class="stack">
+        <p class="note mono" id="agwork">Nothing open.</p>
+        <button class="btn ghost" id="agspec">Check against the spec</button>
+        <button class="btn ghost" id="agplace">Check the placement</button>
+        <p class="note mono" id="agplaceout"></p>
+        <p class="note mono" id="agspecout"></p>
+        <button class="btn ghost" id="agbefore"
+          title="Hold to see the trait as it arrived. Nothing is changed by looking.">Hold to see before</button>
+        <div id="aglog"></div>
+        <p class="note">Every step that changes pixels writes itself here with
+          its own count, so the log cannot drift from what was done.</p>
+      </div>
+    </div>
+    <div class="savebar" style="margin-top:16px">
+      <button class="btn ghost" id="agclose" style="flex:1">Close</button>
+    </div>
+  </div>
+</div>
+
+<div class="scrim pop" id="qascrim" hidden>
+  <div class="card" role="dialog" aria-modal="true" aria-labelledby="qatitle">
+    <h2 id="qatitle">Pixel inspection</h2>
+    <p class="sub">Measure the canvas, walk the findings, repair what you choose to.</p>
+      <div class="stack">
+        <p class="note">Scans the exact canvas pixels. A finding is a measurement,
+          not proof of bad art.</p>
+        <div class="olrow"><label for="qacell">Grid</label>
+          <select id="qacell" style="flex:1"
+            title="The artwork grid to measure cells against. The size this trait is drawn at is marked."></select></div>
+        <div class="olrow"><label for="qamark"
+          title="How big a mark can be and still count as a small island, in canvas pixels. Independent of the grid, so an enlarged dot is caught too.">Mark limit</label>
+          <input id="qamark" type="number" min="1" max="64" value="12" style="width:72px"
+            aria-label="Small mark limit, in canvas pixels"></div>
+        <button class="btn" id="qascan">Scan artwork</button>
+        <p class="note" id="qastatus" role="status">Not scanned.</p>
+        <div class="olrow"><label for="qafilter">Show</label>
+          <select id="qafilter" style="flex:1">
+            <option value="speck">Small colour islands</option>
+            <option value="thin">Native 1px fragments</option>
+            <option value="narrow">Thin at grid scale</option>
+            <option value="mixed">Mixed grid cells</option>
+            <option value="alpha">Partial transparency</option>
+            <option value="all">All categories (they overlap)</option>
+          </select></div>
+        <label class="olchk"><input id="qahi" type="checkbox" checked> Highlight findings</label>
+        <div class="savebar btnrow">
+          <button class="mini" id="qaprev">Previous</button>
+          <button class="mini" id="qanext">Next</button></div>
+        <p class="note mono" id="qadetail">Scan to see coordinates.</p>
+        <div id="qalist" aria-label="Pixel findings"></div>
+        <div class="savebar btnrow">
+          <button class="mini" id="qapick">Select suggested</button>
+          <button class="mini" id="qaclear">Clear</button></div>
+        <button class="btn ghost" id="qaapply" disabled>Apply selected repairs</button>
+        <p class="note">Only an enclosed small island is ever suggested, and only
+          when the colour around it agrees. Outlines, lettering, deliberate
+          diagonals, strokes, edges and protected areas stay manual. Undo works.</p>
+        <div class="rule"></div>
+        <p class="note">Protect a logo or lettering from every automatic repair.</p>
+        <div class="olrow"><label for="qarx">Protect</label>
+          <input id="qarx" type="number" min="0" value="0" style="width:56px" aria-label="Protected box left">
+          <input id="qary" type="number" min="0" value="0" style="width:56px" aria-label="Protected box top">
+          <input id="qarw" type="number" min="1" value="64" style="width:56px" aria-label="Protected box width">
+          <input id="qarh" type="number" min="1" value="64" style="width:56px" aria-label="Protected box height">
+          <button class="mini" id="qaadd">Add</button></div>
+        <div id="qarects"></div>
+        <button class="btn ghost" id="qareport" disabled>Download report</button>
+      </div>
+    <div class="savebar" style="margin-top:16px">
+      <button class="btn ghost" id="qaclose" style="flex:1">Close</button>
+    </div>
+  </div>
+</div>
+
+<div class="scrim pop" id="ehscrim" hidden>
+  <div class="card" role="dialog" aria-modal="true" aria-labelledby="ehtitle">
+    <h2 id="ehtitle">Edges and holes</h2>
+    <p class="sub">Take away what surrounds the trait, and close what it surrounds.</p>
+      <button class="btn ghost" id="debg"
+        title="Floods in from the border, so a white shirt in the middle stays">Clear background</button>
+      <div class="olrow"><label for="bgtol" title="Only colour touching the border is removed">Keep within</label>
+        <input id="bgtol" type="number" min="0" max="120" value="24" style="width:72px"
+          aria-label="Background tolerance"></div>
+      <!-- Clear background floods in from the border, so it cannot reach
+           base showing THROUGH a trait - between the teeth of a grin, say.
+           This goes by colour instead and reaches both. -->
+      <button class="btn ghost" id="hidebase" disabled
+        title="Finds the flat colours the character underneath was drawn in and takes them out, including the blended edge around them">Hide the base colour</button>
+      <button class="btn ghost" id="fillholes"
+        title="Close gaps the artwork surrounds on every side">Fill holes</button>
+      <div class="olrow"><label for="holemax" title="Closes gaps the art surrounds. 0 means any size - raise it to keep a hole that belongs">Biggest gap</label>
+        <input id="holemax" type="number" min="0" max="99999" value="0" style="width:72px"
+          aria-label="Biggest gap to close, in cells; 0 for any size"></div>
+      <!-- The outline moved to the tool rail: it is a thing you DO, like the
+           pencil and the eyedropper, and it was six controls and a note in the
+           middle of the section you came to for Clear background. -->
+    <div class="savebar" style="margin-top:16px">
+      <button class="btn ghost" id="ehclose" style="flex:1">Close</button>
+    </div>
+  </div>
+</div>
+
 <div class="scrim pop" id="txscrim" hidden>
   <div class="card" role="dialog" aria-modal="true" aria-labelledby="txtitle">
     <h2 id="txtitle">Text</h2>
@@ -1743,6 +1831,25 @@ footer .mono{color:var(--ink);}
   </div>
 </div>
 
+<!-- Whole-image adjustments, each a registered function. One panel for all
+     of them, because ten effects as ten rail buttons is a rail nobody can
+     read. Previewed on the art before anything lands. -->
+<div class="scrim pop" id="fxscrim" hidden>
+  <div class="card" role="dialog" aria-modal="true" aria-labelledby="fxtitle">
+    <h2 id="fxtitle">Adjust</h2>
+    <p class="sub">Whole-image changes, shown on the art before they land. Inside a selection, only there.</p>
+    <div class="olrow"><label for="fxsel">Effect</label>
+      <select id="fxsel" style="margin-left:auto; max-width:210px"></select></div>
+    <div id="fxparams"></div>
+    <p class="note" id="fxnote"></p>
+    <div class="savebar" style="margin-top:14px">
+      <button class="btn" id="fxapply" style="flex:1" disabled>Apply</button>
+      <button class="btn ghost" id="fxclose">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- panels:more -->
 <div class="scrim pop" id="tfscrim" hidden>
   <div class="card" role="dialog" aria-modal="true" aria-labelledby="tftitle">
     <h2 id="tftitle">Transform</h2>
@@ -1923,15 +2030,23 @@ footer .mono{color:var(--ink);}
     <!-- One tool. Drag a handle to size or rotate, drag anywhere else to
          move. Both keys still reach it. -->
     <button class="tool" data-tool="transform" aria-pressed="false" title="Move, resize and rotate: drag a handle to size it, drag anywhere else to move it (M or R)"><svg viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/><path d="M4 4h4v4H4zM16 4h4v4h-4zM4 16h4v4H4zM16 16h4v4h-4z"/><path d="M12 9v6M9 12h6"/></svg><span class="k">M</span></button>
+    <!-- rail:tools -->
     <button class="tool" data-tool="pick" aria-pressed="false" title="Eyedropper (I)"><svg viewBox="0 0 24 24"><path d="m4 20 1-4 9-9 3 3-9 9-4 1Z"/><path d="m15 5 2-2a2 2 0 0 1 3 3l-2 2"/></svg><span class="k">I</span></button>
     <!-- Not a data-tool: it opens a panel rather than changing what a drag
          does, and putting it in the tool set would make the pencil appear to
          turn off when you opened it. -->
     <button class="tool" id="olbtn" aria-expanded="false" title="Outline (O)"><svg viewBox="0 0 24 24"><path d="M5 5h14v14H5z"/><path d="M8.5 8.5h7v7h-7z"/></svg><span class="k">O</span></button>
+    <!-- Appears with the section it opens, which is to say only once a
+         trait has been opened through the agent route. -->
+    <button class="tool" id="agbtn" aria-expanded="false" title="Agent pass" hidden><svg viewBox="0 0 24 24"><rect x="4" y="7" width="16" height="12" rx="3"/><path d="M12 3v4"/><circle cx="9" cy="13" r="1.4"/><circle cx="15" cy="13" r="1.4"/></svg></button>
+    <button class="tool" id="qabtn" aria-expanded="false" title="Pixel inspection (Q)"><svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 4.5 4.5"/><path d="M8.5 10.5h4M10.5 8.5v4"/></svg><span class="k">Q</span></button>
+    <button class="tool" id="ehbtn" aria-expanded="false" title="Edges and holes (D)"><svg viewBox="0 0 24 24"><path d="M4 4h16v16H4z"/><path d="M4 9h4v6H4z" fill="currentColor" stroke="none" opacity=".01"/><circle cx="14" cy="13" r="2.5"/><path d="M4 9v6"/></svg><span class="k">D</span></button>
     <button class="tool" id="txbtn" aria-expanded="false" title="Text (A)"><svg viewBox="0 0 24 24"><path d="M5 6V4h14v2"/><path d="M12 4v16"/><path d="M9 20h6"/></svg><span class="k">A</span></button>
     <button class="tool" id="tfbtn" aria-expanded="false" title="Transform (T)"><svg viewBox="0 0 24 24"><path d="M4 8h16M4 16h16"/><path d="m8 4-4 4 4 4M16 12l4 4-4 4"/></svg><span class="k">T</span></button>
     <button class="tool" id="blbtn" aria-expanded="false" title="Base layer (L)"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4.5 21a7.5 7.5 0 0 1 15 0"/></svg><span class="k">L</span></button>
     <button class="tool" id="svbtn" aria-expanded="false" title="Save and export (S)"><svg viewBox="0 0 24 24"><path d="M5 4h11l3 3v13H5z"/><path d="M8 4v6h7V4M8 20v-6h8v6"/></svg><span class="k">S</span></button>
+    <button class="tool" id="fxbtn" aria-expanded="false" title="Adjust (F)"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/><circle cx="9" cy="7" r="2" fill="var(--panel)"/><circle cx="15" cy="12" r="2" fill="var(--panel)"/><circle cx="7" cy="17" r="2" fill="var(--panel)"/></svg><span class="k">F</span></button>
+    <!-- rail:more -->
     <div class="rule"></div>
     <button class="tool" id="undo" title="Undo (Ctrl+Z)"><svg viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg></button>
     <button class="tool" id="redo" title="Redo (Ctrl+Shift+Z)"><svg viewBox="0 0 24 24"><path d="m15 14 5-5-5-5"/><path d="M20 9H10a6 6 0 0 0 0 12h3"/></svg></button>
@@ -1942,7 +2057,7 @@ footer .mono{color:var(--ink);}
   </nav>
 
   <main class="stage" id="stage">
-    <div class="frame" id="frame"><canvas id="base"></canvas><canvas id="art"></canvas><div id="grid"></div><canvas id="olpv"></canvas><canvas id="qapv"></canvas><canvas id="cmppv"></canvas><canvas id="txpv"></canvas><div id="bcur"></div>
+    <div class="frame" id="frame"><canvas id="base"></canvas><canvas id="art"></canvas><div id="grid"></div><canvas id="olpv"></canvas><canvas id="qapv"></canvas><canvas id="cmppv"></canvas><canvas id="fxpv"></canvas><canvas id="txpv"></canvas><div id="bcur"></div>
       <div id="tbox" aria-hidden="true">
         <div class="tline"></div><div class="tang" id="tang"></div>
         <div class="th tc" data-h="nw"></div><div class="th" data-h="n"></div><div class="th tc" data-h="ne"></div>
@@ -1952,28 +2067,18 @@ footer .mono{color:var(--ink);}
       </div></div>
   </main>
 
-  <aside class="side" id="sidepanel">
-    <button class="grip" id="sidegrip" type="button" aria-controls="sidepanel"
-      aria-expanded="true" title="Hide the tools">Tools</button>
-    <!-- One row. The caption that used to sit above the hex was the taller
-         half of a two-line column, saying what the well beside it shows. It
-         lives in the aria-label now, so nothing that could only hear it has
-         lost anything. -->
-    <!-- The colour you are painting with, and the way into every colour this
-         project has. The wheel alone was the whole answer here and the
-         palette was somewhere else. -->
+  <!-- THE CONTROLS YOU LOOK AT WHILE YOU DRAW, in a strip rather than a
+       column. Everything you go and USE is a pop-out on the rail now; what
+       is left here has to be in front of you the whole time, and three
+       controls do not need 244 pixels of width taken off the artwork. -->
+  <div class="opts" id="optsbar">
     <div class="cur">
       <button type="button" id="clbtn" aria-expanded="false"
         title="Colours: this project's palette, replacing, and any colour you like"
         aria-label="Colours"></button>
       <span class="mono" id="curhex" title="The colour you are painting with">#000000</span>
     </div>
-    <section id="brushsec">
-      <h2>Colour</h2>
-      <!-- The brush rows only, so selectTool can hide THEM. Hiding the whole
-           section would take the palette with it the moment you picked the
-           fill or the move tool. -->
-      <div id="brushrows">
+    <div id="brushrows">
       <!-- max is set from the canvas by setBrush; 128 here is the ceiling it
            can ever reach, not a limit of its own. It read 8 - the old button
            maximum - which never applied and only misled. -->
@@ -1984,111 +2089,11 @@ footer .mono{color:var(--ink);}
           style="width:auto;padding:6px 12px;font-size:12px;margin-left:4px"
           title="Jump the brush from cell to cell on the grid the art was drawn on, instead of pixel by pixel. Art drawn one pixel at a time has no grid to snap to, so this does nothing there.">Snap</button></div>
       </div>
-      <!-- Its own container, with the mirror condition. It lived inside
-           #brushrows, which selectTool hides unless the tool is pencil or
-           eraser - so the only control the fill tool reads vanished the
-           moment you selected Fill. -->
-      <div id="fillrows" hidden>
+    <div id="fillrows" hidden>
       <div class="olrow"><label for="filltol" title="How far from the colour you click the fill spreads">Fill spread</label>
         <input id="filltol" type="number" min="0" max="120" value="8" style="width:72px"></div>
       </div>
-      <div class="rule"></div>
-      <!-- One palette, and the mouse says what a click means. The Draw and
-           Replace chips were a mode to remember for something two buttons
-           already distinguish, and the pencil tool was saying "draw" as
-           well. LEFT picks the colours you are changing - and paints with
-           the last one, because "this colour" is one thought. RIGHT picks
-           the colour you are changing them to. -->
-
-    </section>
-    <section>
-      <h2>Edges and holes</h2>
-      <button class="btn ghost" id="debg"
-        title="Floods in from the border, so a white shirt in the middle stays">Clear background</button>
-      <div class="olrow"><label for="bgtol" title="Only colour touching the border is removed">Keep within</label>
-        <input id="bgtol" type="number" min="0" max="120" value="24" style="width:72px"
-          aria-label="Background tolerance"></div>
-      <!-- Clear background floods in from the border, so it cannot reach
-           base showing THROUGH a trait - between the teeth of a grin, say.
-           This goes by colour instead and reaches both. -->
-      <button class="btn ghost" id="hidebase" disabled
-        title="Finds the flat colours the character underneath was drawn in and takes them out, including the blended edge around them">Hide the base colour</button>
-      <button class="btn ghost" id="fillholes"
-        title="Close gaps the artwork surrounds on every side">Fill holes</button>
-      <div class="olrow"><label for="holemax" title="Closes gaps the art surrounds. 0 means any size - raise it to keep a hole that belongs">Biggest gap</label>
-        <input id="holemax" type="number" min="0" max="99999" value="0" style="width:72px"
-          aria-label="Biggest gap to close, in cells; 0 for any size"></div>
-      <!-- The outline moved to the tool rail: it is a thing you DO, like the
-           pencil and the eyedropper, and it was six controls and a note in the
-           middle of the section you came to for Clear background. -->
-    </section>
-    <!-- Hidden unless a trait was opened through the agent route. Editing an
-         ordinary PNG is not an agent pass, and four controls about a job
-         nobody is doing is what a sidebar fills up with. -->
-    <section id="agentsec" hidden>
-      <h2>Agent</h2>
-      <div class="stack">
-        <p class="note mono" id="agwork">Nothing open.</p>
-        <button class="btn ghost" id="agspec">Check against the spec</button>
-        <button class="btn ghost" id="agplace">Check the placement</button>
-        <p class="note mono" id="agplaceout"></p>
-        <p class="note mono" id="agspecout"></p>
-        <button class="btn ghost" id="agbefore"
-          title="Hold to see the trait as it arrived. Nothing is changed by looking.">Hold to see before</button>
-        <div id="aglog"></div>
-        <p class="note">Every step that changes pixels writes itself here with
-          its own count, so the log cannot drift from what was done.</p>
-      </div>
-    </section>
-    <section>
-      <h2>Pixel inspection</h2>
-      <div class="stack">
-        <p class="note">Scans the exact canvas pixels. A finding is a measurement,
-          not proof of bad art.</p>
-        <div class="olrow"><label for="qacell">Grid</label>
-          <select id="qacell" style="flex:1"
-            title="The artwork grid to measure cells against. The size this trait is drawn at is marked."></select></div>
-        <div class="olrow"><label for="qamark"
-          title="How big a mark can be and still count as a small island, in canvas pixels. Independent of the grid, so an enlarged dot is caught too.">Mark limit</label>
-          <input id="qamark" type="number" min="1" max="64" value="12" style="width:72px"
-            aria-label="Small mark limit, in canvas pixels"></div>
-        <button class="btn" id="qascan">Scan artwork</button>
-        <p class="note" id="qastatus" role="status">Not scanned.</p>
-        <div class="olrow"><label for="qafilter">Show</label>
-          <select id="qafilter" style="flex:1">
-            <option value="speck">Small colour islands</option>
-            <option value="thin">Native 1px fragments</option>
-            <option value="narrow">Thin at grid scale</option>
-            <option value="mixed">Mixed grid cells</option>
-            <option value="alpha">Partial transparency</option>
-            <option value="all">All categories (they overlap)</option>
-          </select></div>
-        <label class="olchk"><input id="qahi" type="checkbox" checked> Highlight findings</label>
-        <div class="savebar btnrow">
-          <button class="mini" id="qaprev">Previous</button>
-          <button class="mini" id="qanext">Next</button></div>
-        <p class="note mono" id="qadetail">Scan to see coordinates.</p>
-        <div id="qalist" aria-label="Pixel findings"></div>
-        <div class="savebar btnrow">
-          <button class="mini" id="qapick">Select suggested</button>
-          <button class="mini" id="qaclear">Clear</button></div>
-        <button class="btn ghost" id="qaapply" disabled>Apply selected repairs</button>
-        <p class="note">Only an enclosed small island is ever suggested, and only
-          when the colour around it agrees. Outlines, lettering, deliberate
-          diagonals, strokes, edges and protected areas stay manual. Undo works.</p>
-        <div class="rule"></div>
-        <p class="note">Protect a logo or lettering from every automatic repair.</p>
-        <div class="olrow"><label for="qarx">Protect</label>
-          <input id="qarx" type="number" min="0" value="0" style="width:56px" aria-label="Protected box left">
-          <input id="qary" type="number" min="0" value="0" style="width:56px" aria-label="Protected box top">
-          <input id="qarw" type="number" min="1" value="64" style="width:56px" aria-label="Protected box width">
-          <input id="qarh" type="number" min="1" value="64" style="width:56px" aria-label="Protected box height">
-          <button class="mini" id="qaadd">Add</button></div>
-        <div id="qarects"></div>
-        <button class="btn ghost" id="qareport" disabled>Download report</button>
-      </div>
-    </section>
-  </aside>
+  </div>
 
   <footer>
     <span class="ptronly">Cell <span class="mono" id="pos">—</span></span>
@@ -2602,7 +2607,11 @@ async function linkStage(href){
    panel appearing on its own would be the thing this flag exists to stop. */
 function agentMode(on){
   AGENT_ON=!!on;
-  const s=$("agentsec"); if(s) s.hidden=!AGENT_ON;
+  /* The BUTTON now, because the section moved into the panel it opens.
+     Hiding the button while leaving the panel open would strand a card
+     with no way back to it, so the panel closes with the pass. */
+  const b=$("agbtn"); if(b) b.hidden=!AGENT_ON;
+  if(!AGENT_ON){ try{ railPanel("ag",false); }catch(_){ } }
 }
 async function linkOpen(how){
   if(!LINKED||!LINKED.file) throw Error("Nothing is linked.");
@@ -5610,9 +5619,6 @@ function startEditor(data,w,h,srcW,srcH,pal,recovered){
       toast("Hid the base - "+(r.gone+r.peeled).toLocaleString()+" pixels. Undo brings it back.");
     } else undoStack.pop();
   }
-  /* Here, not at boot: the panel has to be laid out before its height means
-     anything. Cheap - it reads two numbers and, on a panel that fits, stops. */
-  foldDefaults();
   /* AND FIT AGAIN, ONCE THE LAYOUT HAS SETTLED. fitZoom above runs while the
      panel is still finding its height, so on a phone it measured a stage
      that was still growing and floored to 1x - and pixel art scales in whole
@@ -5737,60 +5743,6 @@ function contentBox(){
 /* Fit the ART, not the canvas. Filling the view with empty space around a small
    trait is technically "fitting" and practically useless. The canvas is never
    changed, only what the view is pointed at. */
-/* Give the panel the width the artwork cannot use.
-
-   A 160-cell trait on a landscape screen is limited by HEIGHT - 6x needs 960px
-   and a 1000px window leaves 904 - so it sits at 5x, 800 across, in a stage
-   1029 wide. The 229px left over can never become artwork, and it grows with
-   the screen: 195 a side at 1920x1080, 355 at 2560x1440.
-
-   The two-column rule at 1520px already spends that width on the panel and says
-   why. It cannot go further because a media query knows only the WIDTH, while
-   the artwork comes from the HEIGHT: three columns at 1800px would be right on
-   a 1080-tall screen and would squeeze the artwork on a 1440-tall one.
-
-   THE CONDITION IS READ OUT OF fitZoom BELOW, not guessed at. It sizes the
-   artwork by
-
-     Math.min(st.clientWidth-pad, st.clientHeight-pad) / Math.max(w,h)
-
-   so the binding dimension is whichever is SMALLER. Keep the stage at least as
-   wide as it is tall and the height stays binding, which means the zoom - and
-   therefore the artwork - cannot change however much the panel takes.
-
-   An earlier version reserved art.width times the height-bound zoom. Same answer
-   for a square trait, wrong for every other, because fitZoom scales by max(w,h)
-   and may fit the CONTENT box rather than the canvas. This needs none of that -
-   not the shape, not whether a base is loaded, not how much is drawn on.
-
-   Whole 250px columns, because 250 is where the label-plus-control rows stop
-   wrapping; a panel 1.4 columns wide is worse than one column. Below two, the
-   inline width is REMOVED rather than set, so the stylesheet keeps charge of
-   the screens its breakpoints were written for. */
-const PANEL_COL=250, PANEL_GAP=12, PANEL_MAX_COLS=4;
-function fitPanel(){
-  /* nav.tools, not ".rail" - there is no .rail in this document. A probe of mine
-     used the first with a fallback to the second, the fallback answered 71px, and
-     I read that as ".rail is 71 wide". fitPanel then returned 0 on every call and
-     changed nothing at all while looking entirely correct. */
-  const side=document.querySelector(".side"), st=$("stage");
-  const rail=document.querySelector("nav.tools"), app=document.getElementById("app");
-  if(!side||!st||!rail||!app||!ctx) return 0;
-  /* Reserve the stage HEIGHT as its minimum width. Height does not depend on the
-     panel, so this cannot feed back into itself. */
-  const free=app.clientWidth - rail.offsetWidth - st.clientHeight;
-  const cols=Math.max(1,Math.min(PANEL_MAX_COLS,
-    Math.floor((free+PANEL_GAP)/(PANEL_COL+PANEL_GAP))));
-  if(cols<2){
-    side.style.width=""; side.style.gridTemplateColumns="";
-    return 0;
-  }
-  side.style.width=(cols*PANEL_COL+(cols-1)*PANEL_GAP)+"px";
-  side.style.display="grid";
-  side.style.gridTemplateColumns="repeat("+cols+",minmax(0,1fr))";
-  side.style.alignContent="start";
-  return cols;
-}
 function fitZoom(){
   /* Was a hardcoded 32 while the stage's own padding was 20 a side, and it is
      6 a side now - so this reserved 32px of room that no longer exists on top
@@ -5801,9 +5753,6 @@ function fitZoom(){
      Measured: reclaiming 46px of chrome padding alone changed NOTHING, because
      fitZoom never read that padding. This is the number that was actually
      binding. */
-  /* BEFORE measuring the stage. The panel is about to change width, and a zoom
-     computed against the old stage would be one step out until the next resize. */
-  fitPanel();
   const st=$('stage'), pad=12;
   const box=contentBox();
   /* Fitting the CONTENT rather than the canvas is right for a lone trait on a
@@ -6736,6 +6685,12 @@ function floodFill(sx,sy,rgb){
 let lastCell=null;
 /* Square tip centred on the cell. An even-sized brush cannot be centred on a
    single cell, so it sits one cell up and left rather than drifting as it grows. */
+/* WHERE A SELECTION PLUGS IN. Null means everything; a Uint8Array of
+   art.width*art.height with 1 where painting is allowed means only there.
+   dab honours it below and the Adjust panel confines effects to it, so a
+   selection tool has one thing to set and every writer already listens. */
+let selMask=null;
+function selAllows(x,y){ return !selMask||selMask[y*art.width+x]===1; }
 function dab(x0,y0,rgb,a){
   /* Clipped first, then written as ONE rectangle.
 
@@ -6750,6 +6705,17 @@ function dab(x0,y0,rgb,a){
   const x2=Math.min(W-1,x0-off+brush-1), y2=Math.min(H-1,y0-off+brush-1);
   if(x2<x1||y2<y1) return;
   const w=x2-x1+1, h=y2-y1+1;
+  /* Inside a selection the block is no longer uniform, so it is read,
+     written where allowed and put back - the slow path, taken only when
+     there is a mask to honour. */
+  if(selMask){
+    const img=ctx.getImageData(x1,y1,w,h), t=img.data, W2=art.width;
+    for(let yy=0;yy<h;yy++) for(let xx=0;xx<w;xx++){
+      if(selMask[(y1+yy)*W2+x1+xx]!==1) continue;
+      const p=(yy*w+xx)*4; t[p]=rgb[0]; t[p+1]=rgb[1]; t[p+2]=rgb[2]; t[p+3]=a;
+    }
+    ctx.putImageData(img,x1,y1); return;
+  }
   const img=ctx.createImageData(w,h), t=img.data;
   for(let i=0;i<w*h;i++){ const p=i*4;
     t[p]=rgb[0]; t[p+1]=rgb[1]; t[p+2]=rgb[2]; t[p+3]=a; }
@@ -6812,7 +6778,7 @@ function stepBrush(d){ brushAuto=false; setBrush(brush+d); }
 function paintCursor(){
   const el=$('bcur');
   if(!hoverCell||!N||panMode||tool==='pan'||tool==='transform'){ el.style.display='none'; return; }
-  const n=(tool==='pencil'||tool==='eraser')?brush:1;
+  const n=(tool==='pencil'||tool==='eraser'||(TOOL_HOOKS[tool]&&TOOL_HOOKS[tool].brush))?brush:1;
   /* Clipped the same way dab() clips, so the box shows what will actually
      be painted. Unclipped it hung off the edge of the art and stretched the
      scroll area with it. */
@@ -6884,19 +6850,21 @@ function selectTool(t){
      in tests - and deleting a name is how a key somebody has in their
      fingers stops working with no message. */
   if(t==='move') t='transform';
+  { const was=TOOL_HOOKS[tool]; if(was&&was.deselect&&tool!==t){ try{ was.deselect(); }catch(_){ } } }
   tool=t; panMode=(t==='pan');
   document.querySelectorAll('.tool[data-tool]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.tool===t)));
   $('panbtn').setAttribute('aria-pressed',String(panMode));
   $('stage').style.cursor=panMode?'grab':'';
   /* The ROWS, not the section: the palette lives here too now and is wanted
      whatever tool is selected. */
-  $('brushrows').hidden=!(t==='pencil'||t==='eraser');
+  $('brushrows').hidden=!(t==='pencil'||t==='eraser'||(TOOL_HOOKS[t]&&TOOL_HOOKS[t].brush));
   /* The mirror: fill spread is only meaningful to the fill tool, and is the
      control that was hidden by selecting it. */
   $('fillrows').hidden=(t!=='fill');
   art.classList.toggle('mv',t==='transform');
   tboxShow();
   paintCursor();
+  { const T=TOOL_HOOKS[t]; if(T&&T.select){ try{ T.select(); }catch(_){ } } }
 }
 function toast(m){ const el=$('toast'); el.textContent=m; el.classList.add('show'); setTimeout(()=>el.classList.remove('show'),1700); }
 
@@ -7310,112 +7278,6 @@ function nudge(dx,dy,repeating){
 }
 
 /* ================= folding ======================================= */
-/* Fold all but the first two, when the panel does not fit and the user has
-   not already said otherwise for that section.
-
-   Measured on a 1094x1281 window: 2,780px of panel in 1,185px of window, with
-   the Erase button 1,267px down - past the fold, in a scroll more than twice
-   the window. It was not hidden or broken, just further down than anyone
-   scrolls, and a feature nobody could find was the proof.
-
-   Two left open because the brush and the palette are what you need before
-   you have decided what you are doing. Sections the user has opened or closed
-   themselves are skipped entirely - a saved choice outranks this. Nothing is
-   written to storage here, so the default stays a default. */
-function foldDefaults(){
-  const s=document.querySelector(".side"); if(!s) return 0;
-  if(s.scrollHeight <= s.clientHeight+1) return 0;
-  let saved={}; try{ saved=JSON.parse(localStorage.getItem("pb.folds")||"{}"); }catch(_){}
-  /* Fold every section the user has not chosen for themselves, then open them
-     back from the top while the panel still fits.
-
-     This used to be `const fold = i>1` - a hardcoded first two. Two was a guess
-     about content, and the content changed: merging Recolour into the palette
-     section made the first section taller, the first two stopped fitting, and
-     the panel scrolled 858px inside an 818px window on arrival. Replacing the
-     constant with a bigger one would keep the same defect and change the number
-     at which it returns.
-
-     Measuring instead cannot overflow whatever anyone puts in a section later,
-     which is the property that was actually wanted - "two" was a stand-in for
-     it, and the comment above says so in its own words: the panel must not bury
-     its own tail. Opening stops at the FIRST section that would not fit rather
-     than skipping it for a smaller one further down, because a panel that opens
-     its third section and not its second reads as broken. */
-  const free=[];
-  [...s.querySelectorAll("section")].forEach(sec=>{
-    const t=sec.querySelector("h2"); if(!t) return;
-    const key=(t.textContent||"").replace(/[^a-z]/gi,"").toLowerCase();
-    if(key in saved) return;
-    sec.classList.add("folded"); t.setAttribute("aria-expanded","false");
-    free.push([sec,t]);
-  });
-  let folded=free.length;
-  for(const [sec,t] of free){
-    sec.classList.remove("folded"); t.setAttribute("aria-expanded","true");
-    if(s.scrollHeight > s.clientHeight+1){
-      sec.classList.add("folded"); t.setAttribute("aria-expanded","false");
-      break;
-    }
-    folded--;
-  }
-  return folded;
-}
-
-function setupFolds(){
-  const secs=[...document.querySelectorAll(".side > section")];
-  /* Folded but the first two whenever the panel is taller than its window.
-
-     This used to read "Narrow screens get everything folded but the first:
-     the panel is taller than the window there, so an open-by-default panel
-     buries its own tail." The reasoning was right and the test was wrong -
-     it is about the panel not fitting, not about the width. Measured on a
-     1094x1281 window, which is not narrow: 2,780px of panel in 1,185px of
-     window, with the Erase button 1,267px down. It buried its own tail on a
-     wide screen too, and a feature nobody could find was the proof.
-
-     Two open, not one: the brush and the palette are what you need before
-     you have decided what you are doing. A saved choice still wins. */
-  /* No measurement here. This runs at boot with #app still hidden, where a
-     panel measures zero and any test of its height answers the wrong
-     question confidently. The default is decided in foldDefaults, once the
-     panel is on screen; this only restores a choice the user already made. */
-  let saved=null;
-  try{ saved=JSON.parse(localStorage.getItem("pb.folds")||"null"); }catch(_){}
-  secs.forEach((s,i)=>{
-    const t=s.querySelector("h2"); if(!t||t.dataset.fold) return;
-    t.dataset.fold="1";
-    const c=document.createElement("span");
-    c.className="fold"; c.textContent=String.fromCharCode(9662); t.appendChild(c);
-    t.setAttribute("role","button"); t.setAttribute("tabindex","0");
-    const key=(t.textContent||"").replace(/[^a-z]/gi,"").toLowerCase();
-    const start = saved && key in saved ? saved[key] : false;
-    s.classList.toggle("folded",!!start);
-    t.setAttribute("aria-expanded",String(!start));
-    const flip=()=>{
-      const now=s.classList.toggle("folded");
-      t.setAttribute("aria-expanded",String(!now));
-      /* Show what was just opened. A section near the bottom unfolds off the
-         end of the panel: measured on a 1280x900 window, one click on Recolour
-         put the Erase button 2px past the edge. Scroll by the overflow and no
-         further - never past the section's own top, because pushing the
-         heading you just clicked off screen is its own kind of wrong. */
-      if(!now){
-        const panel=s.closest(".side");
-        if(panel){
-          const sr=s.getBoundingClientRect(), pr=panel.getBoundingClientRect();
-          const over=sr.bottom-pr.bottom, room=sr.top-pr.top;
-          if(over>0) panel.scrollTop += Math.min(over, Math.max(0, room));
-        }
-      }
-      let all={}; try{ all=JSON.parse(localStorage.getItem("pb.folds")||"{}"); }catch(_){}
-      all[key]=now;
-      try{ localStorage.setItem("pb.folds",JSON.stringify(all)); }catch(_){}
-    };
-    t.onclick=flip;
-    t.onkeydown=e=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); flip(); } };
-  });
-}
 
 /* ================= autosave ======================================
    Everything lives in memory until Save to project is pressed, so a reload,
@@ -15187,6 +15049,14 @@ function acctToggle(){
 /* Everything a committed press does, so that a touch can decide LATER whether
    it was one. With a mouse there is nothing to decide and this runs straight
    away; a finger has to wait to find out whether a second one is coming. */
+/* A DRAWING TOOL REGISTERS ITSELF rather than editing the pointer code.
+   {down(e,cell), move(e,cell), up(e), select(), deselect(), brush} - brush
+   true keeps the size slider and the square cursor for it. The three pointer
+   handlers consult this BEFORE their own branches, so a registered tool
+   owns the whole stroke and nothing below it runs. */
+const TOOL_HOOKS={};
+let hookTool=null;
+function registerTool(name,hooks){ TOOL_HOOKS[name]=hooks; }
 function beginStroke(e){
   const c=cellFrom(e); if(!c) return;
   /* PENDING TEXT CATCHES THE PRESS FIRST, whatever the tool is. Nothing is
@@ -15197,6 +15067,9 @@ function beginStroke(e){
     const tc=rawCell(e);
     if(textHit(tc.x,tc.y)){ textDrag={fx:tc.x,fy:tc.y,x:textX,y:textY}; return; }
   }
+  /* A registered tool owns the stroke from here. Pending text still comes
+     first, above, because it can be dragged whatever the tool is. */
+  { const T=TOOL_HOOKS[tool]; if(T){ hookTool=tool; if(T.down) T.down(e,c); return; } }
   /* A PRESS THAT IS NOT ON A HANDLE. #tbox is pointer-events:none except
      for its handles, so a drag inside the box has always arrived here and
      nothing was catching it - which is why the box could size but not move. */
@@ -15313,6 +15186,7 @@ stage.addEventListener('pointermove',e=>{
   hoverCell=c; paintCursor();
   $('pos').textContent=c?(c.x+', '+c.y):'—';
   if(c){ const p=pixelAt(c.x,c.y); $('under').textContent=p.a?hex(p.r,p.g,p.b):'transparent'; }
+  if(hookTool){ const T=TOOL_HOOKS[hookTool]; if(T&&T.move) T.move(e,c); return; }
   if(textDrag){
     const rc=rawCell(e);
     textX=textDrag.x+(rc.x-textDrag.fx); textY=textDrag.y+(rc.y-textDrag.fy);
@@ -15344,6 +15218,7 @@ function endPointer(e){
   if(pan&&pan.id===e.pointerId){ try{stage.releasePointerCapture(pan.id);}catch(_){} pan=null;
     stage.style.cursor=(panMode||spaceHeld)?'grab':''; }
   if(textDrag&&pts.size===0) textDrag=null;
+  if(hookTool&&pts.size===0){ const T=TOOL_HOOKS[hookTool]; hookTool=null; if(T&&T.up) T.up(e); }
   if(moveBuf&&pts.size===0){
     moveBuf=null;
     /* A drag that ended where it started is not an edit, so it does not earn
@@ -15564,11 +15439,6 @@ document.addEventListener('keydown',e=>{
 });
 $('cloudout').onclick=cloudSignOut;
 
-/* Drag the handle down and the tools get out of the way; drag it up, or just
-   tap it, and they come back. Kept per device, because whether you want the
-   colours in front of you or the art is a working preference and re-making it
-   on every load is its own annoyance. */
-const SIDE_KEY="chatnft.sidedown";
 /* THE SHELF FOLDS TOO, and for a stronger reason than the side panel: the
    shelf is 272 tiles and measured 10,522px with the collection loaded, so
    everything below it is further away than anybody scrolls.
@@ -15636,79 +15506,6 @@ function planFold(on,remember){
      which this file has already paid for once. */
   let want=true; try{ const s=localStorage.getItem(PLAN_KEY); if(s!==null) want=s==="1"; }catch(_){}
   planFold(want,false);
-})();
-/* The collapse is a phone thing and the CSS for it lives in the phone media
-   query, so on a wide screen the class did nothing - but it was still being
-   set, which is a state waiting to mean something later. Worse, a browser
-   window narrower than 820px gets the phone layout on a desktop too, so a
-   stored "collapsed" really did fold the panel away on a PC. */
-const phoneLayout=()=>matchMedia("(max-width:820px)").matches;
-function sideDown(on,remember){
-  if(!phoneLayout()) on=false;
-  $("sidepanel").classList.toggle("down",!!on);
-  /* aria-expanded describes the PANEL, so it is the opposite of "down". */
-  $("sidegrip").setAttribute("aria-expanded", on?"false":"true");
-  $("sidegrip").title = on ? "Show the tools" : "Hide the tools";
-  if(remember!==false){ try{ localStorage.setItem(SIDE_KEY, on?"1":"0"); }catch(_){} }
-}
-(function(){
-  const grip=$("sidegrip"), side=$("sidepanel");
-  let y0=null, moved=false;
-  const isDown=()=>side.classList.contains("down");
-  grip.addEventListener("pointerdown",e=>{
-    y0=e.clientY; moved=false;
-    try{ grip.setPointerCapture(e.pointerId); }catch(_){}
-  });
-  grip.addEventListener("pointermove",e=>{
-    if(y0===null) return;
-    const dy=e.clientY-y0;
-    if(Math.abs(dy)>6) moved=true;
-    /* Acted on during the drag rather than on release, so the sheet follows
-       the finger instead of waiting to find out what was meant. */
-    if(dy>24){ sideDown(true); y0=null; }
-    else if(dy<-24){ sideDown(false); y0=null; }
-  });
-  grip.addEventListener("pointerup",()=>{
-    /* A tap is a drag that went nowhere, and it is asking for the same thing. */
-    if(y0!==null && !moved) sideDown(!isDown());
-    y0=null;
-  });
-  grip.addEventListener("pointercancel",()=>{ y0=null; });
-  /* AND FROM ANYWHERE ON THE SHEET. The handle worked and is 34px tall in a
-     panel of several hundred, so the gesture was there and nothing pointed
-     at it.
-
-     Only while the panel is scrolled to its top. That is the one moment a
-     downward drag cannot also have meant "scroll up", so this costs the
-     scrolling nothing - and the guard is what keeps it from fighting the
-     content, which is the usual way a sheet like this goes wrong.
-
-     Not on a control: a drag that starts on a button is somebody pressing
-     the button and moving their thumb a little. */
-  let sy=null, sfrom=0;
-  side.addEventListener("pointerdown",e=>{
-    if(e.target.closest("button,input,select,textarea,label,.sw,.grip")) return;
-    sy=e.clientY; sfrom=side.scrollTop;
-  },{passive:true});
-  side.addEventListener("pointermove",e=>{
-    if(sy===null || isDown()) return;
-    if(sfrom>0 || side.scrollTop>0){ sy=null; return; }
-    if(e.clientY-sy>48){ sideDown(true); sy=null; }
-  },{passive:true});
-  side.addEventListener("pointerup",()=>{ sy=null; },{passive:true});
-  side.addEventListener("pointercancel",()=>{ sy=null; },{passive:true});
-  grip.addEventListener("keydown",e=>{
-    if(e.key==="Enter"||e.key===" "){ e.preventDefault(); sideDown(!isDown()); }
-  });
-  let want=false; try{ want=localStorage.getItem(SIDE_KEY)==="1"; }catch(_){}
-  /* remember:false - restoring a choice is not making one. */
-  sideDown(want,false);
-  /* Dragging a window across the breakpoint has to put it back, or the panel
-     stays folded on a screen that has no handle to unfold it with. */
-  matchMedia("(max-width:820px)").addEventListener("change",()=>{
-    let w=false; try{ w=localStorage.getItem(SIDE_KEY)==="1"; }catch(_){}
-    sideDown(w,false);
-  });
 })();
 $('cloudpush').onclick=cloudPush;
 $('cloudpull').onclick=cloudPull;
@@ -16013,6 +15810,19 @@ PB.setRules=async function(patch){
    person drives, rather than calling the renderer behind the panel's back:
    an agent that placed text by a private path would leave the panel showing
    something else, and the next human edit would fight it. */
+/* What is registered, for something that cannot see the rail. */
+PB.tools=function(){ return Object.keys(TOOL_HOOKS); };
+PB.effects=function(){ return EFFECTS.map(e=>({id:e.id, name:e.name||e.id, params:(e.params||[]).map(p=>({id:p.id,label:p.label,type:p.type||"range",min:p.min,max:p.max,step:p.step,value:p.value}))})); };
+/* Run an effect by id with values, and apply it - the same path the
+   panel takes, so what an agent applies is what a person would have seen. */
+PB.adjust=function(id,values,apply){
+  railPanel("fx",true);
+  const s=$("fxsel"); if(!EFFECTS.some(e=>e.id===id)) return {ok:false, why:"no effect called "+id};
+  s.value=id; fxParams();
+  for(const k in (values||{})){ const el=$("fxp_"+k); if(!el) continue; if(el.type==="checkbox") el.checked=!!values[k]; else el.value=values[k]; }
+  if(apply) fxApply(); else fxPreview();
+  return {ok:true, id, values:fxValues(), applied:!!apply};
+};
 PB.text=function(o){
   o=o||{};
   railPanel("tx",true);
@@ -17258,7 +17068,6 @@ $('rcclean').onclick=cleanColours;
 $('rcnear').onclick=()=>{ toggle('rcnear'); $('rctol').disabled=!pressed('rcnear'); };
 $('rslock').onclick=()=>toggle('rslock');
 $('rctol').disabled=true;
-setupFolds();
 /* Also moved into bootLocal(): this offers the autosaved working canvas,
    which on a shared device is whatever the last person was drawing. */
 
@@ -17402,12 +17211,16 @@ const SHORTCUTS=[
   {show:'O', desc:'Outline', keys:['o'], run:()=>outlinePanel($('olscrim').hidden)},
   {show:'C', desc:'Colours', keys:['c'], run:()=>railPanel('cl',$('clscrim').hidden)},
   {show:'A', desc:'Text', keys:['a'], run:()=>railPanel('tx',$('txscrim').hidden)},
+  {show:'F', desc:'Adjust', keys:['f'], run:()=>railPanel('fx',$('fxscrim').hidden)},
+  {show:'D', desc:'Edges and holes', keys:['d'], run:()=>railPanel('eh',$('ehscrim').hidden)},
+  {show:'Q', desc:'Pixel inspection', keys:['q'], run:()=>railPanel('qa',$('qascrim').hidden)},
   {show:'T', desc:'Transform', keys:['t'], run:()=>railPanel('tf',$('tfscrim').hidden)},
   {show:'L', desc:'Base layer', keys:['l'], run:()=>railPanel('bl',$('blscrim').hidden)},
   {show:'S', desc:'Save and export', keys:['s'], run:()=>railPanel('sv',$('svscrim').hidden)},
+  /* shortcuts:more */
   {show:'Esc', desc:'Close a panel', prevent:true,
-    match:e=>e.key==='Escape'&&['cl','tx','tf','bl','sv'].some(i=>!$(i+'scrim').hidden),
-    run:()=>['cl','tx','tf','bl','sv'].forEach(i=>railPanel(i,false))},
+    match:e=>e.key==='Escape'&&RAIL_PANELS.some(i=>!$(i+'scrim').hidden),
+    run:()=>RAIL_PANELS.forEach(i=>railPanel(i,false))},
   {show:'Esc', desc:'Close the outline panel', prevent:true,
     match:e=>e.key==='Escape'&&!$('olscrim').hidden, run:()=>outlinePanel(false)},
   {show:'M', desc:'Move, resize and rotate', keys:['m'], run:()=>selectTool('transform')},
@@ -18156,7 +17969,14 @@ function popAt(id){
   if(!s||!b) return;
   if(innerWidth<=820){ s.style.left=""; s.style.top=""; return; }
   const r=b.getBoundingClientRect(), c=s.firstElementChild;
-  s.style.left=Math.round(r.right+12)+"px";
+  /* Beside the RAIL, not merely beside the button. The Colours button lives
+     in the strip at the far left, and a card placed at its right edge sat
+     on top of the rail and swallowed Undo - the click landed on a label in
+     the card instead. The rail is where every other opener is, so its edge
+     is the least a pop-out may start at. */
+  const rail=document.querySelector("nav.tools");
+  const clear=rail?rail.getBoundingClientRect().right:0;
+  s.style.left=Math.round(Math.max(r.right,clear)+12)+"px";
   s.style.top="8px";
   const h=c?c.getBoundingClientRect().height:0;
   s.style.top=Math.round(Math.max(8,Math.min(r.top,innerHeight-h-8)))+"px";
@@ -18166,7 +17986,7 @@ function popAt(id){
    Capture, so a control that stops the event on its way up cannot strand
    a panel open. */
 addEventListener("pointerdown",e=>{
-  for(const id of ["ol","cl","tx","tf","bl","sv"]){
+  for(const id of ["ol"].concat(RAIL_PANELS)){
     const s=$(id+"scrim"); if(!s||s.hidden) continue;
     const b=$(id+"btn");
     if(s.contains(e.target)||(b&&b.contains(e.target))) continue;
@@ -18183,6 +18003,117 @@ function outlinePanel(on){
 $('olbtn').onclick=()=>outlinePanel($('olscrim').hidden);
 /* The same shape again, three times, from one place - a fourth panel that
    behaved slightly differently would be a bug nobody could see coming. */
+/* THE ONE LIST OF POP-OUT PANELS. The wiring loop below, the click-away
+   closer and Escape all read it, so a panel added later is wired everywhere
+   by pushing its id here - which a patch does on the line after this one.
+   The outline panel is not in it: it predates the others and has its own
+   opener, and the closers add it themselves. */
+const RAIL_PANELS=["cl","tx","eh","qa","ag","tf","bl","sv","fx"];
+/* panels:register */
+
+/* ---- the Adjust panel -----------------------------------------------------
+
+   An effect is {id, name, params:[{id,label,type,min,max,step,value,
+   options}], run(src,W,H,values) -> Uint8ClampedArray, note(values)}.
+   type is "range" (default), "number", "color", "check" or "select".
+   run is PURE: it gets a copy of the pixels and returns new ones, and it
+   never touches ctx - the panel previews on its own layer and applies
+   through snapshot(), so one undo takes any effect back. */
+const EFFECTS=[];
+let fxTimer=null;
+function registerEffect(fx){
+  if(!fx||!fx.id||typeof fx.run!=="function") throw new Error("an effect needs an id and a run()");
+  if(EFFECTS.some(e=>e.id===fx.id)) throw new Error("effect registered twice: "+fx.id);
+  EFFECTS.push(fx); fxRebuild();
+}
+function fxCurrent(){ const s=$("fxsel"); return EFFECTS.find(e=>e.id===(s&&s.value))||null; }
+function fxValues(){
+  const fx=fxCurrent(), out={}; if(!fx) return out;
+  for(const p of fx.params||[]){
+    const el=$("fxp_"+p.id); if(!el){ out[p.id]=p.value; continue; }
+    out[p.id]= p.type==="check" ? el.checked : p.type==="color"||p.type==="select" ? el.value : +el.value;
+  }
+  return out;
+}
+function fxRebuild(){
+  const s=$("fxsel"); if(!s) return;
+  const had=s.value; s.replaceChildren();
+  for(const fx of EFFECTS){ const o=document.createElement("option"); o.value=fx.id; o.textContent=fx.name||fx.id; s.appendChild(o); }
+  if(EFFECTS.some(e=>e.id===had)) s.value=had;
+  fxParams();
+}
+function fxParams(){
+  const box=$("fxparams"), fx=fxCurrent(); if(!box) return;
+  box.replaceChildren();
+  const apply=$("fxapply"); if(apply) apply.disabled=!fx;
+  if(!fx){ const n=$("fxnote"); if(n) n.textContent="Nothing registered yet."; fxPreview(); return; }
+  for(const p of fx.params||[]){
+    const row=document.createElement("div"); row.className="olrow";
+    const lab=document.createElement("label"); lab.textContent=p.label||p.id; lab.htmlFor="fxp_"+p.id;
+    let el;
+    if(p.type==="select"){ el=document.createElement("select");
+      for(const o of p.options||[]){ const op=document.createElement("option"); op.value=String(o.value!==undefined?o.value:o); op.textContent=String(o.label!==undefined?o.label:o); el.appendChild(op); }
+      el.value=String(p.value); el.style.marginLeft="auto"; }
+    else if(p.type==="check"){ el=document.createElement("input"); el.type="checkbox"; el.checked=!!p.value; el.style.marginLeft="auto"; }
+    else if(p.type==="color"){ el=document.createElement("input"); el.type="color"; el.value=p.value||"#000000"; el.style.marginLeft="auto"; }
+    else { el=document.createElement("input"); el.type=p.type==="number"?"number":"range";
+      el.min=p.min; el.max=p.max; el.step=p.step||1; el.value=p.value;
+      if(p.type!=="number"){ el.style.flex="1"; el.style.minWidth="90px"; } else el.style.marginLeft="auto"; }
+    el.id="fxp_"+p.id;
+    el.oninput=el.onchange=()=>{ fxPreview(); };
+    row.appendChild(lab); row.appendChild(el);
+    if(el.type==="range"){ const v=document.createElement("span"); v.className="mono"; v.id="fxv_"+p.id; v.textContent=el.value; el.addEventListener("input",()=>{ v.textContent=el.value; }); row.appendChild(v); }
+    box.appendChild(row);
+  }
+  fxPreview();
+}
+/* The effect runs on a COPY and draws to its own layer, so nothing here is
+   an edit. Debounced, because a slider fires on every pixel of travel and
+   an effect over a 1280 canvas is not free. Inside a selection the result
+   is blended in only where the mask allows, so effect authors never have
+   to know a selection exists. */
+function fxPreview(){
+  clearTimeout(fxTimer);
+  const pv=$("fxpv"); if(!pv) return;
+  const fx=fxCurrent();
+  if(!fx||!ctx||$("fxscrim").hidden||$("app").hidden){ pv.style.display="none"; return; }
+  fxTimer=setTimeout(()=>{
+    const W=art.width, H=art.height, vals=fxValues();
+    let out;
+    try{ out=fx.run(new Uint8ClampedArray(ctx.getImageData(0,0,W,H).data),W,H,vals); }
+    catch(err){ const n=$("fxnote"); if(n) n.textContent=String(err.message||err); pv.style.display="none"; return; }
+    if(!out||out.length!==W*H*4){ const n=$("fxnote"); if(n) n.textContent="The effect returned the wrong number of pixels."; pv.style.display="none"; return; }
+    if(selMask){ const src=ctx.getImageData(0,0,W,H).data; for(let i=0;i<W*H;i++) if(selMask[i]!==1){ const p=i*4; out[p]=src[p]; out[p+1]=src[p+1]; out[p+2]=src[p+2]; out[p+3]=src[p+3]; } }
+    pv.width=W; pv.height=H;
+    const g=pv.getContext("2d"), im=g.createImageData(W,H); im.data.set(out); g.putImageData(im,0,0);
+    pv.style.width=(W*zoom)+"px"; pv.style.height=(H*zoom)+"px"; pv.style.display="block";
+    const n=$("fxnote"); if(n) n.textContent= fx.note ? (fx.note(vals)||"") : "";
+  },60);
+}
+function fxApply(){
+  const fx=fxCurrent(); if(!fx||!ctx){ toast("Nothing to apply"); return; }
+  const W=art.width, H=art.height, vals=fxValues();
+  const src=ctx.getImageData(0,0,W,H);
+  let out;
+  try{ out=fx.run(new Uint8ClampedArray(src.data),W,H,vals); }
+  catch(err){ toast(String(err.message||err)); return; }
+  if(!out||out.length!==W*H*4){ toast("The effect returned the wrong number of pixels"); return; }
+  if(selMask){ for(let i=0;i<W*H;i++) if(selMask[i]!==1){ const p=i*4; out[p]=src.data[p]; out[p+1]=src.data[p+1]; out[p+2]=src.data[p+2]; out[p+3]=src.data[p+3]; } }
+  /* Nothing changed is not an edit, and must not cost an undo step. */
+  let same=true; for(let i=0;i<out.length;i++){ if(out[i]!==src.data[i]){ same=false; break; } }
+  if(same){ toast("That changes nothing at these settings"); return; }
+  snapshot();
+  src.data.set(out); ctx.putImageData(src,0,0);
+  $("fxpv").style.display="none";
+  refreshStats(); repalette();
+  toast((fx.name||fx.id)+" applied");
+  fxPreview();
+}
+(function(){
+  const s=$("fxsel"); if(!s) return;
+  s.onchange=fxParams;
+  const a=$("fxapply"); if(a) a.onclick=fxApply;
+})();
 function railPanel(id,on){
   const s=$(id+"scrim"), b=$(id+"btn");
   /* The colours button lives in the current-colour row rather than the rail,
@@ -18197,8 +18128,10 @@ function railPanel(id,on){
   /* The sprite follows the paint colour and the canvas size, both of which
      can have changed while the panel was shut. */
   if(on&&id==="tx"){ try{ textBuild(); }catch(_){ } }
+  if(on&&id==="qa"){ try{ qaInvalidate(); }catch(_){ } }
+  if(id==="fx"){ try{ if(on) fxRebuild(); else { clearTimeout(fxTimer); const pv=$("fxpv"); if(pv) pv.style.display="none"; } }catch(_){ } }
 }
-for(const id of ["cl","tx","tf","bl","sv"]){
+for(const id of RAIL_PANELS){
   const b=$(id+"btn"), c=$(id+"close"), s=$(id+"scrim");
   if(b) b.onclick=()=>railPanel(id,s.hidden);
   if(c) c.onclick=()=>railPanel(id,false);

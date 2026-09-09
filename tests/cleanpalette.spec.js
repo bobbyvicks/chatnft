@@ -56,7 +56,6 @@ const gradient = (page, size) => page.evaluate(async (S) => {
   fileName = 'gradient';
   startEditor(d, S, S, S, S, palette(d, S * S, 24, 64), false);
   await new Promise(r => setTimeout(r, 600));
-  document.querySelectorAll('.side section').forEach(s => s.classList.remove('folded'));
   /* Asserted, not assumed: without a reduction to make, the button refuses and
      every check below passes against a click that did nothing. */
   const label = document.getElementById('rcclean').textContent;
@@ -99,7 +98,6 @@ const blocks = (page, S) => page.evaluate(async (size) => {
   fileName = 'blocks';
   startEditor(d, size, size, size, size, palette(d, size * size, 24, 64), false);
   await new Promise(r => setTimeout(r, 600));
-  document.querySelectorAll('.side section').forEach(s => s.classList.remove('folded'));
   const label = document.getElementById('rcclean').textContent;
   if (!/\d/.test(label)) throw new Error('nothing to clean up here: ' + label);
   return true;
@@ -212,7 +210,6 @@ test.describe('Clean up colours leaves the swatches describing the new image', (
       fileName = 'bg';
       startEditor(d, S, S, S, S, palette(d, S * S, 24, 64), false);
       await new Promise(x => setTimeout(x, 450));
-      document.querySelectorAll('.side section').forEach(s => s.classList.remove('folded'));
       const offered = () => [...document.querySelectorAll('#pal button.sw')]
         .map(b => b.dataset.hex.toLowerCase());
       const had = offered().includes('#f0f0fa');
@@ -259,7 +256,6 @@ test.describe('Clean up colours leaves the swatches describing the new image', (
       fileName = 'out';
       startEditor(d, S, S, S, S, palette(d, S * S, 24, 64), false);
       await new Promise(x => setTimeout(x, 450));
-      document.querySelectorAll('.side section').forEach(s => s.classList.remove('folded'));
       const offered = () => [...document.querySelectorAll('#pal button.sw')]
         .map(b => b.dataset.hex.toLowerCase());
       const before = offered().includes('#ff00ff');
@@ -321,7 +317,6 @@ test.describe('Clean up colours leaves the swatches describing the new image', (
     fileName = 'probe';
     startEditor(d, S, S, S, S, palette(d, S * S, 24, 64), false);
     await new Promise(r => setTimeout(r, 450));
-    document.querySelectorAll('.side section').forEach(s => s.classList.remove('folded'));
 
     const cv = document.getElementById('art');
     const pt = (cx, cy) => {

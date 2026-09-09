@@ -147,7 +147,6 @@ test.describe('a rule follows the trait it names', () => {
       fileName = 'cap';
       startEditor(d,16,16,16,16,palette(d,256,24,64),false);
       openRec = rec;                       // AFTER startEditor, which resets it
-      document.querySelectorAll('.side section').forEach(s => s.classList.remove('folded'));
       $('tname').value = 'beanie'; $('tlayer').value = 'hats';
       await saveTrait();
     }`);
@@ -186,7 +185,6 @@ test.describe('a rule follows the trait it names', () => {
       fileName = 'cap';
       startEditor(d,16,16,16,16,palette(d,256,24,64),false);
       openRec = rec;
-      document.querySelectorAll('.side section').forEach(s => s.classList.remove('folded'));
       $('tname').value = 'cap'; $('tlayer').value = 'hats';
       setChip('tstatus','wip');            // the same trait, a different status
       await saveTrait();
@@ -219,7 +217,6 @@ test.describe('a rule follows the trait it names', () => {
       fileName = 'cap';
       startEditor(d,16,16,16,16,palette(d,256,24,64),false);
       openRec = rec;
-      document.querySelectorAll('.side section').forEach(s => s.classList.remove('folded'));
       $('tname').value = 'beanie'; $('tlayer').value = 'hats';
       await saveTrait();
     }`);

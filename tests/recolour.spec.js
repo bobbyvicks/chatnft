@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { openTrait, openAllSections, openPanel, art, picked, pickSwatch, setField } from './helpers.js';
+import { openTrait, openPanel, art, picked, pickSwatch, setField } from './helpers.js';
 
 /* Three bands of flat colour. Distinct enough that palette() keeps them apart -
    it merges anything closer than about 40 - so the swatches are predictable. */
@@ -11,7 +11,6 @@ const bands = (set, W, H) => {
 test.describe('erase a colour', () => {
   test('removes it completely and leaves nothing behind', async ({ page }) => {
     const errors = await openTrait(page, { w: 60, h: 60, draw: bands });
-    await openAllSections(page);
     await openPanel(page, 'cl');
     const greenBefore = await art.colour(page, [0, 255, 0]);
     const redBefore = await art.colour(page, [255, 0, 0]);
@@ -32,7 +31,6 @@ test.describe('erase a colour', () => {
     /* Without this, "erase leaves nothing" could equally mean recolour is
        broken and writes nothing at all. */
     await openTrait(page, { w: 60, h: 60, draw: bands });
-    await openAllSections(page);
     await openPanel(page, 'cl');
     const greenBefore = await art.colour(page, [0, 255, 0]);
     /* IN THIS ORDER. A left click on a swatch marks it AND makes it the
@@ -64,7 +62,6 @@ test.describe('erase a colour', () => {
         }
       },
     });
-    await openAllSections(page);
     await openPanel(page, 'cl');
     await pickSwatch(page, 0);
     await page.click('#rcnear');
@@ -86,7 +83,6 @@ test.describe('the recolour selection', () => {
     /* Adding a palette rebuild to undo quietly cleared the selection, and the
        swatches stayed on screen looking normal while rcPick was empty. */
     await openTrait(page, { w: 60, h: 60, draw: bands });
-    await openAllSections(page);
     await openPanel(page, 'cl');
     await pickSwatch(page, 0);
     await pickSwatch(page, 1);
@@ -105,7 +101,6 @@ test.describe('the recolour selection', () => {
     /* The control for the test above: keeping a selection across undo must not
        have made it survive an operation that removes the colour it names. */
     await openTrait(page, { w: 60, h: 60, draw: bands });
-    await openAllSections(page);
     await openPanel(page, 'cl');
     await pickSwatch(page, 1);
     expect(await picked(page)).toHaveLength(1);
@@ -149,7 +144,6 @@ test.describe('the merged palette', () => {
 
   test('there is one swatch grid, not two', async ({ page }) => {
     await openTrait(page, { w: 60, h: 60, draw: bands3 });
-    await openAllSections(page);
     await openPanel(page, 'cl');
     const n = await page.evaluate(() => ({
       grids: document.querySelectorAll('.swatches').length,
@@ -163,7 +157,6 @@ test.describe('the merged palette', () => {
 
   test('a second click unmarks, so a misclick is fixable', async ({ page }) => {
     await openTrait(page, { w: 60, h: 60, draw: bands3 });
-    await openAllSections(page);
     await openPanel(page, 'cl');
     await swatch(page, 1);
     expect((await state(page)).picked).toBe(1);
@@ -186,7 +179,6 @@ test.describe('the merged palette', () => {
        that particular change - the behaviour under it stays correct - so this
        pins the BEHAVIOUR, by whichever mechanism holds it. */
     await openTrait(page, { w: 60, h: 60, draw: bands3 });
-    await openAllSections(page);
     await openPanel(page, 'cl');
     await swatch(page, 0);
     await swatch(page, 1);

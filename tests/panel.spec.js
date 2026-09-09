@@ -1,64 +1,56 @@
 import { test, expect } from '@playwright/test';
-import { openTrait, openSection, openPanel, art, setField } from './helpers.js';
+import { openTrait, openPanel, art, setField } from './helpers.js';
 
-test.describe('the panel', () => {
-  test('fits its window on arrival, with every heading reachable', async ({ page }) => {
-    /* It used to scroll 2,780px inside a 1,185px window, which is how a button
-       that had shipped hours earlier still could not be found. */
+test.describe('the strip that replaced the panel', () => {
+  test('IS ON SCREEN ON ARRIVAL, and the palette is one press away', async ({ page }) => {
+    /* SUPERSEDES "fits its window on arrival, with every heading reachable".
+
+       That test existed because the side column scrolled 2,780px inside a
+       1,185px window - a button that had shipped hours earlier still could
+       not be found. The column is gone. Its six sections became pop-outs on
+       the tool rail, and the three controls you look at while you draw - the
+       colour, the brush size with its snap, the fill spread - became a strip
+       under the header.
+
+       So the promise is the same and its shape is not. There are no headings
+       to reach and nothing to scroll; what has to be true is that the strip
+       is entirely on screen, that the brush is usable the moment a trait
+       opens, and that the palette is exactly one press away rather than
+       somewhere you have to go looking. */
     await openTrait(page, { w: 80, h: 80, draw: (set) => { set(1, 1, [1, 2, 3]); } });
-    const panel = await page.evaluate(() => {
-      const s = document.querySelector('.side');
-      const rect = s.getBoundingClientRect(), r = rect;
-      /* VISIBLE sections only. Agent is in the column but carries the hidden
-         attribute until agent mode turns it on, and a hidden element measures
-         as a zero-size box at the origin - which fails a "is it inside the
-         panel" test for a reason that has nothing to do with reachability.
-         The count is asserted below so this cannot quietly empty itself. */
-      const heads = [...s.querySelectorAll('section')]
-        .filter(sec => !sec.hidden && sec.offsetParent !== null)
-        .map(sec => sec.querySelector('h2')).filter(Boolean).map(h => {
-          const hr = h.getBoundingClientRect();
-          return { name: h.textContent.replace(/[^A-Za-z ]/g, '').trim(),
-                   onScreen: hr.top >= r.top - 1 && hr.bottom <= r.bottom + 1 };
-        });
-      /* The two controls the old `open === 2` stood for, measured directly.
-         Counting sections never checked WHICH two were open. */
-      const usable = id => {
+    const bar = await page.evaluate(() => {
+      const s = document.querySelector('.opts');
+      if (!s) return null;
+      const r = s.getBoundingClientRect();
+      const usable = (id) => {
         const e = document.getElementById(id);
         if (!e) return false;
-        const r = e.getBoundingClientRect();
-        return r.width > 0 && r.height > 0 && r.top >= rect.top - 1 && r.bottom <= rect.bottom + 1;
+        const b = e.getBoundingClientRect();
+        return b.width > 0 && b.height > 0
+          && b.top >= r.top - 1 && b.bottom <= r.bottom + 1;
       };
-      return { scroll: s.scrollHeight, window: s.clientHeight, heads,
-               brush: usable('bslider'),
-               open: [...s.querySelectorAll('section')].filter(x => !x.classList.contains('folded')).length };
+      return { onScreen: r.top >= -1 && r.bottom <= innerHeight + 1,
+               height: Math.round(r.height),
+               scrolls: s.scrollWidth > s.clientWidth + 1,
+               brush: usable('bslider'), snap: usable('gsnap'),
+               colour: usable('clbtn') };
     });
-    expect(panel.scroll, 'no scrolling on arrival').toBeLessThanOrEqual(panel.window + 2);
-    /* NOT a count. The code's own reason for opening two was "the brush and the
-       palette are what you need before you have decided what you are doing" - two
-       was how that got delivered, not what it meant, and counting sections never
-       checked WHICH two were open.
+    expect(bar, 'the strip exists').not.toBeNull();
+    expect(bar.onScreen, 'and is entirely on screen').toBe(true);
+    expect(bar.scrolls, 'and does not scroll sideways').toBe(false);
+    /* A ceiling, not a measurement: the column cost the artwork 244px of
+       width and the point of the trade is that a strip costs it far less
+       height than that. */
+    expect(bar.height, 'a strip, not a second header').toBeLessThan(90);
+    expect(bar.brush, 'the brush is usable on arrival').toBe(true);
+    expect(bar.snap, 'and so is its snap toggle').toBe(true);
+    expect(bar.colour, 'and the colour you are painting with is right there').toBe(true);
 
-       Merging Recolour into the palette section put the brush, the palette, the
-       mode chips and the replace controls into one, so the same promise is kept
-       by one open section now. Asserting the promise instead of the number is
-       also strictly stronger: this would fail on two open sections that happened
-       to be the wrong two, which the old assertion would have passed. */
-    expect(panel.open, 'something must be open').toBeGreaterThan(0);
-    /* Or the loop below is a promise about nothing. */
-    expect(panel.heads.length, 'there are headings to be reachable').toBeGreaterThan(1);
-    expect(panel.brush, 'the brush is usable on arrival, without scrolling').toBe(true);
-    for (const h of panel.heads) expect(h.onScreen, `${h.name} should be reachable without scrolling`).toBe(true);
-
-    /* THE PALETTE IS NO LONGER ON ARRIVAL, AND THAT IS THE ASK RATHER THAN A
-       SLIP. It moved into the card the colour button opens - "instead of just
-       having a colour wheel when you click the colour button also put the
-       projects pallete in that box" - as part of clearing the side column so
-       the canvas gets the room.
-
-       So the promise changes shape rather than weakening: one press, and the
-       whole grid is there and fully inside the card. Deleting the assertion
-       instead would leave nothing checking the palette is reachable at all. */
+    /* ONE PRESS FOR THE PALETTE. It moved into the card the colour button
+       opens - "instead of just having a colour wheel when you click the
+       colour button also put the projects pallete in that box" - so the
+       promise is reachability in one gesture, and it is asserted rather
+       than assumed. */
     await openPanel(page, 'cl');
     const pal = await page.evaluate(() => {
       const p = document.getElementById('pal'), card = p.closest('.card');
@@ -67,65 +59,38 @@ test.describe('the panel', () => {
                swatches: p.querySelectorAll('.sw').length,
                inCard: r.left >= cr.left - 1 && r.right <= cr.right + 1 };
     });
-    expect(pal.drawn, 'one press on the colour button and the palette is there').toBe(true);
-    /* One, because this fixture paints one pixel. The claim is that the grid
-       carries the trait's colours, not that this trait has several. */
-    expect(pal.swatches, 'with the colours in it').toBe(1);
+    expect(pal.drawn, 'one press and the palette is there').toBe(true);
+    expect(pal.swatches, 'with the colour this trait uses in it').toBe(1);
     expect(pal.inCard, 'and inside the card rather than cut off by it').toBe(true);
   });
 
-  test('one click on a heading reveals its controls', async ({ page }) => {
-    /* The subject has moved three times, which is the tell that naming it was
-       the mistake. It opened Recolour and watched #rcerase appear; Recolour
-       stopped being a heading, so it moved to Base layer; Base layer became a
-       pop-out panel; and now that the palette has left the column too, the
-       column FITS - so foldDefaults folds nothing at all and there is no
-       named section that is reliably closed on arrival.
+  /* THE FOLDING TEST IS GONE, AND SO IS WHAT IT WATCHED.
 
-       So nothing is named. The window is made short enough that the panel
-       cannot fit, which is the condition folding exists for, and then
-       whichever section folded is the one that gets clicked. The property has
-       never changed: a heading you click gives you its controls, on screen,
-       not below the fold. */
-    await page.setViewportSize({ width: 1100, height: 520 });
-    await openTrait(page, { w: 80, h: 80, draw: (set) => { set(1, 1, [1, 2, 3]); } });
-
-    const folded = await page.evaluate(() => {
-      const sec = [...document.querySelectorAll('.side section')]
-        .filter(s => !s.hidden && s.classList.contains('folded'))
-        .find(s => s.querySelector('h2') && s.querySelector('input,select,button:not(.fold)'));
-      if (!sec) return null;
-      const h = sec.querySelector('h2');
-      const c = sec.querySelector('input,select,button:not(.fold)');
-      if (!c.id) c.id = 'foldprobe';
-      return { name: h.textContent.replace(/[^A-Za-z ]/g, '').trim(), control: c.id };
-    });
-    /* A short window that folds nothing means the mechanism under test did not
-       run, and every assertion below would be vacuous. */
-    expect(folded, 'a panel too tall for its window must fold something').not.toBeNull();
-
-    const box = () => page.evaluate((id) => {
-      const b = document.getElementById(id), s = document.querySelector('.side');
-      const r = b.getBoundingClientRect(), sr = s.getBoundingClientRect();
-      return { visible: r.width > 0 && r.height > 0,
-               inView: r.top >= sr.top - 1 && r.bottom <= sr.bottom + 1 };
-    }, folded.control);
-    expect((await box()).visible, folded.name + ' is folded to begin with').toBe(false);
-
-    await openSection(page, folded.name);
-    const shown = await box();
-    expect(shown.visible).toBe(true);
-    expect(shown.inView, 'and in view, not below the fold').toBe(true);
-  });
+     It opened a section by its heading and watched a control appear. There
+     are no sections: foldDefaults and setupFolds were deleted with the
+     column, because folding existed only to stop a 244px column burying its
+     own tail and a strip cannot. Rewriting it a fourth time would have meant
+     manufacturing a window short enough to force a fold - a state nobody
+     using this editor is in, asserted so a line of test could go on
+     existing. Recorded here rather than left as a silent deletion. */
 
   test('no button label wraps onto a second line', async ({ page }) => {
-    /* Two did, and stood 65px tall next to their 44px neighbours. */
+    /* Two did, and stood 65px tall next to their 44px neighbours.
+
+       The population moved with the controls: the strip, plus every pop-out
+       panel, opened so their buttons have a size to measure. Measuring only
+       what is left in the strip would be a guard over three buttons calling
+       itself a guard over all of them. */
     await openTrait(page, { w: 80, h: 80, draw: (set) => { set(1, 1, [1, 2, 3]); } });
-    await page.evaluate(() => document.querySelectorAll('.side section').forEach(s => s.classList.remove('folded')));
+    await page.evaluate(() => {
+      for (const id of ['cl', 'tx', 'eh', 'qa', 'tf', 'bl', 'sv'])
+        try { railPanel(id, true); } catch (_) {}
+      try { outlinePanel(true); } catch (_) {}
+    });
     await page.waitForTimeout(150);
     const wrapped = await page.evaluate(() => {
       const out = [];
-      document.querySelectorAll('.side button').forEach(b => {
+      document.querySelectorAll('.opts button, .scrim.pop:not([hidden]) .card button').forEach(b => {
         const r = b.getBoundingClientRect();
         if (r.height < 1) return;
         const cs = getComputedStyle(b);
@@ -153,7 +118,8 @@ test.describe('the merged sections', () => {
        still sweeps by tool, and the palette must still survive the sweep
        wherever it is living. Both are opened, and both are measured. */
     await openTrait(page, { w: 80, h: 80, draw: (set) => { set(1, 1, [1, 2, 3]); set(2, 2, [9, 9, 9]); } });
-    await openSection(page, 'Colour');
+    /* The brush rows are in the strip and always on screen; the palette is
+       in the colours panel. Neither is behind a heading any more. */
     await openPanel(page, 'cl');
     const shown = async () => page.evaluate(() => {
       const p = document.getElementById('pal');
@@ -184,7 +150,6 @@ test.describe('the merged sections', () => {
        now, so all of them are opened. What is being asserted is unchanged:
        nothing that used to be reachable was quietly dropped on the way. */
     await openTrait(page, { w: 80, h: 80, draw: (set) => { set(1, 1, [1, 2, 3]); } });
-    await openSection(page, 'Colour');
     for (const id of ['cl', 'sv']) await openPanel(page, id);
     const seen = id => page.evaluate(i => {
       const e = document.getElementById(i);
@@ -230,7 +195,7 @@ test.describe('fill interior holes', () => {
 
   test('closes every gap when the limit is 0', async ({ page }) => {
     await openTrait(page, { w: 60, h: 60, draw: holed });
-    await openSection(page, 'Edges and holes');
+    await openPanel(page, 'eh');
     const before = await art.empty(page);
     await setField(page, 'holemax', 0);
     await page.click('#fillholes');
@@ -241,7 +206,7 @@ test.describe('fill interior holes', () => {
 
   test('a limit leaves the big gap and takes the specks', async ({ page }) => {
     await openTrait(page, { w: 60, h: 60, draw: holed });
-    await openSection(page, 'Edges and holes');
+    await openPanel(page, 'eh');
     const before = await art.empty(page);
     await setField(page, 'holemax', 4);
     await page.click('#fillholes');
@@ -252,7 +217,7 @@ test.describe('fill interior holes', () => {
   test('never closes a gap that reaches the border', async ({ page }) => {
     /* That is the outside of the trait, not a hole in it. */
     await openTrait(page, { w: 60, h: 60, draw: holed });
-    await openSection(page, 'Edges and holes');
+    await openPanel(page, 'eh');
     await setField(page, 'holemax', 0);
     await page.click('#fillholes');
     await page.waitForTimeout(300);
@@ -266,31 +231,32 @@ test.describe('fill interior holes', () => {
   });
 });
 
-/* THE PANEL TAKES THE WIDTH THE ARTWORK CANNOT USE.
+/* THE STAGE TAKES THE WIDTH NOW, WHICH IS THE WHOLE POINT.
 
-   Measured at 1600x1000: rail 71, panel 500, stage 1029, and 800x800 of artwork
-   in the middle - 115px of dead stage either side. The art cannot grow into it,
-   because a 160-cell trait is limited by HEIGHT and 6x needs 960px in the 904
-   available. On wider screens it is worse: 195px a side at 1920x1080, 355 at
-   2560x1440.
+   SUPERSEDES "the panel fills the width the art cannot", four tests that
+   measured fitPanel widening the side column to two, three or four 250px
+   columns on big screens. The reasoning was sound while there was a column:
+   a 160-cell trait is limited by HEIGHT, so the width beside it could never
+   become artwork and the panel may as well have it.
 
-   THE INVARIANT IS WHAT IS TESTED, not a pixel width. fitZoom sizes the artwork
-   by Math.min(stageWidth-pad, stageHeight-pad) / Math.max(w,h), so while the
-   stage is at least as wide as it is tall the HEIGHT is binding and the zoom
-   cannot move however much the panel takes. That holds for any trait shape, any
-   content box, and with or without a base.
+   The column is gone, so the premise is gone with it. The width beside the
+   stage is not spare any more - it IS the stage. That is a stronger claim
+   and an easier one to check: nothing between the tool rail and the edge of
+   the window takes horizontal space, at any screen size.
 
-   My first version of these tests computed the expected artwork from art.height
-   and failed at 960 against 7680 - and the code was right. fitZoom fits the
-   CONTENT box when the art covers under half the canvas, and the fixture draws
-   one pixel, so the 48x ceiling is correct. The invariant needs none of that. */
-test.describe('the panel fills the width the art cannot', () => {
+   Kept as a test rather than dropped, because "the canvas got the room" is
+   the thing that was asked for, and an ask nobody asserts is an ask that
+   quietly comes undone the next time something needs somewhere to live. */
+test.describe('the stage takes the width', () => {
   const shape = (page) => page.evaluate(() => {
-    const st = document.getElementById('stage'), side = document.querySelector('.side');
+    const st = document.getElementById('stage');
+    const rail = document.querySelector('nav.tools');
+    const app = document.getElementById('app');
     return {
       stageW: st.clientWidth, stageH: st.clientHeight,
-      side: Math.round(side.getBoundingClientRect().width),
-      cols: getComputedStyle(side).gridTemplateColumns.split(' ').length,
+      railW: Math.round(rail.getBoundingClientRect().width),
+      appW: app.clientWidth,
+      side: !!document.querySelector('.side'),
       zoom,
     };
   });
@@ -298,49 +264,54 @@ test.describe('the panel fills the width the art cannot', () => {
     for (let y = 10; y < H - 10; y++) for (let x = 10; x < W - 10; x++) set(x, y, [226, 146, 116]);
   } });
 
-  test.describe('on a 1080p screen', () => {
-    test.use({ viewport: { width: 1920, height: 1080 } });
-    test('a third column appears, and the stage stays wider than it is tall', async ({ page }) => {
-      await open(page);
-      const s = await shape(page);
-      expect(s.cols, 'two columns left 195px a side doing nothing').toBeGreaterThanOrEqual(3);
-      expect(s.stageW, 'the height must stay the binding dimension').toBeGreaterThanOrEqual(s.stageH);
+  for (const [name, viewport] of [
+    ['on a 1080p screen', { width: 1920, height: 1080 }],
+    ['on a 1440p screen', { width: 2560, height: 1440 }],
+    ['on a tall narrow window', { width: 1100, height: 1400 }],
+  ]) {
+    test.describe(name, () => {
+      test.use({ viewport });
+      test('nothing stands between the rail and the edge', async ({ page }) => {
+        await open(page);
+        const s = await shape(page);
+        expect(s.side, 'there is no side column any more').toBe(false);
+        /* Within a couple of pixels for the stage's own border. The old
+           layout left 244 here, and at 2560 the widened panel left 500. */
+        expect(s.appW - s.railW - s.stageW,
+          'the stage is everything the rail does not take')
+          .toBeLessThanOrEqual(4);
+      });
     });
-  });
+  }
 
-  test.describe('on a 1440p screen', () => {
-    test.use({ viewport: { width: 2560, height: 1440 } });
-    test('a fourth appears, and the invariant still holds', async ({ page }) => {
-      await open(page);
-      const s = await shape(page);
-      expect(s.cols, 'the dead space here was 355px a side').toBeGreaterThanOrEqual(4);
-      expect(s.stageW).toBeGreaterThanOrEqual(s.stageH);
-    });
-  });
+  test.describe('and the width it gained is width the artwork can use', () => {
+    test.use({ viewport: { width: 900, height: 1400 } });
+    test('on a tall window the stage is width-bound, and has all of it',
+      async ({ page }) => {
+        /* MY FIRST VERSION OF THIS ASSERTED A ZOOM AND WAS WRONG. It claimed a
+           240-wide trait at 1280x900 would go from 4x to 5x, and measured 3x.
+           fitZoom divides by max(w,h) against the SMALLER stage dimension, so
+           it fits a square of the trait's longest side - on a short window the
+           height binds no matter how wide the trait is, and the extra width
+           changes nothing. The code was right and the arithmetic in the test
+           was not, which is the same way round as the note further up this
+           file records for the version before it.
 
-  test.describe('on a tall narrow window', () => {
-    /* The assumption inverted: here the artwork is the WIDE one, and there is
-       nothing spare to take. The panel must not take any of it. */
-    test.use({ viewport: { width: 1100, height: 1400 } });
-    test('the panel takes nothing when the art is the wide one', async ({ page }) => {
-      await open(page);
-      const s = await shape(page);
-      expect(s.side, 'the stylesheet stays in charge here').toBeLessThan(600);
-    });
-  });
-
-  test.describe('a wide short trait', () => {
-    test.use({ viewport: { width: 1920, height: 1080 } });
-    test('the invariant holds for a trait that is not square', async ({ page }) => {
-      // fitZoom scales by max(w,h), so a 320x64 trait is driven by its WIDTH. An
-      // earlier version of this feature reserved art.width times the height-bound
-      // zoom and got this case wrong; the invariant does not depend on shape.
-      await openTrait(page, { w: 320, h: 64, draw: (set, W, H) => {
-        for (let y = 4; y < H - 4; y++) for (let x = 4; x < W - 4; x++) set(x, y, [226, 146, 116]);
-      } });
-      const s = await shape(page);
-      expect(s.stageW, 'still at least as wide as it is tall').toBeGreaterThanOrEqual(s.stageH);
-      expect(s.zoom, 'and the artwork is still drawn').toBeGreaterThan(0);
-    });
+           So this picks the case where width really is the binding dimension -
+           a tall narrow window - and asserts the two things that make the
+           gained width real artwork rather than dead space: the stage is
+           narrower than it is tall, and it holds everything the rail does not.
+           No zoom is predicted, because predicting one means re-deriving
+           fitZoom in the test and then testing the derivation. */
+        await openTrait(page, { w: 160, h: 160, draw: (set, W, H) => {
+          for (let y = 10; y < H - 10; y++) for (let x = 10; x < W - 10; x++)
+            set(x, y, [226, 146, 116]);
+        } });
+        const s = await shape(page);
+        expect(s.stageW, 'width is the binding dimension here').toBeLessThan(s.stageH);
+        expect(s.appW - s.railW - s.stageW,
+          'so every pixel the column used to take is artwork now')
+          .toBeLessThanOrEqual(4);
+      });
   });
 });

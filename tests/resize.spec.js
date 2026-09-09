@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { openTrait, openAllSections, art, setField, setSelect, pressed, resizeGo } from './helpers.js';
+import { openTrait, art, setField, setSelect, pressed, resizeGo } from './helpers.js';
 
 /* Snap ships ON. Every test that touches resize must leave it alone unless it
    is deliberately testing the other setting - the defect that got through was
@@ -27,7 +27,6 @@ test.describe('resize', () => {
         for (let y = 16; y < 72; y++) for (let x = 24; x < 136; x++) set(x, y, [226, 146, 116]);
       },
     });
-    await openAllSections(page);
 
     const before = await art.bounds(page);
     expect(before.w, 'the fixture draws a 112-wide trait').toBe(112);
@@ -59,7 +58,6 @@ test.describe('resize', () => {
       w: 120, h: 120,
       draw: (set) => { for (let y = 12; y < 54; y++) for (let x = 18; x < 102; x++) set(x, y, [226, 146, 116]); },
     });
-    await openAllSections(page);
     const before = await art.bounds(page);
     expect(before.w, 'the fixture draws an 84-wide trait').toBe(84);
     await setSelect(page, 'rsmode', 'inside');
@@ -87,7 +85,6 @@ test.describe('resize', () => {
       w: 160, h: 160,
       draw: (set) => { for (let y = 16; y < 72; y++) for (let x = 24; x < 136; x++) set(x, y, [226, 146, 116]); },
     });
-    await openAllSections(page);
     const before = await art.bounds(page);
     expect(before.w / before.h, 'the fixture is 2:1 - a square trait cannot detect this').toBeCloseTo(2, 1);
     expect(await page.evaluate(() => pressed('rslock')), 'keep-shape is on by default').toBe(true);
@@ -108,7 +105,6 @@ test.describe('resize', () => {
       w: 160, h: 160,
       draw: (set) => { for (let y = 16; y < 72; y++) for (let x = 24; x < 136; x++) set(x, y, [226, 146, 116]); },
     });
-    await openAllSections(page);
     await setSelect(page, 'rsmode', 'inside');
 
     // Typing the trait's own size IS a no-op, and must be refused as one.
@@ -138,7 +134,6 @@ test.describe('resize', () => {
       w: 160, h: 160,
       draw: (set) => { for (let y = 60; y < 90; y++) for (let x = 60; x < 90; x++) set(x, y, [226, 146, 116]); },
     });
-    await openAllSections(page);
     const before = await art.bounds(page);
     expect(before.w, 'the fixture draws a 30-wide trait').toBe(30);
     await setSelect(page, 'rsmode', 'inside');
@@ -156,7 +151,6 @@ test.describe('resize', () => {
     // The control for the two above. Loosening the art rule must not have
     // loosened the canvas rule, or trait canvases stop landing on the grid.
     await openTrait(page, { w: 120, h: 120, draw: (set) => { set(1, 1, [1, 2, 3]); } });
-    await openAllSections(page);
     await setSelect(page, 'rsmode', 'art');
     await setField(page, 'rsw', 128);
     await setField(page, 'rsh', 128);
@@ -204,7 +198,6 @@ test.describe('resize', () => {
         w: 160, h: 160,
         draw: (set) => { for (let y = 20; y < 140; y++) for (let x = 20; x < 140; x++) set(x, y, [226, 146, 116]); },
       });
-      await openAllSections(page);
       expect(await page.evaluate(() => pressed('rssnap')), 'snap is on and stays on').toBe(true);
       await setSelect(page, 'rsmode', mode);
       await setField(page, 'rsw', 40);
@@ -220,7 +213,6 @@ test.describe('resize', () => {
     // got used and silent about the request that was made, which sends them
     // looking for a bug in the resize instead of at a control three rows up.
     await openTrait(page, { w: 160, h: 160, draw: (set) => { set(1, 1, [1, 2, 3]); } });
-    await openAllSections(page);
     await setSelect(page, 'rsmode', 'art');
     await setField(page, 'rsw', 159);
     await setField(page, 'rsh', 159);
@@ -248,7 +240,6 @@ test.describe('downscaling', () => {
   for (const target of [136, 128, 96, 80, 64, 48, 40]) {
     test(`twenty one-pixel lines survive as twenty at ${target}`, async ({ page }) => {
       await openTrait(page, { w: 160, h: 160, draw: lines });
-      await openAllSections(page);
       expect(await art.litColumns(page), 'the fixture itself must have 20 lines').toBe(20);
       await setSelect(page, 'rsmode', 'art');
       await page.evaluate(() => document.getElementById('rssnap').setAttribute('aria-pressed', 'false'));
@@ -273,7 +264,6 @@ test.describe('downscaling', () => {
         for (let y = 39; y <= 120; y++) { set(39, y, [20, 20, 24]); set(120, y, [20, 20, 24]); }
       },
     });
-    await openAllSections(page);
     await setSelect(page, 'rsmode', 'art');
     await page.evaluate(() => document.getElementById('rssnap').setAttribute('aria-pressed', 'false'));
     await setField(page, 'rsw', 40);
@@ -312,7 +302,6 @@ test.describe('downscaling', () => {
         }
       },
     });
-    await openAllSections(page);
     const before = await page.evaluate(() => {
       const d = ctx.getImageData(0, 0, 160, 160).data;
       const s = new Set();
@@ -357,7 +346,6 @@ test.describe('downscaling', () => {
       await openTrait(page, { w: 160, h: 160, draw: new Function('set', 'W', 'H',
         'for (let y = 60; y < 100; y++) for (let x = 60; x < 100; x++) set(x, y, [220, 40, 40]);' +
         'for (let y = 20; y < ' + tip + '; y++) set(81, y, [10, 10, 10]);') });
-      await openAllSections(page);
       await page.evaluate(() => { const b = $('rssnap'); if (b.getAttribute('aria-pressed') === 'true') b.click(); });
       await setSelect(page, 'rsmode', 'art');
       await setField(page, 'rsw', 40);
@@ -395,7 +383,6 @@ test.describe('downscaling', () => {
     await openTrait(page, { w: 160, h: 160, draw: (set) => {
       for (let y = 59; y < 100; y++) for (let x = 59; x < 100; x++) set(x, y, [220, 40, 40]);
     } });
-    await openAllSections(page);
     await page.evaluate(() => { const b = $('rssnap'); if (b.getAttribute('aria-pressed') === 'true') b.click(); });
     await setSelect(page, 'rsmode', 'art');
     await setField(page, 'rsw', 40);
@@ -457,7 +444,6 @@ test.describe('the exported PNG', () => {
   });
 
   const shrinkTo = async (page, n) => {
-    await openAllSections(page);
     await page.evaluate(() => { const b = $('rssnap'); if (b.getAttribute('aria-pressed') === 'true') b.click(); });
     await setSelect(page, 'rsmode', 'art');
     await setField(page, 'rsw', n);
@@ -535,7 +521,6 @@ test.describe('the size ladder and undo', () => {
     // happened to build it. And once built it ran 160, 320, 480 upward - the only
     // option at or below the canvas was the 1x no-op that answers "Already 160".
     await openTrait(page, { w: 160, h: 160, draw: BLOCK });
-    await openAllSections(page);
     const opts = await menu(page);
     expect(opts.length, 'the menu was measured empty at startup').toBeGreaterThan(0);
     const down = opts.filter(v => v < 160);
@@ -553,7 +538,6 @@ test.describe('the size ladder and undo', () => {
     // 32, and 40/32 is 1.25:1 - a fractional ratio that smears the pixel blocks,
     // produced by the control whose whole purpose is preventing that.
     await openTrait(page, { w: 160, h: 160, draw: BLOCK });
-    await openAllSections(page);
     expect(await menu(page), 'from 160, 32 is a clean 5:1').toContain(32);
     await shrink(page, 40);
     expect((await state(page)).canvas).toBe(40);
@@ -572,7 +556,6 @@ test.describe('the size ladder and undo', () => {
     // permanently resized their tool. The zoom stayed at the 20x that fitted the
     // 40 canvas, so a restored 160 canvas sat four times too big, off the stage.
     await openTrait(page, { w: 160, h: 160, draw: BLOCK });
-    await openAllSections(page);
     await page.evaluate(() => setBrush(32));
     const before = await state(page);
     const menuBefore = await menu(page);

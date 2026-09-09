@@ -20,7 +20,7 @@
    many places each trait ends up in is what catches it.
 */
 import { test, expect } from '@playwright/test';
-import { openTrait, openAllSections } from './helpers.js';
+import { openTrait } from './helpers.js';
 
 const BLOCK = new Function('set', 'W', 'H',
   'for (let y = 20; y < 140; y++) for (let x = 20; x < 140; x++) set(x, y, [226, 146, 116]);');
@@ -84,7 +84,6 @@ test.describe('moving several traits at once', () => {
 
   const ready = async (page, rows) => {
     await openTrait(page, { w: 160, h: 160, draw: BLOCK });
-    await openAllSections(page);
     await put(page, rows);
     await page.waitForTimeout(300);
   };

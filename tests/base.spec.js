@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { openTrait, openAllSections, attachBase, art, base, setField, setSelect, resizeGo } from './helpers.js';
+import { openTrait, attachBase, art, base, setField, setSelect, resizeGo } from './helpers.js';
 
 /* A character with white bands at its head and its feet. Those are the first
    things lost when the base gets cropped, and they are exactly what a hat or a
@@ -21,7 +21,6 @@ test.describe('the base character', () => {
        before and after doubling. */
     const errors = await openTrait(page, { w: 120, h: 120, draw: trait });
     await attachBase(page, { size: 200, draw: character });
-    await openAllSections(page);
 
     const before = { art: await art.size(page), ink: await base.ink(page) };
     expect(before.ink.w, 'the character fills the canvas to begin with').toBe(120);
@@ -45,7 +44,6 @@ test.describe('the base character', () => {
        960 marker pixels down to 0, taking the head and the feet with them. */
     await openTrait(page, { w: 120, h: 120, draw: trait });
     await attachBase(page, { size: 200, draw: character });
-    await openAllSections(page);
 
     const markersBefore = await base.colour(page, [255, 255, 255]);
     expect(markersBefore, 'the fixture must actually have markers').toBeGreaterThan(0);

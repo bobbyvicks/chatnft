@@ -94,14 +94,28 @@ test.describe('the patch machinery', () => {
     // randomiser, deliberately left on Math.random. Assuming what a 9,000-line
     // file contains is the very mistake the kit exists to prevent, so these two
     // were checked rather than guessed.
-    for (const quoted of ['nw%W===0 && nh%H===0', 'const fold = i>1']) {
+    //
+    // And the second of those two, 'const fold = i>1', went red a second time
+    // for the opposite reason: the comment quoting it was deleted with
+    // foldDefaults when the side column went, so the prose was not there to be
+    // found. A literal from the file's comments is a fixture that perishes with
+    // the comment. So one hand-checked literal is kept for the REAL case - a
+    // comment quoting code that was replaced - and the second sample is taken
+    // from the file at run time: the first long block comment in the script,
+    // whatever it says today.
+    const sample = (() => {
+      const m = /\/\*([^*]|\*(?!\/)){200,}?\*\//.exec(script);
+      if (!m) throw new Error('no block comment of 200+ characters in the script');
+      // A run of it from well inside, so neither delimiter is in the sample.
+      return m[0].slice(60, 100);
+    })();
+    for (const quoted of ['nw%W===0 && nh%H===0', sample]) {
       expect(script, quoted + ' is quoted in a comment').toContain(quoted);
       expect(stripped, quoted + ' is not code any more').not.toContain(quoted);
     }
-    // And the lines that replaced them survive, so this is not passing merely
-    // because the strip removed everything.
+    // And the line that replaced the first survives, so this is not passing
+    // merely because the strip removed everything.
     expect(stripped, 'the live enlargement guard is code').toContain('if(nw>=W && nh>=H){');
-    expect(stripped, 'the live fold rule is code').toContain('if(cols<2){');
   });
 
   test('the file is CRLF and splitting leaves no carriage returns behind', () => {

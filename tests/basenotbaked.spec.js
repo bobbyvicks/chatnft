@@ -53,7 +53,6 @@ const saveWithBase = (page, opts) => page.evaluate(async (o) => {
   fileName = 'probe';
   startEditor(d, w, h, w, h, palette(d, w * h, 24, 64), false);
   await new Promise(r => setTimeout(r, 300));
-  document.querySelectorAll('.side section').forEach(s => s.classList.remove('folded'));
 
   /* A base BIGGER than the trait, so it cannot be mistaken for the art even
      if it landed exactly on top. */

@@ -26,6 +26,18 @@
 /* Single dark ground on purpose: this is an image editor, and light chrome
    changes how the artwork's own colours read. Every colour is explicit. */
 :root{
+  /* WHAT THE HARDWARE IS COVERING. The viewport meta opts into drawing
+     under the notch, the corners and the home indicator, so the page owes
+     itself these four numbers - and owed them from the day that meta was
+     written, because nothing in the file read one until now.
+
+     Named rather than read at each site: eleven rules want them, and a
+     variable can be set by a test where env() cannot, which is how the
+     phone tests check this without a notched phone. */
+  --sat: env(safe-area-inset-top, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
   /* The one thing that makes native controls dark. Without it a browser
      draws every select, its popup LIST, the scrollbars and the number
      spinners in the light system scheme no matter what the CSS says - and
@@ -263,7 +275,7 @@ button.planhead:focus-visible{outline:2px solid var(--accent); outline-offset:2p
 /* The landing page centres its children, so the icon is positioned against
    the page rather than shoved to the end of a flex row that is not full
    width. Fixed, so it stays put while the long page scrolls under it. */
-.acct{position:fixed; top:14px; right:16px; z-index:15; width:40px; height:40px;
+.acct{position:fixed; top:calc(14px + var(--sat)); right:calc(16px + var(--sar)); z-index:15; width:40px; height:40px;
   border-radius:50%; background:var(--panel); border:1px solid var(--line);
   color:var(--muted); display:grid; place-items:center;}
 .acct:hover{border-color:var(--accent); color:var(--ink);}
@@ -276,7 +288,7 @@ button.planhead:focus-visible{outline:2px solid var(--accent); outline-offset:2p
 .kskey{justify-self:start; padding:3px 8px; border-radius:6px; font-size:11.5px;
   background:var(--panel-2); border:1px solid var(--line); color:var(--ink); white-space:nowrap;}
 .ksdesc{color:var(--muted); font-size:13px; line-height:1.45;}
-.acctpanel{position:fixed; top:62px; right:16px; z-index:15; width:min(430px,92vw);}
+.acctpanel{position:fixed; top:calc(62px + var(--sat)); right:calc(16px + var(--sar)); z-index:15; width:min(430px,92vw);}
 .acctpanel .proj{width:100%; margin:0;}
 .acctpanel .projhead .acts{width:100%; margin-left:0;}
 .wsrow{width:100%; display:flex; align-items:center; gap:8px; flex-wrap:wrap;
@@ -296,8 +308,12 @@ button.planhead:focus-visible{outline:2px solid var(--accent); outline-offset:2p
 .wsrow #teamrow, .wsrow #teamnote{width:100%;}
 .wsrow #teamnote{margin:0;}
 @media (max-width:620px){
-  .acct{top:10px; right:10px; width:36px; height:36px;}
-  .acctpanel{top:52px; right:8px; left:8px; width:auto;}
+  /* Restating top and right here drops the insets the base rule pays, and
+     this is the width where a notch exists. */
+  .acct{top:calc(10px + var(--sat)); right:calc(10px + var(--sar));
+    width:36px; height:36px;}
+  .acctpanel{top:calc(52px + var(--sat)); right:calc(8px + var(--sar));
+    left:calc(8px + var(--sal)); width:auto;}
 }
 /* A convenience, not an alert. It had the accent border - the only one on
    the page - so it read louder than the dropzone it sits above, and its
@@ -559,7 +575,7 @@ button.planhead:focus-visible{outline:2px solid var(--accent); outline-offset:2p
 .shelftools .draghandle:active{cursor:grabbing;}
 .shelftools .dup{position:static; width:auto; height:auto; padding:4px 2px; border-radius:5px;
   font-size:9px; line-height:1.1;}
-.shelfdestinations{position:fixed; left:50%; bottom:20px; z-index:40; transform:translateX(-50%);
+.shelfdestinations{position:fixed; left:50%; bottom:calc(20px + var(--sab)); z-index:40; transform:translateX(-50%);
   width:min(720px,calc(100vw - 24px)); padding:10px; border-radius:11px; background:color-mix(in srgb, var(--panel) 95%, transparent);
   border:1px solid var(--accent); box-shadow:0 12px 40px #000b; display:flex; gap:6px;
   align-items:center; overflow-x:auto;}
@@ -591,7 +607,7 @@ body.shelf-dragging,body.shelf-dragging *{cursor:grabbing!important;}
 
 /* ---------- analysis ---------- */
 .scrim{position:fixed; inset:0; background:#0b0910e0; display:grid; place-items:center;
-  padding:20px; z-index:20; backdrop-filter:blur(3px);}
+  padding:calc(20px + var(--sat)) calc(20px + var(--sar)) calc(20px + var(--sab)) calc(20px + var(--sal)); z-index:20; backdrop-filter:blur(3px);}
 .card{width:min(560px,94vw); max-height:90dvh; overflow-y:auto; background:var(--panel);
   border:1px solid var(--line); border-radius:15px; padding:22px;}
 /* A POP-OUT, NOT A SHEET. It sits beside the button that opened it with
@@ -657,7 +673,7 @@ body.shelf-dragging,body.shelf-dragging *{cursor:grabbing!important;}
      what it still held is looked at rather than gone to. */
   grid-template-areas:"head head" "opts opts" "tools stage" "foot foot"; height:100dvh;}
 header{grid-area:head; display:flex; align-items:center; gap:13px; flex-wrap:wrap;
-  padding:5px 16px; border-bottom:1px solid var(--line); background:var(--panel);}
+  padding:calc(5px + var(--sat)) calc(16px + var(--sar)) 5px calc(16px + var(--sal)); border-bottom:1px solid var(--line); background:var(--panel);}
 header .brand h1{font-size:15px;}
 header .logo{width:24px; height:24px; border-radius:6px;}
 .fname{font-size:12.5px; color:var(--accent);}
@@ -1081,7 +1097,7 @@ input[type=range]{width:100%; accent-color:var(--accent); cursor:pointer;}
   .revgrid{grid-template-columns:repeat(auto-fill,minmax(108px,1fr)); max-height:56dvh;}
   .revtile .ans button{padding:7px 0; font-size:12.5px;}
 }
-footer{grid-area:foot; display:flex; align-items:center; gap:15px; padding:4px 16px;
+footer{grid-area:foot; display:flex; align-items:center; gap:15px; padding:4px calc(16px + var(--sar)) calc(4px + var(--sab)) calc(16px + var(--sal));
   border-top:1px solid var(--line); background:var(--panel); font-size:11.5px; color:var(--muted);}
 footer .mono{color:var(--ink);}
 .hint{color:var(--dim);}
@@ -1092,7 +1108,7 @@ footer .mono{color:var(--ink);}
 .zb.on{background:var(--accent-soft); border-color:var(--accent); color:var(--accent);}
 #zlab{min-width:40px; text-align:center; font-size:12.5px;}
 .zb:hover{background:var(--line);}
-.toast{position:fixed; left:50%; bottom:64px; transform:translateX(-50%) translateY(8px);
+.toast{position:fixed; left:50%; bottom:calc(64px + var(--sab)); transform:translateX(-50%) translateY(8px);
   background:var(--good); color:#052b1c; font-weight:600; font-size:13px; padding:9px 17px;
   border-radius:999px; opacity:0; pointer-events:none; transition:opacity .18s,transform .18s; z-index:30;}
 .toast.show{opacity:1; transform:translateX(-50%) translateY(0);}
@@ -1110,7 +1126,8 @@ footer .mono{color:var(--ink);}
   .spec{width:100%; margin-left:0; gap:11px; font-size:9.5px;}
   /* .spec wraps to its own row here, which would carry the close button
      down with it. It stays in the top-right corner instead. */
-  header{position:relative; padding-right:52px;}
+  /* The close button sits in this padding, and in landscape the inset sits under it. */
+  header{position:relative; padding-right:calc(52px + var(--sar));}
   .closex{position:absolute; top:10px; right:14px; margin-left:0;}
   /* Wrapping, not scrolling. A sideways-scrolling rail with no scrollbar hid
      the last two tools completely - they were at x=500 on a 375px screen. */
@@ -1120,7 +1137,7 @@ footer .mono{color:var(--ink);}
      costs a fixed height however many tools there are. */
   .tools{flex-direction:row; flex-wrap:nowrap; justify-content:flex-start;
     overflow-x:auto; overflow-y:hidden; scrollbar-width:none;
-    padding:8px 10px; border-right:none; border-bottom:1px solid var(--line);}
+    padding:8px calc(10px + var(--sar)) 8px calc(10px + var(--sal)); border-right:none; border-bottom:1px solid var(--line);}
   .tools::-webkit-scrollbar{display:none;}
   /* SEVEN OF TWENTY-FIVE FIT, and undo was the eleventh. Ordered rather
      than moved: the rail is a flex row at this width, so order puts the
@@ -1233,7 +1250,13 @@ footer .mono{color:var(--ink);}
      transform so the stage above genuinely grows into the space instead of
      the sheet sliding over it. */
   .swatches{grid-template-columns:repeat(10,1fr);} .sw{min-height:30px;}
-  footer{gap:11px; padding:7px 14px; flex-wrap:wrap;} .hint{display:none;}
+  /* THE SHORTHAND HERE OUTRANKS THE INSET ON THE BASE RULE, so it has to
+     carry it too - this is the only breakpoint where a home indicator
+     exists, which made it the one place the inset had to survive and the
+     one place it did not. */
+  footer{gap:11px; flex-wrap:wrap;
+    padding:7px calc(14px + var(--sar)) calc(7px + var(--sab)) calc(14px + var(--sal));}
+  .hint{display:none;}
   /* ONE ROW, not two. #pos and #under read out the cell under the POINTER,
      and a phone has none to hover with: they say "-" until a finger is on
      the glass and are underneath it when one is. #zpan is Move, and its
@@ -1379,9 +1402,11 @@ footer .mono{color:var(--ink);}
   <div class="agjob">
     <label for="fixmode">Mode</label>
     <select id="fixmode" title="How hard to look for the grid. The thorough pass is not built yet."><option value="fast">Quick - three detectors</option></select>
-    <label for="fixforce">Cell size</label>
+    <label for="fixforce">Pixel size</label>
     <input type="number" id="fixforce" min="0" step="0.01" value="0" style="width:84px"
-      title="0 finds the cell size. A number skips detection and uses that size - for when you already know it">
+      inputmode="decimal"
+      title="How many pixels of the picture make one pixel of the artwork. 0 works it out. If the result still looks soft, the guess was too small - try 8, 12 or 16.">
+    <span class="note mono" id="fixsize"></span>
     <button class="btn" id="fixrun" disabled>Fix it</button>
     <button class="btn ghost" id="fixstop" hidden>Stop</button>
   </div>
@@ -1847,6 +1872,9 @@ footer .mono{color:var(--ink);}
           title="Load a .gpl, .pal or .hex palette file, or every colour in an image, as a second set of swatches">Import</button>
         <button class="btn ghost" id="piodrop" hidden style="width:auto;padding:5px 10px;font-size:12px"
           title="Take the imported palette out of this panel. The artwork and the project palette are untouched.">Drop</button>
+        <button class="btn ghost" id="piotake" hidden aria-pressed="false"
+          style="width:auto;padding:5px 10px;font-size:12px"
+          title="While this is on, tapping a colour takes it out of the imported palette instead of painting with it. Ctrl+click does the same without the toggle.">Take out</button>
       </div>
       <p class="note" id="pionote" hidden></p>
       <!-- Not classed .swatches: recolour.spec.js counts that class and
@@ -2443,6 +2471,11 @@ footer .mono{color:var(--ink);}
     <!-- The gradient tool's options, shown only while the tool is chosen,
          the way Fill spread is for the fill. -->
     <div id="gdrows" hidden>
+      <div class="olrow"><label for="gdto">To</label>
+        <input id="gdto" type="color" value="#000000"
+          title="The far end of the ramp. The near end is the colour you are painting with.">
+        <button class="mini" type="button" id="gdtoclear"
+          title="Back to the colour marked in the Colours panel, or black when nothing is marked">Clear</button></div>
       <div class="olrow"><label for="gdshape">Shape</label>
         <select id="gdshape" title="Linear runs along the drag. Radial spreads from the press and reaches the far colour at half the drag in each direction."><option value="0">Linear</option><option value="1">Radial</option></select></div>
       <div class="olrow"><label for="gddither">Dither</label>
@@ -3345,6 +3378,37 @@ async function keyboardShelfMove(recordKey,direction,betweenLayers){
    the visibility filter and the planner all use, so nothing has to translate
    between two notions of "which trait is this". */
 let shelfPick=new Set();
+/* WHAT PICKING ACTUALLY CHANGES ON SCREEN.
+
+   All three of these went through renderShelf, which rebuilds 318 tiles,
+   every layer filter, the compose panel and the plan panel - 232 ms here
+   with the distribution memo warm, 2,705 ms at a sixth of this CPU. Picking
+   six traits to move them together was six of those.
+
+   Nothing below the selection needs to know, because nothing about the
+   collection has changed. bulkMoveToLayer still renders: moving a record
+   between layers IS a change, and every count and heading has to follow it.
+
+   Reads the DOM rather than a list, so it cannot disagree with what is on
+   screen: whatever tiles are there now get the state their key says. */
+function shelfPickPaint(){
+  const n=shelfPick.size;
+  const bar=$("shelfpick");
+  if(bar){
+    const c=$("shelfpickcount"); if(c) c.textContent = n ? n+" picked" : "Nothing picked";
+    const mv=$("shelfpickmove"); if(mv) mv.disabled=!n;
+    const cl=$("shelfpicknone"); if(cl) cl.disabled=!n;
+  }
+  for(const el of document.querySelectorAll("#projbody [data-shelf-card-key]")){
+    const on=shelfPick.has(el.dataset.shelfCardKey);
+    el.classList.toggle("picked",on);
+    const b=el.querySelector(".pickbtn");
+    if(!b) continue;
+    b.textContent=on?"picked":"pick";
+    b.setAttribute("aria-pressed",String(on));
+    b.title=(on?"Unpick ":"Pick ")+(el.title||"this")+" to move it with others";
+  }
+}
 /* Applies a plan to an in-memory record list, so the NEXT plan sees the result.
    planShelfMove is pure, which is what makes chaining it safe: every move in a
    batch is planned against the state the moves before it produced, exactly as
@@ -3467,8 +3531,48 @@ function clearShelfDragTarget(){
   document.querySelectorAll('.shelf-drag-over,.shelf-drop-before,.shelf-drop-after')
     .forEach(el=>el.classList.remove('shelf-drag-over','shelf-drop-before','shelf-drop-after'));
 }
+/* SCROLLING WHILE DRAGGING, which a phone cannot do any other way.
+
+   The drag captures the pointer, so the shelf does not move under it - and
+   six of 318 tiles fit on a phone screen. Reordering a trait to anywhere
+   outside that six was impossible: letting go to scroll commits the move.
+
+   Within 72px of an edge the page scrolls, faster the nearer the edge, and
+   the hit test is re-run at the SAME finger position so the marker follows
+   the content that moved under it. Stops itself when the drag ends or the
+   finger comes away from the edge. */
+let shelfScrollRaf=0;
+const SHELF_DRAG_EDGE=72, SHELF_DRAG_STEP=16;
+function shelfDragScrollStop(){
+  if(shelfScrollRaf){ cancelAnimationFrame(shelfScrollRaf); shelfScrollRaf=0; }
+}
+function shelfDragScroll(){
+  shelfScrollRaf=0;
+  if(!shelfDrag||typeof shelfDrag.y!=="number") return;
+  /* A mouse keeps its wheel and its old behaviour. Touch and pen have
+     neither while the pointer is captured, which is why this exists. */
+  if(!shelfDrag.autoscroll) return;
+  const h=window.innerHeight;
+  let dy=0;
+  if(shelfDrag.y<SHELF_DRAG_EDGE)
+    dy=-SHELF_DRAG_STEP*(1-shelfDrag.y/SHELF_DRAG_EDGE);
+  else if(shelfDrag.y>h-SHELF_DRAG_EDGE)
+    dy=SHELF_DRAG_STEP*(1-(h-shelfDrag.y)/SHELF_DRAG_EDGE);
+  if(dy){
+    const was=window.scrollY;
+    window.scrollBy(0,dy);
+    /* Only when the page actually moved: at the top or the bottom of the
+       shelf there is nowhere to go and re-running the hit test would be
+       work for nothing, every frame, for as long as the finger is held. */
+    if(window.scrollY!==was) updateShelfDragTarget(shelfDrag.x,shelfDrag.y);
+  }
+  shelfScrollRaf=requestAnimationFrame(shelfDragScroll);
+}
 function updateShelfDragTarget(clientX,clientY){
   if(!shelfDrag) return;
+  /* Kept so the loop above can re-ask at the same place after it scrolls. */
+  shelfDrag.x=clientX; shelfDrag.y=clientY;
+  if(!shelfScrollRaf) shelfScrollRaf=requestAnimationFrame(shelfDragScroll);
   clearShelfDragTarget();
   shelfDrag.target=null;
   shelfDrag.ghost.style.left=clientX+'px'; shelfDrag.ghost.style.top=clientY+'px';
@@ -3499,6 +3603,7 @@ function updateShelfDragTarget(clientX,clientY){
   shelfDrag.target={recordKey:shelfDrag.key,toLayer:grid.dataset.shelfLayer,beforeKey};
 }
 function endShelfDrag(cancelled){
+  shelfDragScrollStop();
   if(!shelfDrag) return;
   const drag=shelfDrag; shelfDrag=null;
   clearShelfDragTarget();
@@ -3522,7 +3627,12 @@ function startShelfDrag(event,record,card,handle){
   destinations.hidden=false;
   const ghost=document.createElement('div'); ghost.className='shelfdragghost'; ghost.textContent=record.name;
   document.body.appendChild(ghost);
-  shelfDrag={key,card,handle,ghost,target:null};
+  /* WHAT STARTED IT, because the autoscroll below is only for pointers that
+     have no other way to scroll. A mouse has a wheel; dragging the page out
+     from under one resting near an edge is a surprise, and it moved a real
+     drop in shelf.spec.js from skins back to backgrounds. */
+  shelfDrag={key,card,handle,ghost,target:null,
+    autoscroll:(event.pointerType&&event.pointerType!=="mouse")};
   card.classList.add('shelf-drag-source'); document.body.classList.add('shelf-dragging');
   handle.setPointerCapture(event.pointerId);
   updateShelfDragTarget(event.clientX,event.clientY);
@@ -3675,37 +3785,56 @@ function shelfTile(rec){
   else thumbPaint(cv,rec&&rec.blob);
   return cv;
 }
-async function renderShelf(){
+/* The records the last full render read, so a view-only one does not read
+   them all back. Dropped and refilled by every full render. */
+let shelfItems=null;
+/* viewOnly: this call changed what is SHOWN and nothing else - hide,
+   show-only, show-hidden, a status filter, the search box. It reuses the
+   records above, skips the apply passes over them, and skips the four
+   panels that are functions of the records rather than of the view.
+   Opt-in, so every caller that does not pass it is unchanged. */
+async function renderShelf(viewOnly){
   /* Filled in at the end, once the records have been read. */
   let items=[];
   /* Both early exits have to take the compose panel down with them, or
      clearing the project leaves it on screen listing traits that are gone. */
-  try{ items=await dbAll(); }catch(_){ $('proj').hidden=true; $('compose').hidden=true;
+  /* A view-only render reuses what the last full one read. Nothing that
+     asks for one has changed a record, and anything that DOES change a
+     record calls this with no flag, which reads again. */
+  if(viewOnly && shelfItems){ items=shelfItems; }
+  else try{ items=await dbAll(); }catch(_){ $('proj').hidden=true; $('compose').hidden=true;
     $('layers').hidden=true; $('rules').hidden=true; $('recent').hidden=true;
     $('review').hidden=true; return; }
   /* Before anything groups by layer: the saved order is the authority, and
      the default list is only what it starts from. */
-  applyLayers(items);
-  applyGrid(items);
-  applyEmptyChance(items);
-  /* Before buildCompose runs: generation reads RULES, and a sheet drawn with
-     an empty rule list would quietly ignore every rule on the first render. */
-  applyRules(items);
-  /* Beside applyRules and for the same reason: buildCombo reads it, and a
-     sheet drawn before it loaded would choose in the wrong order and show a
-     collection the rules do not describe. */
-  applyDecideOrder(items);
-  applyBaseColours(items);
-  applyMail(items);
-  /* AFTER applyMail, not before it. The first version called mailShow at the
-     top of renderShelf, twenty lines above this read - so on the render that
-     follows a reload it drew an EMPTY mailbox and nothing ever drew it again.
-     The record was on disk the whole time, which is why it looked like the
-     mailbox was not being saved. */
-  try{ mailShow(); }catch(_){}
-  applyDecisions(items);
-  applyReview(items);
-  applyAgentRules(items);
+  /* THE APPLY PASSES READ SETTINGS OUT OF THE RECORDS, so with the same
+     records they reach the same answers. Kept together and skipped
+     together rather than one at a time, because a half-applied set is a
+     worse thing to reason about than either end of it. */
+  if(!viewOnly){
+    shelfItems=items;
+    applyLayers(items);
+    applyGrid(items);
+    applyEmptyChance(items);
+    /* Before buildCompose runs: generation reads RULES, and a sheet drawn with
+       an empty rule list would quietly ignore every rule on the first render. */
+    applyRules(items);
+    /* Beside applyRules and for the same reason: buildCombo reads it, and a
+       sheet drawn before it loaded would choose in the wrong order and show a
+       collection the rules do not describe. */
+    applyDecideOrder(items);
+    applyBaseColours(items);
+    applyMail(items);
+    /* AFTER applyMail, not before it. The first version called mailShow at the
+       top of renderShelf, twenty lines above this read - so on the render that
+       follows a reload it drew an EMPTY mailbox and nothing ever drew it again.
+       The record was on disk the whole time, which is why it looked like the
+       mailbox was not being saved. */
+    try{ mailShow(); }catch(_){}
+    applyDecisions(items);
+    applyReview(items);
+    applyAgentRules(items);
+  }
   const traits=items.filter(i=>i.kind==='trait');
   const visibility=currentShelfVisibility();
   const liveTraitKeys=new Set(traits.map(shelfCore.recordKey));
@@ -3750,12 +3879,36 @@ async function renderShelf(){
   const shows=t=>(shelfFilter==="all"||(t.status||"wip")===shelfFilter)
     && (!shelfQuery || String(t.name||"").toLowerCase().indexOf(shelfQuery)>=0);
   const cardShows=t=>shows(t)&&(!visibility.isHidden(shelfCore.recordKey(t))||visibility.reveal);
+  /* Read once rather than per tile, and captured for the deferred pass
+     below so it cannot answer with a different checkbox than it asked. */
+  const wipOn=!!($("cwip")&&$("cwip").checked);
+  /* Tiles whose figure is the weights-alone one until the estimate lands. */
+  const pctLater=[];
+  /* ONE PAINTER, because the label is written twice now - once while the
+     tile is built and once when the estimate arrives - and two copies of
+     this would drift the moment either sentence was edited. */
+  function paintPct(el,ch,t){
+    el.textContent=(ch.estimated?"~":"")+pctLabel(ch.pct);
+    el.title = ch.estimated
+      ? "About "+pctLabel(ch.pct)+" of generated characters would carry "+t.name
+        +(ch.pending
+          ? ". This is the figure the weights alone give; the Never-together rules are still being counted and it will settle in a moment."
+          : ". Estimated by drawing "+DIST_DRAWS.toLocaleString()+" characters with the"
+            +" Never-together rules applied, so the last point or so is sampling noise."
+            +" The weights alone would say "+pctLabel(ch.plain)+".")
+      : "About "+pctLabel(ch.pct)+" of generated characters would carry "+t.name
+        +". Worked out from this weight against the others in "+(t.layer||"unsorted")
+        +(ALWAYS_PRESENT.indexOf(t.layer||"unsorted")>=0
+          ? ", a layer every character has."
+          : ", and the "+Math.round(emptyChance*100)+"% chance that layer is left empty.");
+  }
   const savedRefs=items.filter(i=>i.kind==='ref');
   $('proj').hidden=!items.length;
   /* Before the empty-project return below, so an emptied project takes the
      list down with it rather than leaving the last ten of a collection that
      is no longer there. */
-  renderRecent(items);
+  /* A function of the records, not of what is on screen. */
+  if(!viewOnly) renderRecent(items);
   if(!items.length){ $('compose').hidden=true; $('layers').hidden=true;
     $('rules').hidden=true; return; }
   /* What is on screen, not what is in the database. The empty-shelf message
@@ -3804,10 +3957,9 @@ async function renderShelf(){
     const bar=$("shelfpick");
     if(bar){
       bar.hidden=!traits.length;
-      const n=shelfPick.size;
-      $("shelfpickcount").textContent = n ? n+" picked" : "Nothing picked";
-      $("shelfpickmove").disabled=!n;
-      $("shelfpicknone").disabled=!n;
+      /* The count and the two buttons come from the one place that writes
+         them, so a render and a pick cannot say different things. */
+      shelfPickPaint();
       const sel=$("shelfpicklayer"), keep=sel.value;
       sel.innerHTML="";
       for(const name of LAYERS){
@@ -3982,7 +4134,10 @@ async function renderShelf(){
       const pct=document.createElement("span");
       pct.className="pct";
       {
-        const ch=traitChance(t,items,$("cwip").checked);
+        /* "defer" only when there is a simulation to defer: with no rules
+           traitChance answers from arithmetic and there is nothing to wait
+           for. */
+        const ch=traitChance(t,items,wipOn,RULES.length?"defer":undefined);
         if(ch.pct===null){
           pct.classList.add("never");
           pct.textContent="never";
@@ -3999,29 +4154,8 @@ async function renderShelf(){
             el.appendChild(why);
           }
         } else {
-          /* "~" when it came from running the generator rather than from
-             arithmetic. Printing an estimate to the same precision as an exact
-             figure claims a certainty it does not have. */
-          pct.textContent=(ch.estimated?"~":"")+pctLabel(ch.pct);
-          /* WHICH PATH IT CAME FROM. This said "worked out from this weight
-             against the others" whatever traitChance had actually done, and
-             once a rule exists traitChance does not do that at all - it runs
-             the generator. Measured: two skins of identical weight read 49%
-             and 51% under a sentence crediting their weights.
-
-             The weights-alone figure is shown beside it, because "my weights
-             are wrong" and "the rules moved this" are the two things somebody
-             reading a surprising number is choosing between. */
-          pct.title = ch.estimated
-            ? "About "+pctLabel(ch.pct)+" of generated characters would carry "+t.name
-              +". Estimated by drawing "+DIST_DRAWS.toLocaleString()+" characters with the"
-              +" Never-together rules applied, so the last point or so is sampling noise."
-              +" The weights alone would say "+pctLabel(ch.plain)+"."
-            : "About "+pctLabel(ch.pct)+" of generated characters would carry "+t.name
-              +". Worked out from this weight against the others in "+(t.layer||"unsorted")
-              +(ALWAYS_PRESENT.indexOf(t.layer||"unsorted")>=0
-                ? ", a layer every character has."
-                : ", and the "+Math.round(emptyChance*100)+"% chance that layer is left empty.");
+          paintPct(pct,ch,t);
+          if(ch.pending) pctLater.push({el:pct,rec:t});
         }
       }
       el.appendChild(pct);
@@ -4045,26 +4179,31 @@ async function renderShelf(){
       hide.title=(hidden?'Show ':'Temporarily hide ')+t.name;
       hide.onclick=ev=>{ ev.stopPropagation();
         if(hidden) visibility.show(key); else visibility.hide(key);
-        renderShelf(); announceShelf((hidden?'Showing ':'Hidden ')+t.name+'.');
+        renderShelf(true); announceShelf((hidden?'Showing ':'Hidden ')+t.name+'.');
       };
       tools.appendChild(hide);
       const only=document.createElement('button'); only.type='button'; only.textContent='only';
       only.title='Temporarily show only '+t.name;
       only.onclick=ev=>{ ev.stopPropagation();
         visibility.isolate(traits.map(shelfCore.recordKey),key);
-        renderShelf(); announceShelf('Showing only '+t.name+'.');
+        renderShelf(true); announceShelf('Showing only '+t.name+'.');
       };
       tools.appendChild(only); tools.appendChild(dup);
       /* Picking is a per-card action, so it lives with the other per-card
          actions rather than becoming a mode the whole shelf is in. */
+      /* A class, so shelfPickPaint can find it again. Reaching for a
+         position inside .shelftools would break the next time a button was
+         added to that row. */
       const pick=document.createElement("button"); pick.type="button";
+      pick.className="pickbtn";
       const isPicked=shelfPick.has(key);
       pick.textContent=isPicked?"picked":"pick";
       pick.setAttribute("aria-pressed",String(isPicked));
       pick.title=(isPicked?"Unpick ":"Pick ")+t.name+" to move it with others";
       pick.onclick=ev=>{ ev.stopPropagation();
         if(shelfPick.has(key)) shelfPick.delete(key); else shelfPick.add(key);
-        renderShelf();
+        /* Not renderShelf: see shelfPickPaint. */
+        shelfPickPaint();
       };
       tools.appendChild(pick);
       if(isPicked) el.classList.add("picked");
@@ -4091,7 +4230,7 @@ async function renderShelf(){
   }
   /* The compose view reads the same records the shelf just rendered, so it
      cannot drift from what is actually saved. */
-  buildLayerPanel(items);
+  if(!viewOnly) buildLayerPanel(items);
   /* The rules are about the collection, like Build a character, and are
      meaningless with nothing in it - so they appear and go together.
 
@@ -4103,9 +4242,36 @@ async function renderShelf(){
   $('rules').hidden=false;
   /* Beside the rules, and for the same reason: both are about the collection
      rather than one trait, and both are meaningless with nothing in it. */
-  renderReview();
-  renderPlan(items);
-  buildCompose(items);
+  if(!viewOnly) renderReview();
+  if(!viewOnly) renderPlan(items);
+  /* 147 ms of a 232 ms render, and a function of the records alone. */
+  if(!viewOnly) buildCompose(items);
+  /* THE ESTIMATE, ONCE THE TAP HAS BEEN ANSWERED. Everything above has
+     painted by now, so the 1,780 ms this costs is spent with the shelf on
+     screen rather than in front of it. Idle time where the browser offers
+     it, with a deadline so it cannot be postponed forever, and a plain
+     timeout where it does not - Safari only grew requestIdleCallback
+     recently.
+
+     isConnected, because a second render may have replaced every one of
+     these elements while this was waiting: writing into a detached tile is
+     harmless but pointless, and the render that replaced it has its own
+     pass queued. */
+  if(pctLater.length){
+    const finish=()=>{
+      let dist=null;
+      try{ dist=distributionOf(items,wipOn); }catch(_){ return; }
+      for(const e of pctLater){
+        if(!e.el.isConnected) continue;
+        let ch=null;
+        try{ ch=traitChance(e.rec,items,wipOn,dist); }catch(_){ continue; }
+        if(!ch||ch.pct===null) continue;
+        paintPct(e.el,ch,e.rec);
+      }
+    };
+    if(typeof requestIdleCallback==="function") requestIdleCallback(finish,{timeout:1200});
+    else setTimeout(finish,0);
+  }
 }
 /* Asking Claude what a trait is. The call goes through /api/identify so the
    API key stays on the server - a key in this page would be readable by anyone
@@ -4376,11 +4542,11 @@ $("saveclose").onclick=async()=>{
 document.querySelectorAll('.mini.filt').forEach(btn=>{
   btn.onclick=()=>{ shelfFilter=btn.dataset.f;
     document.querySelectorAll('.mini.filt').forEach(o=>o.setAttribute('aria-pressed',String(o===btn)));
-    renderShelf(); };
+    renderShelf(true); };
 });
 $('shelfhidden').onclick=()=>{
   const state=currentShelfVisibility(); state.setReveal(!state.reveal);
-  renderShelf(); announceShelf(state.reveal?'Temporarily hidden traits are visible.':'Hidden traits are concealed.');
+  renderShelf(true); announceShelf(state.reveal?'Temporarily hidden traits are visible.':'Hidden traits are concealed.');
 };
 $('shelfsets').onclick=async()=>{
   if(!HIDDEN_LAYERS.size) return;
@@ -4591,14 +4757,15 @@ function zip(files){
   return new Blob([...parts,...central,new Uint8Array(end.buffer)],{type:'application/zip'});
 }
 $('shelfpickmove').onclick=()=>bulkMoveToLayer($('shelfpicklayer').value);
-$('shelfpicknone').onclick=()=>{ shelfPick.clear(); renderShelf(); };
+$('shelfpicknone').onclick=()=>{ shelfPick.clear(); shelfPickPaint(); };
 /* SHOWN, not all. The shelf filters by search and by status, and picking
    traits a person cannot see - then moving them - is the kind of surprise that
    costs an afternoon. What is on screen is what gets picked. */
 $('shelfpickall').onclick=()=>{
   for(const el of document.querySelectorAll("[data-shelf-card-key]"))
     shelfPick.add(el.dataset.shelfCardKey);
-  renderShelf();
+  /* 318 tiles were rebuilt to set 318 booleans. */
+  shelfPickPaint();
 };
 
 $('dlzip').onclick=async()=>{
@@ -6257,13 +6424,25 @@ function fitZoom(){
      Measured: reclaiming 46px of chrome padding alone changed NOTHING, because
      fitZoom never read that padding. This is the number that was actually
      binding. */
-  const st=$('stage'), pad=12;
+  const st=$('stage');
+  /* ROOM FOR THE HANDLES. #tbox is inset:0 over the art; its handles are
+     13px with a -7px margin so each hangs 7px past the edge, and the rotate
+     handle is 36px above the top before its own overhang - 50px in all,
+     against the 12 this reserved. Every one of them was off screen at the
+     zoom this function picks, on a tool whose own tooltip promises resize
+     and rotate. 56 a side rather than the 50 that just fits: a handle
+     exactly on the stage edge is one a thumb cannot get behind. */
+  const tOn = tool==="transform" && !!ctx;
+  const pad = tOn ? 112 : 12;
   const box=contentBox();
   /* Fitting the CONTENT rather than the canvas is right for a lone trait on a
      mostly empty canvas. It is wrong the moment there is a base: every trait
      is under half its canvas, so shrinking one made this zoom in on the trait
      and push the character - the thing being compared against - off screen. */
-  const useBox = box && !baseBitmap && (box.w*box.h) < (art.width*art.height)*0.5;
+  /* AND NOT THE CONTENT WHILE THE BOX IS ON. The handles are on the CANVAS,
+     so fitting the content puts them wherever the canvas happens to reach -
+     the same reason this is already gated off when there is a base. */
+  const useBox = box && !baseBitmap && !tOn && (box.w*box.h) < (art.width*art.height)*0.5;
   const w=useBox?box.w:art.width, h=useBox?box.h:art.height;
   /* The exact ratio, floored to two decimals rather than to a whole number.
      Flooring to a WHOLE number is what produced the 1x clamp: for anything
@@ -7027,6 +7206,25 @@ function snapOn(){ return pressed("rssnap"); }
 function tboxShow(){
   const b=$("tbox"); if(!b) return;
   b.classList.toggle("on", tool==="transform" && !!ctx);
+  /* AND BRING THE HANDLES INTO VIEW, but only if they are not already.
+     Re-fitting on every tool change would take a chosen zoom away from
+     somebody who had not lost anything; measuring first costs one rect per
+     handle and answers the question properly. A frame later, because the
+     class above has not been laid out yet. */
+  if(b.classList.contains("on")) requestAnimationFrame(tboxFit);
+}
+function tboxFit(){
+  const b=$("tbox"), st=$("stage");
+  if(!b||!st||!b.classList.contains("on")) return;
+  const sr=st.getBoundingClientRect();
+  for(const h of b.querySelectorAll(".th")){
+    const r=h.getBoundingClientRect();
+    if(!r.width&&!r.height) continue;
+    if(r.left<sr.left||r.top<sr.top||r.right>sr.right||r.bottom>sr.bottom){
+      fitZoom();
+      return;
+    }
+  }
 }
 
 /* Scale the art but keep the canvas.
@@ -8152,7 +8350,7 @@ function draftId(){ return openRec&&openRec.id ? draftKey(openRec.id) : AUTO_ID;
    PREVIOUS autosave and look entirely plausible while doing so. */
 function autosaveNow(){
   clearTimeout(autoPending); autoPending=null;
-  if(!ctx) return Promise.resolve();
+  if(!ctx) return Promise.resolve(false);
   /* CAPTURED BEFORE THE ENCODE, not read after it. toBlob is asynchronous
      and openRec can change while it runs, which would file this canvas
      under whichever trait was opened in the meantime. */
@@ -8165,13 +8363,24 @@ function autosaveNow(){
 
      The unattached canvas is unconditional as before: it is the only copy
      of a picture that has never been saved anywhere. */
-  if(of && undoStack.length===savedDepth) return Promise.resolve();
+  if(of && undoStack.length===savedDepth) return Promise.resolve(true);
+  /* RESOLVES WITH WHETHER IT WORKED. This was `.then(done, done)` - the same
+     callback for kept and lost - so a write refused by a full or evicted
+     store finished exactly like one that succeeded, and the editor closed
+     over it without a word. Storage is the flaky part of a phone: iOS
+     clears an origin after seven days, and a transaction can be aborted
+     when the OS reclaims memory. It says so now, once, where somebody can
+     act on it. */
   return new Promise(done=>{
     art.toBlob(b=>{
-      if(!b){ done(); return; }
+      if(!b){ done(false); return; }
       dbPut({id:key, kind:"autosave", traitId:of, name:fileName||"untitled.png",
              w:art.width, h:art.height, blob:b, at:Date.now()})
-        .then(done, done);
+        .then(()=>done(true), ()=>{
+          try{ toast("Could not save your work to this browser - copy it out"
+            +" with Download before closing the tab."); }catch(_){}
+          done(false);
+        });
     },"image/png");
   });
 }
@@ -8462,7 +8671,10 @@ function cBitmapDrop(id){
     cBitmaps.delete(id);
     if(bm.close) bm.close();
   }
-  try{ blockOf.delete(id); autoKey=""; autoSide=null; }catch(_){}
+  /* And the remembered copy, or the next load reads back the number for a
+     picture that is gone. The blob length would usually catch it; saying it
+     here does not depend on that. */
+  try{ blockOf.delete(id); autoKey=""; autoSide=null; blockStoreRead=false; }catch(_){}
 }
 let cItems=[];
 /* The two pickers and the current list.
@@ -9803,7 +10015,11 @@ function layerShare(rec,items,wipIncluded){
   return traitWeight(rec)/total;
 }
 
-function traitChance(rec,items,wipIncluded){
+/* dist: a distribution to read, the string "defer" to ask for the
+   weights-alone figure without running the simulation, or nothing at all
+   for the original behaviour - which is what every caller outside
+   renderShelf still passes, so none of them changed. */
+function traitChance(rec,items,wipIncluded,dist){
   const st=(rec&&rec.status)||"wip";
   if(!traitEligible(rec,wipIncluded))
     return { pct:null, why: st==="rejected"
@@ -9840,8 +10056,19 @@ function traitChance(rec,items,wipIncluded){
   const present = layerPresence(layer);
   const plain = share*present;
   if(RULES.length){
-    const dist=distributionOf(items,wipIncluded);
-    const seen=dist.get(traitKey(rec))||0;
+    /* THE CALLER MAY NOT WANT TO WAIT. This costs 20,000 generated
+       characters - 1,780 ms measured at 318 traits and 158 rules, and
+       something near twelve seconds on a phone - and a status change moves
+       a record to a new id, so it changes the memo key and every one of
+       them pays it cold. The shelf asks for "defer", paints the
+       weights-alone figure below, and asks again with a real distribution
+       once it has one. Marked estimated either way: the reader never sees
+       a number go from exact to approximate, only from one estimate to a
+       better one. */
+    if(dist==="defer")
+      return { pct: plain, why:"", estimated:true, plain:plain, pending:true };
+    const d=(dist&&typeof dist.get==="function") ? dist : distributionOf(items,wipIncluded);
+    const seen=d.get(traitKey(rec))||0;
     return { pct: seen/DIST_DRAWS, why:"", estimated:true, plain:plain };
   }
   return { pct: plain, why:"", estimated:false, plain:plain };
@@ -10178,6 +10405,48 @@ const CANVAS_SIDE=1280;
    than it saves. */
 const blockOf=new Map();
 let autoSide=null, autoKey="";
+/* WHAT EACH TRAIT'S PIXEL BLOCK IS, kept between visits.
+
+   Working it out costs a decode and a scan of up to 1.6 million pixels per
+   trait - 3,401 ms across the collection here, about 14,800 at a sixth of
+   this CPU - and the answer is a small integer that belongs to the artwork
+   and does not change while the artwork does not.
+
+   localStorage, not the store: this is a derived cache belonging to this
+   device, and IndexedDB is the thing that syncs to the group and the thing
+   "clear project" empties. Keyed by the database name, because wsDbName
+   already separates workspaces and two projects reuse ids.
+
+   An entry is trusted only while the record's PNG is the same LENGTH it
+   was when measured. Weaker than a hash, and wrong in the safe direction:
+   a false miss costs one scan, a false hit would choose a canvas from the
+   picture before an edit. */
+function blockStoreKey(){ return "pb.blocks."+wsDbName(); }
+let blockStoreRead=false;
+function loadBlocks(list){
+  if(blockStoreRead) return;
+  blockStoreRead=true;
+  try{
+    const raw=localStorage.getItem(blockStoreKey());
+    if(!raw) return;
+    const saved=JSON.parse(raw);
+    if(!saved||typeof saved!=="object") return;
+    for(const r of (list||[])){
+      const e=r&&saved[r.id];
+      if(e&&r.blob&&e.s===r.blob.size&&typeof e.b==="number") blockOf.set(r.id,e.b);
+    }
+  }catch(_){}
+}
+function saveBlocks(list){
+  try{
+    const out={};
+    for(const r of (list||[])){
+      const b=r&&blockOf.get(r.id);
+      if(b!==undefined&&r.blob) out[r.id]={b:b,s:r.blob.size};
+    }
+    localStorage.setItem(blockStoreKey(),JSON.stringify(out));
+  }catch(_){}
+}
 async function autoCanvas(recs){
   const list=(recs||[]).filter(r=>r&&r.kind!=="ref"&&(r.w||r.h));
   if(!list.length) return CANVAS_SIDE;
@@ -10185,6 +10454,9 @@ async function autoCanvas(recs){
      a different size recomputes and nothing else does. */
   const key=list.map(r=>r.id+":"+(r.w|0)+"x"+(r.h|0)).sort().join("|");
   if(autoKey===key && autoSide) return autoSide;
+  /* Before the loop, so a visit after the first finds every answer already
+     here and decodes nothing at all. */
+  loadBlocks(list);
   const seen=[];
   let scanned=0;   /* records this call actually had to decode */
   for(const r of list){
@@ -10220,6 +10492,10 @@ async function autoCanvas(recs){
   /* The 6.5 MB pixelBlock borrows to read a trait is not wanted between
      sweeps, and a collection is swept once. */
   if(blockScratch){ blockScratch.width=1; blockScratch.height=1; }
+  /* Only when something was actually measured, so an ordinary render does
+     not rewrite a string of thirteen kilobytes for nothing. Not awaited:
+     the answer below does not depend on it. */
+  if(scanned) saveBlocks(list);
   if(!seen.length) return CANVAS_SIDE;
   let best=null;
   for(const C of [...new Set(seen.map(x=>x.s))]){
@@ -14267,6 +14543,29 @@ async function cloudRender(){
      storage. Everything is left exactly as it was and the note says why. */
   if(a.state==="unknown"){
     $("cloudnote").textContent=CLOUD_UNREACHABLE;
+    /* AND YOUR OWN WORK, WHICH WAS BEHIND THE WALL. Everything that puts
+       this device's collection on screen is below this return, so a cold
+       load with no usable signal gave the sign-in card over an empty page -
+       with 318 traits in IndexedDB on the device and a valid session in
+       localStorage, and no way through, because the only route past the
+       wall is a password form that also needs the network.
+
+       The comment below is right about a mid-session drop and was wrong at
+       boot: "left exactly as it was" is a full-screen wall when nothing has
+       opened yet.
+
+       THE TRADE. Offline there is no way to check a stored session, so this
+       treats one as proof. It is the same credential the page would send
+       the moment there was signal, the data is already in this browser, and
+       the alternative is locking somebody out of their own collection
+       because the train went into a tunnel. Guarded three ways: only when
+       the gate has not already been answered, only when a session is really
+       stored, and never as a downgrade - authed is only ever set true here. */
+    if(!authed && sbLoadSession()){
+      authed=true;
+      gateShow(false);
+      bootLocal();
+    }
     return null;
   }
   /* And when it comes back, take the message down again - a stale "cannot
@@ -16412,11 +16711,11 @@ $('projsearch').addEventListener('input',()=>{
   shelfSearchPending=setTimeout(()=>{
     shelfSearchPending=null;
     shelfQuery=$('projsearch').value.trim().toLowerCase();
-    renderShelf();
+    renderShelf(true);
   },120);
 });
 $('projsearch').addEventListener('keydown',e=>{
-  if(e.key==='Escape'){ $('projsearch').value=''; shelfQuery=''; renderShelf(); }
+  if(e.key==='Escape'){ $('projsearch').value=''; shelfQuery=''; renderShelf(true); }
 });
 $('addlayer').onclick=addLayer;
 /* The same button, because it is the same act: the thing standing between
@@ -17369,10 +17668,57 @@ async function fixLoad(file){
   $("fixaftercap").textContent="";
   $("fixpair").hidden=false; $("fixacts").hidden=true;
   $("fixrun").disabled=false;
+  fixSizeHint();
   fixSay(W+"\u00d7"+H+" pixels. Press Fix it.");
 }
 /* Progress is a promise from the engine, not a guess from a timer, and the
    answer is shown beside the question at the same size on screen. */
+/* WHAT THAT PIXEL SIZE WILL GIVE YOU, before the run rather than after it.
+
+   The engine's own arithmetic, not a restatement of it: api's force_step
+   branch is cols = max(1, round(width / step)) and rows the same over the
+   height, which is what this computes. If that ever stops being true the
+   readout is wrong rather than merely stale, so patches/patch393 checks the
+   two agree.
+
+   Quiet with no image, because there is nothing to divide. */
+/* How big a picture may be and still be somebody's artwork at its own size.
+   Pixel art runs from about 16 to 256 on the long edge; past that the
+   answer is a photograph of pixel art rather than the thing itself. */
+const FIX_NATIVE_MAX=256;
+/* THREE PIXEL SIZES WORTH TRYING, and what each would give. Computed from
+   the image in hand: the divisors of its long edge nearest 8, 12 and 16, so
+   every suggestion divides evenly and none of them is a guess. Falls back to
+   the three plain numbers when nothing divides, which is the honest answer
+   for a width like 1023. */
+function fixTryThese(){
+  if(!FIX.src) return "";
+  const W=FIX.src.width, H=FIX.src.height, long=Math.max(W,H);
+  const divisors=[];
+  for(let n=2;n<=long/8;n++) if(long%n===0) divisors.push(n);
+  const near=(want)=>{
+    if(!divisors.length) return want;
+    let best=divisors[0];
+    for(const d of divisors) if(Math.abs(d-want)<Math.abs(best-want)) best=d;
+    return best;
+  };
+  const seen=[], out=[];
+  for(const want of [8,12,16]){
+    const s=near(want);
+    if(seen.indexOf(s)>=0) continue;
+    seen.push(s);
+    out.push(s+" gives "+Math.max(1,Math.round(W/s))+"\u00d7"+Math.max(1,Math.round(H/s)));
+  }
+  return "Try "+out.join(", ")+".";
+}
+function fixSizeHint(){
+  const el=$("fixsize"); if(!el) return;
+  const step=+$("fixforce").value||0;
+  if(!FIX.src||step<=0){ el.textContent=""; return; }
+  const cols=Math.max(1,Math.round(FIX.src.width/step));
+  const rows=Math.max(1,Math.round(FIX.src.height/step));
+  el.textContent="\u2192 "+cols+"\u00d7"+rows+" pixels";
+}
 function fixRun(){
   if(!FIX.src){ fixSay("Choose an image first."); return Promise.resolve(null); }
   fixStop();
@@ -17395,8 +17741,33 @@ function fixRun(){
         const a=$("fixafter"); a.width=r.width; a.height=r.height;
         const im=a.getContext("2d").createImageData(r.width,r.height); im.data.set(r.data); a.getContext("2d").putImageData(im,0,0);
         const secs=((performance.now()-t0)/1000).toFixed(1);
-        $("fixaftercap").textContent=r.width+"\u00d7"+r.height+" real pixels \u00b7 cell "+(+r.stepX).toFixed(2)+(Math.abs(r.stepX-r.stepY)>0.01?"\u00d7"+(+r.stepY).toFixed(2):"")+" px";
-        fixSay((r.confidence||"")+" confidence ("+(r.consensus||"?")+") \u00b7 "+secs+"s");
+        $("fixaftercap").textContent=r.width+"\u00d7"+r.height+" real pixels \u00b7 pixel size "+(+r.stepX).toFixed(2)+(Math.abs(r.stepX-r.stepY)>0.01?"\u00d7"+(+r.stepY).toFixed(2):"")+" px";
+        /* A SOFT RESULT SAYS WHAT TO DO ABOUT IT. An image whose edges were
+           soft to begin with makes the detectors find a small step, and a
+           small step keeps the softness faithfully - which is the tool
+           working and finding the wrong answer, and looks exactly like the
+           tool not working. Quiet when the size was forced: then the
+           question has already been answered by hand. */
+        /* TWO REASONS TO LOOK AGAIN, and the second is the one that matters.
+
+           Confidence alone was not enough: the case this was written for -
+           blocks with a soft edge - is answered at HIGH confidence and
+           correctly, so the advice stayed quiet on exactly the picture that
+           prompted it. What goes wrong on a generated scene is that the
+           detector locks onto the finest repeating thing in it, which in a
+           picture with 1px texture is a step of two or three - and a step
+           that small reproduces the softness faithfully.
+
+           So: the SIZE of the answer. Pixel art is 16 to 256 on its long
+           edge; a result still 512 across is not artwork at its native
+           size whatever the grid confidence. Said as a suggestion
+           contingent on what the person can see, because a genuinely large
+           piece exists and this must not call it wrong. */
+        const big = Math.max(r.width,r.height) > FIX_NATIVE_MAX;
+        const unsure = r.confidence!=="high" && r.consensus!=="forced";
+        fixSay((r.confidence||"")+" confidence ("+(r.consensus||"?")+") \u00b7 "+secs+"s"
+          +((big||unsure) ? " \u2014 if the edges still look soft, the pixel size it used ("
+            +(+r.stepX).toFixed(2)+" px) was too small. "+fixTryThese() : ""));
         $("fixacts").hidden=false;
         fixDone(w); resolve(r);
       }
@@ -17441,6 +17812,7 @@ function fixDownload(){
   d.ondragleave=()=>d.classList.remove("over");
   d.ondrop=e=>{ e.preventDefault(); d.classList.remove("over"); const x=e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0]; if(x) fixLoad(x); };
   $("fixrun").onclick=()=>{ fixRun(); };
+  $("fixforce").addEventListener("input",fixSizeHint);
   $("fixstop").onclick=fixStop;
   $("fixopen").onclick=fixOpen;
   $("fixdl").onclick=fixDownload;
@@ -19706,11 +20078,21 @@ function pioDrop(){
    click here does NOT mark the colour for replacing as #pal's does: the
    mark means "this colour, in the trait", and a working-set colour need
    not be in the trait at all. */
+/* WHETHER A TAP TAKES A COLOUR OUT. Ctrl+click was the only way, on a
+   control a phone has no key for and whose only mention was inside a title
+   attribute. */
+let pioTake=false;
 function pioRender(){
   const grid=$("piopal"), note=$("pionote"), drop=$("piodrop"), src=$("piosrc");
   if(!grid) return;
   const on=!!PIO;
   grid.hidden=!on; note.hidden=!on; drop.hidden=!on;
+  const take=$("piotake");
+  if(take){
+    take.hidden=!on;
+    if(!on) pioTake=false;
+    take.setAttribute("aria-pressed",String(pioTake));
+  }
   const opt=src.querySelector('option[value="imported"]');
   /* The option is offered while there is something to export; the choice
      itself is only moved when the palette goes, never on a redraw. */
@@ -19720,7 +20102,11 @@ function pioRender(){
   grid.style.gridTemplateColumns="repeat("+PIO.width+",minmax(22px,1fr))";
   const n=PIO.colours.filter(Boolean).length;
   note.textContent=PIO.name+" \u00b7 "+n+" colour"+(n===1?"":"s")+" \u00b7 "+PIO.width+"\u00d7"+PIO.height
-    +" \u00b7 left-click paints with it, right-click makes it the colour marked ones become";
+    /* WHAT HAPPENS, not which button does it. Half of the old sentence -
+       "right-click makes it the colour marked ones become" - is an
+       instruction a phone cannot carry out, on the only line of guidance
+       this panel has. */
+    +" \u00b7 tap to paint with it" + (pioTake ? ", or to take it out while Take out is on" : "");
   PIO.colours.forEach((h,i)=>{
     const b=document.createElement("button"); b.className="sw"; b.type="button";
     if(h){
@@ -19728,7 +20114,9 @@ function pioRender(){
       b.title=h+" \u00b7 slot "+(i+1)+" \u00b7 Ctrl+click takes it out";
       b.setAttribute("aria-pressed",String(h===color)); b.setAttribute("aria-label","Colour "+h);
       if(rcTo===h) b.dataset.to="1";
-      b.onclick=e=>{ if(e.ctrlKey||e.metaKey){ PIO.colours[i]=null; pioRender(); return; } setColor(h); };
+      /* The toggle and the modifier do the same thing: one for a finger,
+         one for the hand already on a keyboard. */
+      b.onclick=e=>{ if(pioTake||e.ctrlKey||e.metaKey){ PIO.colours[i]=null; pioRender(); return; } setColor(h); };
       b.oncontextmenu=e=>{ e.preventDefault(); rcTo=(rcTo===h)?null:h; rcSummary(); return false; };
     } else {
       b.classList.add("pioempty");
@@ -19812,6 +20200,7 @@ function pioExport(fmt, which){
   /* Cleared after the read, so choosing the same file again fires again. */
   f.onchange=e=>{ const file=e.target.files&&e.target.files[0]; f.value=""; if(file) pioImportFile(file); };
   $("piodrop").onclick=pioDrop;
+  $("piotake").onclick=()=>{ pioTake=!pioTake; pioRender(); };
   $("pioexport").onclick=()=>pioExport($("piofmt").value,$("piosrc").value);
 })();
 
@@ -20977,7 +21366,13 @@ function gdOpts(){
 /* Stop 0 is the paint colour, stop 1 the right-click target or black - the
    "left to right" preset of Pixelorama's gradient editor, with black where
    its right-mouse colour would be. */
-function gdColours(){ return [hx2(color).concat(255), hx2(rcTo||"#000000").concat(255)]; }
+/* THE FAR END OF THE RAMP. rcTo is set by right-clicking a swatch, which a
+   phone cannot do - so every gradient a finger drew ran to black, and the
+   tool's own tooltip told the person to right-click. gdTo is the gradient's
+   own, set from its panel; falling back to rcTo keeps the right-click route
+   working exactly as it did rather than replacing it. */
+let gdTo=null;
+function gdColours(){ return [hx2(color).concat(255), hx2(gdTo||rcTo||"#000000").concat(255)]; }
 /* THE 64 TEXELS Pixelorama samples. The tool feeds the shader a
    GradientTexture2D, 64 wide by Godot's default and read with
    filter_nearest, so the ramp has 64 steps whatever the canvas size; texel
@@ -21183,6 +21578,9 @@ registerTool("gradient",{
 });
 (function(){
   const a=$("gdarea"); if(!a) return;
+  const to=$("gdto"), toclear=$("gdtoclear");
+  if(to) to.oninput=e=>{ gdTo=e.target.value; };
+  if(toclear) toclear.onclick=()=>{ gdTo=null; if(to) to.value=rcTo||"#000000"; };
   /* _select_fill_area_optionbutton: the tolerance means nothing to Whole
      selection, so its row goes with it. */
   const tol=()=>{ $("gdtolrow").hidden=(+a.value===2); };
@@ -30365,7 +30763,7 @@ try{
         cols: Math.max(1, Math.round(width / fs)),
         rows: Math.max(1, Math.round(height / fs)),
         consensus: 'forced' };
-      onProgress(0.7, 'using the cell size you gave');
+      onProgress(0.7, 'using the pixel size you gave');
     } else {
       onProgress(0.02, 'looking for the grid');
       r = PF.core.detect(rgba, mode);

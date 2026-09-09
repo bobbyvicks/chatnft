@@ -296,4 +296,399 @@ test.describe('the page on a phone', () => {
     expect(beforeFlush, 'the debounce really was still pending').toBe(false);
     expect(afterFlush, 'and going away wrote it down').toBe(true);
   });
+
+  test('A STATUS TAP ANSWERS AT ONCE, WITH RULES SAVED', async ({ page }) => {
+    /* Measured before this, at 318 traits and 158 never-together rules - the
+       shape of the real collection: one status change cost 2,022 ms, of which
+       1,780 was a single cold distributionOf. A status change moves the record
+       to a new id, which changes the memo key, so EVERY one of them paid it.
+       Nothing was on screen for the whole of it, which reads as a dead button.
+
+       ASSERTED AS A MECHANISM, NOT A DEADLINE. The first version of this test
+       seeded 40 traits and asserted the render returned inside 900 ms - and it
+       PASSED on the page that had the defect, because 40 traits is small enough
+       that the simulation fits in the budget. A threshold that only fails at
+       one scale is not a guard. What actually changed is WHICH figure the tile
+       paints first, and that is true at any size: the weights-alone number
+       immediately, the sampled one when it lands. The two have to differ, or
+       this proves nothing either - so that is checked too. */
+    await open(page);
+    await page.evaluate(async () => {
+      await dbClear();
+      const S = 160;
+      const c = document.createElement('canvas'); c.width = S; c.height = S;
+      const g = c.getContext('2d');
+      const recs = [];
+      for (let i = 0; i < 40; i++) {
+        g.fillStyle = 'hsl(' + (i * 37 % 360) + ' 60% 45%)';
+        g.fillRect(0, 0, S, S);
+        const blob = await new Promise(r => c.toBlob(r, 'image/png'));
+        const layer = LAYERS[i % LAYERS.length];
+        const rec = { id: 't_r' + i + '_' + layer + '_approved', kind: 'trait', name: 'r' + i,
+          layer, w: S, h: S, blob, status: 'approved', synced: true };
+        await dbPut(rec); recs.push(rec);
+      }
+      /* Rules that actually bite, so the sampled figure and the arithmetic one
+         are different numbers. Pairs across layers, which is what the rules in
+         a real collection are. */
+      const keys = recs.map(r => traitKey(r));
+      const groups = [];
+      for (let i = 0; i + 1 < keys.length; i += 2) groups.push([keys[i], keys[i + 1]]);
+      await dbPut({ id: RULES_ID, kind: 'settings', at: Date.now(), groups });
+    });
+    await page.evaluate(() => { try { showPage('project', false); } catch (_) {} });
+    await page.evaluate(() => renderShelf());
+    await page.waitForTimeout(1200);
+
+    /* A cold render, which is what a status change is: the memo key moves with
+       the record's id, so the simulation cannot be reused. */
+    const first = await page.evaluate(async () => {
+      const items = (await dbAll()).filter(i => i.kind === 'trait');
+      const t = items[0];
+      const moved = { ...t, id: 't_' + t.name + '_' + t.layer + '_wip', status: 'wip' };
+      await dbDel(t.id); await dbPut(moved);
+      try { distCache = null; distKey = ''; } catch (_) {}
+      await renderShelf();
+      const now = (await dbAll()).filter(i => i.kind === 'trait');
+      const out = [];
+      for (const el of document.querySelectorAll('#projbody .item')) {
+        const name = (el.querySelector('b') || {}).textContent;
+        const p = el.querySelector('.pct');
+        if (!name || !p || p.classList.contains('never')) continue;
+        const rec = now.find(i => i.name === name);
+        if (!rec) continue;
+        const c = traitChance(rec, now, false, 'defer');
+        out.push({ name, shown: p.textContent, plain: '~' + pctLabel(c.plain) });
+      }
+      return { rules: RULES.length, rows: out.slice(0, 10) };
+    });
+    expect(first.rules, 'the rules really are loaded, or this measures nothing')
+      .toBeGreaterThan(10);
+    expect(first.rows.length, 'there are tiles with a figure on them').toBeGreaterThan(3);
+    for (const r of first.rows)
+      expect(r.shown, r.name + ' paints the weights-alone figure first').toBe(r.plain);
+
+    /* And then it settles on the sampled one, which is what the "~" has always
+       promised - and which has to be a DIFFERENT number for at least one tile,
+       or the check above passed for the wrong reason. */
+    await page.waitForTimeout(2500);
+    const settled = await page.evaluate(async () => {
+      const items = (await dbAll()).filter(i => i.kind === 'trait');
+      const dist = distributionOf(items, false);
+      const out = [];
+      for (const el of document.querySelectorAll('#projbody .item')) {
+        const name = (el.querySelector('b') || {}).textContent;
+        const p = el.querySelector('.pct');
+        if (!name || !p || p.classList.contains('never')) continue;
+        const rec = items.find(i => i.name === name);
+        if (!rec) continue;
+        out.push({ name, shown: p.textContent,
+          sampled: '~' + pctLabel(traitChance(rec, items, false, dist).pct),
+          plain: '~' + pctLabel(traitChance(rec, items, false, 'defer').plain) });
+      }
+      return out.slice(0, 10);
+    });
+    expect(settled.length, 'there are tiles to compare').toBeGreaterThan(3);
+    for (const r of settled)
+      expect(r.shown, r.name + ' settles on the sampled figure').toBe(r.sampled);
+    expect(settled.some(r => r.sampled !== r.plain),
+      'the two figures differ somewhere, so the first check was not vacuous').toBe(true);
+  });
+
+  /* BY LABEL, NOT BY CLASS. The class is part of the change, so a test that
+     finds the button by it fails on the old page for the wrong reason - the
+     selector, rather than the behaviour. Its label is what a person reads and
+     is the same on both. */
+  const pickButtons = (page, n) => page.evaluate((n) => {
+    const out = [];
+    for (const t of document.querySelectorAll('#projbody .item .shelftools')) {
+      for (const b of t.querySelectorAll('button')) {
+        if (b.textContent === 'pick' || b.textContent === 'picked') { out.push(b); break; }
+      }
+      if (out.length >= n) break;
+    }
+    window.__picks = out;
+    return out.length;
+  }, n);
+
+  test('PICKING A TRAIT DOES NOT REBUILD THE SHELF', async ({ page }) => {
+    /* Picking is a selection. It changes a button's label, a border and a
+       count - and it went through renderShelf, which rebuilds every tile, both
+       panels and every observer. Measured at 318 traits: 51 ms a pick before,
+       1 ms after; six picks, which is the whole point of picking, went from
+       307 ms to 6. On phone silicon that difference is seconds.
+
+       COUNTED, NOT TIMED. A threshold would pass on a fast machine with a
+       small fixture, which is how the status-tap test in this file first
+       fooled itself. What changed is that no render happens at all. */
+    await open(page);
+    await seed(page, 8);
+    expect(await pickButtons(page, 4), 'there are four tiles to pick').toBe(4);
+    const r = await page.evaluate(async () => {
+      let renders = 0;
+      const real = window.renderShelf;
+      window.renderShelf = function (...a) { renders++; return real.apply(this, a); };
+      try {
+        for (const b of window.__picks) b.click();
+        await new Promise(res => setTimeout(res, 500));
+        return {
+          renders,
+          picked: document.querySelectorAll('#projbody .item.picked').length,
+          count: (document.getElementById('shelfpickcount') || {}).textContent,
+          moveOn: !document.getElementById('shelfpickmove').disabled,
+        };
+      } finally { window.renderShelf = real; }
+    });
+    /* AND IT STILL SHOWS, first: a change that simply stopped rendering would
+       satisfy the render count and leave the selection invisible. */
+    expect(r.picked, 'every picked tile is marked').toBe(4);
+    expect(r.count, 'and the bar counts them').toBe('4 picked');
+    expect(r.moveOn, 'and Move is offered').toBe(true);
+    expect(r.renders, 'and picking rebuilt the shelf not once').toBe(0);
+  });
+
+  test('and clearing the selection does not either', async ({ page }) => {
+    await open(page);
+    await seed(page, 8);
+    expect(await pickButtons(page, 3), 'there are three tiles to pick').toBe(3);
+    const ready = await page.evaluate(async () => {
+      for (const b of window.__picks) b.click();
+      await new Promise(res => setTimeout(res, 500));
+      return document.querySelectorAll('#projbody .item.picked').length;
+    });
+    /* THE PRECONDITION, because without it this passes on a page where nothing
+       was ever picked: Clear is disabled, the click does nothing, and every
+       assertion below is true of an empty selection. That is exactly how the
+       first version of this test passed against the page it was written to
+       fail on. */
+    expect(ready, 'three traits really are picked before Clear is pressed').toBe(3);
+    const r = await page.evaluate(async () => {
+      let renders = 0;
+      const real = window.renderShelf;
+      window.renderShelf = function (...a) { renders++; return real.apply(this, a); };
+      try {
+        document.getElementById('shelfpicknone').click();
+        await new Promise(res => setTimeout(res, 500));
+        return { renders, picked: document.querySelectorAll('#projbody .item.picked').length,
+          count: (document.getElementById('shelfpickcount') || {}).textContent,
+          moveOff: document.getElementById('shelfpickmove').disabled };
+      } finally { window.renderShelf = real; }
+    });
+    expect(r.picked, 'nothing is left marked').toBe(0);
+    expect(r.count, 'and the bar says so').toBe('Nothing picked');
+    expect(r.moveOff, 'and Move is not offered').toBe(true);
+    expect(r.renders, 'and Clear rebuilt the shelf not once').toBe(0);
+  });
+
+  test('THE PAGE KEEPS CLEAR OF THE NOTCH AND THE HOME INDICATOR', async ({ page }) => {
+    /* The viewport meta says viewport-fit=cover, which takes the space under
+       the hardware and hands the page four env(safe-area-inset-*) values to
+       stay clear of it. Nothing in the file read one - grep for env( returned
+       nothing across 30,000 lines - so in landscape, with the toolbar
+       collapsed, or added to the home screen, the close button, the account
+       button, the footer's zoom controls and the shelf's move bar sat under the
+       hardware.
+
+       ENV() CANNOT BE SET FROM A TEST, which is why the insets go through four
+       variables: this gives the page a 34px bottom and 44px left and right, the
+       numbers a notched iPhone actually reports, and checks the page moves. */
+    await open(page);
+    const before = await page.evaluate(() => {
+      const px = (el, p) => Math.round(parseFloat(getComputedStyle(el)[p]));
+      return {
+        footer: px(document.querySelector('footer'), 'paddingBottom'),
+        header: px(document.querySelector('header'), 'paddingTop'),
+        acct: Math.round(parseFloat(getComputedStyle(document.querySelector('.acct')).right)),
+      };
+    });
+    const after = await page.evaluate(() => {
+      const r = document.documentElement.style;
+      r.setProperty('--sab', '34px');
+      r.setProperty('--sal', '44px');
+      r.setProperty('--sar', '44px');
+      r.setProperty('--sat', '47px');
+      const px = (el, p) => Math.round(parseFloat(getComputedStyle(el)[p]));
+      return {
+        footer: px(document.querySelector('footer'), 'paddingBottom'),
+        header: px(document.querySelector('header'), 'paddingTop'),
+        acct: Math.round(parseFloat(getComputedStyle(document.querySelector('.acct')).right)),
+      };
+    });
+    expect(after.footer, 'the footer clears the home indicator').toBe(before.footer + 34);
+    expect(after.header, 'the header clears the notch').toBe(before.header + 47);
+    expect(after.acct, 'and the account button clears the right edge').toBe(before.acct + 44);
+  });
+
+  test('EVERY TRANSFORM HANDLE IS ON SCREEN', async ({ page }) => {
+    /* Transform is one of the seven rail buttons a phone can reach without
+       swiping, and its tooltip promises resize and rotate. On a 1280 trait at
+       the zoom the editor itself picks, every handle was outside the stage -
+       and dragging inside the box still moved the art, so the tool half-worked,
+       which reads as a rendering fault rather than as something off screen. */
+    await open(page);
+    await page.evaluate(() => {
+      const w = 1280, h = 1280, d = new Uint8ClampedArray(w * h * 4);
+      for (let i = 0; i < d.length; i += 4) { d[i] = 200; d[i + 1] = 83; d[i + 2] = 104; d[i + 3] = 255; }
+      fileName = 'big.png';
+      startEditor(d, w, h, w, h, palette(d, w * h, 24, 64), false);
+    });
+    await page.waitForFunction(() => !document.getElementById('app').hidden);
+    await page.evaluate(() => selectTool('transform'));
+    await page.waitForTimeout(500);
+    const r = await page.evaluate(() => {
+      const b = document.getElementById('tbox'), st = document.getElementById('stage');
+      const sr = st.getBoundingClientRect();
+      const out = [];
+      for (const h of b.querySelectorAll('.th')) {
+        const q = h.getBoundingClientRect();
+        if (q.left < sr.left - 0.5 || q.top < sr.top - 0.5
+          || q.right > sr.right + 0.5 || q.bottom > sr.bottom + 0.5)
+          out.push(h.dataset.h + ' at ' + Math.round(q.left) + ',' + Math.round(q.top));
+      }
+      return { on: b.classList.contains('on'),
+        handles: b.querySelectorAll('.th').length, outside: out, zoom };
+    });
+    expect(r.on, 'the transform box is showing').toBe(true);
+    expect(r.handles, 'and it has its handles').toBeGreaterThan(4);
+    expect(r.outside, 'none of them is off the stage').toEqual([]);
+  });
+
+  test('A DRAG CAN REACH PAST THE TILES ALREADY ON SCREEN', async ({ page }) => {
+    /* The drag captures the pointer, so the shelf did not move under it - and
+       six of 318 tiles fit on a phone. A trait could only be dropped among
+       those six, or into another layer through the bar at the bottom, which
+       makes reordering a real collection impossible. Letting go to scroll does
+       not help: it commits the move to wherever the finger was.
+
+       Driven by dispatching the pointer events the handle listens for, rather
+       than by page.mouse, because the handle takes a pointer capture and the
+       test needs the same event object shape the real handler gets. */
+    await open(page);
+    await seed(page, 30);
+    await page.evaluate(() => window.scrollTo(0, 0));
+    const r = await page.evaluate(async () => {
+      const handle = document.querySelector('#projbody .item .draghandle');
+      if (!handle) return { bad: 'no drag handle' };
+      const box = handle.getBoundingClientRect();
+      const ev = (type, y) => new PointerEvent(type, { bubbles: true, cancelable: true,
+        pointerId: 7, pointerType: 'touch', isPrimary: true, button: 0, buttons: 1,
+        clientX: Math.round(box.left + box.width / 2), clientY: y });
+      handle.dispatchEvent(ev('pointerdown', Math.round(box.top + box.height / 2)));
+      const dragging = !!document.querySelector('.shelfdragghost');
+      const startedAt = window.scrollY;
+      /* Hold the finger at the bottom edge, where a list that can scroll does. */
+      for (let i = 0; i < 40; i++) {
+        handle.dispatchEvent(ev('pointermove', window.innerHeight - 20));
+        await new Promise(res => requestAnimationFrame(res));
+      }
+      const movedTo = window.scrollY;
+      /* And holding it in the middle must NOT scroll, or the page runs away
+         under a finger that is not asking for anything. */
+      const middleFrom = window.scrollY;
+      for (let i = 0; i < 40; i++) {
+        handle.dispatchEvent(ev('pointermove', Math.round(window.innerHeight / 2)));
+        await new Promise(res => requestAnimationFrame(res));
+      }
+      const middleTo = window.scrollY;
+      handle.dispatchEvent(ev('pointercancel', Math.round(window.innerHeight / 2)));
+      await new Promise(res => setTimeout(res, 200));
+      const stoppedFrom = window.scrollY;
+      await new Promise(res => setTimeout(res, 300));
+      return { dragging, startedAt, movedTo, middleFrom, middleTo,
+        stoppedFrom, stoppedTo: window.scrollY,
+        ghostGone: !document.querySelector('.shelfdragghost') };
+    });
+    expect(r.bad).toBeUndefined();
+    expect(r.dragging, 'the drag really started').toBe(true);
+    expect(r.movedTo, 'holding at the bottom edge scrolls the shelf')
+      .toBeGreaterThan(r.startedAt);
+    expect(r.middleTo, 'holding in the middle does not').toBe(r.middleFrom);
+    expect(r.ghostGone, 'and the drag ended').toBe(true);
+    expect(r.stoppedTo, 'and the scrolling stopped with it').toBe(r.stoppedFrom);
+  });
+
+  /* An editor open on a small canvas, for the two tool tests below. */
+  const editor = async (page) => {
+    await page.evaluate(() => {
+      const w = 32, h = 32, d = new Uint8ClampedArray(w * h * 4);
+      for (let i = 0; i < d.length; i += 4) { d[i + 3] = 255; }
+      fileName = 'tools.png';
+      startEditor(d, w, h, w, h, palette(d, w * h, 24, 64), false);
+    });
+    await page.waitForFunction(() => !document.getElementById('app').hidden);
+  };
+
+  test('THE GRADIENT HAS A FAR END A FINGER CAN SET', async ({ page }) => {
+    /* gdColours was [paint colour, rcTo || black] and rcTo is written in
+       exactly two places, both oncontextmenu. There is no right-click on a
+       phone, so every gradient a finger drew ran to black - while the tool's
+       own tooltip told the person to right-click. */
+    await open(page);
+    await editor(page);
+    const r = await page.evaluate(() => {
+      const out = {};
+      setColor('#ffffff');
+      try { rcTo = null; gdTo = null; } catch (_) {}
+      out.beforeAnything = gdColours()[1].slice(0, 3).join(',');
+      /* The route a phone has: the control in the gradient's own panel. */
+      const to = document.getElementById('gdto');
+      out.hasControl = !!to;
+      if (to) { to.value = '#3fa66a'; to.dispatchEvent(new Event('input', { bubbles: true })); }
+      out.afterControl = gdColours()[1].slice(0, 3).join(',');
+      /* And the route a mouse has, still working - with the control cleared,
+         so this is testing the fallback and not the value set above. */
+      document.getElementById('gdtoclear').click();
+      try { rcTo = '#c85368'; } catch (_) {}
+      out.afterRightClickTarget = gdColours()[1].slice(0, 3).join(',');
+      try { rcTo = null; } catch (_) {}
+      out.backToBlack = gdColours()[1].slice(0, 3).join(',');
+      return out;
+    });
+    expect(r.hasControl, 'the gradient panel has a far-end control').toBe(true);
+    expect(r.beforeAnything, 'with nothing set it is still black').toBe('0,0,0');
+    expect(r.afterControl, 'and the control sets it').toBe('63,166,106');
+    expect(r.afterRightClickTarget, 'the right-click target still works when the control is clear')
+      .toBe('200,83,104');
+    expect(r.backToBlack, 'and black is still the last resort').toBe('0,0,0');
+  });
+
+  test('AND A COLOUR CAN BE TAKEN OUT OF AN IMPORTED PALETTE WITHOUT A KEYBOARD',
+    async ({ page }) => {
+      /* Ctrl+click was the only way, and it was written only inside a title
+         attribute - which a phone has no key for and does not show. */
+      await open(page);
+      await editor(page);
+      const r = await page.evaluate(() => {
+        PIO = pioFill('probe', ['#ff0000', '#00ff00', '#0000ff'], '', 3, []);
+        pioRender();
+        setColor('#ffffff');
+        const sw = () => [...document.querySelectorAll('#piopal .sw')];
+        const toggle = document.getElementById('piotake');
+        const out = { hasToggle: !!toggle, toggleShown: toggle && !toggle.hidden };
+        /* Off: a tap paints, as it always did. */
+        sw()[0].click();
+        out.paintedWith = color;
+        out.stillThree = PIO.colours.filter(Boolean).length;
+        /* On: a tap takes it out, and does NOT also paint with it. */
+        toggle.click();
+        out.pressed = toggle.getAttribute('aria-pressed');
+        setColor('#ffffff');
+        sw()[1].click();
+        out.left = PIO.colours.filter(Boolean).length;
+        out.colourAfter = color;
+        /* And dropping the palette puts the toggle away with it. */
+        pioDrop();
+        out.afterDrop = { hidden: toggle.hidden, pressed: toggle.getAttribute('aria-pressed') };
+        return out;
+      });
+      expect(r.hasToggle, 'there is a control for it').toBe(true);
+      expect(r.toggleShown, 'and it is on screen while a palette is loaded').toBe(true);
+      expect(r.paintedWith, 'with the toggle off a tap still paints').toBe('#ff0000');
+      expect(r.stillThree, 'and takes nothing out').toBe(3);
+      expect(r.pressed, 'the toggle says it is on').toBe('true');
+      expect(r.left, 'with it on, a tap takes the colour out').toBe(2);
+      expect(r.colourAfter, 'and does not also paint with it').toBe('#ffffff');
+      expect(r.afterDrop.hidden, 'and the toggle goes with the palette').toBe(true);
+      expect(r.afterDrop.pressed, 'and does not stay armed for the next one').toBe('false');
+    });
 });

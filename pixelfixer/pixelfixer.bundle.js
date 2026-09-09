@@ -8400,7 +8400,7 @@
         cols: Math.max(1, Math.round(width / fs)),
         rows: Math.max(1, Math.round(height / fs)),
         consensus: 'forced' };
-      onProgress(0.7, 'using the cell size you gave');
+      onProgress(0.7, 'using the pixel size you gave');
     } else {
       onProgress(0.02, 'looking for the grid');
       r = PF.core.detect(rgba, mode);

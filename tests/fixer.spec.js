@@ -139,7 +139,11 @@ test.describe('the Fix pixels tab', () => {
     }));
     expect(after.w).toBe(16);
     expect(after.cap).toContain('16×16');
-    expect(after.cap).toContain('cell 3');
+    /* RENAMED, not relaxed. The control and the caption call this the PIXEL
+       SIZE now - "i'd rather it be pixel size instead of cell" - and the
+       number it names is unchanged, so this asserts the same fact in the
+       words the page uses. */
+    expect(after.cap).toContain('pixel size 3');
     expect(after.acts, 'and now there is something to do with it').toBe(true);
     expect(after.progressGone, 'the progress bar is put away').toBe(true);
     expect(after.said).toContain('high confidence');
@@ -221,4 +225,109 @@ test.describe('the Fix pixels tab', () => {
     expect({ cols: r.cols, rows: r.rows }).toEqual({ cols: 16, rows: 16 });
     expect(r.confidence).toBe('high');
   });
+
+  test('SAYS WHAT A PIXEL SIZE WILL GIVE YOU, BEFORE THE RUN', async ({ page }) => {
+    /* The control was called "Cell size" and its tooltip said "for when you
+       already know it", which tells somebody who does not know it nothing.
+       The number it wants is the size of one pixel of the artwork, and the
+       readout now says what that leaves you with. */
+    await page.evaluate(() => showPage('fixer', false));
+    const size = await feed(page, 4, 24);   /* 96x96 */
+    const r = await page.evaluate(() => {
+      const box = document.getElementById('fixforce'), out = document.getElementById('fixsize');
+      const at = (v) => { box.value = String(v); box.dispatchEvent(new Event('input', { bubbles: true })); return out.textContent; };
+      return { label: document.querySelector('label[for="fixforce"]').textContent,
+        detect: at(0), four: at(4), twelve: at(12) };
+    });
+    expect(size).toEqual({ w: 96, h: 96 });
+    expect(r.label, 'the control is named for what it sets').toBe('Pixel size');
+    expect(r.detect, 'with 0 there is nothing to promise').toBe('');
+    expect(r.four, 'four pixels to one gives a 24 square').toContain('24×24');
+    expect(r.twelve, 'and twelve gives an 8').toContain('8×8');
+  });
+
+  test('and a result it is not sure of says what to do about it', async ({ page }) => {
+    /* The complaint this came from was "there is still blurred pixel art", on
+       an image whose edges were soft to begin with - which makes the detectors
+       find a small step, and a small step keeps the softness faithfully. That
+       is the tool working and finding the wrong answer, and it looks exactly
+       like the tool not working. */
+    await page.evaluate(() => showPage('fixer', false));
+    await feed(page, 3, 16);
+    const sure = await page.evaluate(async () => {
+      const r = await fixRun();
+      return { conf: r && r.confidence, said: document.getElementById('fixout').textContent };
+    });
+    expect(sure.conf, 'a clean 3x is the case it is sure of').toBe('high');
+    expect(sure.said, 'so it says nothing extra').not.toContain('Pixel size');
+
+    /* Forced: the person has already answered, so it stays quiet there too. */
+    const forced = await page.evaluate(async () => {
+      document.getElementById('fixforce').value = '3';
+      const r = await fixRun();
+      document.getElementById('fixforce').value = '0';
+      return { conf: r && r.confidence, cons: r && r.consensus,
+        said: document.getElementById('fixout').textContent };
+    });
+    expect(forced.cons, 'the forced path was taken').toBe('forced');
+    expect(forced.conf, 'which the engine calls medium').toBe('medium');
+    expect(forced.said, 'and it does not tell you to do what you just did')
+      .not.toContain('run it again');
+  });
+
+  test('AND SAYS SO WHEN THE ANSWER IS STILL TOO BIG TO BE PIXEL ART', async ({ page }) => {
+    /* The complaint this came from was a generated scene that came back with
+       its soft edges intact. The detector was not unsure - it locked onto the
+       finest repeating thing in a picture that has 1px texture in it, and
+       answered with a pixel size so small that the softness survives.
+
+       TWO FIXTURES WERE TRIED AND NEITHER FOOLED THE DETECTOR: 12px blocks
+       under a blur came back 43x43 at 11.91px, high confidence and right; pure
+       per-pixel noise came back 93x93. That is worth recording, because it is
+       also why the FIRST version of this advice was wrong - it fired on low
+       confidence, and the case it was written for is answered confidently.
+
+       So this asserts the RULE rather than trying to reproduce the picture: a
+       result bigger than pixel art gets says so, however it got there. A small
+       pixel size put in by hand reaches that state exactly and deterministically,
+       and is a thing somebody really does. */
+    await page.evaluate(() => showPage('fixer', false));
+    const said = await page.evaluate(async () => {
+      const S = 512;
+      const c = document.createElement('canvas'); c.width = S; c.height = S;
+      const g = c.getContext('2d');
+      const pal = ['#2e222f', '#c85368', '#e8c170', '#3fa66a'];
+      for (let y = 0; y < S; y += 8) for (let x = 0; x < S; x += 8) {
+        g.fillStyle = pal[(((x >> 3) * 7 + (y >> 3) * 13) >>> 0) % pal.length];
+        g.fillRect(x, y, 8, 8);
+      }
+      const blob = await new Promise(r => c.toBlob(r, 'image/png'));
+      await fixLoad(new File([blob], 'blocks.png', { type: 'image/png' }));
+      document.getElementById('fixforce').value = '1';
+      const r = await fixRun();
+      document.getElementById('fixforce').value = '0';
+      return { long: r && Math.max(r.width, r.height),
+        out: document.getElementById('fixout').textContent };
+    });
+    expect(said.long, 'the answer really is bigger than pixel art gets').toBe(512);
+    expect(said.out, 'so it says the pixel size was too small').toContain('too small');
+    expect(said.out, 'and names sizes to try').toContain('Try ');
+    expect(said.out, 'each of which divides this image evenly').toContain('8 gives 64×64');
+  });
+
+  test('and stays quiet when the answer is the size pixel art actually is',
+    async ({ page }) => {
+      /* THE CONTROL. Advice on every run is noise, and noise on a good result
+         is what teaches somebody to stop reading the line. */
+      await page.evaluate(() => showPage('fixer', false));
+      await feed(page, 3, 16);
+      const r = await page.evaluate(async () => {
+        const out = await fixRun();
+        return { long: out && Math.max(out.width, out.height),
+          said: document.getElementById('fixout').textContent };
+      });
+      expect(r.long, 'a 16x16 is well inside what pixel art is').toBe(16);
+      expect(r.said, 'so nothing is suggested').not.toContain('Try ');
+      expect(r.said, 'and nothing is called too small').not.toContain('too small');
+    });
 });

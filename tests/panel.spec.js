@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { openTrait, openSection, art, setField } from './helpers.js';
+import { openTrait, openSection, openPanel, art, setField } from './helpers.js';
 
 test.describe('the panel', () => {
   test('fits its window on arrival, with every heading reachable', async ({ page }) => {
@@ -9,11 +9,18 @@ test.describe('the panel', () => {
     const panel = await page.evaluate(() => {
       const s = document.querySelector('.side');
       const rect = s.getBoundingClientRect(), r = rect;
-      const heads = [...s.querySelectorAll('section h2')].map(h => {
-        const hr = h.getBoundingClientRect();
-        return { name: h.textContent.replace(/[^A-Za-z ]/g, '').trim(),
-                 onScreen: hr.top >= r.top - 1 && hr.bottom <= r.bottom + 1 };
-      });
+      /* VISIBLE sections only. Agent is in the column but carries the hidden
+         attribute until agent mode turns it on, and a hidden element measures
+         as a zero-size box at the origin - which fails a "is it inside the
+         panel" test for a reason that has nothing to do with reachability.
+         The count is asserted below so this cannot quietly empty itself. */
+      const heads = [...s.querySelectorAll('section')]
+        .filter(sec => !sec.hidden && sec.offsetParent !== null)
+        .map(sec => sec.querySelector('h2')).filter(Boolean).map(h => {
+          const hr = h.getBoundingClientRect();
+          return { name: h.textContent.replace(/[^A-Za-z ]/g, '').trim(),
+                   onScreen: hr.top >= r.top - 1 && hr.bottom <= r.bottom + 1 };
+        });
       /* The two controls the old `open === 2` stood for, measured directly.
          Counting sections never checked WHICH two were open. */
       const usable = id => {
@@ -23,7 +30,7 @@ test.describe('the panel', () => {
         return r.width > 0 && r.height > 0 && r.top >= rect.top - 1 && r.bottom <= rect.bottom + 1;
       };
       return { scroll: s.scrollHeight, window: s.clientHeight, heads,
-               brush: usable('bslider'), palette: usable('pal'),
+               brush: usable('bslider'),
                open: [...s.querySelectorAll('section')].filter(x => !x.classList.contains('folded')).length };
     });
     expect(panel.scroll, 'no scrolling on arrival').toBeLessThanOrEqual(panel.window + 2);
@@ -38,28 +45,74 @@ test.describe('the panel', () => {
        also strictly stronger: this would fail on two open sections that happened
        to be the wrong two, which the old assertion would have passed. */
     expect(panel.open, 'something must be open').toBeGreaterThan(0);
+    /* Or the loop below is a promise about nothing. */
+    expect(panel.heads.length, 'there are headings to be reachable').toBeGreaterThan(1);
     expect(panel.brush, 'the brush is usable on arrival, without scrolling').toBe(true);
-    expect(panel.palette, 'and so is the palette').toBe(true);
     for (const h of panel.heads) expect(h.onScreen, `${h.name} should be reachable without scrolling`).toBe(true);
+
+    /* THE PALETTE IS NO LONGER ON ARRIVAL, AND THAT IS THE ASK RATHER THAN A
+       SLIP. It moved into the card the colour button opens - "instead of just
+       having a colour wheel when you click the colour button also put the
+       projects pallete in that box" - as part of clearing the side column so
+       the canvas gets the room.
+
+       So the promise changes shape rather than weakening: one press, and the
+       whole grid is there and fully inside the card. Deleting the assertion
+       instead would leave nothing checking the palette is reachable at all. */
+    await openPanel(page, 'cl');
+    const pal = await page.evaluate(() => {
+      const p = document.getElementById('pal'), card = p.closest('.card');
+      const r = p.getBoundingClientRect(), cr = card.getBoundingClientRect();
+      return { drawn: r.width > 0 && r.height > 0,
+               swatches: p.querySelectorAll('.sw').length,
+               inCard: r.left >= cr.left - 1 && r.right <= cr.right + 1 };
+    });
+    expect(pal.drawn, 'one press on the colour button and the palette is there').toBe(true);
+    /* One, because this fixture paints one pixel. The claim is that the grid
+       carries the trait's colours, not that this trait has several. */
+    expect(pal.swatches, 'with the colours in it').toBe(1);
+    expect(pal.inCard, 'and inside the card rather than cut off by it').toBe(true);
   });
 
   test('one click on a heading reveals its controls', async ({ page }) => {
-    /* The subject moved with the sections. This used to open Recolour and watch
-       #rcerase appear - but Recolour is no longer a heading, its controls having
-       moved under the palette they act on, and that section is open on arrival.
-       Aiming this at 'Colour' would keep the test passing while proving nothing,
-       because there would be nothing folded to unfold. Base layer is folded on
-       arrival and has a control of its own. */
+    /* The subject has moved three times, which is the tell that naming it was
+       the mistake. It opened Recolour and watched #rcerase appear; Recolour
+       stopped being a heading, so it moved to Base layer; Base layer became a
+       pop-out panel; and now that the palette has left the column too, the
+       column FITS - so foldDefaults folds nothing at all and there is no
+       named section that is reliably closed on arrival.
+
+       So nothing is named. The window is made short enough that the panel
+       cannot fit, which is the condition folding exists for, and then
+       whichever section folded is the one that gets clicked. The property has
+       never changed: a heading you click gives you its controls, on screen,
+       not below the fold. */
+    await page.setViewportSize({ width: 1100, height: 520 });
     await openTrait(page, { w: 80, h: 80, draw: (set) => { set(1, 1, [1, 2, 3]); } });
-    const box = () => page.evaluate(() => {
-      const b = document.getElementById('baseop'), s = document.querySelector('.side');
+
+    const folded = await page.evaluate(() => {
+      const sec = [...document.querySelectorAll('.side section')]
+        .filter(s => !s.hidden && s.classList.contains('folded'))
+        .find(s => s.querySelector('h2') && s.querySelector('input,select,button:not(.fold)'));
+      if (!sec) return null;
+      const h = sec.querySelector('h2');
+      const c = sec.querySelector('input,select,button:not(.fold)');
+      if (!c.id) c.id = 'foldprobe';
+      return { name: h.textContent.replace(/[^A-Za-z ]/g, '').trim(), control: c.id };
+    });
+    /* A short window that folds nothing means the mechanism under test did not
+       run, and every assertion below would be vacuous. */
+    expect(folded, 'a panel too tall for its window must fold something').not.toBeNull();
+
+    const box = () => page.evaluate((id) => {
+      const b = document.getElementById(id), s = document.querySelector('.side');
       const r = b.getBoundingClientRect(), sr = s.getBoundingClientRect();
       return { visible: r.width > 0 && r.height > 0,
                inView: r.top >= sr.top - 1 && r.bottom <= sr.bottom + 1 };
-    });
-    expect((await box()).visible, 'folded to begin with').toBe(false);
+    }, folded.control);
+    expect((await box()).visible, folded.name + ' is folded to begin with').toBe(false);
 
-    await openSection(page, 'Base layer');
+    await openSection(page, folded.name);
     const shown = await box();
     expect(shown.visible).toBe(true);
     expect(shown.inView, 'and in view, not below the fold').toBe(true);
@@ -92,9 +145,16 @@ test.describe('the merged sections', () => {
     /* The palette was moved into #brushsec, which selectTool hides whenever the
        tool is not the pencil or the eraser. If the hiding is ever put back onto
        the section instead of the rows, your colours vanish the moment you pick
-       the fill, the move or the picker - and nothing else would notice. */
+       the fill, the move or the picker - and nothing else would notice.
+
+       The palette has since moved again, into the card the colour button
+       opens, and the brush rows stayed in the column. That splits the subject
+       across two places and changes nothing about the defect: selectTool
+       still sweeps by tool, and the palette must still survive the sweep
+       wherever it is living. Both are opened, and both are measured. */
     await openTrait(page, { w: 80, h: 80, draw: (set) => { set(1, 1, [1, 2, 3]); set(2, 2, [9, 9, 9]); } });
     await openSection(page, 'Colour');
+    await openPanel(page, 'cl');
     const shown = async () => page.evaluate(() => {
       const p = document.getElementById('pal');
       const r = p.getBoundingClientRect();
@@ -120,9 +180,12 @@ test.describe('the merged sections', () => {
   });
 
   test('every control from the merged pairs is still reachable', async ({ page }) => {
+    /* The pairs this names are spread over the column and the pop-out panels
+       now, so all of them are opened. What is being asserted is unchanged:
+       nothing that used to be reachable was quietly dropped on the way. */
     await openTrait(page, { w: 80, h: 80, draw: (set) => { set(1, 1, [1, 2, 3]); } });
     await openSection(page, 'Colour');
-    await openSection(page, 'Save and export');
+    for (const id of ['cl', 'sv']) await openPanel(page, id);
     const seen = id => page.evaluate(i => {
       const e = document.getElementById(i);
       if (!e) return false;

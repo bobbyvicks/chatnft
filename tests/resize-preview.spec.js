@@ -22,7 +22,7 @@
    is right about 120 and wrong about 64 passes every case test written for 120.
 */
 import { test, expect } from '@playwright/test';
-import { openTrait, openAllSections, pressed } from './helpers.js';
+import { openTrait, openAllSections, pressed, resizeGo } from './helpers.js';
 
 const TRAIT = (set, W, H) => {
   for (let y = 16; y < 72; y++) for (let x = 24; x < 136; x++) set(x, y, [226, 146, 116]);
@@ -195,7 +195,7 @@ test.describe('the resize panel says what it will do', () => {
       const arrow = said.indexOf('→');
       const promised = (arrow < 0 ? said : said.slice(arrow + 1)).split('·')[0]
         .replace('trait', '').trim();
-      await page.click('#rsgo');
+      await resizeGo(page);
       await page.waitForTimeout(250);
       const got = c.mode === 'inside' ? await traitSize(page) : await canvasSize(page);
       const label = JSON.stringify(c) + ' promised "' + promised + '" got "' + got + '"';

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { openTrait, openAllSections, attachBase, art, base, setField, setSelect } from './helpers.js';
+import { openTrait, openAllSections, attachBase, art, base, setField, setSelect, resizeGo } from './helpers.js';
 
 /* A character with white bands at its head and its feet. Those are the first
    things lost when the base gets cropped, and they are exactly what a hat or a
@@ -30,7 +30,7 @@ test.describe('the base character', () => {
     await page.evaluate(() => document.getElementById('rssnap').setAttribute('aria-pressed', 'false'));
     await setField(page, 'rsw', 240);
     await setField(page, 'rsh', 240);
-    await page.click('#rsgo');
+    await resizeGo(page);
     await page.waitForTimeout(400);
 
     const after = { art: await art.size(page), ink: await base.ink(page) };
@@ -55,7 +55,7 @@ test.describe('the base character', () => {
     for (const size of [80, 40]) {
       await setField(page, 'rsw', size);
       await setField(page, 'rsh', size);
-      await page.click('#rsgo');
+      await resizeGo(page);
       await page.waitForTimeout(350);
       expect(await art.size(page)).toBe(`${size}x${size}`);
       expect(await base.colour(page, [255, 255, 255]),

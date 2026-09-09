@@ -37,7 +37,7 @@
    the first record it sees.
 */
 import { test, expect } from '@playwright/test';
-import { openTrait, openAllSections, setSelect, setField } from './helpers.js';
+import { openTrait, openAllSections, setSelect, setField, resizeGo, openPanel } from './helpers.js';
 
 const BLOCK = new Function('set', 'W', 'H',
   'for (let y = 20; y < 140; y++) for (let x = 20; x < 140; x++) set(x, y, [226, 146, 116]);');
@@ -60,9 +60,13 @@ async function addTrait(page, name, size) {
     await setSelect(page, 'rsmode', 'art');
     await setField(page, 'rsw', size);
     await setField(page, 'rsh', size);
-    await page.click('#rsgo');
+    await resizeGo(page);
     await page.waitForTimeout(300);
   }
+  /* Naming and saving moved into the Save panel, so it is opened first -
+     the same order a person works in, and the only order in which the
+     button can be clicked at all. */
+  await openPanel(page, 'sv');
   await page.evaluate((n) => { $('tname').value = n; }, name);
   await page.click('#saveproj');
   await page.waitForTimeout(500);

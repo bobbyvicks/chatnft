@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { openTrait, openAllSections, art, picked, pickSwatch, setField } from './helpers.js';
+import { openTrait, openAllSections, openPanel, art, picked, pickSwatch, setField } from './helpers.js';
 
 /* Three bands of flat colour. Distinct enough that palette() keeps them apart -
    it merges anything closer than about 40 - so the swatches are predictable. */
@@ -12,6 +12,7 @@ test.describe('erase a colour', () => {
   test('removes it completely and leaves nothing behind', async ({ page }) => {
     const errors = await openTrait(page, { w: 60, h: 60, draw: bands });
     await openAllSections(page);
+    await openPanel(page, 'cl');
     const greenBefore = await art.colour(page, [0, 255, 0]);
     const redBefore = await art.colour(page, [255, 0, 0]);
     expect(greenBefore).toBeGreaterThan(0);
@@ -32,9 +33,16 @@ test.describe('erase a colour', () => {
        broken and writes nothing at all. */
     await openTrait(page, { w: 60, h: 60, draw: bands });
     await openAllSections(page);
+    await openPanel(page, 'cl');
     const greenBefore = await art.colour(page, [0, 255, 0]);
-    await page.evaluate(() => setColor('#ffcc00'));
+    /* IN THIS ORDER. A left click on a swatch marks it AND makes it the
+       colour being painted with - one gesture, one thought - so setting the
+       destination first and picking afterwards sets the destination back to
+       the colour being replaced, and Replace becomes green-to-green. That is
+       not a bug in Replace; it is the flow read backwards. Mark what you are
+       changing, then say what it becomes. */
     await pickSwatch(page, 1);
+    await page.evaluate(() => setColor('#ffcc00'));
     await page.click('#rcgo');
     await page.waitForTimeout(300);
     expect(await art.colour(page, [0, 255, 0])).toBe(0);
@@ -57,6 +65,7 @@ test.describe('erase a colour', () => {
       },
     });
     await openAllSections(page);
+    await openPanel(page, 'cl');
     await pickSwatch(page, 0);
     await page.click('#rcnear');
     await setField(page, 'rctol', 24);
@@ -78,6 +87,7 @@ test.describe('the recolour selection', () => {
        swatches stayed on screen looking normal while rcPick was empty. */
     await openTrait(page, { w: 60, h: 60, draw: bands });
     await openAllSections(page);
+    await openPanel(page, 'cl');
     await pickSwatch(page, 0);
     await pickSwatch(page, 1);
     expect(await picked(page)).toHaveLength(2);
@@ -96,6 +106,7 @@ test.describe('the recolour selection', () => {
        have made it survive an operation that removes the colour it names. */
     await openTrait(page, { w: 60, h: 60, draw: bands });
     await openAllSections(page);
+    await openPanel(page, 'cl');
     await pickSwatch(page, 1);
     expect(await picked(page)).toHaveLength(1);
     await page.click('#rcerase');
@@ -108,14 +119,16 @@ test.describe('the recolour selection', () => {
 
    #pal and #rcpal used to render the same 64 colours - about 243px of sidebar,
    twice - because the two interactions differ: drawing takes ONE colour and
-   replacing takes SEVERAL. One grid now, with a chip pair saying what a click
-   does, and both states drawn at once: aria-pressed for the drawing colour,
-   data-rc for marked-for-replace.
+   replacing takes SEVERAL. One grid now, both states drawn at once:
+   aria-pressed for the drawing colour, data-rc for marked-for-replace.
 
-   Every test above passes unchanged, which is the point - the behaviour did not
-   move. But they reach the selection through pickSwatch, which sets the mode
-   itself, so all of them would still pass if the mode were ignored and a click
-   always marked. None of them can see the Draw half. */
+   SUPERSEDES THE CHIP PAIR THIS NOTE USED TO DESCRIBE. Draw and Replace were
+   a mode deciding what a click on a swatch meant, and the two mouse buttons
+   say it without one: left picks a colour to change and paints with it, right
+   sets what they become. The three tests that drove #palmode went with it -
+   they described a control that is gone, and colourtools.spec.js covers both
+   buttons directly. What did NOT move is the property they were protecting
+   between them, so it is kept below on its own. */
 test.describe('the merged palette', () => {
   const bands3 = (set, W, H) => {
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++)
@@ -127,7 +140,6 @@ test.describe('the merged palette', () => {
     s.click();
     return s.dataset.hex;
   }, i);
-  const mode = (page, v) => page.evaluate((m) => setChip('palmode', m), v);
   const state = (page) => page.evaluate(() => ({
     colour: color,
     marks: [...document.querySelectorAll('#pal .sw')].filter(s => s.dataset.rc === '1').length,
@@ -138,6 +150,7 @@ test.describe('the merged palette', () => {
   test('there is one swatch grid, not two', async ({ page }) => {
     await openTrait(page, { w: 60, h: 60, draw: bands3 });
     await openAllSections(page);
+    await openPanel(page, 'cl');
     const n = await page.evaluate(() => ({
       grids: document.querySelectorAll('.swatches').length,
       rcpal: !!document.getElementById('rcpal'),
@@ -148,72 +161,43 @@ test.describe('the merged palette', () => {
     expect(n.pal, 'and the remaining one has the colours').toBeGreaterThan(1);
   });
 
-  test('in Draw mode a click sets the colour and marks nothing', async ({ page }) => {
-    await openTrait(page, { w: 60, h: 60, draw: bands3 });
-    await openAllSections(page);
-    await mode(page, 'draw');
-    const hex = await swatch(page, 1);
-    const s = await state(page);
-    expect(s.colour, 'the drawing colour follows the click').toBe(hex);
-    expect(s.picked, 'and nothing is marked for replacing').toBe(0);
-    expect(s.ring, 'exactly one swatch carries the ring').toBe(1);
-  });
-
-  test('in Replace mode a click marks and leaves the drawing colour alone', async ({ page }) => {
-    // If marking changed the drawing colour, the colour you are replacing WITH
-    // would move every time you picked a target - the recolour could not be
-    // expressed at all.
-    await openTrait(page, { w: 60, h: 60, draw: bands3 });
-    await openAllSections(page);
-    await mode(page, 'draw');
-    const drawing = await swatch(page, 0);
-    await mode(page, 'replace');
-    await swatch(page, 1);
-    await swatch(page, 2);
-    const s = await state(page);
-    expect(s.picked, 'both marked').toBe(2);
-    expect(s.marks, 'and both shown').toBe(2);
-    expect(s.colour, 'the drawing colour must not move while picking targets').toBe(drawing);
-  });
-
   test('a second click unmarks, so a misclick is fixable', async ({ page }) => {
     await openTrait(page, { w: 60, h: 60, draw: bands3 });
     await openAllSections(page);
-    await mode(page, 'replace');
+    await openPanel(page, 'cl');
     await swatch(page, 1);
     expect((await state(page)).picked).toBe(1);
     await swatch(page, 1);
     expect((await state(page)).picked, 'clicking it again takes it out').toBe(0);
   });
 
-  test('marks survive the switch to Draw, which is what makes the flow work', async ({ page }) => {
-    // Mark the targets, switch, choose the colour to replace them with. If the
-    // marks did not survive the switch, one grid could not do a recolour at all
-    // and the merge would have cost the feature.
-    //
-    // This also pins a real defect: while both selections lived on aria-pressed,
-    // setColor's sweep over every .sw wiped the marks - measured as 2 -> 0 with
-    // the panel still naming the colours. rcSummary carried a repair for it.
-    //
-    // That repair is STILL THERE and still load-bearing, which an earlier version
-    // of this comment denied. Measured: restoring the collision inside setColor
-    // broke no test, because setColor ends by calling rcSummary and the marks come
-    // straight back. Nothing here can catch that change - the behaviour under it
-    // is correct - so this test pins the BEHAVIOUR, that changing the drawing
-    // colour never costs you the selection, by whichever mechanism holds.
+  test('CHANGING THE DRAWING COLOUR NEVER COSTS YOU THE SELECTION', async ({ page }) => {
+    /* Mark what you are changing, then choose what it becomes. If picking the
+       destination cleared the marks, a replace could not be expressed at all -
+       which is the whole flow, and it survived the mode chips being removed
+       because it was never about the chips.
+
+       A real defect lives under this. While both selections lived on
+       aria-pressed, setColor's sweep over every .sw wiped the marks - measured
+       as 2 -> 0 with the panel still naming the colours. rcSummary carries a
+       repair for it, and that repair is STILL load-bearing: restoring the
+       collision inside setColor breaks no test, because setColor ends by
+       calling rcSummary and the marks come straight back. Nothing can catch
+       that particular change - the behaviour under it stays correct - so this
+       pins the BEHAVIOUR, by whichever mechanism holds it. */
     await openTrait(page, { w: 60, h: 60, draw: bands3 });
     await openAllSections(page);
-    await mode(page, 'replace');
+    await openPanel(page, 'cl');
     await swatch(page, 0);
     await swatch(page, 1);
-    expect((await state(page)).marks).toBe(2);
+    expect((await state(page)).marks, 'two colours marked').toBe(2);
 
-    await mode(page, 'draw');
-    const dest = await swatch(page, 2);
+    await page.evaluate(() => setColor('#ffcc00'));
+    await page.waitForTimeout(120);
     const s = await state(page);
-    expect(s.picked, 'the selection survives the mode switch').toBe(2);
+    expect(s.picked, 'the selection survives the colour change').toBe(2);
     expect(s.marks, 'and so do the marks on screen').toBe(2);
-    expect(s.colour, 'while the destination colour is set').toBe(dest);
+    expect(s.colour.toLowerCase(), 'while the destination colour is set').toBe('#ffcc00');
     expect(await page.evaluate(() => document.getElementById('rcgo').disabled),
       'and Replace is ready to run').toBe(false);
   });

@@ -82,6 +82,48 @@ export async function openAllSections(page) {
   await page.waitForTimeout(120);
 }
 
+/** Press Resize.
+
+   The transform controls left the side column for the panel the rail's T
+   button opens, so a person presses that button before reaching them and a
+   test has to as well. The panel is a full-screen card while it is up, which
+   is why this closes it again: twenty-two call sites go on to click the
+   canvas, the undo button or a tool, and every one of those would be
+   swallowed by an overlay left open.
+
+   The button's own wiring - that pressing it is what raises the panel - is
+   asserted in paneldensity.spec.js and colourtools.spec.js; going through
+   railPanel here keeps this to one line in each of the tests that only ever
+   wanted to resize something. */
+export async function resizeGo(page) {
+  await page.evaluate(() => {
+    if (!$('tfscrim').hidden) return;
+    /* OPENING THE PANEL REFILLS THE SIZE BOXES from the canvas, which is
+       right for a person - they press the button and then type - and wrong
+       for a test that typed first. Measured: two base tests asked for 240
+       and got 120 back, because the open had rewritten the field between
+       the typing and the press. So the values ride across the open and are
+       set again the same way setField sets them, which puts the test back
+       in the order a person works in. */
+    const w = $('rsw').value, h = $('rsh').value;
+    railPanel('tf', true);
+    for (const [id, v] of [['rsw', w], ['rsh', h]]) {
+      const e = $(id);
+      e.value = v;
+      e.dispatchEvent(new Event('input', { bubbles: true }));
+      e.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  });
+  await page.click('#rsgo');
+  await page.evaluate(() => { railPanel('tf', false); });
+}
+
+/** Open one of the pop-out panels the tool rail carries. */
+export async function openPanel(page, id) {
+  await page.evaluate(i => { railPanel(i, true); }, id);
+  await page.waitForTimeout(80);
+}
+
 /** Open one section by its heading. */
 export async function openSection(page, name) {
   /* CLICK the heading rather than stripping the class. The click handler is

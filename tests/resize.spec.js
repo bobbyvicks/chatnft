@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { openTrait, openAllSections, art, setField, setSelect, pressed } from './helpers.js';
+import { openTrait, openAllSections, art, setField, setSelect, pressed, resizeGo } from './helpers.js';
 
 /* Snap ships ON. Every test that touches resize must leave it alone unless it
    is deliberately testing the other setting - the defect that got through was
@@ -35,7 +35,7 @@ test.describe('resize', () => {
     await setField(page, 'rsw', 80);
     // The height is left alone deliberately: keep-shape is on by default and
     // derives it, and that derivation is what the aspect test below pins.
-    await page.click('#rsgo');
+    await resizeGo(page);
     await page.waitForTimeout(300);
 
     const after = await art.bounds(page);
@@ -64,7 +64,7 @@ test.describe('resize', () => {
     expect(before.w, 'the fixture draws an 84-wide trait').toBe(84);
     await setSelect(page, 'rsmode', 'inside');
     await setField(page, 'rsw', 42);
-    await page.click('#rsgo');
+    await resizeGo(page);
     await page.waitForTimeout(300);
     const after = await art.bounds(page);
     expect(await art.size(page)).toBe('120x120');
@@ -93,7 +93,7 @@ test.describe('resize', () => {
     expect(await page.evaluate(() => pressed('rslock')), 'keep-shape is on by default').toBe(true);
     await setSelect(page, 'rsmode', 'inside');
     await setField(page, 'rsw', 56);
-    await page.click('#rsgo');
+    await resizeGo(page);
     await page.waitForTimeout(300);
     const after = await art.bounds(page);
     expect(Math.abs(after.h - 28), 'the canvas aspect would give 56 tall; got ' + after.h).toBeLessThanOrEqual(1);
@@ -113,14 +113,14 @@ test.describe('resize', () => {
 
     // Typing the trait's own size IS a no-op, and must be refused as one.
     await setField(page, 'rsw', 112);
-    await page.click('#rsgo');
+    await resizeGo(page);
     await page.waitForTimeout(250);
     expect((await page.evaluate(() => (($('toast') || {}).textContent) || '')).toLowerCase(),
       'asking for the size it already is must say so').toContain('already');
 
     // Typing the canvas size is a real request - grow the trait to fill it.
     await setField(page, 'rsw', 160);
-    await page.click('#rsgo');
+    await resizeGo(page);
     await page.waitForTimeout(300);
     const after = await art.bounds(page);
     expect(Math.abs(after.w - 160), 'the canvas size is a legitimate trait size; got ' + after.w).toBeLessThanOrEqual(1);
@@ -143,7 +143,7 @@ test.describe('resize', () => {
     expect(before.w, 'the fixture draws a 30-wide trait').toBe(30);
     await setSelect(page, 'rsmode', 'inside');
     await setField(page, 'rsw', 45);
-    await page.click('#rsgo');
+    await resizeGo(page);
     await page.waitForTimeout(300);
     const after = await art.bounds(page);
     // The defect left it at 30 - the size it started - not merely short of 45.
@@ -160,7 +160,7 @@ test.describe('resize', () => {
     await setSelect(page, 'rsmode', 'art');
     await setField(page, 'rsw', 128);
     await setField(page, 'rsh', 128);
-    await page.click('#rsgo');
+    await resizeGo(page);
     await page.waitForTimeout(300);
     expect(await art.size(page), '128 must snap up to a whole 160').toBe('160x160');
   });
@@ -209,7 +209,7 @@ test.describe('resize', () => {
       await setSelect(page, 'rsmode', mode);
       await setField(page, 'rsw', 40);
       await setField(page, 'rsh', 40);
-      await page.click('#rsgo');
+      await resizeGo(page);
       await page.waitForTimeout(300);
       expect(await art.size(page), 'asking for 40 used to give back 160').toBe('40x40');
     });
@@ -224,7 +224,7 @@ test.describe('resize', () => {
     await setSelect(page, 'rsmode', 'art');
     await setField(page, 'rsw', 159);
     await setField(page, 'rsh', 159);
-    await page.click('#rsgo');
+    await resizeGo(page);
     await page.waitForTimeout(300);
     const said = await page.evaluate(() => (($('toast') || {}).textContent) || '');
     expect(said, 'the message must name snap').toMatch(/snap/i);
@@ -254,7 +254,7 @@ test.describe('downscaling', () => {
       await page.evaluate(() => document.getElementById('rssnap').setAttribute('aria-pressed', 'false'));
       await setField(page, 'rsw', target);
       await setField(page, 'rsh', target);
-      await page.click('#rsgo');
+      await resizeGo(page);
       await page.waitForTimeout(400);
       expect(await art.size(page)).toBe(`${target}x${target}`);
       expect(await art.litColumns(page)).toBe(20);
@@ -278,7 +278,7 @@ test.describe('downscaling', () => {
     await page.evaluate(() => document.getElementById('rssnap').setAttribute('aria-pressed', 'false'));
     await setField(page, 'rsw', 40);
     await setField(page, 'rsh', 40);
-    await page.click('#rsgo');
+    await resizeGo(page);
     await page.waitForTimeout(400);
 
     const edges = await page.evaluate(() => {
@@ -323,7 +323,7 @@ test.describe('downscaling', () => {
     await page.evaluate(() => document.getElementById('rssnap').setAttribute('aria-pressed', 'false'));
     await setField(page, 'rsw', 53);
     await setField(page, 'rsh', 53);
-    await page.click('#rsgo');
+    await resizeGo(page);
     await page.waitForTimeout(400);
     const after = await page.evaluate(() => {
       const W = art.width;
@@ -362,7 +362,7 @@ test.describe('downscaling', () => {
       await setSelect(page, 'rsmode', 'art');
       await setField(page, 'rsw', 40);
       await setField(page, 'rsh', 40);
-      await page.click('#rsgo');
+      await resizeGo(page);
       await page.waitForTimeout(300);
       return page.evaluate(() => {
         const W = art.width, H = art.height, d = ctx.getImageData(0, 0, W, H).data;
@@ -400,7 +400,7 @@ test.describe('downscaling', () => {
     await setSelect(page, 'rsmode', 'art');
     await setField(page, 'rsw', 40);
     await setField(page, 'rsh', 40);
-    await page.click('#rsgo');
+    await resizeGo(page);
     await page.waitForTimeout(300);
     const box = await page.evaluate(() => {
       const W = art.width, H = art.height, d = ctx.getImageData(0, 0, W, H).data;
@@ -462,7 +462,7 @@ test.describe('the exported PNG', () => {
     await setSelect(page, 'rsmode', 'art');
     await setField(page, 'rsw', n);
     await setField(page, 'rsh', n);
-    await page.click('#rsgo');
+    await resizeGo(page);
     await page.waitForTimeout(300);
   };
 
@@ -526,7 +526,7 @@ test.describe('the size ladder and undo', () => {
     await setSelect(page, 'rsmode', 'art');
     await setField(page, 'rsw', n);
     await setField(page, 'rsh', n);
-    await page.click('#rsgo');
+    await resizeGo(page);
     await page.waitForTimeout(300);
   };
 

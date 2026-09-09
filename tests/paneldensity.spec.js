@@ -34,13 +34,20 @@ import { test, expect } from '@playwright/test';
 /* Every id in the panel when this pass was written. A density change that
    drops one fails here rather than in somebody's project. */
 const CONTROLS = ['sidegrip', 'picker', 'curhex', 'brushsec', 'brushrows', 'bslider',
-  'bslab', 'fillrows', 'filltol', 'palmode', 'pal', 'rcfrom', 'rcnear', 'rctol',
+  'bslab', 'fillrows', 'filltol', /* palmode is gone: Draw and Replace were a mode deciding what a click on a
+     swatch meant, and the two mouse buttons say it without one. */
+  'pal', 'rcfrom', 'rcnear', 'rctol',
   'rcgo', 'rcerase', 'rcnone', 'rcclean', 'debg', 'bgtol', 'fillholes', 'holemax',
   'olthick', 'olthicklab', 'olcol', 'olcurrent', 'olsnap', 'oltidy', 'olpatch',
   'oladd', 'olnote', 'fliph', 'flipv', 'rotl', 'rotr', 'rsw', 'rsh', 'rslock',
   'rsmode', 'rspreset', 'rsgrid', 'rssnap', 'rsgo', 'rsnow', 'basepick', 'basedrop',
   'baseop', 'baseoplab', 'basefile', 'baseoutline', 'tname', 'tlayer', 'tstatus',
-  'saveproj', 'dlNative', 'dlBig', 'dlTrim', 'reset', 'saveclose', 'closeed'];
+  'saveproj', 'dlNative', 'dlBig', 'dlTrim', 'reset', 'saveclose', 'closeed',
+  /* The text panel. Same promise as every id above it: a density pass that
+     drops one fails here rather than in somebody's project. */
+  'txtext', 'txfont', 'txpw', 'txph', 'txls', 'txlsp', 'txbold', 'txol', 'txolc',
+  'txsh', 'txshx', 'txshy', 'txshc', 'txlean', 'txslope', 'txwx', 'txwy',
+  'txx', 'txy', 'txcentre', 'txadd', 'txclear'];
 
 /* The three range inputs are 16px and always were - the UA default. They are
    the deliberate exception: shrinking a drag target further to save a few
@@ -62,6 +69,12 @@ const openPanel = (page) => page.evaluate(async () => {
   startEditor(d, S, S, S, S, palette(d, S * S, 24, 64), false);
   await new Promise(x => setTimeout(x, 800));
   document.querySelectorAll('.side section').forEach(s => s.classList.remove('folded'));
+  /* The outline moved out of the sidebar and into a panel the tool rail
+     opens. This test is about nothing being DROPPED and nothing hiding
+     behind a reveal you cannot find - a button in the rail is the reveal,
+     so the panel is opened and its controls are still counted. */
+  try { outlinePanel(true); } catch (_) {}
+  try { for (const id of ['cl', 'tx', 'tf', 'bl', 'sv']) railPanel(id, true); } catch (_) {}
   await new Promise(x => setTimeout(x, 400));
   const side = document.getElementById('sidepanel');
   return {
@@ -220,8 +233,16 @@ test.describe('the editing panel', () => {
     const r = await page.evaluate(() => {
       const side = document.getElementById('sidepanel');
       side.classList.remove('down');
+      /* THE PANELS TOO. Transform, Base layer and Save moved out of the
+         column and into cards the tool rail opens, so measuring only the
+         column now finds no .tool at all and reports null rather than a
+         size. They are still surfaces a thumb has to hit, and the shrink
+         rules these restores undo are .side-scoped as well - so a control
+         in a card should be at its original size, and this is what says
+         whether it is. */
+      const where = [side, ...document.querySelectorAll('.scrim:not([hidden]) .card')];
       const smallest = (sel) => {
-        const hs = [...side.querySelectorAll(sel)]
+        const hs = where.flatMap(w => [...w.querySelectorAll(sel)])
           .filter(e => e.offsetParent !== null)
           .map(e => e.getBoundingClientRect().height);
         return hs.length ? Math.min(...hs) : null;

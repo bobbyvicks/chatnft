@@ -121,6 +121,10 @@ test.describe('the buttons are connected to the work', () => {
       fileName = 'probe';
       startEditor(d, w, h, w, h, palette(d, w * h, 24, 64), false);
       document.querySelectorAll('.side section').forEach(s => s.classList.remove('folded'));
+      /* And the panel the Resize button now lives in. This file stays free of
+         the shared helpers on purpose - it is the control that proves the
+         harness, so it says out loud what it does. */
+      railPanel('tf', true);
       document.querySelector('#rsmode button[data-v="art"]').click();
       const rw = document.getElementById('rsw');
       rw.value = '80';
@@ -129,6 +133,7 @@ test.describe('the buttons are connected to the work', () => {
     await page.waitForTimeout(200);
     const before = await page.evaluate(() => document.getElementById('art').width);
     await page.click('#rsgo');
+    await page.evaluate(() => railPanel('tf', false));
     await page.waitForTimeout(300);
     const after = await page.evaluate(() => document.getElementById('art').width);
     await done(page);

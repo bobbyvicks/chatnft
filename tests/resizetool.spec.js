@@ -47,13 +47,27 @@ test.describe('the resize tool', () => {
     await open(page);
   });
 
-  test('sits directly below Move in the rail', async ({ page }) => {
+  test('IS ONE TOOL FOR BOTH, where there were two', async ({ page }) => {
+    /* Move and Resize were separate buttons and the split was arbitrary:
+       Move dragged the artwork, Resize showed a box that did nothing at all
+       if you dragged inside it rather than on a handle. Fitting a trait to a
+       character is both, so it meant swapping buttons between adjustments. */
     const rail = await page.evaluate(() =>
       [...document.querySelectorAll('.tools .tool[data-tool]')].map(b => b.dataset.tool));
-    expect(rail.indexOf('transform'), 'directly after move')
-      .toBe(rail.indexOf('move') + 1);
-    expect(rail, 'and every tool that was there still is')
-      .toEqual(['pencil', 'eraser', 'fill', 'move', 'transform', 'pick']);
+    expect(rail, 'one button where there were two')
+      .toEqual(['pencil', 'eraser', 'fill', 'transform', 'pick']);
+    /* BOTH NAMES STILL REACH IT. Deleting a name is how a shortcut somebody
+       has in their fingers stops working with no message. */
+    const both = await page.evaluate(() => {
+      selectTool('pencil');
+      selectTool('move');
+      const afterMove = tool;
+      selectTool('pencil');
+      selectTool('transform');
+      return { afterMove, afterTransform: tool };
+    });
+    expect(both.afterMove, 'the old name lands in the same mode').toBe('transform');
+    expect(both.afterTransform).toBe('transform');
   });
 
   test('and has a key, like every other tool', async ({ page }) => {
@@ -69,7 +83,9 @@ test.describe('the resize tool', () => {
     });
     expect(r.tool, 'R selects it').toBe('transform');
     expect(r.boxOn, 'and the box comes up').toBe(true);
-    expect(r.badge, 'and the button says so').toBe('R');
+    /* The badge shows M, because moving is the verb people reach for; R is
+       the same tool by its other name and still works. */
+    expect(r.badge, 'and the button carries a key').toBe('M');
   });
 
   test('the Size fields count with the drag', async ({ page }) => {

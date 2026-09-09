@@ -66,7 +66,7 @@ test.describe('there is always a way out of the editor', () => {
     await expect.poll(() => editorOpen(page), { timeout: 5000 }).toBe(false);
   });
 
-  test('and from a number field, in two presses - out of the field, then out', async ({ page }) => {
+  test('and from a number field in a panel - out of the field, out of the panel, out', async ({ page }) => {
     /* The first version of this test expected ONE Escape and failed, which is
        how the half-fix was caught: the dispatcher returns for any input that
        is not a range BEFORE consulting a single shortcut, so Escape was landing
@@ -78,8 +78,10 @@ test.describe('there is always a way out of the editor', () => {
        text box would be its own bug. What matters is that no focus state
        leaves you stuck, and none does. */
     await openTrait(page, { w: 80, h: 80, draw: flat });
-    await page.evaluate(() =>
-      document.querySelectorAll('.side section').forEach(s => s.classList.remove('folded')));
+    /* #rsw moved into the panel the rail's T button opens, so this opens it
+       the way a person does. That also adds a step to the way out, which is
+       asserted below rather than assumed away. */
+    await page.evaluate(() => railPanel('tf', true));
     await page.locator('#rsw').click();
     expect(await focused(page)).toBe('rsw');
 
@@ -91,6 +93,16 @@ test.describe('there is always a way out of the editor', () => {
     await expect.poll(() => focused(page), { timeout: 5000 }).not.toBe('rsw');
     expect(await editorOpen(page), 'the first Escape leaves the FIELD, not the editor').toBe(true);
 
+    /* THREE now, not two, and the middle one is the point. Escape closes an
+       open panel before it closes the editor, so a field inside a panel is
+       two things deep - and each layer has to come off on its own, in order,
+       with the editor still there underneath. The count is not the property;
+       "no state leaves you stuck" is, and it is stronger with a layer added. */
+    await page.keyboard.press('Escape');
+    await expect.poll(() => page.evaluate(() =>
+      document.getElementById('tfscrim').hidden), { timeout: 5000 }).toBe(true);
+    expect(await editorOpen(page), 'the second leaves the PANEL, not the editor').toBe(true);
+
     await page.keyboard.press('Escape');
     await expect.poll(() => editorOpen(page), { timeout: 5000 }).toBe(false);
   });
@@ -100,8 +112,9 @@ test.describe('there is always a way out of the editor', () => {
        a field, someone renaming a trait would lose the editor on the keystroke
        they use to cancel the rename. */
     await openTrait(page, { w: 80, h: 80, draw: flat });
-    await page.evaluate(() =>
-      document.querySelectorAll('.side section').forEach(s => s.classList.remove('folded')));
+    /* The trait name moved into the Save panel with everything else that
+       finishes a trait. */
+    await page.evaluate(() => railPanel('sv', true));
     await page.locator('#tname').click();
     await page.keyboard.type('half-typed');
     expect(await focused(page)).toBe('tname');

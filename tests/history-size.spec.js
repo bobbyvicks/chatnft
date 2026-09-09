@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { openTrait, setField } from './helpers.js';
+import { openTrait, setField, resizeGo } from './helpers.js';
 
 /* The history is bounded by BYTES as well as by a count of steps.
 
@@ -118,7 +118,7 @@ test.describe('the history is bounded in bytes', () => {
     });
     await setField(page, 'rsw', 60);
     await setField(page, 'rsh', 60);
-    await page.click('#rsgo');
+    await resizeGo(page);
     await page.waitForTimeout(400);
     expect(await page.evaluate(() => art.width + 'x' + art.height)).toBe('60x60');
     await page.click('#undo');

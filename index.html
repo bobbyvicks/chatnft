@@ -546,6 +546,16 @@ body.shelf-dragging,body.shelf-dragging *{cursor:grabbing!important;}
   padding:20px; z-index:20; backdrop-filter:blur(3px);}
 .card{width:min(560px,94vw); max-height:90dvh; overflow-y:auto; background:var(--panel);
   border:1px solid var(--line); border-radius:15px; padding:22px;}
+/* A POP-OUT, NOT A SHEET. It sits beside the button that opened it with
+   the artwork still visible; popAt() writes the left and top. The wrapper
+   takes no pointer events at all, so a click meant for the canvas reaches
+   the canvas - the card takes them back for itself. */
+.scrim.pop{inset:auto; background:none; backdrop-filter:none; padding:0;
+  display:block; pointer-events:none;}
+.scrim.pop>.card{width:min(340px,92vw); max-height:min(78dvh,640px);
+  pointer-events:auto; box-shadow:0 22px 54px #000000a8;}
+.card textarea{width:100%; resize:vertical; min-height:46px; margin-bottom:9px;
+  line-height:1.45; font-size:12.5px;}
 .card h2{font-size:17px; margin-bottom:3px;}
 .card .sub{color:var(--muted); font-size:13.5px; margin-bottom:17px;}
 /* The sign-in rows sat flush against each other: eight pixels of gap INSIDE a
@@ -707,6 +717,10 @@ canvas{display:block; image-rendering:pixelated; cursor:crosshair; touch-action:
 /* Above everything, because the whole point is to hide what is under it. */
 #cmppv{position:absolute; left:0; top:0; display:none; pointer-events:none; z-index:4;
   image-rendering:pixelated;}
+/* Above the others: text is placed against everything else on screen, so
+   nothing may sit on top of it while it is being positioned. */
+#txpv{position:absolute; left:0; top:0; display:none; pointer-events:none; z-index:5;
+  image-rendering:pixelated;}
 #aglog{display:flex; flex-direction:column; gap:2px; margin:6px 0; font-size:12px;}
 .agstep{color:var(--muted);}
 .agstep b{color:var(--ink); font-weight:600;}
@@ -728,11 +742,18 @@ input[type=range]{width:100%; accent-color:var(--accent); cursor:pointer;}
    data URI rather than a background image file, because this page loads no
    external file - not one, the fonts included - and a select is not the
    place to start. */
-.side input[type=color]{appearance:none; -webkit-appearance:none; width:38px; height:24px;
+/* .card as well, for the same reason the fields below carry it: the colour
+   wells in the text and colour panels are not in the side column. */
+.side input[type=color],.card input[type=color]{appearance:none; -webkit-appearance:none; width:38px; height:24px;
   padding:0; border:1px solid var(--line); border-radius:6px; background:var(--panel-2); cursor:pointer;}
 .side input[type=color]::-webkit-color-swatch-wrapper{padding:2px;}
 .side input[type=color]::-webkit-color-swatch{border:none; border-radius:4px;}
-.side select,.side input[type=number],.side input[type=text]{
+/* .card as well: three sections moved into panels the tool rail opens, and
+   a control that matches neither this nor the phone restore below falls
+   through to the browser default - measured at 19px on a phone, under the
+   27 a thumb needs and smaller than either rule intended. */
+.side select,.side input[type=number],.side input[type=text],
+.card select,.card input[type=number],.card input[type=text],.card textarea{
   appearance:none; -webkit-appearance:none;
   background:var(--panel-2); border:1px solid var(--line); color:var(--ink);
   /* line-height is the lever here: with none set these inherit body 1.5, so
@@ -741,7 +762,7 @@ input[type=range]{width:100%; accent-color:var(--accent); cursor:pointer;}
      is a separate declaration and survives. */
   border-radius:6px; padding:2px 7px; font:inherit; font-size:11.5px;
   line-height:1.4; min-height:22px;}
-.side select{padding-right:22px;
+.side select,.card select{padding-right:22px;
   background-image:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><path d="M2.5 4.5L6 8l3.5-3.5" fill="none" stroke="%23a09aab" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>');
   background-repeat:no-repeat; background-position:right 6px center; background-size:11px;}
 .side select:hover,.side input:hover{border-color:var(--muted);}
@@ -814,6 +835,23 @@ input[type=range]{width:100%; accent-color:var(--accent); cursor:pointer;}
    binds at nine columns and swallows the change. */
 .sw{aspect-ratio:1; min-height:22px; border-radius:4px; border:1px solid #ffffff1a; padding:0;}
 .sw[aria-pressed="true"]{outline:2px solid var(--accent); outline-offset:1px;}
+/* SEVEN CONTROLS THAT LIT UP NOTHING. .tool, .chips and .mini all had a
+   pressed rule; .btn never did, so gsnap, rcnear, oltidy, olpatch, rslock,
+   rssnap and baseoutline all toggled an attribute and changed nothing you
+   could see. One of them was reported as glitchy; it was all of them.
+
+   BOTH SELECTORS, and the second is the one that works. .btn[aria-pressed]
+   is one class and one attribute; .btn.ghost is two classes. They tie on
+   specificity and .ghost is declared later, so it won and every ghost
+   toggle still lit up nothing - the fix looked done and was not. */
+.btn[aria-pressed="true"],
+.btn.ghost[aria-pressed="true"]{background:var(--accent-soft);
+  border-color:var(--accent); color:var(--accent);}
+/* The colour everything picked is being changed TO. Its own attribute, like
+   the source mark, so nothing can sweep it off. */
+.sw[data-to="1"]{box-shadow:0 0 0 2px var(--good) inset, 0 0 0 1px #0008;}
+.rcrow{display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin:4px 0;}
+.rcrow input[type=number]{width:64px;}
 /* The recolour swatches can now have several chosen at once, and the outline
    above is drawn in the accent colour - which disappears on a swatch that IS
    roughly the accent colour. The inset pair reads against any fill. */
@@ -829,6 +867,10 @@ input[type=range]{width:100%; accent-color:var(--accent); cursor:pointer;}
   background:var(--panel-2); border:1px solid var(--line);}
 .cur input[type=color]{width:22px; height:22px; padding:0; border:1px solid #ffffff24;
   border-radius:6px; background:none; cursor:pointer; flex:none;}
+/* Same shape as the well it replaces, so the row is unchanged to look at. */
+#clbtn{width:22px; height:22px; padding:0; border:1px solid #ffffff24;
+  border-radius:6px; cursor:pointer; flex:none; background:#000;}
+#clbtn[aria-expanded="true"]{outline:2px solid var(--accent); outline-offset:1px;}
 /* #curhex is otherwise unstyled and takes body's 14px/1.5, which is what
    made the text taller than the colour well it sits beside. */
 .cur .mono{font-size:12.5px; line-height:1.2;}
@@ -861,18 +903,18 @@ input[type=range]{width:100%; accent-color:var(--accent); cursor:pointer;}
 
 /* The single biggest line in the panel: twelve full-width buttons, each set
    by a line box of 12px x the inherited 1.5 plus 14px of padding. */
-.side .btn{padding:4px 10px; line-height:1.3;}
+.side .btn,.card .btn{padding:4px 10px; line-height:1.3;}
 /* A <p> keeps the UA margin-block-end of 1em - 11.5px - on four visible
    notes, under a rule that only ever set margin-top. */
 .side .note{margin-bottom:0;}
 /* Matched to .side .btn on purpose, so a row holding one of each lands on a
    single line rather than being set by the taller of the two. */
-.side .mini{padding:4px 10px; font-size:12px; line-height:1.3;}
+.side .mini,.card .mini{padding:4px 10px; font-size:12px; line-height:1.3;}
 /* Four hairlines, each 11px tall of which 10 is margin. */
 .side .rule{margin:3px 2px;}
 /* The four flip and turn buttons, which are the only .tool inside the panel -
    the rail keeps its 46px squares. 20px icons leave 9px of clearance. */
-.side .tool{width:38px; height:38px;}
+.side .tool,.card .tool{width:38px; height:38px;}
 /* flex-wrap stays. A smaller gap lowers the pressure to wrap rather than
    turning a wrap into an overflow, which is what the note on .olrow is about. */
 .side .olrow{gap:5px; line-height:1.3;}
@@ -965,6 +1007,13 @@ footer .mono{color:var(--ink);}
 .toast.show{opacity:1; transform:translateX(-50%) translateY(0);}
 
 @media (max-width:820px){
+  /* No room beside a rail that is most of the width, so a pop-out goes
+     back to being a sheet. !important because popAt writes left and top
+     inline, and an inline value outranks a stylesheet one. */
+  .scrim.pop{inset:0!important; left:0!important; top:0!important;
+    right:0; bottom:0; background:#0b0910e0; backdrop-filter:blur(3px);
+    display:grid; place-items:center; padding:16px; pointer-events:auto;}
+  .scrim.pop>.card{width:min(560px,94vw); max-height:90dvh;}
   .app{grid-template-columns:1fr; grid-template-rows:auto auto minmax(0,1fr) auto auto;
     grid-template-areas:"head" "tools" "stage" "foot" "side";}
   .spec{width:100%; margin-left:0; gap:11px; font-size:9.5px;}
@@ -974,27 +1023,45 @@ footer .mono{color:var(--ink);}
   .closex{position:absolute; top:10px; right:14px; margin-left:0;}
   /* Wrapping, not scrolling. A sideways-scrolling rail with no scrollbar hid
      the last two tools completely - they were at x=500 on a 375px screen. */
-  .tools{flex-direction:row; flex-wrap:wrap; justify-content:center; overflow-x:visible;
+  /* ONE ROW THAT SCROLLS, not a block that wraps. The stage is the grid
+     row that pays for whatever this one takes, so a rail that grows a line
+     every few tools is a canvas that shrinks every few tools. Scrolling
+     costs a fixed height however many tools there are. */
+  .tools{flex-direction:row; flex-wrap:nowrap; justify-content:flex-start;
+    overflow-x:auto; overflow-y:hidden; scrollbar-width:none;
     padding:8px 10px; border-right:none; border-bottom:1px solid var(--line);}
+  .tools::-webkit-scrollbar{display:none;}
+  /* A flex item shrinks to fit by default, which would squeeze forty-two
+     pixel buttons into twenty rather than let the row scroll. */
+  .tools .tool{flex:none;}
+  /* The dividers are full-width lines in the column layout; lying down
+     they have to become short vertical ones or they push the row out. */
+  .tools .rule{width:1px; min-width:1px; height:26px; align-self:center;}
   .tool{width:42px; height:42px;}
   /* THE DENSITY PASS IS A DESKTOP PASS. Here the panel is a bottom sheet
      somebody draws on with a thumb, so every target the pass shrinks goes
      back. Each selector carries .side because the rules it is undoing do,
      and a bare one would lose on specificity. */
-  .side .btn{padding:8px 11px; line-height:1.5;}
-  .side .mini{padding:7px 12px; font-size:12.5px; line-height:1.5;}
-  .side .tool{width:42px; height:42px;}
+  /* THE PAIR HAS TO MATCH THE SAME ELEMENTS. Every selector above gained
+     .card when three sections moved into panels; if these had not, the
+     restore would undo a shrink that never applied and leave the moved
+     controls at the browser default on a phone. */
+  .side .btn,.card .btn{padding:8px 11px; line-height:1.5;}
+  .side .mini,.card .mini{padding:7px 12px; font-size:12.5px; line-height:1.5;}
+  .side .tool,.card .tool{width:42px; height:42px;}
   .side .olrow{gap:6px; line-height:1.5;}
   .side .rule{margin:5px 2px;}
-  .side select,.side input[type=number],.side input[type=text]{
+  .side select,.side input[type=number],.side input[type=text],
+  .card select,.card input[type=number],.card input[type=text]{
     padding:6px 7px; line-height:1.5; min-height:30px;}
-  .side select{padding-right:22px;}
-  .side .savebar input,.side .savebar select{
+  .side select,.card select{padding-right:22px;}
+  .side .savebar input,.side .savebar select,
+  .card .savebar input,.card .savebar select{
     padding-block:6px; padding-left:9px; font-size:12.5px; line-height:1.5;}
-  .side .savebar input{padding-right:9px;}
-  .side .chips button{padding:7px 6px;}
+  .side .savebar input,.card .savebar input{padding-right:9px;}
+  .side .chips button,.card .chips button{padding:7px 6px;}
   .side h2{line-height:1.5;}
-  .side input[type=color]{height:30px;}
+  .side input[type=color],.card input[type=color]{height:30px;}
   /* AND THE WIDTH, which the desktop rule sets to 38 and the narrower .cur
      rule now overrides everywhere. Without this, shrinking the box on a
      desktop took 16px off the touch target on a phone - the thing the
@@ -1578,101 +1645,19 @@ footer .mono{color:var(--ink);}
   </div>
 </div>
 
-<div class="app" id="app" hidden>
-  <header>
-    <span class="brand"><span class="logo" aria-hidden="true"><i></i><i></i><i></i><i></i></span><h1>ChatNFT</h1></span>
-    <span class="fname mono" id="fname"></span>
-    <button class="closex" id="editorclose" type="button"
-      title="Close the editor (Esc)" aria-label="Close the editor">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
-    <div class="spec">
-      <span>Grid <b class="mono" id="sGrid">—</b></span>
-      <span>Colours <b class="mono" id="sCols">—</b></span>
-      <span>Opaque <b class="mono" id="count">—</b></span>
-    </div>
-  </header>
-
-  <!-- Said inside the editor, because that is where the draft was restored.
-       The main page keeps its own bar for the unattached canvas. -->
-  <div class="draftbar" id="draftbar" hidden>
-    <span id="drafttext"></span>
-    <button class="mini" id="draftdiscard">Use the saved version</button>
-  </div>
-
-  <nav class="tools" aria-label="Tools">
-    <button class="tool" data-tool="pencil" aria-pressed="true" title="Pencil (B)"><svg viewBox="0 0 24 24"><path d="M4 20h4L20 8a2.8 2.8 0 0 0-4-4L4 16v4Z"/><path d="M14 6l4 4"/></svg><span class="k">B</span></button>
-    <button class="tool" data-tool="eraser" aria-pressed="false" title="Eraser (E)"><svg viewBox="0 0 24 24"><path d="M6 18h12"/><path d="M9 18 4 13a2 2 0 0 1 0-3l7-7a2 2 0 0 1 3 0l5 5a2 2 0 0 1 0 3l-7 7Z"/></svg><span class="k">E</span></button>
-    <button class="tool" data-tool="fill" aria-pressed="false" title="Fill (G)"><svg viewBox="0 0 24 24"><path d="M5 12 12 5l7 7-7 7-7-7Z"/><path d="M19 15c1.2 1.6 1.6 2.5 1.6 3.2a1.6 1.6 0 0 1-3.2 0c0-.7.4-1.6 1.6-3.2Z"/></svg><span class="k">G</span></button>
-    <button class="tool" data-tool="move" aria-pressed="false" title="Move the art (M)"><svg viewBox="0 0 24 24"><path d="M12 3v18M3 12h18"/><path d="m9 6 3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"/></svg><span class="k">M</span></button>
-    <button class="tool" data-tool="transform" aria-pressed="false" title="Resize and rotate by dragging the box on the art (R)"><svg viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/><path d="M4 4h4v4H4zM16 4h4v4h-4zM4 16h4v4H4zM16 16h4v4h-4z"/></svg><span class="k">R</span></button>
-    <button class="tool" data-tool="pick" aria-pressed="false" title="Eyedropper (I)"><svg viewBox="0 0 24 24"><path d="m4 20 1-4 9-9 3 3-9 9-4 1Z"/><path d="m15 5 2-2a2 2 0 0 1 3 3l-2 2"/></svg><span class="k">I</span></button>
-    <div class="rule"></div>
-    <button class="tool" id="undo" title="Undo (Ctrl+Z)"><svg viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg></button>
-    <button class="tool" id="redo" title="Redo (Ctrl+Shift+Z)"><svg viewBox="0 0 24 24"><path d="m15 14 5-5-5-5"/><path d="M20 9H10a6 6 0 0 0 0 12h3"/></svg></button>
-    <div class="rule"></div>
-    <button class="tool" id="gridbtn" aria-pressed="false" title="Grid (3)"><svg viewBox="0 0 24 24"><path d="M4 9h16M4 15h16M9 4v16M15 4v16"/></svg></button>
-    <button class="tool" id="keysbtn" aria-expanded="false" title="Keyboard shortcuts (?)"><svg viewBox="0 0 24 24"><path d="M3 7h18v10H3z"/><path d="M7 11h.01M11 11h.01M15 11h.01M7 14h10"/></svg><span class="k">?</span></button>
-    <button class="tool" id="panbtn" aria-pressed="false" title="Pan (H)"><svg viewBox="0 0 24 24"><path d="M9 11V5.5a1.5 1.5 0 0 1 3 0V11"/><path d="M12 11V4.5a1.5 1.5 0 0 1 3 0V11"/><path d="M15 11V6.5a1.5 1.5 0 0 1 3 0V13a8 8 0 0 1-8 8h-1a7 7 0 0 1-5-3l-2.2-3.1a1.5 1.5 0 0 1 2.4-1.8L6 15V8.5a1.5 1.5 0 0 1 3 0"/></svg><span class="k">H</span></button>
-  </nav>
-
-  <main class="stage" id="stage">
-    <div class="frame" id="frame"><canvas id="base"></canvas><canvas id="art"></canvas><div id="grid"></div><canvas id="olpv"></canvas><canvas id="qapv"></canvas><canvas id="cmppv"></canvas><div id="bcur"></div>
-      <div id="tbox" aria-hidden="true">
-        <div class="tline"></div><div class="tang" id="tang"></div>
-        <div class="th tc" data-h="nw"></div><div class="th" data-h="n"></div><div class="th tc" data-h="ne"></div>
-        <div class="th" data-h="w"></div><div class="th" data-h="e"></div>
-        <div class="th tc" data-h="sw"></div><div class="th" data-h="s"></div><div class="th tc" data-h="se"></div>
-        <div class="th trot" data-h="rot" title="Drag to rotate"></div>
-      </div></div>
-  </main>
-
-  <aside class="side" id="sidepanel">
-    <button class="grip" id="sidegrip" type="button" aria-controls="sidepanel"
-      aria-expanded="true" title="Hide the tools">Tools</button>
-    <!-- One row. The caption that used to sit above the hex was the taller
-         half of a two-line column, saying what the well beside it shows. It
-         lives in the aria-label now, so nothing that could only hear it has
-         lost anything. -->
-    <div class="cur">
-      <input type="color" id="picker" value="#000000" aria-label="Current colour - pick any colour">
-      <span class="mono" id="curhex" title="The colour you are painting with">#000000</span>
-    </div>
-    <section id="brushsec">
-      <h2>Colour</h2>
-      <!-- The brush rows only, so selectTool can hide THEM. Hiding the whole
-           section would take the palette with it the moment you picked the
-           fill or the move tool. -->
-      <div id="brushrows">
-      <!-- max is set from the canvas by setBrush; 128 here is the ceiling it
-           can ever reach, not a limit of its own. It read 8 - the old button
-           maximum - which never applied and only misled. -->
-      <div class="olrow"><label for="bslider">Size</label>
-        <input id="bslider" type="range" min="1" max="128" step="1" value="1" aria-label="Brush size">
-        <span class="mono" id="bslab">1 × 1</span>
-        <button class="btn ghost" id="gsnap" aria-pressed="true"
-          style="width:auto;padding:6px 12px;font-size:12px;margin-left:4px"
-          title="Jump the brush from cell to cell on the grid the art was drawn on, instead of pixel by pixel. Art drawn one pixel at a time has no grid to snap to, so this does nothing there.">Snap</button></div>
-      </div>
-      <!-- Its own container, with the mirror condition. It lived inside
-           #brushrows, which selectTool hides unless the tool is pencil or
-           eraser - so the only control the fill tool reads vanished the
-           moment you selected Fill. -->
-      <div id="fillrows" hidden>
-      <div class="olrow"><label for="filltol" title="How far from the colour you click the fill spreads">Fill spread</label>
-        <input id="filltol" type="number" min="0" max="120" value="8" style="width:72px"></div>
-      </div>
-      <div class="rule"></div>
-      <!-- What a click on a swatch DOES. The palette used to be drawn twice,
-           once here and once in Recolour, because the two interactions differ:
-           drawing takes one colour, replacing takes several. One grid and a
-           labelled mode costs one click in the recolour flow and gives back
-           about 243px of sidebar. Both states stay visible in both modes. -->
-      <div class="chips" id="palmode" role="group" aria-label="What clicking a colour does">
-        <button type="button" data-v="draw" aria-pressed="true"
-          title="Click a colour to draw with it">Draw</button>
-        <button type="button" data-v="replace" aria-pressed="false"
-          title="Click colours to mark them for replacing - pick as many as you like">Replace</button>
-      </div>
+<!-- The same controls, in the panel the rail button opens. Lifted whole:
+     nothing about what any of them does is changed. -->
+<!-- Everything about colour in one place: any colour, the project's own,
+     and what to do with the ones you pick. -->
+<div class="scrim pop" id="clscrim" hidden>
+  <div class="card" role="dialog" aria-modal="true" aria-labelledby="cltitle">
+    <h2 id="cltitle">Colours</h2>
+    <p class="sub">The colours in this trait, and any colour you like.</p>
+    <div class="olrow"><label for="picker">Any colour</label>
+      <input type="color" id="picker" value="#000000"
+        aria-label="Current colour - pick any colour" style="margin-left:auto; width:54px"></div>
+      <p class="note" id="palhow">Left-click a colour to use it and mark it.
+        Right-click one to set what it changes to.</p>
       <div class="swatches" id="pal"></div>
       <div class="rule"></div>
       <!-- What to DO with the colours picked above. This lived under its own
@@ -1681,12 +1666,18 @@ footer .mono{color:var(--ink);}
            moved the selection up here and left the buttons behind, acting on
            something you could not see while using them. -->
       <div class="stack">
-        <p class="note" id="rcfrom">Set the palette to Replace, then pick colours.</p>
-        <button class="btn ghost" id="rcnear" aria-pressed="false"
-          style="width:auto;padding:6px 10px;font-size:12px"
-          title="Also replace shades within the distance below">Include near shades</button>
-        <div class="olrow"><label for="rctol">How close</label>
-          <input id="rctol" type="number" min="1" max="120" value="24" style="width:72px"></div>
+        <p class="note" id="rcfrom">Left-click colours to change, right-click what to change them to.</p>
+        <!-- One row for one idea. The toggle was full width with its own
+             labelled row underneath holding the number it governs, which is
+             two rows and a label to say "near shades, this close". -->
+        <div class="rcrow">
+          <button class="btn ghost" id="rcnear" aria-pressed="false"
+            style="width:auto;padding:6px 10px;font-size:12px"
+            title="Also replace shades within this distance of the ones you picked">Near shades</button>
+          <input id="rctol" type="number" min="1" max="120" value="24"
+            aria-label="How close a shade has to be to count as near"
+            title="How close a shade has to be to count as near">
+        </div>
         <div class="savebar">
           <button class="btn ghost" id="rcgo" disabled style="flex:2">Replace</button>
           <button class="btn ghost" id="rcerase" disabled style="flex:2"
@@ -1696,52 +1687,66 @@ footer .mono{color:var(--ink);}
         </div>
         <button class="btn" id="rcclean">Clean up colours</button>
       </div>
-    </section>
-    <section>
-      <h2>Edges and holes</h2>
-      <button class="btn ghost" id="debg"
-        title="Floods in from the border, so a white shirt in the middle stays">Clear background</button>
-      <div class="olrow"><label for="bgtol" title="Only colour touching the border is removed">Keep within</label>
-        <input id="bgtol" type="number" min="0" max="120" value="24" style="width:72px"
-          aria-label="Background tolerance"></div>
-      <!-- Clear background floods in from the border, so it cannot reach
-           base showing THROUGH a trait - between the teeth of a grin, say.
-           This goes by colour instead and reaches both. -->
-      <button class="btn ghost" id="hidebase" disabled
-        title="Finds the flat colours the character underneath was drawn in and takes them out, including the blended edge around them">Hide the base colour</button>
-      <button class="btn ghost" id="fillholes"
-        title="Close gaps the artwork surrounds on every side">Fill holes</button>
-      <div class="olrow"><label for="holemax" title="Closes gaps the art surrounds. 0 means any size - raise it to keep a hole that belongs">Biggest gap</label>
-        <input id="holemax" type="number" min="0" max="99999" value="0" style="width:72px"
-          aria-label="Biggest gap to close, in cells; 0 for any size"></div>
-      <div class="rule"></div>
-      <div class="stack">
-        <div class="olrow"><label for="olthick">Thickness</label>
-          <input id="olthick" type="range" min="0" max="6" step="1" value="1" aria-label="Outline thickness">
-          <span class="mono" id="olthicklab">1 cell</span></div>
-        <div class="olrow"><label for="olcol">Colour</label>
-          <input type="color" id="olcol" value="#000000" aria-label="Outline colour"
-            style="margin-left:auto; width:54px">
-          <button class="mini" id="olcurrent" title="Use the colour you are painting with">match brush</button></div>
-        <div class="olrow"><label for="olsnap">Snap to</label>
-          <select id="olsnap" aria-label="Snap grid">
-            <option value="auto">auto</option><option value="1" selected>1 cell</option>
-            <option value="2">2 cells</option><option value="3">3 cells</option>
-            <option value="4">4 cells</option><option value="6">6 cells</option>
-            <option value="8">8 cells</option></select></div>
-        <div class="olrow">
-          <button class="btn ghost" id="oltidy" aria-pressed="true"
-            style="width:auto;padding:6px 10px;font-size:12px"
-            title="Square off the silhouette before outlining">Tidy edge</button>
-          <button class="btn ghost" id="olpatch" aria-pressed="false"
-            style="width:auto;padding:6px 10px;font-size:12px"
-            title="Close gaps inside the art before drawing the outline round it">Close gaps first</button></div>
-        <button class="btn" id="oladd">Add outline</button>
-      </div>
-      <p class="note" id="olnote"></p>
-    </section>
-    <section>
-      <h2>Transform</h2>
+    <div class="savebar" style="margin-top:18px">
+      <button class="btn ghost" id="clclose" style="flex:1">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Lettering. Everything here shapes one sprite that floats over the art
+     until Add puts it in, because text you cannot see against the artwork
+     is text you place twice. -->
+<div class="scrim pop" id="txscrim" hidden>
+  <div class="card" role="dialog" aria-modal="true" aria-labelledby="txtitle">
+    <h2 id="txtitle">Text</h2>
+    <p class="sub">Pixel lettering in the colour you are painting with. Drag it on the canvas to place it.</p>
+    <textarea id="txtext" rows="2" placeholder="Type here" aria-label="The words to draw"></textarea>
+    <div class="olrow"><label for="txfont">Font</label>
+      <select id="txfont" style="margin-left:auto; max-width:170px"></select></div>
+    <div class="olrow"><label for="txpw">Pixel size</label>
+      <input type="number" id="txpw" value="2" min="1" max="64" step="1" style="margin-left:auto; width:56px">
+      <input type="number" id="txph" value="2" min="1" max="64" step="1" style="width:56px" aria-label="Pixel height">
+      <button class="btn" id="txlock" aria-pressed="true" title="Keep the height the same as the width">Square</button></div>
+    <div class="olrow"><label for="txls">Gaps</label>
+      <input type="number" id="txls" value="1" min="0" max="64" step="1" style="margin-left:auto; width:56px" aria-label="Between letters">
+      <input type="number" id="txlsp" value="2" min="0" max="64" step="1" style="width:56px" aria-label="Between lines"></div>
+    <div class="olrow"><label>Lines</label>
+      <div class="chips" id="txalign" role="group" aria-label="Alignment">
+        <button data-v="left" aria-pressed="true">Left</button>
+        <button data-v="center" aria-pressed="false">Centre</button>
+        <button data-v="right" aria-pressed="false">Right</button></div></div>
+    <div class="olrow"><label for="txbold">Weight</label>
+      <input type="number" id="txbold" value="0" min="0" max="8" step="1" style="margin-left:auto; width:56px">
+      <label for="txol">Outline</label>
+      <input type="number" id="txol" value="0" min="0" max="8" step="1" style="width:56px">
+      <input type="color" id="txolc" value="#000000" aria-label="Outline colour"></div>
+    <div class="olrow"><button class="btn" id="txsh" aria-pressed="false" title="A copy of the letters behind them">Shadow</button>
+      <input type="number" id="txshx" value="1" min="-64" max="64" step="1" style="margin-left:auto; width:52px" aria-label="Shadow across">
+      <input type="number" id="txshy" value="1" min="-64" max="64" step="1" style="width:52px" aria-label="Shadow down">
+      <input type="color" id="txshc" value="#000000" aria-label="Shadow colour"></div>
+    <div class="olrow"><label for="txlean">Slant</label>
+      <input type="number" id="txlean" value="0" min="-64" max="64" step="1" style="margin-left:auto; width:52px" title="Lean the letters sideways">
+      <input type="number" id="txslope" value="0" min="-64" max="64" step="1" style="width:52px" aria-label="Slope down the line">
+      <label for="txwx">Bend</label>
+      <input type="number" id="txwx" value="0" min="-64" max="64" step="1" style="width:52px">
+      <input type="number" id="txwy" value="0" min="-64" max="64" step="1" style="width:52px" aria-label="Bend down"></div>
+    <div class="olrow"><label for="txx">Place</label>
+      <input type="number" id="txx" value="0" step="1" style="margin-left:auto; width:56px">
+      <input type="number" id="txy" value="0" step="1" style="width:56px" aria-label="Down">
+      <button class="btn" id="txcentre">Centre it</button></div>
+    <p class="note" id="txnote"></p>
+    <div class="savebar" style="margin-top:14px">
+      <button class="btn" id="txadd" style="flex:1">Add the text</button>
+      <button class="btn ghost" id="txclear">Clear</button>
+      <button class="btn ghost" id="txclose">Close</button>
+    </div>
+  </div>
+</div>
+
+<div class="scrim pop" id="tfscrim" hidden>
+  <div class="card" role="dialog" aria-modal="true" aria-labelledby="tftitle">
+    <h2 id="tftitle">Transform</h2>
+    <p class="sub">Flip and turn at the top. Below them, sizing - including Fit to grid and the pixel size the art is drawn at. Moving is the tool itself.</p>
       <div class="savebar">
         <button class="tool" id="fliph" title="Flip across"><svg viewBox="0 0 24 24"><path d="M12 3v18"/><path d="M8 7 3 12l5 5V7Z"/><path d="M16 7l5 5-5 5V7Z"/></svg></button>
         <button class="tool" id="flipv" title="Flip down"><svg viewBox="0 0 24 24"><path d="M3 12h18"/><path d="M7 8 12 3l5 5H7Z"/><path d="M7 16l5 5 5-5H7Z"/></svg></button>
@@ -1784,8 +1789,243 @@ footer .mono{color:var(--ink);}
       </div>
       <p class="note"><span class="mono" id="rsnow">-</span></p>
       <p class="note"><span class="mono" id="blknow">-</span></p>
+    <div class="savebar" style="margin-top:18px">
+      <button class="btn ghost" id="tfclose" style="flex:1">Close</button>
+    </div>
+  </div>
+</div>
+
+<div class="scrim pop" id="blscrim" hidden>
+  <div class="card" role="dialog" aria-modal="true" aria-labelledby="bltitle">
+    <h2 id="bltitle">Base layer</h2>
+    <p class="sub">The character underneath, for checking a trait sits where it should. It is never part of the artwork.</p>
+      <div class="stack">
+        <div class="savebar">
+          <select id="basepick" aria-label="Base image" style="flex:1"></select>
+          <button class="mini" id="basedrop" title="Remove the base">Remove</button>
+        </div>
+        <div class="olrow"><label for="baseop">Strength</label>
+          <input id="baseop" type="range" min="10" max="100" step="5" value="55" aria-label="Base opacity">
+          <span class="mono" id="baseoplab">55%</span></div>
+        <input id="basefile" type="file" accept="image/*" hidden>
+        <button class="btn ghost" id="baseoutline" aria-pressed="false">Show base outline</button>
+      </div>
+      <p class="note" title="The base is never part of the artwork"><kbd>M</kbd> to move</p>
+    <div class="savebar" style="margin-top:18px">
+      <button class="btn ghost" id="blclose" style="flex:1">Close</button>
+    </div>
+  </div>
+</div>
+
+<div class="scrim pop" id="svscrim" hidden>
+  <div class="card" role="dialog" aria-modal="true" aria-labelledby="svtitle">
+    <h2 id="svtitle">Save and export</h2>
+    <p class="sub">Name it, put it on a layer, save it to the project or download it.</p>
+      <div class="stack">
+        <div class="savebar">
+          <input id="tname" type="text" placeholder="trait name" aria-label="Trait name">
+          <select id="tlayer" aria-label="Layer"></select>
+          <div class="chips" id="tstatus" role="group" aria-label="Status">
+            <button type="button" data-v="wip" aria-pressed="true">wip</button>
+            <button type="button" data-v="approved" aria-pressed="false">approved</button>
+            <button type="button" data-v="rejected" aria-pressed="false">rejected</button>
+          </div>
+        </div>
+        <button class="btn" id="saveproj">Save to project</button>
+      </div>
+      <div class="rule"></div>
+      <div class="stack">
+        <!-- One row, not three full-width buttons. Save and export was the
+             tallest section in the panel at 388px and these were three of its
+             seven stacked buttons. Same three ids, same three actions; the
+             sentence each one used to spell out is in its title. -->
+        <div class="olrow"><span>Download</span>
+          <div class="savebar" style="flex:1" role="group" aria-label="Download">
+            <button class="btn ghost" id="dlNative" style="flex:1"
+              title="Download this trait at its own size, unscaled. Every trait has to match the collection's grid to line up - this button reports the size rather than changing it.">Grid</button>
+            <button class="btn ghost" id="dlBig" style="flex:1"
+              title="Download at eight times the size, for previews and posts">8×</button>
+            <button class="btn ghost" id="dlTrim" style="flex:1"
+              title="Download cropped to the artwork, with the empty canvas removed">Trimmed</button>
+          </div>
+        </div>
+        <button class="btn ghost" id="reset">Reset to original</button>
+        <button class="btn" id="saveclose">Save and close</button>
+        <button class="btn ghost" id="closeed">Close</button>
+      </div>
+      <p class="note" title="Saved in this browser. Downloads are PNG with no smoothing - keep the full canvas so traits line up">Saved in this browser</p>
+    <div class="savebar" style="margin-top:18px">
+      <button class="btn ghost" id="svclose" style="flex:1">Close</button>
+    </div>
+  </div>
+</div>
+
+<div class="scrim pop" id="olscrim" hidden>
+  <div class="card" role="dialog" aria-modal="true" aria-labelledby="oltitle">
+    <h2 id="oltitle">Outline</h2>
+    <p class="sub">Draws a border around the artwork. The collection's own
+      black border is applied on save and export whatever you set here.</p>
+      <div class="stack">
+        <div class="olrow"><label for="olthick">Thickness</label>
+          <input id="olthick" type="range" min="0" max="6" step="1" value="1" aria-label="Outline thickness">
+          <span class="mono" id="olthicklab">1 cell</span></div>
+        <div class="olrow"><label for="olcol">Colour</label>
+          <input type="color" id="olcol" value="#000000" aria-label="Outline colour"
+            style="margin-left:auto; width:54px">
+          <button class="mini" id="olcurrent" title="Use the colour you are painting with">match brush</button></div>
+        <div class="olrow"><label for="olsnap">Snap to</label>
+          <select id="olsnap" aria-label="Snap grid">
+            <option value="auto">auto</option><option value="1" selected>1 cell</option>
+            <option value="2">2 cells</option><option value="3">3 cells</option>
+            <option value="4">4 cells</option><option value="6">6 cells</option>
+            <option value="8">8 cells</option></select></div>
+        <div class="olrow">
+          <button class="btn ghost" id="oltidy" aria-pressed="true"
+            style="width:auto;padding:6px 10px;font-size:12px"
+            title="Square off the silhouette before outlining">Tidy edge</button>
+          <button class="btn ghost" id="olpatch" aria-pressed="false"
+            style="width:auto;padding:6px 10px;font-size:12px"
+            title="Close gaps inside the art before drawing the outline round it">Close gaps first</button></div>
+        <button class="btn" id="oladd">Add outline</button>
+      </div>
+      <p class="note" id="olnote"></p>
+    <div class="savebar" style="margin-top:18px">
+      <button class="btn ghost" id="olclose" style="flex:1">Close</button>
+    </div>
+  </div>
+</div>
+
+<div class="app" id="app" hidden>
+  <header>
+    <span class="brand"><span class="logo" aria-hidden="true"><i></i><i></i><i></i><i></i></span><h1>ChatNFT</h1></span>
+    <span class="fname mono" id="fname"></span>
+    <button class="closex" id="editorclose" type="button"
+      title="Close the editor (Esc)" aria-label="Close the editor">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    <div class="spec">
+      <span>Grid <b class="mono" id="sGrid">—</b></span>
+      <span>Colours <b class="mono" id="sCols">—</b></span>
+      <span>Opaque <b class="mono" id="count">—</b></span>
+    </div>
+  </header>
+
+  <!-- Said inside the editor, because that is where the draft was restored.
+       The main page keeps its own bar for the unattached canvas. -->
+  <div class="draftbar" id="draftbar" hidden>
+    <span id="drafttext"></span>
+    <button class="mini" id="draftdiscard">Use the saved version</button>
+  </div>
+
+  <nav class="tools" aria-label="Tools">
+    <button class="tool" data-tool="pencil" aria-pressed="true" title="Pencil (B)"><svg viewBox="0 0 24 24"><path d="M4 20h4L20 8a2.8 2.8 0 0 0-4-4L4 16v4Z"/><path d="M14 6l4 4"/></svg><span class="k">B</span></button>
+    <button class="tool" data-tool="eraser" aria-pressed="false" title="Eraser (E)"><svg viewBox="0 0 24 24"><path d="M6 18h12"/><path d="M9 18 4 13a2 2 0 0 1 0-3l7-7a2 2 0 0 1 3 0l5 5a2 2 0 0 1 0 3l-7 7Z"/></svg><span class="k">E</span></button>
+    <button class="tool" data-tool="fill" aria-pressed="false" title="Fill (G)"><svg viewBox="0 0 24 24"><path d="M5 12 12 5l7 7-7 7-7-7Z"/><path d="M19 15c1.2 1.6 1.6 2.5 1.6 3.2a1.6 1.6 0 0 1-3.2 0c0-.7.4-1.6 1.6-3.2Z"/></svg><span class="k">G</span></button>
+    <!-- One tool. Drag a handle to size or rotate, drag anywhere else to
+         move. Both keys still reach it. -->
+    <button class="tool" data-tool="transform" aria-pressed="false" title="Move, resize and rotate: drag a handle to size it, drag anywhere else to move it (M or R)"><svg viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/><path d="M4 4h4v4H4zM16 4h4v4h-4zM4 16h4v4H4zM16 16h4v4h-4z"/><path d="M12 9v6M9 12h6"/></svg><span class="k">M</span></button>
+    <button class="tool" data-tool="pick" aria-pressed="false" title="Eyedropper (I)"><svg viewBox="0 0 24 24"><path d="m4 20 1-4 9-9 3 3-9 9-4 1Z"/><path d="m15 5 2-2a2 2 0 0 1 3 3l-2 2"/></svg><span class="k">I</span></button>
+    <!-- Not a data-tool: it opens a panel rather than changing what a drag
+         does, and putting it in the tool set would make the pencil appear to
+         turn off when you opened it. -->
+    <button class="tool" id="olbtn" aria-expanded="false" title="Outline (O)"><svg viewBox="0 0 24 24"><path d="M5 5h14v14H5z"/><path d="M8.5 8.5h7v7h-7z"/></svg><span class="k">O</span></button>
+    <button class="tool" id="txbtn" aria-expanded="false" title="Text (A)"><svg viewBox="0 0 24 24"><path d="M5 6V4h14v2"/><path d="M12 4v16"/><path d="M9 20h6"/></svg><span class="k">A</span></button>
+    <button class="tool" id="tfbtn" aria-expanded="false" title="Transform (T)"><svg viewBox="0 0 24 24"><path d="M4 8h16M4 16h16"/><path d="m8 4-4 4 4 4M16 12l4 4-4 4"/></svg><span class="k">T</span></button>
+    <button class="tool" id="blbtn" aria-expanded="false" title="Base layer (L)"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4.5 21a7.5 7.5 0 0 1 15 0"/></svg><span class="k">L</span></button>
+    <button class="tool" id="svbtn" aria-expanded="false" title="Save and export (S)"><svg viewBox="0 0 24 24"><path d="M5 4h11l3 3v13H5z"/><path d="M8 4v6h7V4M8 20v-6h8v6"/></svg><span class="k">S</span></button>
+    <div class="rule"></div>
+    <button class="tool" id="undo" title="Undo (Ctrl+Z)"><svg viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg></button>
+    <button class="tool" id="redo" title="Redo (Ctrl+Shift+Z)"><svg viewBox="0 0 24 24"><path d="m15 14 5-5-5-5"/><path d="M20 9H10a6 6 0 0 0 0 12h3"/></svg></button>
+    <div class="rule"></div>
+    <button class="tool" id="gridbtn" aria-pressed="false" title="Grid (3)"><svg viewBox="0 0 24 24"><path d="M4 9h16M4 15h16M9 4v16M15 4v16"/></svg></button>
+    <button class="tool" id="keysbtn" aria-expanded="false" title="Keyboard shortcuts (?)"><svg viewBox="0 0 24 24"><path d="M3 7h18v10H3z"/><path d="M7 11h.01M11 11h.01M15 11h.01M7 14h10"/></svg><span class="k">?</span></button>
+    <button class="tool" id="panbtn" aria-pressed="false" title="Pan (H)"><svg viewBox="0 0 24 24"><path d="M9 11V5.5a1.5 1.5 0 0 1 3 0V11"/><path d="M12 11V4.5a1.5 1.5 0 0 1 3 0V11"/><path d="M15 11V6.5a1.5 1.5 0 0 1 3 0V13a8 8 0 0 1-8 8h-1a7 7 0 0 1-5-3l-2.2-3.1a1.5 1.5 0 0 1 2.4-1.8L6 15V8.5a1.5 1.5 0 0 1 3 0"/></svg><span class="k">H</span></button>
+  </nav>
+
+  <main class="stage" id="stage">
+    <div class="frame" id="frame"><canvas id="base"></canvas><canvas id="art"></canvas><div id="grid"></div><canvas id="olpv"></canvas><canvas id="qapv"></canvas><canvas id="cmppv"></canvas><canvas id="txpv"></canvas><div id="bcur"></div>
+      <div id="tbox" aria-hidden="true">
+        <div class="tline"></div><div class="tang" id="tang"></div>
+        <div class="th tc" data-h="nw"></div><div class="th" data-h="n"></div><div class="th tc" data-h="ne"></div>
+        <div class="th" data-h="w"></div><div class="th" data-h="e"></div>
+        <div class="th tc" data-h="sw"></div><div class="th" data-h="s"></div><div class="th tc" data-h="se"></div>
+        <div class="th trot" data-h="rot" title="Drag to rotate"></div>
+      </div></div>
+  </main>
+
+  <aside class="side" id="sidepanel">
+    <button class="grip" id="sidegrip" type="button" aria-controls="sidepanel"
+      aria-expanded="true" title="Hide the tools">Tools</button>
+    <!-- One row. The caption that used to sit above the hex was the taller
+         half of a two-line column, saying what the well beside it shows. It
+         lives in the aria-label now, so nothing that could only hear it has
+         lost anything. -->
+    <!-- The colour you are painting with, and the way into every colour this
+         project has. The wheel alone was the whole answer here and the
+         palette was somewhere else. -->
+    <div class="cur">
+      <button type="button" id="clbtn" aria-expanded="false"
+        title="Colours: this project's palette, replacing, and any colour you like"
+        aria-label="Colours"></button>
+      <span class="mono" id="curhex" title="The colour you are painting with">#000000</span>
+    </div>
+    <section id="brushsec">
+      <h2>Colour</h2>
+      <!-- The brush rows only, so selectTool can hide THEM. Hiding the whole
+           section would take the palette with it the moment you picked the
+           fill or the move tool. -->
+      <div id="brushrows">
+      <!-- max is set from the canvas by setBrush; 128 here is the ceiling it
+           can ever reach, not a limit of its own. It read 8 - the old button
+           maximum - which never applied and only misled. -->
+      <div class="olrow"><label for="bslider">Size</label>
+        <input id="bslider" type="range" min="1" max="128" step="1" value="1" aria-label="Brush size">
+        <span class="mono" id="bslab">1 × 1</span>
+        <button class="btn ghost" id="gsnap" aria-pressed="true"
+          style="width:auto;padding:6px 12px;font-size:12px;margin-left:4px"
+          title="Jump the brush from cell to cell on the grid the art was drawn on, instead of pixel by pixel. Art drawn one pixel at a time has no grid to snap to, so this does nothing there.">Snap</button></div>
+      </div>
+      <!-- Its own container, with the mirror condition. It lived inside
+           #brushrows, which selectTool hides unless the tool is pencil or
+           eraser - so the only control the fill tool reads vanished the
+           moment you selected Fill. -->
+      <div id="fillrows" hidden>
+      <div class="olrow"><label for="filltol" title="How far from the colour you click the fill spreads">Fill spread</label>
+        <input id="filltol" type="number" min="0" max="120" value="8" style="width:72px"></div>
+      </div>
+      <div class="rule"></div>
+      <!-- One palette, and the mouse says what a click means. The Draw and
+           Replace chips were a mode to remember for something two buttons
+           already distinguish, and the pencil tool was saying "draw" as
+           well. LEFT picks the colours you are changing - and paints with
+           the last one, because "this colour" is one thought. RIGHT picks
+           the colour you are changing them to. -->
+
     </section>
     <section>
+      <h2>Edges and holes</h2>
+      <button class="btn ghost" id="debg"
+        title="Floods in from the border, so a white shirt in the middle stays">Clear background</button>
+      <div class="olrow"><label for="bgtol" title="Only colour touching the border is removed">Keep within</label>
+        <input id="bgtol" type="number" min="0" max="120" value="24" style="width:72px"
+          aria-label="Background tolerance"></div>
+      <!-- Clear background floods in from the border, so it cannot reach
+           base showing THROUGH a trait - between the teeth of a grin, say.
+           This goes by colour instead and reaches both. -->
+      <button class="btn ghost" id="hidebase" disabled
+        title="Finds the flat colours the character underneath was drawn in and takes them out, including the blended edge around them">Hide the base colour</button>
+      <button class="btn ghost" id="fillholes"
+        title="Close gaps the artwork surrounds on every side">Fill holes</button>
+      <div class="olrow"><label for="holemax" title="Closes gaps the art surrounds. 0 means any size - raise it to keep a hole that belongs">Biggest gap</label>
+        <input id="holemax" type="number" min="0" max="99999" value="0" style="width:72px"
+          aria-label="Biggest gap to close, in cells; 0 for any size"></div>
+      <!-- The outline moved to the tool rail: it is a thing you DO, like the
+           pencil and the eyedropper, and it was six controls and a note in the
+           middle of the section you came to for Clear background. -->
+    </section>
+    <!-- Hidden unless a trait was opened through the agent route. Editing an
+         ordinary PNG is not an agent pass, and four controls about a job
+         nobody is doing is what a sidebar fills up with. -->
+    <section id="agentsec" hidden>
       <h2>Agent</h2>
       <div class="stack">
         <p class="note mono" id="agwork">Nothing open.</p>
@@ -1847,57 +2087,6 @@ footer .mono{color:var(--ink);}
         <div id="qarects"></div>
         <button class="btn ghost" id="qareport" disabled>Download report</button>
       </div>
-    </section>
-    <section>
-      <h2>Base layer</h2>
-      <div class="stack">
-        <div class="savebar">
-          <select id="basepick" aria-label="Base image" style="flex:1"></select>
-          <button class="mini" id="basedrop" title="Remove the base">Remove</button>
-        </div>
-        <div class="olrow"><label for="baseop">Strength</label>
-          <input id="baseop" type="range" min="10" max="100" step="5" value="55" aria-label="Base opacity">
-          <span class="mono" id="baseoplab">55%</span></div>
-        <input id="basefile" type="file" accept="image/*" hidden>
-        <button class="btn ghost" id="baseoutline" aria-pressed="false">Show base outline</button>
-      </div>
-      <p class="note" title="The base is never part of the artwork"><kbd>M</kbd> to move</p>
-    </section>
-    <section>
-      <h2>Save and export</h2>
-      <div class="stack">
-        <div class="savebar">
-          <input id="tname" type="text" placeholder="trait name" aria-label="Trait name">
-          <select id="tlayer" aria-label="Layer"></select>
-          <div class="chips" id="tstatus" role="group" aria-label="Status">
-            <button type="button" data-v="wip" aria-pressed="true">wip</button>
-            <button type="button" data-v="approved" aria-pressed="false">approved</button>
-            <button type="button" data-v="rejected" aria-pressed="false">rejected</button>
-          </div>
-        </div>
-        <button class="btn" id="saveproj">Save to project</button>
-      </div>
-      <div class="rule"></div>
-      <div class="stack">
-        <!-- One row, not three full-width buttons. Save and export was the
-             tallest section in the panel at 388px and these were three of its
-             seven stacked buttons. Same three ids, same three actions; the
-             sentence each one used to spell out is in its title. -->
-        <div class="olrow"><span>Download</span>
-          <div class="savebar" style="flex:1" role="group" aria-label="Download">
-            <button class="btn ghost" id="dlNative" style="flex:1"
-              title="Download this trait at its own size, unscaled. Every trait has to match the collection's grid to line up - this button reports the size rather than changing it.">Grid</button>
-            <button class="btn ghost" id="dlBig" style="flex:1"
-              title="Download at eight times the size, for previews and posts">8×</button>
-            <button class="btn ghost" id="dlTrim" style="flex:1"
-              title="Download cropped to the artwork, with the empty canvas removed">Trimmed</button>
-          </div>
-        </div>
-        <button class="btn ghost" id="reset">Reset to original</button>
-        <button class="btn" id="saveclose">Save and close</button>
-        <button class="btn ghost" id="closeed">Close</button>
-      </div>
-      <p class="note" title="Saved in this browser. Downloads are PNG with no smoothing - keep the full canvas so traits line up">Saved in this browser</p>
     </section>
   </aside>
 
@@ -2179,6 +2368,10 @@ let moveRedoWas=null, moveDropped=null;
    gold - and doing that one swatch at a time means one undo step per colour
    and one chance to pick the wrong target colour halfway through. */
 const rcPick=new Set();
+/* The colour the picked ones become, chosen with the right button. Null
+   means nobody has said, and the colour being painted with is the sensible
+   answer - which is what this did before there was a way to say. */
+let rcTo=null;
 let autoPending=null; /* debounce handle for the working-canvas autosave */
 /* The undo depth the canvas was last SAVED at. Not "was it edited" - saving
    does not empty the undo stack, so a canvas can be heavily edited and
@@ -2405,8 +2598,15 @@ async function linkStage(href){
 }
 /* The press, for something without a mouse. Opens to "as it is", which is
    the choice that leaves every pixel where it is. */
+/* An agent pass has started. Set here rather than guessed at, because the
+   panel appearing on its own would be the thing this flag exists to stop. */
+function agentMode(on){
+  AGENT_ON=!!on;
+  const s=$("agentsec"); if(s) s.hidden=!AGENT_ON;
+}
 async function linkOpen(how){
   if(!LINKED||!LINKED.file) throw Error("Nothing is linked.");
+  agentMode(true);
   const file=LINKED.file;
   load(file);
   if(how==="options") return true;
@@ -5436,19 +5636,35 @@ function buildPalette(list){
        once. aria-pressed is the drawing colour, data-rc is marked-for-replace,
        so switching mode hides nothing and setColor cannot wipe a mark. */
     if(rcPick.has(h)) b.dataset.rc="1";
+    if(rcTo===h) b.dataset.to="1";
+    /* LEFT: this colour. It becomes the one you paint with AND one of the
+       ones being changed, because those are the same thought and splitting
+       them was the mode this replaces. Clicking it again takes it out,
+       which is the only way to fix a misclick without starting over. */
     b.onclick=()=>{
-      if(chipVal("palmode")==="replace"){
-        /* Toggle. Clicking a chosen swatch again takes it out, which is the only
-           way to correct a misclick without starting the selection over. */
-        if(rcPick.has(h)) rcPick.delete(h); else rcPick.add(h);
-        rcSummary();
-      } else { setColor(h); selectTool("pencil"); }
+      if(rcPick.has(h)) rcPick.delete(h); else rcPick.add(h);
+      setColor(h);
+      rcSummary();
+    };
+    /* RIGHT: what they become. The browser menu is suppressed here and only
+       here, so right-clicking anywhere else in the editor is untouched. */
+    b.oncontextmenu=(e)=>{
+      e.preventDefault();
+      rcTo = (rcTo===h) ? null : h;
+      rcSummary();
+      return false;
     };
     wrap.appendChild(b);
   });
 }
 function setColor(h){
   color=h; $('picker').value=h; $('curhex').textContent=h;
+  /* The button IS the well now, so it has to carry the colour. */
+  const cb=$('clbtn'); if(cb) cb.style.background=h;
+  /* Pending lettering is drawn in the paint colour, so changing the colour
+     has to redraw it - otherwise the preview shows one colour and Add puts
+     down another. */
+  try{ if(textSprite) textBuild(); }catch(_){ }
   document.querySelectorAll('.sw').forEach(s=>s.setAttribute('aria-pressed',String(s.dataset.hex===h)));
   outlinePreview();
   /* The line reads "replacing X with Y", and Y is the CURRENT colour - so it
@@ -6595,7 +6811,7 @@ function stepBrush(d){ brushAuto=false; setBrush(brush+d); }
    other has to, and a mismatch would be visible immediately. */
 function paintCursor(){
   const el=$('bcur');
-  if(!hoverCell||!N||panMode||tool==='pan'||tool==='move'){ el.style.display='none'; return; }
+  if(!hoverCell||!N||panMode||tool==='pan'||tool==='transform'){ el.style.display='none'; return; }
   const n=(tool==='pencil'||tool==='eraser')?brush:1;
   /* Clipped the same way dab() clips, so the box shows what will actually
      be painted. Unclipped it hung off the edge of the art and stretched the
@@ -6657,12 +6873,17 @@ function setChip(id,v){
      "no choice" and send chipVal to the first one anyway. */
   if(!hit&&all.length) all[0].setAttribute("aria-pressed","true");
 }
-for(const id of ["rsmode","tstatus","palmode"]){
+for(const id of ["rsmode","tstatus","txalign"]){
   const g=document.getElementById(id);
-  if(g) g.onclick=e=>{ const b=e.target.closest("button[data-v]"); if(b){ setChip(id,b.dataset.v); if(id==="rsmode") resizeBoxes(); if(id==="palmode") rcSummary(); } };
+  if(g) g.onclick=e=>{ const b=e.target.closest("button[data-v]"); if(b){ setChip(id,b.dataset.v); if(id==="rsmode") resizeBoxes(); if(id==="txalign") textBuild(); } };
 }
 
 function selectTool(t){
+  /* THE SAME MODE UNDER EITHER NAME. Move and Resize were two tools and one
+     button now, but "move" is a name in the shortcut table, in this file and
+     in tests - and deleting a name is how a key somebody has in their
+     fingers stops working with no message. */
+  if(t==='move') t='transform';
   tool=t; panMode=(t==='pan');
   document.querySelectorAll('.tool[data-tool]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.tool===t)));
   $('panbtn').setAttribute('aria-pressed',String(panMode));
@@ -6673,7 +6894,7 @@ function selectTool(t){
   /* The mirror: fill spread is only meaningful to the fill tool, and is the
      control that was hidden by selecting it. */
   $('fillrows').hidden=(t!=='fill');
-  art.classList.toggle('mv',t==='move');
+  art.classList.toggle('mv',t==='transform');
   tboxShow();
   paintCursor();
 }
@@ -7325,6 +7546,7 @@ function rcSummary(){
      test that fails when it is removed. Keep both. */
   document.querySelectorAll("#pal .sw").forEach(s=>{
     if(rcPick.has(s.dataset.hex)) s.dataset.rc="1"; else delete s.dataset.rc;
+    if(rcTo&&s.dataset.hex===rcTo) s.dataset.to="1"; else delete s.dataset.to;
   });
   const n=rcPick.size;
   $("rcgo").disabled=!n;
@@ -7333,9 +7555,8 @@ function rcSummary(){
      wrong one is worse than saying nothing: "pick colours above" to someone
      whose clicks are currently setting the drawing colour describes an action
      that will not work. */
-  if(!n){ $("rcfrom").textContent = chipVal("palmode")==="replace"
-    ? "Pick colours in the palette to replace"
-    : "Set the palette to Replace, then pick colours"; return; }
+  if(!n){ $("rcfrom").textContent =
+    "Left-click colours to change, right-click what to change them to."; return; }
   const names=[...rcPick];
   /* Named in full up to three, counted past that - a dozen hex codes in a row
      is not something anyone reads, and the swatches already show which. */
@@ -7344,7 +7565,11 @@ function rcSummary(){
      describe only one of them - naming a target colour Erase does not use. */
   /* The swatches show WHICH, and both buttons are an inch away saying what
      they do. All this has to add is how many. */
-  $("rcfrom").textContent=what+" picked";
+  /* AND WHAT THEY BECOME, when somebody has said. Naming the target is the
+     half the old line could not say, because there was no way to choose one
+     - it silently used whatever was being painted with. */
+  $("rcfrom").textContent=what+" \u2192 "+(rcTo||color)
+    +(rcTo?"":" (the colour you are painting with)");
 }
 /* Recompute the palette from what is actually on the canvas and rebuild both
    swatch rows. recolour does this at its tail; undo and redo did not, so
@@ -7373,7 +7598,7 @@ function recolour(erase){
   /* Captured now: buildRecolour below clears the selection, so reading it
      afterwards for the message would always say zero. */
   const from=rcPick.size;
-  const to=hx2(color);
+  const to=hx2(rcTo||color);
   const froms=[...rcPick].map(hx2);
   /* Exact matches go through a set of packed integers rather than a loop over
      the chosen colours: with a dozen picked and a million pixels that is the
@@ -10268,6 +10493,8 @@ function buildResizePresets(){
    written by the operation that did the work, with the count that operation
    already reports, so the log cannot claim something the pixels do not. */
 let AGENT_LOG=[];
+/* Off until something says otherwise. */
+let AGENT_ON=false;
 function agentStep(what,detail){
   AGENT_LOG.push({at:Date.now(), what:what, detail:detail||""});
   agentLogShow();
@@ -14962,7 +15189,18 @@ function acctToggle(){
    away; a finger has to wait to find out whether a second one is coming. */
 function beginStroke(e){
   const c=cellFrom(e); if(!c) return;
-  if(tool==="move"){
+  /* PENDING TEXT CATCHES THE PRESS FIRST, whatever the tool is. Nothing is
+     committed until Add, so a drag here moves letters and cannot mark the
+     artwork - which is why it does not need the tool to be anything, and
+     why it takes no snapshot. */
+  if(textSprite){
+    const tc=rawCell(e);
+    if(textHit(tc.x,tc.y)){ textDrag={fx:tc.x,fy:tc.y,x:textX,y:textY}; return; }
+  }
+  /* A PRESS THAT IS NOT ON A HANDLE. #tbox is pointer-events:none except
+     for its handles, so a drag inside the box has always arrived here and
+     nothing was catching it - which is why the box could size but not move. */
+  if(tool==="transform"){
     /* Same as the fill branch below: hold the redo stack aside, because
        snapshot() clears it and this drag may end where it started. */
     moveRedoWas=redoStack.slice();
@@ -15075,6 +15313,13 @@ stage.addEventListener('pointermove',e=>{
   hoverCell=c; paintCursor();
   $('pos').textContent=c?(c.x+', '+c.y):'—';
   if(c){ const p=pixelAt(c.x,c.y); $('under').textContent=p.a?hex(p.r,p.g,p.b):'transparent'; }
+  if(textDrag){
+    const rc=rawCell(e);
+    textX=textDrag.x+(rc.x-textDrag.fx); textY=textDrag.y+(rc.y-textDrag.fy);
+    textClamp(); textDraw();
+    $('pos').textContent=textX+', '+textY;
+    return;
+  }
   if(moveBuf){
     const rc=rawCell(e);
     /* Whole cells when snapping is on. gridBlock is the measured block size,
@@ -15098,6 +15343,7 @@ function endPointer(e){
   if(pts.size<2) pinch=null;
   if(pan&&pan.id===e.pointerId){ try{stage.releasePointerCapture(pan.id);}catch(_){} pan=null;
     stage.style.cursor=(panMode||spaceHeld)?'grab':''; }
+  if(textDrag&&pts.size===0) textDrag=null;
   if(moveBuf&&pts.size===0){
     moveBuf=null;
     /* A drag that ended where it started is not an edit, so it does not earn
@@ -15747,9 +15993,9 @@ PB.palette=function(){ return {source:PALETTE_SOURCE, hexes:paletteList()}; };
 PB.gridFor=function(layer){ return ruleGridFor(layer); };
 PB.budgetFor=function(layer){ return ruleColourBudget(layer); };
 /* The spec check on whatever is open, as data. */
-PB.spec=function(){ return agentSpec(); };
+PB.spec=function(){ agentMode(true); return agentSpec(); };
 /* Where it sits against the reference for its category. */
-PB.placement=function(){ return agentPlacement(); };
+PB.placement=function(){ agentMode(true); return agentPlacement(); };
 PB.reference=function(layer){
   const r=PLACEMENT_REF[String(layer||"")];
   return r?{frame:PLACEMENT_FRAME, box:r.slice(),
@@ -15763,8 +16009,35 @@ PB.setRules=async function(patch){
   try{ agRules(); }catch(_){ }
   return PB.rules();
 };
+/* Lettering for something with no pointer. It drives the same controls a
+   person drives, rather than calling the renderer behind the panel's back:
+   an agent that placed text by a private path would leave the panel showing
+   something else, and the next human edit would fight it. */
+PB.text=function(o){
+  o=o||{};
+  railPanel("tx",true);
+  if(typeof o.text==="string") $("txtext").value=o.text;
+  if(o.font) $("txfont").value=o.font;
+  if(o.size){ $("txpw").value=o.size; $("txph").value=o.size; }
+  if(o.colour) setColor(o.colour);
+  if(typeof o.outline==="number") $("txol").value=o.outline;
+  if(o.align) setChip("txalign",o.align);
+  textBuild();
+  if(!textSprite) return {ok:false, why:$("txnote").textContent||"nothing to draw"};
+  if(typeof o.x==="number") textX=Math.round(o.x);
+  if(typeof o.y==="number") textY=Math.round(o.y);
+  textClamp(); textDraw();
+  const where={ok:true, x:textX, y:textY, w:textSprite.width, h:textSprite.height};
+  /* Placed but not committed unless asked. Seeing it before it lands is
+     the point of the sprite, and an agent gets the same choice. */
+  if(o.apply) textApply();
+  where.applied=!!o.apply;
+  return where;
+};
 PB.linked=function(){ return LINKED?{name:LINKED.name, url:LINKED.url}:null; };
 PB.openLinked=function(how){ return linkOpen(how); };
+/* Anything reaching for the agent surface is an agent pass. */
+PB.workspace=function(on){ agentMode(on!==false); return AGENT_ON; };
 PB.stageLinked=function(href){ return linkStage(href); };
 /* Walks every trait, decoded one at a time.
 
@@ -17126,11 +17399,22 @@ const SHORTCUTS=[
   {show:'E', desc:'Eraser', keys:['e'], run:()=>selectTool('eraser')},
   {show:'G', desc:'Fill', keys:['g'], run:()=>selectTool('fill')},
   {show:'I', desc:'Eyedropper', keys:['i'], run:()=>selectTool('pick')},
-  {show:'M', desc:'Move the art', keys:['m'], run:()=>selectTool('move')},
+  {show:'O', desc:'Outline', keys:['o'], run:()=>outlinePanel($('olscrim').hidden)},
+  {show:'C', desc:'Colours', keys:['c'], run:()=>railPanel('cl',$('clscrim').hidden)},
+  {show:'A', desc:'Text', keys:['a'], run:()=>railPanel('tx',$('txscrim').hidden)},
+  {show:'T', desc:'Transform', keys:['t'], run:()=>railPanel('tf',$('tfscrim').hidden)},
+  {show:'L', desc:'Base layer', keys:['l'], run:()=>railPanel('bl',$('blscrim').hidden)},
+  {show:'S', desc:'Save and export', keys:['s'], run:()=>railPanel('sv',$('svscrim').hidden)},
+  {show:'Esc', desc:'Close a panel', prevent:true,
+    match:e=>e.key==='Escape'&&['cl','tx','tf','bl','sv'].some(i=>!$(i+'scrim').hidden),
+    run:()=>['cl','tx','tf','bl','sv'].forEach(i=>railPanel(i,false))},
+  {show:'Esc', desc:'Close the outline panel', prevent:true,
+    match:e=>e.key==='Escape'&&!$('olscrim').hidden, run:()=>outlinePanel(false)},
+  {show:'M', desc:'Move, resize and rotate', keys:['m'], run:()=>selectTool('transform')},
   /* Directly after Move here as well as in the rail. The help panel and the
      keydown handler both read this table, so a tool with no row is a tool
      with no key AND no mention in the shortcuts list. */
-  {show:'R', desc:'Resize and rotate', keys:['r'], run:()=>selectTool('transform')},
+  {show:'R', desc:'The same tool, by its other name', keys:['r'], run:()=>selectTool('transform')},
   {show:'H', desc:'Pan', keys:['h'], run:()=>selectTool(panMode?'pencil':'pan')},
   {show:'Space', desc:'Hold to drag the canvas around',
     match:e=>e.code==='Space', prevent:true,
@@ -17142,7 +17426,7 @@ const SHORTCUTS=[
     run:k=>setZoom(zoom+((k==='+'||k==='=')?1:-1))},
   {show:'0', desc:'Fit the art to the window', keys:['0'], prevent:true, run:()=>fitZoom()},
   {show:'Arrows', desc:'Nudge the art one pixel, while Move is the tool',
-    match:e=>tool==='move'&&e.key.indexOf('Arrow')===0, prevent:true,
+    match:e=>tool==='transform'&&e.key.indexOf('Arrow')===0, prevent:true,
     run:(k,e)=>nudge(e.key==='ArrowLeft'?-1:e.key==='ArrowRight'?1:0,
                      e.key==='ArrowUp'?-1:e.key==='ArrowDown'?1:0, e.repeat)},
   {show:'Ctrl+Z', desc:'Undo', prevent:true,
@@ -17188,6 +17472,740 @@ function keysPanel(on){
   if(on) $('ksclose').focus();
 }
 $('keysbtn').onclick=()=>keysPanel($('ksscrim').hidden);
+/* The same shape as the shortcuts panel: a scrim, a card, Escape, and a
+   click on the surround. Following it rather than inventing a second way
+   for a panel to behave. */
+/* CODEX'S PIXEL TEXT RENDERER, VERBATIM from 7724c06:text-overlay-core.js.
+
+   Do not tidy this block. tools/text-core-check.cjs slices from the first
+   line below to the globalThis assignment that ends it and runs Codex's
+   own test file against the slice; the moment it stops being that file,
+   those tests stop describing this code and the port becomes a rewrite
+   nobody has checked. Everything this page adds is BELOW the assignment. */
+/**
+ * Composite a transparent text sprite over artwork without resampling either
+ * buffer. Fully transparent sprite pixels are skipped, so every byte outside
+ * the visible text remains identical to the source artwork.
+ */
+function applyTextOverlay(
+  base,
+  baseWidth,
+  baseHeight,
+  overlay,
+  overlayWidth,
+  overlayHeight,
+  offsetX = 0,
+  offsetY = 0,
+) {
+  assertImageBuffer("base", base, baseWidth, baseHeight);
+  assertImageBuffer("overlay", overlay, overlayWidth, overlayHeight);
+  if (!Number.isInteger(offsetX) || !Number.isInteger(offsetY)) {
+    throw new TypeError("text overlay offsets must be whole pixels");
+  }
+
+  const output = new Uint8ClampedArray(base);
+
+  for (let sy = 0; sy < overlayHeight; sy += 1) {
+    const dy = sy + offsetY;
+    if (dy < 0 || dy >= baseHeight) continue;
+
+    for (let sx = 0; sx < overlayWidth; sx += 1) {
+      const dx = sx + offsetX;
+      if (dx < 0 || dx >= baseWidth) continue;
+
+      const si = (sy * overlayWidth + sx) * 4;
+      const sourceAlphaByte = overlay[si + 3];
+      if (sourceAlphaByte === 0) continue;
+
+      const di = (dy * baseWidth + dx) * 4;
+      if (sourceAlphaByte === 255) {
+        output[di] = overlay[si];
+        output[di + 1] = overlay[si + 1];
+        output[di + 2] = overlay[si + 2];
+        output[di + 3] = 255;
+        continue;
+      }
+
+      const sourceAlpha = sourceAlphaByte / 255;
+      const baseAlpha = output[di + 3] / 255;
+      const outputAlpha = sourceAlpha + baseAlpha * (1 - sourceAlpha);
+
+      for (let channel = 0; channel < 3; channel += 1) {
+        output[di + channel] = outputAlpha === 0
+          ? 0
+          : Math.round(
+            (overlay[si + channel] * sourceAlpha
+              + output[di + channel] * baseAlpha * (1 - sourceAlpha))
+            / outputAlpha,
+          );
+      }
+      output[di + 3] = Math.round(outputAlpha * 255);
+    }
+  }
+
+  return output;
+}
+
+function applyTextOverlays(base, baseWidth, baseHeight, patches) {
+  assertImageBuffer("base", base, baseWidth, baseHeight);
+  if (!Array.isArray(patches)) throw new TypeError("text patches must be an array");
+  return patches.reduce((output, patch) => {
+    if (!patch || typeof patch !== "object") throw new TypeError("each text patch must be an object");
+    return applyTextOverlay(
+      output,
+      baseWidth,
+      baseHeight,
+      patch.data,
+      patch.width,
+      patch.height,
+      patch.x,
+      patch.y,
+    );
+  }, new Uint8ClampedArray(base));
+}
+
+function hitTestTextPatches(patches, x, y) {
+  if (!Array.isArray(patches)) throw new TypeError("text patches must be an array");
+  if (!Number.isInteger(x) || !Number.isInteger(y)) {
+    throw new TypeError("text hit-test coordinates must be whole pixels");
+  }
+  for (let index = patches.length - 1; index >= 0; index -= 1) {
+    const patch = patches[index];
+    if (!patch || typeof patch !== "object") continue;
+    assertImageBuffer("text patch", patch.data, patch.width, patch.height);
+    const localX = x - patch.x;
+    const localY = y - patch.y;
+    if (localX < 0 || localY < 0 || localX >= patch.width || localY >= patch.height) continue;
+    if (patch.data[(localY * patch.width + localX) * 4 + 3] !== 0) return patch;
+  }
+  return null;
+}
+
+function assertImageBuffer(label, data, width, height) {
+  if (!Number.isInteger(width) || width < 0 || !Number.isInteger(height) || height < 0) {
+    throw new TypeError(`${label} dimensions must be non-negative whole pixels`);
+  }
+  if (!(data instanceof Uint8ClampedArray)) {
+    throw new TypeError(`${label} buffer must be a Uint8ClampedArray`);
+  }
+  const expected = width * height * 4;
+  if (data.length !== expected) {
+    throw new RangeError(`${label} buffer length ${data.length} does not match ${expected}`);
+  }
+}
+
+/**
+ * Replace only visible pixels that differ from the selected garment colour
+ * inside an explicit text box. Pixels outside the box (for example a hoodie
+ * strap) are never inspected or changed.
+ */
+function clearNonMatchingPixelsInBox(
+  base,
+  baseWidth,
+  baseHeight,
+  boxX,
+  boxY,
+  boxWidth,
+  boxHeight,
+  replacement,
+) {
+  assertImageBuffer("base", base, baseWidth, baseHeight);
+  for (const [label, value] of Object.entries({ boxX, boxY, boxWidth, boxHeight })) {
+    if (!Number.isInteger(value)) throw new TypeError(`${label} must be a whole pixel`);
+  }
+  if (boxWidth < 0 || boxHeight < 0) {
+    throw new RangeError("text cleanup box dimensions must be non-negative");
+  }
+  if (!Array.isArray(replacement) || replacement.length !== 4
+      || replacement.some(value => !Number.isInteger(value) || value < 0 || value > 255)) {
+    throw new TypeError("text cleanup colour must be four byte values");
+  }
+
+  const output = new Uint8ClampedArray(base);
+  const minX = Math.max(0, boxX);
+  const minY = Math.max(0, boxY);
+  const maxX = Math.min(baseWidth, boxX + boxWidth);
+  const maxY = Math.min(baseHeight, boxY + boxHeight);
+  for (let y = minY; y < maxY; y += 1) {
+    for (let x = minX; x < maxX; x += 1) {
+      const i = (y * baseWidth + x) * 4;
+      if (output[i + 3] === 0) continue;
+      if (output[i] === replacement[0] && output[i + 1] === replacement[1]
+          && output[i + 2] === replacement[2] && output[i + 3] === replacement[3]) continue;
+      output[i] = replacement[0];
+      output[i + 1] = replacement[1];
+      output[i + 2] = replacement[2];
+      output[i + 3] = replacement[3];
+    }
+  }
+  return output;
+}
+
+const PIXEL_GLYPHS = {
+  " ":["00000","00000","00000","00000","00000","00000","00000"],
+  "?":["01110","10001","00001","00010","00100","00000","00100"],
+  A:["01110","10001","10001","11111","10001","10001","10001"],
+  B:["11110","10001","10001","11110","10001","10001","11110"],
+  C:["01111","10000","10000","10000","10000","10000","01111"],
+  D:["11110","10001","10001","10001","10001","10001","11110"],
+  E:["11111","10000","10000","11110","10000","10000","11111"],
+  F:["11111","10000","10000","11110","10000","10000","10000"],
+  G:["01111","10000","10000","10111","10001","10001","01111"],
+  H:["10001","10001","10001","11111","10001","10001","10001"],
+  I:["11111","00100","00100","00100","00100","00100","11111"],
+  J:["00111","00010","00010","00010","10010","10010","01100"],
+  K:["10001","10010","10100","11000","10100","10010","10001"],
+  L:["10000","10000","10000","10000","10000","10000","11111"],
+  M:["10001","11011","10101","10101","10001","10001","10001"],
+  N:["10001","11001","10101","10011","10001","10001","10001"],
+  O:["01110","10001","10001","10001","10001","10001","01110"],
+  P:["11110","10001","10001","11110","10000","10000","10000"],
+  Q:["01110","10001","10001","10001","10101","10010","01101"],
+  R:["11110","10001","10001","11110","10100","10010","10001"],
+  S:["01111","10000","10000","01110","00001","00001","11110"],
+  T:["11111","00100","00100","00100","00100","00100","00100"],
+  U:["10001","10001","10001","10001","10001","10001","01110"],
+  V:["10001","10001","10001","10001","10001","01010","00100"],
+  W:["10001","10001","10001","10101","10101","10101","01010"],
+  X:["10001","10001","01010","00100","01010","10001","10001"],
+  Y:["10001","10001","01010","00100","00100","00100","00100"],
+  Z:["11111","00001","00010","00100","01000","10000","11111"],
+  "0":["01110","10001","10011","10101","11001","10001","01110"],
+  "1":["00100","01100","00100","00100","00100","00100","01110"],
+  "2":["01110","10001","00001","00010","00100","01000","11111"],
+  "3":["11110","00001","00001","01110","00001","00001","11110"],
+  "4":["00010","00110","01010","10010","11111","00010","00010"],
+  "5":["11111","10000","10000","11110","00001","00001","11110"],
+  "6":["01110","10000","10000","11110","10001","10001","01110"],
+  "7":["11111","00001","00010","00100","01000","01000","01000"],
+  "8":["01110","10001","10001","01110","10001","10001","01110"],
+  "9":["01110","10001","10001","01111","00001","00001","01110"],
+  a:["00000","00000","01110","00001","01111","10001","01111"],
+  h:["10000","10000","10110","11001","10001","10001","10001"],
+  i:["00100","00000","01100","00100","00100","00100","01110"],
+  m:["00000","00000","11010","10101","10101","10101","10101"],
+  o:["00000","00000","01110","10001","10001","10001","01110"],
+  s:["00000","00000","01111","10000","01110","00001","11110"],
+  t:["00100","00100","11111","00100","00100","00100","00011"],
+};
+
+const COMPACT_GLYPHS = {
+  " ":["000","000","000","000","000"],
+  "?":["110","001","010","000","010"],
+  A:["010","101","111","101","101"],
+  B:["110","101","110","101","110"],
+  C:["011","100","100","100","011"],
+  D:["110","101","101","101","110"],
+  E:["111","100","110","100","111"],
+  F:["111","100","110","100","100"],
+  G:["011","100","101","101","011"],
+  H:["101","101","111","101","101"],
+  I:["111","010","010","010","111"],
+  J:["001","001","001","101","010"],
+  K:["101","101","110","101","101"],
+  L:["100","100","100","100","111"],
+  M:["101","111","111","101","101"],
+  N:["101","111","111","111","101"],
+  O:["010","101","101","101","010"],
+  P:["110","101","110","100","100"],
+  Q:["010","101","101","111","011"],
+  R:["110","101","110","101","101"],
+  S:["011","100","010","001","110"],
+  T:["111","010","010","010","010"],
+  U:["101","101","101","101","111"],
+  V:["101","101","101","101","010"],
+  W:["101","101","111","111","101"],
+  X:["101","101","010","101","101"],
+  Y:["101","101","010","010","010"],
+  Z:["111","001","010","100","111"],
+  "0":["111","101","101","101","111"],
+  "1":["010","110","010","010","111"],
+  "2":["110","001","010","100","111"],
+  "3":["110","001","010","001","110"],
+  "4":["101","101","111","001","001"],
+  "5":["111","100","110","001","110"],
+  "6":["011","100","111","101","111"],
+  "7":["111","001","010","010","010"],
+  "8":["111","101","111","101","111"],
+  "9":["111","101","111","001","110"],
+};
+
+function arcadeGlyph(rows) {
+  const center = Math.floor(rows.length / 2);
+  return rows.map((row, y) => {
+    if (y !== center || row.length < 3) return row;
+    const bits = [...row];
+    const middle = Math.floor(bits.length / 2);
+    if (bits.filter(bit => bit === "1").length >= 4 && bits[middle] === "1") bits[middle] = "0";
+    return bits.join("");
+  });
+}
+
+function roundedGlyph(rows) {
+  return rows.map((row, y) => {
+    if (y !== 0 && y !== rows.length - 1) return row;
+    const bits = [...row];
+    if (bits.filter(bit => bit === "1").length >= 3) {
+      bits[0] = "0";
+      bits[bits.length - 1] = "0";
+    }
+    return bits.join("");
+  });
+}
+
+function stencilGlyph(rows) {
+  const center = Math.floor(rows.length / 2);
+  return rows.map((row, y) => {
+    if (y !== center || y === 0 || y === rows.length - 1) return row;
+    const above = rows[y - 1], below = rows[y + 1], bits = [...row];
+    for (let x = 0; x < bits.length; x += 1) {
+      if (bits[x] === "1" && above[x] === "1" && below[x] === "1") bits[x] = "0";
+    }
+    return bits.join("");
+  });
+}
+
+const PIXEL_FONTS = {
+  classic:{id:"classic",name:"Classic 5×7",width:5,height:7,glyphs:PIXEL_GLYPHS},
+  compact:{id:"compact",name:"Compact 3×5",width:3,height:5,glyphs:COMPACT_GLYPHS},
+  arcade:{id:"arcade",name:"Arcade 5×7",width:5,height:7,glyphs:PIXEL_GLYPHS,transform:arcadeGlyph},
+  rounded:{id:"rounded",name:"Rounded 5×7",width:5,height:7,glyphs:PIXEL_GLYPHS,transform:roundedGlyph},
+  stencil:{id:"stencil",name:"Stencil 5×7",width:5,height:7,glyphs:PIXEL_GLYPHS,transform:stencilGlyph},
+};
+
+function listPixelFonts() {
+  return Object.values(PIXEL_FONTS).map(({id,name,width,height})=>({id,name,width,height}));
+}
+
+function pixelFontGlyph(font, char) {
+  const rows=font.glyphs[char]||font.glyphs[char.toUpperCase()]||font.glyphs["?"];
+  return font.transform?font.transform(rows):rows;
+}
+
+function readTextRenderOptions(scaleOrOptions, legacyLineGap) {
+  if (typeof scaleOrOptions === "number" || scaleOrOptions == null) {
+    const scale = scaleOrOptions == null ? 1 : scaleOrOptions;
+    if (!Number.isInteger(scale) || scale < 1) {
+      throw new TypeError("pixel text scale must be a positive whole number");
+    }
+    if (!Number.isInteger(legacyLineGap) || legacyLineGap < 0) {
+      throw new TypeError("pixel text line gap must be a non-negative whole number");
+    }
+    return {
+      pixelWidth: scale,
+      pixelHeight: scale,
+      letterSpacing: scale,
+      lineSpacing: legacyLineGap * scale,
+      align: "left",
+      bold: 0,
+      lean: 0,
+      slope: 0,
+      outlineSize: 0,
+      outlineColor: [0, 0, 0, 255],
+      shadowEnabled: false,
+      shadowOffsetX: 1,
+      shadowOffsetY: 1,
+      shadowColor: [0, 0, 0, 255],
+      wrapX: 0,
+      wrapY: 0,
+      font: "classic",
+    };
+  }
+  if (typeof scaleOrOptions !== "object" || Array.isArray(scaleOrOptions)) {
+    throw new TypeError("pixel text options must be an object");
+  }
+  const options = {
+    pixelWidth: scaleOrOptions.pixelWidth ?? 1,
+    pixelHeight: scaleOrOptions.pixelHeight ?? scaleOrOptions.pixelWidth ?? 1,
+    letterSpacing: scaleOrOptions.letterSpacing ?? scaleOrOptions.pixelWidth ?? 1,
+    lineSpacing: scaleOrOptions.lineSpacing ?? scaleOrOptions.pixelHeight ?? 1,
+    align: scaleOrOptions.align ?? "left",
+    bold: scaleOrOptions.bold ?? 0,
+    lean: scaleOrOptions.lean ?? 0,
+    slope: scaleOrOptions.slope ?? 0,
+    outlineSize: scaleOrOptions.outlineSize ?? 0,
+    outlineColor: scaleOrOptions.outlineColor ?? [0, 0, 0, 255],
+    shadowEnabled: scaleOrOptions.shadowEnabled ?? false,
+    shadowOffsetX: scaleOrOptions.shadowOffsetX ?? 1,
+    shadowOffsetY: scaleOrOptions.shadowOffsetY ?? 1,
+    shadowColor: scaleOrOptions.shadowColor ?? [0, 0, 0, 255],
+    wrapX: scaleOrOptions.wrapX ?? 0,
+    wrapY: scaleOrOptions.wrapY ?? 0,
+    font: scaleOrOptions.font ?? "classic",
+  };
+  for (const key of ["pixelWidth", "pixelHeight"]) {
+    if (!Number.isFinite(options[key]) || options[key] < 1) {
+      throw new TypeError(`${key} must be a positive number`);
+    }
+  }
+  for (const key of ["letterSpacing", "lineSpacing"]) {
+    if (!Number.isFinite(options[key]) || options[key] < 0) {
+      throw new TypeError(`${key} must be a non-negative number`);
+    }
+  }
+  for (const key of ["bold", "outlineSize"]) {
+    if (!Number.isInteger(options[key]) || options[key] < 0) {
+      throw new TypeError(`${key} must be a non-negative whole pixel`);
+    }
+  }
+  for (const key of ["lean", "slope", "shadowOffsetX", "shadowOffsetY", "wrapX", "wrapY"]) {
+    if (!Number.isFinite(options[key])) throw new TypeError(`${key} must be a finite number`);
+  }
+  if (typeof options.shadowEnabled !== "boolean") {
+    throw new TypeError("shadowEnabled must be true or false");
+  }
+  if (!["left", "center", "right"].includes(options.align)) {
+    throw new TypeError("pixel text alignment must be left, center, or right");
+  }
+  if (!Object.hasOwn(PIXEL_FONTS, options.font)) {
+    throw new TypeError(`pixel text font is unknown: ${options.font}`);
+  }
+  if (!Array.isArray(options.outlineColor) || options.outlineColor.length !== 4 ||
+      options.outlineColor.some(v=>!Number.isInteger(v)||v<0||v>255)) {
+    throw new TypeError("pixel text outline colour must be four byte values");
+  }
+  if (!Array.isArray(options.shadowColor) || options.shadowColor.length !== 4 ||
+      options.shadowColor.some(v=>!Number.isInteger(v)||v<0||v>255)) {
+    throw new TypeError("pixel text shadow colour must be four byte values");
+  }
+  return options;
+}
+
+function renderPixelText(text, rgba, scaleOrOptions = 1, legacyLineGap = 1) {
+  if (!Array.isArray(rgba) || rgba.length !== 4 || rgba.some(v=>!Number.isInteger(v)||v<0||v>255)) {
+    throw new TypeError("pixel text colour must be four byte values");
+  }
+  const options = readTextRenderOptions(scaleOrOptions, legacyLineGap);
+  const font=PIXEL_FONTS[options.font];
+  const lines=String(text||"").replace(/\r/g,"").split("\n");
+  if(!lines.some(line=>line.length)) throw new TypeError("pixel text cannot be empty");
+  const lineWidths=lines.map(line=>line.length
+    ? Math.round(line.length*font.width*options.pixelWidth+(line.length-1)*options.letterSpacing)
+    : 0);
+  const baseWidth=Math.max(...lineWidths);
+  const baseHeight=Math.round(lines.length*font.height*options.pixelHeight+(lines.length-1)*options.lineSpacing);
+  const inkWidth=baseWidth+options.bold;
+  const inkHeight=baseHeight+options.bold;
+  const ink=new Uint8ClampedArray(inkWidth*inkHeight*4);
+  lines.forEach((line,lineIndex)=>{
+    const yStart=lineIndex*(font.height*options.pixelHeight+options.lineSpacing);
+    const spare=baseWidth-lineWidths[lineIndex];
+    const lineStart=options.align==="right"?spare:options.align==="center"?Math.floor(spare/2):0;
+    [...line].forEach((char,charIndex)=>{
+      const glyph=pixelFontGlyph(font,char);
+      const xStart=lineStart+charIndex*(font.width*options.pixelWidth+options.letterSpacing);
+      glyph.forEach((row,gy)=>{
+        [...row].forEach((bit,gx)=>{
+          if(bit!=="1") return;
+          const startX=Math.round(xStart+gx*options.pixelWidth);
+          const endX=Math.max(startX+1,Math.round(xStart+(gx+1)*options.pixelWidth));
+          const startY=Math.round(yStart+gy*options.pixelHeight);
+          const endY=Math.max(startY+1,Math.round(yStart+(gy+1)*options.pixelHeight));
+          for(let sourceY=startY;sourceY<endY;sourceY++) for(let sourceX=startX;sourceX<endX;sourceX++){
+            for(let by=0;by<=options.bold;by++) for(let bx=0;bx<=options.bold;bx++){
+              const x=sourceX+bx, y=sourceY+by;
+              const i=(y*inkWidth+x)*4;
+              ink[i]=rgba[0]; ink[i+1]=rgba[1]; ink[i+2]=rgba[2]; ink[i+3]=rgba[3];
+            }
+          }
+        });
+      });
+    });
+  });
+  const xShifts=Array.from({length:inkHeight},(_,y)=>
+    inkHeight<=1?0:Math.round(options.lean*(1-y/(inkHeight-1))));
+  const yShifts=Array.from({length:inkWidth},(_,x)=>
+    inkWidth<=1?0:Math.round(options.slope*x/(inkWidth-1)));
+  const minX=Math.min(0,...xShifts), maxX=Math.max(0,...xShifts);
+  const minY=Math.min(0,...yShifts), maxY=Math.max(0,...yShifts);
+  const width=inkWidth+maxX-minX, height=inkHeight+maxY-minY;
+  const data=new Uint8ClampedArray(width*height*4);
+  for(let y=0;y<inkHeight;y++) for(let x=0;x<inkWidth;x++){
+    const source=(y*inkWidth+x)*4;
+    if(ink[source+3]===0) continue;
+    const xShift=xShifts[y], yShift=yShifts[x];
+    const target=((y+yShift-minY)*width+(x+xShift-minX))*4;
+    data[target]=ink[source]; data[target+1]=ink[source+1];
+    data[target+2]=ink[source+2]; data[target+3]=ink[source+3];
+  }
+  let completedData=data, completedWidth=width, completedHeight=height;
+  if(options.outlineSize>0){
+    const outline=options.outlineSize;
+    const outlinedWidth=width+outline*2, outlinedHeight=height+outline*2;
+    const outlined=new Uint8ClampedArray(outlinedWidth*outlinedHeight*4);
+    for(let y=0;y<height;y++) for(let x=0;x<width;x++){
+      const source=(y*width+x)*4;
+      if(data[source+3]===0) continue;
+      for(let oy=-outline;oy<=outline;oy++) for(let ox=-outline;ox<=outline;ox++){
+        const targetY=y+outline+oy, targetX=x+outline+ox;
+        const target=(targetY*outlinedWidth+targetX)*4;
+        outlined[target]=options.outlineColor[0]; outlined[target+1]=options.outlineColor[1];
+        outlined[target+2]=options.outlineColor[2]; outlined[target+3]=options.outlineColor[3];
+      }
+    }
+    for(let y=0;y<height;y++) for(let x=0;x<width;x++){
+      const source=(y*width+x)*4;
+      if(data[source+3]===0) continue;
+      const target=((y+outline)*outlinedWidth+x+outline)*4;
+      outlined[target]=data[source]; outlined[target+1]=data[source+1];
+      outlined[target+2]=data[source+2]; outlined[target+3]=data[source+3];
+    }
+    completedData=outlined; completedWidth=outlinedWidth; completedHeight=outlinedHeight;
+  }
+  let output={data:completedData,width:completedWidth,height:completedHeight,contentOffsetX:0,contentOffsetY:0};
+  if(options.shadowEnabled){
+    const shadowX=Math.round(options.shadowOffsetX), shadowY=Math.round(options.shadowOffsetY);
+    const minShadowX=Math.min(0,shadowX), minShadowY=Math.min(0,shadowY);
+    const contentOffsetX=Math.max(0,-minShadowX), contentOffsetY=Math.max(0,-minShadowY);
+    const shadowOriginX=contentOffsetX+shadowX, shadowOriginY=contentOffsetY+shadowY;
+    const shadowWidth=completedWidth+Math.abs(shadowX), shadowHeight=completedHeight+Math.abs(shadowY);
+    const shadowData=new Uint8ClampedArray(shadowWidth*shadowHeight*4);
+    for(let y=0;y<completedHeight;y++) for(let x=0;x<completedWidth;x++){
+      const source=(y*completedWidth+x)*4;
+      if(completedData[source+3]===0) continue;
+      const target=((y+shadowOriginY)*shadowWidth+x+shadowOriginX)*4;
+      shadowData[target]=options.shadowColor[0]; shadowData[target+1]=options.shadowColor[1];
+      shadowData[target+2]=options.shadowColor[2];
+      shadowData[target+3]=Math.round(options.shadowColor[3]*completedData[source+3]/255);
+    }
+    output={
+      data:applyTextOverlay(
+        shadowData,shadowWidth,shadowHeight,
+        completedData,completedWidth,completedHeight,contentOffsetX,contentOffsetY,
+      ),
+      width:shadowWidth,height:shadowHeight,contentOffsetX,contentOffsetY,
+    };
+  }
+  const wrapXShifts=Array.from({length:output.height},(_,y)=>
+    output.height<=1?0:Math.round(options.wrapX*(1-y/(output.height-1))));
+  const wrapYShifts=Array.from({length:output.width},(_,x)=>
+    output.width<=1?0:Math.round(options.wrapY*x/(output.width-1)));
+  const wrapMinX=Math.min(0,...wrapXShifts), wrapMaxX=Math.max(0,...wrapXShifts);
+  const wrapMinY=Math.min(0,...wrapYShifts), wrapMaxY=Math.max(0,...wrapYShifts);
+  if(wrapMinX===0&&wrapMaxX===0&&wrapMinY===0&&wrapMaxY===0) return output;
+  const wrappedWidth=output.width+wrapMaxX-wrapMinX;
+  const wrappedHeight=output.height+wrapMaxY-wrapMinY;
+  const wrappedData=new Uint8ClampedArray(wrappedWidth*wrappedHeight*4);
+  for(let y=0;y<output.height;y++) for(let x=0;x<output.width;x++){
+    const source=(y*output.width+x)*4;
+    if(output.data[source+3]===0) continue;
+    const targetX=x+wrapXShifts[y]-wrapMinX;
+    const targetY=y+wrapYShifts[x]-wrapMinY;
+    const target=(targetY*wrappedWidth+targetX)*4;
+    wrappedData[target]=output.data[source]; wrappedData[target+1]=output.data[source+1];
+    wrappedData[target+2]=output.data[source+2]; wrappedData[target+3]=output.data[source+3];
+  }
+  return {
+    data:wrappedData,width:wrappedWidth,height:wrappedHeight,
+    contentOffsetX:output.contentOffsetX-wrapMinX,
+    contentOffsetY:output.contentOffsetY-wrapMinY,
+  };
+}
+
+globalThis.ChatNftTextOverlay = {
+  applyTextOverlay,
+  applyTextOverlays,
+  clearNonMatchingPixelsInBox,
+  hitTestTextPatches,
+  listPixelFonts,
+  renderPixelText,
+};
+
+/* Beside the button, and inside the window. The height is measured after
+   the panel is shown, because a hidden element has none - which is why
+   every caller sets hidden BEFORE calling this. */
+/* ---- the text tool ------------------------------------------------------
+
+   One pending sprite at a time. It is drawn on its own layer over the art
+   and is not in the artwork until Add is pressed, which is what makes the
+   position adjustable at all - there is nothing to undo while you move it. */
+let textSprite=null, textX=0, textY=0, textDrag=null, textPlaced=false;
+
+function textOpts(){
+  const pw=Math.max(1,+$("txpw").value||1);
+  /* Square by default. Independent axes are the interesting half of this
+     renderer - a 1x3 pixel makes tall narrow lettering - but a person who
+     never touches the second box should not have to keep it in step. */
+  const ph=$("txlock").getAttribute("aria-pressed")==="true"?pw:Math.max(1,+$("txph").value||1);
+  return {
+    pixelWidth:pw, pixelHeight:ph,
+    letterSpacing:Math.max(0,+$("txls").value||0),
+    lineSpacing:Math.max(0,+$("txlsp").value||0),
+    align:chipVal("txalign")||"left",
+    /* PASSED THROUGH, NOT ROUNDED. These two are the ones the renderer
+       validates as whole pixels, and quietly turning a typed 2.5 into a 3
+       is the panel doing something nobody asked for and saying nothing. It
+       also made the renderer's refusals unreachable, so the message it
+       writes for exactly this case could never be seen. */
+    bold:+$("txbold").value||0,
+    outlineSize:+$("txol").value||0,
+    outlineColor:hx2($("txolc").value).concat(255),
+    shadowEnabled:$("txsh").getAttribute("aria-pressed")==="true",
+    shadowOffsetX:Math.round(+$("txshx").value||0),
+    shadowOffsetY:Math.round(+$("txshy").value||0),
+    shadowColor:hx2($("txshc").value).concat(255),
+    lean:+$("txlean").value||0, slope:+$("txslope").value||0,
+    wrapX:+$("txwx").value||0, wrapY:+$("txwy").value||0,
+    font:$("txfont").value||"classic",
+  };
+}
+/* The renderer throws on anything it will not draw, and those messages are
+   better than anything this page would invent - so they are shown rather
+   than swallowed, and the sprite goes away so the preview cannot keep
+   showing the last thing that worked. */
+function textBuild(){
+  if(!$("txtext")) return;
+  const words=$("txtext").value;
+  if(!ctx||!words.replace(/\s/g,"").length){ textSprite=null; textPlaced=false; textDraw(); textNote(); return; }
+  try{ textSprite=renderPixelText(words,hx2(color).concat(255),textOpts()); }
+  catch(err){ textSprite=null; textDraw(); $("txnote").textContent=String(err.message||err); return; }
+  /* Centred on the FIRST build only. Re-centring on every keystroke would
+     take the position back from whoever just dragged it. */
+  if(!textPlaced){ textCentre(true); textPlaced=true; }
+  textClamp(); textDraw(); textNote();
+}
+function textClamp(){
+  if(!textSprite||!art) return;
+  /* One pixel of it has to stay on the canvas, or it is gone with no way
+     back to it. */
+  textX=Math.max(1-textSprite.width,Math.min(art.width-1,Math.round(textX)));
+  textY=Math.max(1-textSprite.height,Math.min(art.height-1,Math.round(textY)));
+  $("txx").value=textX; $("txy").value=textY;
+}
+function textCentre(quiet){
+  if(!textSprite||!art) return;
+  textX=Math.round((art.width-textSprite.width)/2);
+  textY=Math.round((art.height-textSprite.height)/2);
+  $("txx").value=textX; $("txy").value=textY;
+  if(!quiet){ textDraw(); textNote(); }
+}
+/* Composited onto an EMPTY buffer, not over a copy of the artwork: the
+   canvas underneath is showing the art, so a preview that carried its own
+   copy would double every pixel and hide the thing being lettered. */
+function textDraw(){
+  const pv=$("txpv"); if(!pv) return;
+  if(!textSprite||!ctx||$("app").hidden){ pv.style.display="none"; return; }
+  const W=art.width, H=art.height;
+  pv.width=W; pv.height=H;
+  const g=pv.getContext("2d"); g.clearRect(0,0,W,H);
+  const im=g.createImageData(W,H);
+  im.data.set(applyTextOverlay(new Uint8ClampedArray(W*H*4),W,H,
+    textSprite.data,textSprite.width,textSprite.height,textX,textY));
+  g.putImageData(im,0,0);
+  pv.style.width=(W*zoom)+"px"; pv.style.height=(H*zoom)+"px";
+  pv.style.display="block";
+}
+function textNote(){
+  const n=$("txnote"); if(!n) return;
+  if(!textSprite){ n.textContent=""; return; }
+  let ink=0; const d=textSprite.data;
+  for(let i=3;i<d.length;i+=4) if(d[i]) ink++;
+  n.textContent=textSprite.width+"\u00d7"+textSprite.height+", "+ink.toLocaleString()+" pixels of ink";
+}
+/* The whole box, not just the letters. Grabbing a sprite by its ink means
+   missing it in every gap, which reads as a drag that does not work. */
+function textHit(x,y){
+  return !!textSprite && x>=textX && y>=textY &&
+    x<textX+textSprite.width && y<textY+textSprite.height;
+}
+function textApply(){
+  if(!textSprite){ toast("Type something first"); return; }
+  snapshot();
+  const W=art.width, H=art.height, img=ctx.getImageData(0,0,W,H);
+  img.data.set(applyTextOverlay(img.data,W,H,
+    textSprite.data,textSprite.width,textSprite.height,textX,textY));
+  ctx.putImageData(img,0,0);
+  textSprite=null; textPlaced=false; textDraw();
+  refreshStats(); repalette();
+  toast("Text added");
+}
+function textClear(){
+  textSprite=null; textPlaced=false;
+  if($("txtext")) $("txtext").value="";
+  textDraw(); textNote();
+}
+(function(){
+  const f=$("txfont"); if(!f) return;
+  /* The list comes from the renderer rather than from the markup, so a font
+     added there appears here and one removed cannot leave a dead option. */
+  for(const it of listPixelFonts()){
+    const o=document.createElement("option");
+    o.value=it.id; o.textContent=it.name; f.appendChild(o);
+  }
+  for(const id of ["txtext","txfont","txpw","txph","txls","txlsp","txbold","txol",
+                   "txolc","txshx","txshy","txshc","txlean","txslope","txwx","txwy"]){
+    const e=$(id); if(e){ e.oninput=textBuild; e.onchange=textBuild; }
+  }
+  for(const id of ["txlock","txsh"]){
+    const b=$(id); if(!b) continue;
+    b.onclick=()=>{ b.setAttribute("aria-pressed",
+      b.getAttribute("aria-pressed")==="true"?"false":"true"); textBuild(); };
+  }
+  for(const id of ["txx","txy"]){
+    const e=$(id); if(!e) continue;
+    e.oninput=()=>{ textX=Math.round(+$("txx").value||0);
+      textY=Math.round(+$("txy").value||0); textClamp(); textDraw(); };
+  }
+  const c=$("txcentre"); if(c) c.onclick=()=>textCentre();
+  const a=$("txadd"); if(a) a.onclick=textApply;
+  const k=$("txclear"); if(k) k.onclick=textClear;
+})();
+
+function popAt(id){
+  const s=$(id+"scrim"), b=$(id+"btn");
+  if(!s||!b) return;
+  if(innerWidth<=820){ s.style.left=""; s.style.top=""; return; }
+  const r=b.getBoundingClientRect(), c=s.firstElementChild;
+  s.style.left=Math.round(r.right+12)+"px";
+  s.style.top="8px";
+  const h=c?c.getBoundingClientRect().height:0;
+  s.style.top=Math.round(Math.max(8,Math.min(r.top,innerHeight-h-8)))+"px";
+}
+/* Clicking away closes it. The dark surround used to be the thing you
+   clicked, and a pop-out has no surround, so the document does it instead.
+   Capture, so a control that stops the event on its way up cannot strand
+   a panel open. */
+addEventListener("pointerdown",e=>{
+  for(const id of ["ol","cl","tx","tf","bl","sv"]){
+    const s=$(id+"scrim"); if(!s||s.hidden) continue;
+    const b=$(id+"btn");
+    if(s.contains(e.target)||(b&&b.contains(e.target))) continue;
+    if(id==="ol") outlinePanel(false); else railPanel(id,false);
+  }
+},true);
+function outlinePanel(on){
+  $('olscrim').hidden=!on;
+  $('olbtn').setAttribute('aria-expanded',String(!!on));
+  /* The preview is what the panel is for: it has to be current the moment
+     it opens, not after the first slider move. */
+  if(on){ popAt('ol'); try{ outlinePreview(); }catch(_){ } $('oladd').focus(); }
+}
+$('olbtn').onclick=()=>outlinePanel($('olscrim').hidden);
+/* The same shape again, three times, from one place - a fourth panel that
+   behaved slightly differently would be a bug nobody could see coming. */
+function railPanel(id,on){
+  const s=$(id+"scrim"), b=$(id+"btn");
+  /* The colours button lives in the current-colour row rather than the rail,
+     which changes where it is and nothing about how it behaves. */
+  if(!s||!b) return;
+  s.hidden=!on;
+  b.setAttribute("aria-expanded",String(!!on));
+  /* The transform panel reads the canvas, so its numbers have to be current
+     the moment it opens rather than after the first keystroke. */
+  if(on) popAt(id);
+  if(on&&id==="tf"){ try{ resizeBoxes(); }catch(_){ } }
+  /* The sprite follows the paint colour and the canvas size, both of which
+     can have changed while the panel was shut. */
+  if(on&&id==="tx"){ try{ textBuild(); }catch(_){ } }
+}
+for(const id of ["cl","tx","tf","bl","sv"]){
+  const b=$(id+"btn"), c=$(id+"close"), s=$(id+"scrim");
+  if(b) b.onclick=()=>railPanel(id,s.hidden);
+  if(c) c.onclick=()=>railPanel(id,false);
+  if(s) s.onclick=e=>{ if(e.target===s) railPanel(id,false); };
+}
+$('olclose').onclick=()=>outlinePanel(false);
+$('olscrim').onclick=e=>{ if(e.target===$('olscrim')) outlinePanel(false); };
 $('ksclose').onclick=()=>keysPanel(false);
 /* Clicking the dark surround closes it; clicking the card must not. */
 $('ksscrim').onclick=e=>{ if(e.target===$('ksscrim')) keysPanel(false); };

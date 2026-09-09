@@ -86,16 +86,17 @@ const L = doc.lines;
     '#palrail{grid-template-columns:repeat(auto-fill,minmax(20px,1fr)); gap:3px;}',
     '#palrail .sw{min-height:20px;}',
   ]);
-  const r = kit.only(L, l => l.indexOf('.tools{grid-area:tools;') === 0, 'the rail rule again');
-  if (L[r].indexOf('border-right:1px solid var(--line); background:var(--panel);}') < 0
-    && L[r + 1].indexOf('border-right') < 0)
-    throw new Error('the rail rule does not carry the border this expects');
-  /* The rail no longer owns the column's edge or its ground. */
-  const before = L[r] + '\n' + (L[r + 1] || '');
-  const fixed = before.replace('border-right:1px solid var(--line); background:var(--panel);}',
-    'background:transparent;}').split('\n');
-  if (fixed.join('\n') === before) throw new Error('the rail border was not where this expects');
-  kit.replace(L, { start: r, end: r + (fixed.length - 1) }, fixed);
+  /* The border and the background are on the THIRD line of that rule, not the
+     first - a version that looked only at the first two refused a correct edit.
+     The column draws the edge now, so the rail must not draw a second one. */
+  /* BY ITS NEIGHBOUR: the .leftcol rule inserted above carries the very same
+     declaration, so a bare match finds two and refuses. The line above the
+     rail's is the one that wraps its tools. */
+  const edge = kit.near(L, '  border-right:1px solid var(--line); background:var(--panel);}', -1,
+    'flex-wrap:wrap; align-content:flex-start;', 'the rail edge');
+  kit.replace(L, { start: edge, end: edge }, [
+    '  background:transparent;}',
+  ]);
 }
 
 /* ---- one writer, two views --------------------------------------- */
@@ -196,7 +197,7 @@ const bytes = kit.save(doc, ({ text, codeLines }) => {
   /* AND IT CANNOT PUSH THE TOOLS OUT. A trait with ninety colours must not
      take the column. */
   const css = text.slice(0, text.indexOf('</' + 'style>'));
-  if (!/\.colbox\{flex:none; max-height:34%; overflow-y:auto;/.test(css))
+  if (!/\.colbox\{flex:none; max-height:156px; overflow-y:auto;/.test(css))
     throw new Error('the colour box is not capped, so it can take the whole column');
   if (!/\.colbox\{display:none;\}/.test(css))
     throw new Error('the colour box is not put away on a phone');

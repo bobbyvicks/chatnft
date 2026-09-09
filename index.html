@@ -667,11 +667,16 @@ body.shelf-dragging,body.shelf-dragging *{cursor:grabbing!important;}
 .big span{font-size:12.5px; opacity:.8;}
 
 /* ---------- editor ---------- */
-.app{display:grid; grid-template-columns:auto 1fr; grid-template-rows:auto auto 1fr auto;
+.app{display:grid; grid-template-columns:auto 1fr; grid-template-rows:auto auto auto 1fr auto;
   /* The rail, then the canvas, and nothing across from it. The 244px column
      that used to sit between them is a strip under the header now, because
      what it still held is looked at rather than gone to. */
-  grid-template-areas:"head head" "opts opts" "tools stage" "foot foot"; height:100dvh;}
+  /* THE COLOURS GET THEIR OWN ROW, and the rail keeps being a grid item.
+     The rail wraps to the columns its height forces, so the track can only
+     be sized right when that height is the row height - definite, and
+     known before the track is measured. Inside a flex wrapper it was
+     neither, and three columns of tools hung out of a two-column track. */
+  grid-template-areas:"head head" "opts opts" "cols stage" "tools stage" "foot foot"; height:100dvh;}
 header{grid-area:head; display:flex; align-items:center; gap:13px; flex-wrap:wrap;
   padding:calc(5px + var(--sat)) calc(16px + var(--sar)) 5px calc(16px + var(--sal)); border-bottom:1px solid var(--line); background:var(--panel);}
 header .brand h1{font-size:15px;}
@@ -696,6 +701,27 @@ header .logo{width:24px; height:24px; border-radius:6px;}
    would simply have been cut off - which is exactly the bug the phone layout
    below already records having had, hidden rather than scrolled. Wrapping
    widens the rail only when it has to and never hides anything. */
+/* SUPERSEDES "the rail and the colour box share one grid area, stacked",
+   which is what .leftcol did and what cost the rail its definite height.
+   They are two grid items in two rows now; the stage spans both. */
+/* THE COLOURS, ALWAYS ON SCREEN, AND CAPPED BY WHAT THE RAIL NEEDS. A
+   fixed cap rather than a share of the column, because a percentage takes
+   more of a tall window than a short one, which is backwards. 96px is the
+   label and two rows of swatches; past that it scrolls, so a trait with
+   ninety colours cannot push the tools out of view. It is 96 and not the
+   156 first written because every pixel of height here comes back as a
+   rail column: at 156 the rail was 279px wide at 860x640 against a
+   shipped 175, at 96 it is 231, and at the roomier shapes it is within
+   4px of what it always was. */
+.colbox{grid-area:cols; max-height:96px; overflow-y:auto; padding:10px 10px 8px;
+  border-right:1px solid var(--line); border-bottom:1px solid var(--line);
+  background:var(--panel);}
+.colboxlab{display:block; font-size:9.5px; letter-spacing:.07em;
+  text-transform:uppercase; color:var(--dim); margin-bottom:5px;}
+/* auto-fill rather than the card's fixed eight: this column is narrower and
+   its width is not the card's width. */
+#palrail{grid-template-columns:repeat(auto-fill,minmax(20px,1fr)); gap:3px;}
+#palrail .sw{min-height:20px;}
 .tools{grid-area:tools; display:flex; flex-direction:column; gap:6px; padding:12px 10px;
   flex-wrap:wrap; align-content:flex-start; max-height:100%; min-height:0;
   border-right:1px solid var(--line); background:var(--panel);}
@@ -1153,6 +1179,11 @@ footer .mono{color:var(--ink);}
   /* A flex item shrinks to fit by default, which would squeeze forty-two
      pixel buttons into twenty rather than let the row scroll. */
   .tools .tool{flex:none;}
+  /* The rail lies down here and the vertical budget is the scarce one, so
+     the always-open colours are a desktop thing and #clbtn is still the
+     door. There is no column here to stop being one - the rail is the
+     only thing in that area and it lies down. */
+  .colbox{display:none;}
   /* The dividers are full-width lines in the column layout; lying down
      they have to become short vertical ones or they push the row out. */
   .tools .rule{width:1px; min-width:1px; height:26px; align-self:center;}
@@ -1397,19 +1428,28 @@ footer .mono{color:var(--ink);}
   <div class="drop" id="fixdrop" tabindex="0" role="button" aria-label="Choose an image to fix">
     <strong>Drop an image here</strong>
     <span>or click to choose one · PNG, JPG, WEBP or GIF</span>
+    <button class="mini" id="fixfolderbtn" type="button" title="Choose a folder. The folder each file sits in is what names its trait category.">Import a folder</button>
   </div>
   <!-- image/* rather than a list: the list hid HEIC, which is what an
        iPhone photo is, from the picker on the device most likely to have
        one. multiple, because a pile of them is the ordinary case. -->
   <input type="file" id="fixfile" accept="image/*" multiple hidden>
+  <!-- THE FOLDER, which is where the trait category comes from. The
+       ordinary picker hands over bare filenames, so a pile chosen that way
+       has no category to read and every trait would land in unsorted. -->
+  <input type="file" id="fixfolder" webkitdirectory directory multiple hidden>
   <div class="agjob">
     <label for="fixmode">Mode</label>
-    <select id="fixmode" title="How hard to look for the grid. The thorough pass is not built yet."><option value="fast">Quick - three detectors</option></select>
+    <select id="fixmode" title="Quick looks for the grid and rebuilds the picture at one pixel per cell. Scale only does not look at all - it takes an already-finished piece up to the collection size with its pixels untouched."><option value="fast">Quick - three detectors</option><option value="scale">Already fixed - scale only</option></select>
     <label for="fixforce">Pixel size</label>
-    <input type="number" id="fixforce" min="0" step="0.01" value="0" style="width:84px"
-      inputmode="decimal"
-      title="How many pixels of the picture make one pixel of the artwork. 0 works it out. If the result still looks soft, the guess was too small - try 8, 12 or 16.">
+    <input type="number" id="fixforce" min="0" step="1" value="0" style="width:84px"
+      inputmode="numeric"
+      title="How many pixels of the picture make one pixel of the artwork, in whole numbers. 0 works it out. If the result still looks soft, the guess was too small - try 8, 12 or 16.">
     <span class="note mono" id="fixsize"></span>
+    <label class="olrow" style="gap:6px; margin-left:auto"
+      title="Write the result onto the collection's own 1280x1280 canvas instead of at its native size. The whole picture is scaled, so nothing moves relative to anything else.">
+      <input type="checkbox" id="fixgrid" checked>
+      <span>Save at 1280×1280</span></label>
     <button class="btn" id="fixrun" disabled>Fix it</button>
     <button class="btn ghost" id="fixstop" hidden>Stop</button>
   </div>
@@ -1422,13 +1462,16 @@ footer .mono{color:var(--ink);}
   <div class="btnrow" id="fixacts" hidden>
     <button class="btn" id="fixopen">Open in the editor</button>
     <button class="btn ghost" id="fixdl">Download the PNG</button>
+    <button class="btn ghost" id="fixsave" title="Put this on the shelf as a trait. The category comes from the folder it was imported from.">Save to project</button>
   </div>
   <!-- A pile of them. Serial, so what is kept is the output rather than the
        inputs - see FIX_BATCH_MAX for why 500 is about time and not memory. -->
   <div id="fixbatch" hidden>
     <p class="note mono" id="fixbatchout"></p>
+    <p class="note mono" id="fixsaveout"></p>
     <div class="btnrow">
       <button class="btn" id="fixbatchdl" disabled>Download all as a zip</button>
+      <button class="btn" id="fixbatchsave" disabled title="Put all of them on the shelf, each in the category its folder names.">Save all to project</button>
       <button class="btn ghost" id="fixbatchstop" hidden>Stop</button>
     </div>
   </div>
@@ -2390,6 +2433,12 @@ footer .mono{color:var(--ink);}
     <button class="mini" id="draftdiscard">Use the saved version</button>
   </div>
 
+  <!-- The colours, then the tools. Two rows of one grid column: see
+       patch399 for why the rail cannot be nested inside anything. -->
+  <div class="colbox" id="colbox">
+    <span class="colboxlab">Colours</span>
+    <div class="swatches" id="palrail" role="group" aria-label="Colours in this trait"></div>
+  </div>
   <nav class="tools" aria-label="Tools">
     <button class="tool" data-tool="pencil" aria-pressed="true" title="Pencil (B)"><svg viewBox="0 0 24 24"><path d="M4 20h4L20 8a2.8 2.8 0 0 0-4-4L4 16v4Z"/><path d="M14 6l4 4"/></svg><span class="k">B</span></button>
     <button class="tool" data-tool="eraser" aria-pressed="false" title="Eraser (E)"><svg viewBox="0 0 24 24"><path d="M6 18h12"/><path d="M9 18 4 13a2 2 0 0 1 0-3l7-7a2 2 0 0 1 3 0l5 5a2 2 0 0 1 0 3l-7 7Z"/></svg><span class="k">E</span></button>
@@ -6312,8 +6361,28 @@ function startEditor(data,w,h,srcW,srcH,pal,recovered){
   requestAnimationFrame(()=>requestAnimationFrame(()=>{ if(ctx) fitZoom(); }));
   if(recovered) toast('Recovered to '+w+'×'+h+' from '+srcW+'×'+srcH);
 }
+/* A second swatch for the same colour: same look, same state, same handlers.
+   Copying the node would copy neither the click nor the context menu, so
+   this rebuilds the shell and points both at the one place that decides
+   what a swatch does. */
+function swatchLike(b,h){
+  const t=document.createElement("button");
+  t.className=b.className; t.dataset.hex=h; t.style.background=h; t.title=b.title;
+  t.setAttribute("aria-pressed",b.getAttribute("aria-pressed")||"false");
+  t.setAttribute("aria-label",b.getAttribute("aria-label")||("Colour "+h));
+  if(b.dataset.rc) t.dataset.rc=b.dataset.rc;
+  if(b.dataset.to) t.dataset.to=b.dataset.to;
+  t.onclick=b.onclick; t.oncontextmenu=b.oncontextmenu;
+  return t;
+}
 function buildPalette(list){
-  const wrap=$('pal'); wrap.innerHTML='';
+  /* TWO VIEWS, ONE WRITER: the card's grid and the strip in the left
+     column. Both are filled here with the same handlers, so a colour marked
+     for replacing shows as marked in both and there is no second copy of
+     what a swatch does. The strip is not on a phone, where the column is
+     not either - $ returns null there and the loop skips it. */
+  const wraps=[$('pal'),$('palrail')].filter(Boolean);
+  for(const w of wraps) w.innerHTML='';
   list.forEach(c=>{
     const h=hex(c.r,c.g,c.b);
     const b=document.createElement('button');
@@ -6341,7 +6410,11 @@ function buildPalette(list){
       rcSummary();
       return false;
     };
-    wrap.appendChild(b);
+    /* The same button cannot be in two places, so each view gets its own
+       with the same handlers - built by the closure above, which is why
+       this is a loop over the containers rather than a clone. */
+    wraps[0].appendChild(b);
+    for(let k=1;k<wraps.length;k++) wraps[k].appendChild(swatchLike(b,h));
   });
 }
 function setColor(h){
@@ -8480,7 +8553,9 @@ function rcSummary(){
 
      So the marks are protected twice over, and neither protection alone has a
      test that fails when it is removed. Keep both. */
-  document.querySelectorAll("#pal .sw").forEach(s=>{
+  /* BOTH VIEWS. The strip in the left column carries the same marks, or a
+     colour marked for replacing is marked in one place and not the other. */
+  document.querySelectorAll("#pal .sw, #palrail .sw").forEach(s=>{
     if(rcPick.has(s.dataset.hex)) s.dataset.rc="1"; else delete s.dataset.rc;
     if(rcTo&&s.dataset.hex===rcTo) s.dataset.to="1"; else delete s.dataset.to;
   });
@@ -17680,6 +17755,11 @@ async function fixLoad(file){
   const g=c.getContext("2d"); g.drawImage(bm,0,0);
   FIX.src={data:g.getImageData(0,0,W,H).data, width:W, height:H};
   FIX.name=String(file.name||"image").replace(/\.[^.]+$/,"");
+  /* THE FOLDERS IT CAME IN WITH. A File chosen through the folder picker
+     carries them and one chosen through the ordinary picker does not, so
+     this is the trait's category or it is nothing - and nothing means the
+     save falls back to the name alone, which is the old behaviour. */
+  FIX.rel=String(file.webkitRelativePath||file.name||"image");
   FIX.out=null;
   const b=$("fixbefore"); b.width=W; b.height=H; b.getContext("2d").drawImage(bm,0,0);
   $("fixbeforecap").textContent=FIX.name+" \u00b7 "+W+"\u00d7"+H+" as it came in";
@@ -17731,20 +17811,93 @@ function fixTryThese(){
   }
   return "Try "+out.join(", ")+".";
 }
+/* A PIXEL SIZE THAT WOULD LAND ON THE GRID, if one exists for this image.
+
+   Computed rather than suggested from a rule of thumb: the divisors of the
+   image's width that also divide CANVAS_SIDE, nearest the one being asked
+   about. If nothing does - a 1023px image has no such size - it says so
+   instead of naming a number that would not work. */
+function fixEvenSizes(){
+  if(!FIX.src) return "";
+  const W=FIX.src.width, H=FIX.src.height;
+  const out=[];
+  for(let s=2;s<=W/8;s++){
+    if(W%s||H%s) continue;
+    const cols=W/s;
+    if(cols>CANVAS_SIDE||CANVAS_SIDE%cols) continue;
+    out.push({s:s,cols:cols});
+  }
+  if(!out.length) return ". Nothing divides this image onto that grid.";
+  const want=+($("fixforce")&&$("fixforce").value)||8;
+  out.sort((a,b)=>Math.abs(a.s-want)-Math.abs(b.s-want));
+  const pick=out.slice(0,3).sort((a,b)=>a.s-b.s);
+  return ". "+pick.map(p=>p.s+" gives "+p.cols+"\u00d7"+p.cols).join(", ")
+    +" and divide"+(pick.length===1?"s":"")+" evenly.";
+}
+/* WHICH OF THE THREE THIS IS. "full" is still unbuilt and the select does
+   not offer it; it stays here because the worker takes it and a saved
+   settings file may carry it. */
+function fixMode(){
+  const v=$("fixmode")?$("fixmode").value:"fast";
+  return v==="scale"?"scale":(v==="full"?"full":"fast");
+}
+/* THE BUTTON SAYS WHAT IT DOES, and the pixel size field is put out of the
+   way when nothing reads it - a live field that changes nothing is a
+   control that lies. */
+function fixModeUI(){
+  const scale=fixMode()==="scale";
+  const b=$("fixrun"); if(b) b.textContent=scale?"Scale it":"Fix it";
+  const f=$("fixforce"); if(f){ f.disabled=scale; f.title=scale
+    ? "Not used in scale only - the picture is already one pixel per cell."
+    : f.title; }
+}
 function fixSizeHint(){
   const el=$("fixsize"); if(!el) return;
+  /* SCALE MODE HAS NO PIXEL SIZE. The count is the image itself, so the
+     readout works without the field and says the same thing about the
+     grid that it says for a fixed result. */
+  const scale=fixMode()==="scale";
   const step=+$("fixforce").value||0;
-  if(!FIX.src||step<=0){ el.textContent=""; return; }
-  const cols=Math.max(1,Math.round(FIX.src.width/step));
-  const rows=Math.max(1,Math.round(FIX.src.height/step));
-  el.textContent="\u2192 "+cols+"\u00d7"+rows+" pixels";
+  if(!FIX.src||(!scale&&step<=0)){ el.textContent=""; return; }
+  const cols=scale?FIX.src.width:Math.max(1,Math.round(FIX.src.width/step));
+  const rows=scale?FIX.src.height:Math.max(1,Math.round(FIX.src.height/step));
+  /* AND WHETHER IT LANDS ON THE COLLECTION GRID. 1280/128 is 10 and every
+     pixel comes out identical; 1280/85 is 15.06 and they differ by one.
+     That is the difference between a trait that sits on the grid and one
+     that does not, and it is worth knowing before 320 of them rather than
+     after. Only said when the switch is on, because it is only true then. */
+  let note="";
+  if($("fixgrid")&&$("fixgrid").checked){
+    const k=CANVAS_SIDE/cols;
+    note = (cols===rows && Number.isInteger(k))
+      ? " \u00b7 \u00d7"+k+" to "+CANVAS_SIDE
+      : " \u00b7 "+CANVAS_SIDE+"/"+cols+" is "+(Math.round(k*100)/100)
+        /* NOT IN SCALE MODE: there is no other size to pick, because
+           nothing is being detected. Offering one would read as advice
+           to go and re-fix a finished picture. */
+        +", so pixels come out uneven"+(scale?"":fixEvenSizes());
+  }
+  el.textContent="\u2192 "+cols+"\u00d7"+rows+" pixels"+note;
 }
 function fixRun(){
   if(!FIX.src){ fixSay("Choose an image first."); return Promise.resolve(null); }
   fixStop();
-  const mode=$("fixmode").value==="fast"?"fast":"full";
+  const mode=fixMode();
   const forced=+$("fixforce").value||0;
   const src=FIX.src;
+  /* NOTHING TO ASK. The picture is already one pixel per cell, so there is
+     no worker, no detector and no quantiser between it and the save - the
+     bytes that came in are the bytes that go out, and the 1280 switch does
+     the only thing that happens to them. */
+  if(mode==="scale"){
+    const r={data:new Uint8ClampedArray(src.data), width:src.width, height:src.height,
+      stepX:1, stepY:1, confidence:"none", consensus:"scaled"};
+    fixShow(r);
+    $("fixaftercap").textContent=r.width+"\u00d7"+r.height+" real pixels \u00b7 taken as it is";
+    fixSay("Nothing was detected or recoloured. "+fixSaveSize(r));
+    $("fixacts").hidden=false; $("fixpair").hidden=false;
+    return Promise.resolve(r);
+  }
   $("fixrun").disabled=true; $("fixstop").hidden=false; $("fixacts").hidden=true;
   fixProgress(0,"starting"); fixSay("");
   return new Promise(resolve=>{
@@ -17757,9 +17910,7 @@ function fixRun(){
       if(m.progress!=null){ fixProgress(m.progress,m.label); return; }
       if(m.error){ fixSay("The fixer could not do this one: "+m.error); fixDone(w); resolve(null); return; }
       if(m.done){
-        const r=m.done; FIX.out=r;
-        const a=$("fixafter"); a.width=r.width; a.height=r.height;
-        const im=a.getContext("2d").createImageData(r.width,r.height); im.data.set(r.data); a.getContext("2d").putImageData(im,0,0);
+        const r=m.done; fixShow(r);
         const secs=((performance.now()-t0)/1000).toFixed(1);
         $("fixaftercap").textContent=r.width+"\u00d7"+r.height+" real pixels \u00b7 pixel size "+(+r.stepX).toFixed(2)+(Math.abs(r.stepX-r.stepY)>0.01?"\u00d7"+(+r.stepY).toFixed(2):"")+" px";
         /* A SOFT RESULT SAYS WHAT TO DO ABOUT IT. An image whose edges were
@@ -17799,6 +17950,27 @@ function fixRun(){
     const copy=new Uint8ClampedArray(src.data);
     w.postMessage({data:copy, width:src.width, height:src.height, mode, forceStep:forced>0?forced:null},[copy.buffer]);
   });
+}
+/* THE RESULT, ON SCREEN. Both the detected answer and the scaled-only one
+   land here, so there is one place that decides what a result looks like
+   and FIX.out cannot be set by one path and drawn by another. */
+function fixShow(r){
+  FIX.out=r;
+  const a=$("fixafter"); a.width=r.width; a.height=r.height;
+  const g=a.getContext("2d");
+  const im=g.createImageData(r.width,r.height); im.data.set(r.data);
+  g.putImageData(im,0,0);
+  return a;
+}
+/* What the save will actually write, said before it is pressed. */
+function fixSaveSize(r){
+  const on=$("fixgrid")&&$("fixgrid").checked;
+  if(!on) return "It will save at "+r.width+"\u00d7"+r.height+".";
+  const k=CANVAS_SIDE/r.width;
+  return "It will save at "+CANVAS_SIDE+"\u00d7"+CANVAS_SIDE
+    +(r.width===r.height&&Number.isInteger(k)
+      ? " ("+"\u00d7"+k+", every pixel the same size)."
+      : " (pixels come out uneven at this size).");
 }
 function fixDone(w){
   if(w){ try{ w.terminate(); }catch(_){ } try{ URL.revokeObjectURL(w._url); }catch(_){ } }
@@ -17857,16 +18029,22 @@ async function fixBatch(files){
   $("fixpair").hidden=true; $("fixacts").hidden=true;
   fixSay("");
   const failed=[];
+  /* SCALE MODE BUILDS NO WORKER AT ALL. Parsing 380 KB of engine to then
+     ask it nothing would be the one avoidable cost in a run of 500. */
+  const mode=fixMode();
+  const scale=mode==="scale";
   let w=null;
-  try{ w=fixWorker(); }catch(e){ fixBatchSay(e.message); $("fixbatchstop").hidden=true; return; }
-  fixBatchWorker=w;
+  if(!scale){
+    try{ w=fixWorker(); }catch(e){ fixBatchSay(e.message); $("fixbatchstop").hidden=true; return; }
+    fixBatchWorker=w;
+  }
   const forced=+$("fixforce").value||0;
-  const mode=$("fixmode").value==="fast"?"fast":"full";
   const t0=performance.now();
   for(let i=0;i<list.length;i++){
     if(fixBatchStop) break;
     const file=list[i];
     const name=String(file.name||("image"+(i+1))).replace(/\.[^.]+$/,"");
+    const rel=String(file.webkitRelativePath||file.name||("image"+(i+1)));
     fixBatchSay((i+1)+" of "+list.length+" \u00b7 "+name);
     fixProgress(i/list.length,"image "+(i+1)+" of "+list.length);
     let bm=null;
@@ -17885,34 +18063,96 @@ async function fixBatch(files){
     g.drawImage(bm,0,0);
     if(bm.close) bm.close();
     const px=g.getImageData(0,0,W,H).data;
-    const r=await fixAsk(w,{data:new Uint8ClampedArray(px), width:W, height:H,
-      mode:mode, forceStep:forced>0?forced:null});
+    /* The same bytes, untouched, when there is nothing to ask. */
+    const r=scale ? {ok:{data:px, width:W, height:H, stepX:1, stepY:1}}
+      : await fixAsk(w,{data:new Uint8ClampedArray(px), width:W, height:H,
+        mode:mode, forceStep:forced>0?forced:null});
     if(!r||r.error){ failed.push(name+" ("+((r&&r.error)||"no answer")+")"); continue; }
     const out=r.ok;
-    const oc=document.createElement("canvas"); oc.width=out.width; oc.height=out.height;
-    const oim=oc.getContext("2d").createImageData(out.width,out.height);
-    oim.data.set(out.data);
-    oc.getContext("2d").putImageData(oim,0,0);
+    /* The same canvas the single save uses, so the switch means one thing. */
+    const oc=fixGridCanvas(out);
     const blob=await new Promise(res=>oc.toBlob(res,"image/png"));
     /* Kept as bytes rather than as a canvas: five hundred canvases would be
        five hundred backing stores, and the bytes are what the zip wants. */
-    fixBatchFiles.push({name:name+"-fixed.png",
+    /* TWO NAMES ON PURPOSE. `name` is what the zip calls it, folders and
+       all, and `rel` is the path it arrived on - which is what the project
+       reads the category and the trait name out of. See patch402. */
+    fixBatchFiles.push({name:fixZipName(rel,name),
+      rel:rel,
       data:new Uint8Array(await blob.arrayBuffer()),
-      w:out.width, h:out.height});
+      w:oc.width, h:oc.height});
     oc.width=1; oc.height=1; c.width=1; c.height=1;
   }
-  try{ w.terminate(); }catch(_){}
-  try{ URL.revokeObjectURL(w._url); }catch(_){}
+  /* Guarded together: scale mode never built one, and reaching into
+     w._url on null threw into a catch that hid it. */
+  if(w){ try{ w.terminate(); }catch(_){} try{ URL.revokeObjectURL(w._url); }catch(_){} }
   fixBatchWorker=null;
   fixProgress(null);
   $("fixbatchstop").hidden=true;
   $("fixbatchdl").disabled=!fixBatchFiles.length;
+  $("fixbatchsave").disabled=!fixBatchFiles.length;
   const secs=((performance.now()-t0)/1000).toFixed(1);
   fixBatchSay(fixBatchFiles.length+" of "+list.length+" done in "+secs+"s"
     +(fixBatchStop?" (stopped - what is done is kept)":"")
     +(over?" \u00b7 "+over+" past the limit of "+FIX_BATCH_MAX+" were left out":"")
     +(failed.length?" \u00b7 could not do: "+failed.slice(0,6).join(", ")
       +(failed.length>6?" and "+(failed.length-6)+" more":""):""));
+}
+/* THE ZIP ENTRY KEEPS ITS FOLDERS. A flat pile of 320 PNGs cannot be put
+   back anywhere; the same tree can. The leaf still says -fixed, because a
+   download wants to say what it is - the project gets the original name
+   instead, from `rel`. */
+function fixZipName(rel,name){
+  const parts=String(rel||"").split(/[\\/]/).filter(Boolean);
+  parts.pop();
+  return (parts.length?parts.join("/")+"/":"")+name+"-fixed.png";
+}
+/* A FILE THE PROJECT CAN READ A CATEGORY OUT OF.
+
+   webkitRelativePath is read only and a new File() has none, so it is
+   defined back on. Without it bulkImport sees a bare name, finds no
+   folder, and every trait in the run lands in unsorted - which is last in
+   the draw order, so the whole point of the folders is lost silently. */
+function fileWithPath(bytes,rel){
+  const parts=String(rel||"image.png").split(/[\\/]/).filter(Boolean);
+  const base=parts[parts.length-1]||"image.png";
+  const f=new File([bytes],base,{type:"image/png"});
+  try{ Object.defineProperty(f,"webkitRelativePath",{value:parts.join("/")}); }catch(_){ }
+  return f;
+}
+function fixSaveSay(m){ const el=$("fixsaveout"); if(el) el.textContent=m; }
+/* INTO THE PROJECT BY THE DOOR AN IMPORT USES.
+
+   bulkImport is the one thing that turns files into records - the layer
+   out of the folder, a layer the project has never seen adopted, the
+   status folder, the per-layer numbering, a trait that moved between
+   layers, a reference refused. A save that did its own version of any of
+   that would be a second answer to what a trait's layer is. */
+async function fixSaveFiles(files,say){
+  if(!files.length){ say("Nothing to save yet."); return 0; }
+  if(typeof mayUse==="function"&&!mayUse()) return 0;
+  say("Saving "+files.length+" to the project…");
+  try{ await bulkImport(files); }
+  catch(e){ say("Could not save: "+((e&&e.message)||e)); return 0; }
+  const withFolder=files.filter(f=>String(f.webkitRelativePath||"").indexOf("/")>=0).length;
+  say(files.length+" sent to the project"
+    +(withFolder?" · "+withFolder+" filed by their folder":"")
+    +(withFolder<files.length?" · "+(files.length-withFolder)
+      +" had no folder, so they are in unsorted":"")
+    +". Open the project to see them.");
+  return files.length;
+}
+async function fixSaveOne(){
+  const r=FIX.out; if(!r){ fixSaveSay("Nothing fixed yet."); return; }
+  const c=fixGridCanvas(r);
+  const blob=await new Promise(res=>c.toBlob(res,"image/png"));
+  c.width=1; c.height=1;
+  const bytes=new Uint8Array(await blob.arrayBuffer());
+  await fixSaveFiles([fileWithPath(bytes,FIX.rel||(FIX.name+".png"))],fixSaveSay);
+}
+async function fixSaveBatch(){
+  const list=fixBatchFiles||[];
+  await fixSaveFiles(list.map(f=>fileWithPath(f.data,f.rel||f.name)),fixBatchSay);
 }
 function fixBatchDownload(){
   if(!fixBatchFiles||!fixBatchFiles.length){ fixBatchSay("Nothing to download yet."); return; }
@@ -17922,16 +18162,49 @@ function fixBatchDownload(){
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(u),1500);
 }
+/* THE PICTURE, ON THE CANVAS THE COLLECTION USES.
+
+   The fixer's output covers the same extent as what went in, so scaling all
+   of it to CANVAS_SIDE keeps every position exactly where it was as a
+   fraction of the picture - which is what "stay in position" means when the
+   trait is going to be moved into place afterwards. Nothing is centred and
+   nothing is padded, so there is no offset to get wrong.
+
+   Nearest neighbour, because this is a resize of pixel art. Where the side
+   divides evenly every pixel comes out the same width; where it does not
+   they differ by one, which is what the readout warns about before the run
+   rather than after 320 of them. */
+function fixGridCanvas(r){
+  const c=document.createElement("canvas");
+  const on=$("fixgrid")&&$("fixgrid").checked;
+  c.width=on?CANVAS_SIDE:r.width; c.height=on?CANVAS_SIDE:r.height;
+  const g=c.getContext("2d");
+  g.imageSmoothingEnabled=false;
+  const src=document.createElement("canvas"); src.width=r.width; src.height=r.height;
+  const im=src.getContext("2d").createImageData(r.width,r.height);
+  im.data.set(r.data);
+  src.getContext("2d").putImageData(im,0,0);
+  g.drawImage(src,0,0,c.width,c.height);
+  src.width=1; src.height=1;
+  return c;
+}
 function fixDownload(){
   const r=FIX.out; if(!r){ fixSay("Nothing fixed yet."); return; }
-  $("fixafter").toBlob(b=>{
-    const a=document.createElement("a"); a.href=URL.createObjectURL(b); a.download=FIX.name+"-fixed.png"; a.click();
+  /* Through the same canvas the batch writes, so one switch decides both
+     and there is no second answer to what a save is. */
+  const c=fixGridCanvas(r);
+  c.toBlob(b=>{
+    const a=document.createElement("a"); a.href=URL.createObjectURL(b);
+    a.download=FIX.name+"-fixed.png"; a.click();
     setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+    c.width=1; c.height=1;
   },"image/png");
 }
 (function(){
   const d=$("fixdrop"), f=$("fixfile"); if(!d||!f) return;
   d.onclick=()=>f.click();
+  const fb=$("fixfolderbtn");
+  if(fb) fb.onclick=e=>{ e.stopPropagation(); const x=$("fixfolder"); if(x) x.click(); };
   d.onkeydown=e=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); f.click(); } };
   /* One file is the old behaviour; several is a batch. The value is cleared
      either way so picking the SAME file again fires again. */
@@ -17945,6 +18218,21 @@ function fixDownload(){
     took(e.dataTransfer&&e.dataTransfer.files); };
   $("fixrun").onclick=()=>{ fixRun(); };
   $("fixforce").addEventListener("input",fixSizeHint);
+  /* WHOLE NUMBERS. The arrows step by one now; this is for a fraction
+     typed or pasted in. On change rather than on input, because rounding
+     every keystroke makes 12 unreachable if you pause after the 1 - it
+     would snap to 1 and fight the typing. change fires when the field is
+     left or the spinner is used, which is when the value is meant. */
+  $("fixforce").addEventListener("change",()=>{
+    const f=$("fixforce"), v=+f.value;
+    if(!f.value) return;
+    const w=Math.max(0,Math.round(v||0));
+    if(String(w)!==f.value){ f.value=String(w); fixSizeHint(); }
+  });
+  $("fixgrid").addEventListener("change",fixSizeHint);
+  /* The mode decides what the readout means and what the button does, so
+     both follow it rather than being set once at load. */
+  $("fixmode").addEventListener("change",()=>{ fixModeUI(); fixSizeHint(); });
   $("fixstop").onclick=fixStop;
   /* Stop keeps what is finished. A batch is a long job and throwing away
      four hundred good answers because the four hundred and first was not
@@ -17953,6 +18241,12 @@ function fixDownload(){
   $("fixbatchdl").onclick=fixBatchDownload;
   $("fixopen").onclick=fixOpen;
   $("fixdl").onclick=fixDownload;
+  $("fixsave").onclick=()=>{ fixSaveOne(); };
+  $("fixbatchsave").onclick=()=>{ fixSaveBatch(); };
+  /* The folder picker is a second way into the same two paths, so a folder
+     of one behaves like a file of one and a folder of many is a batch. */
+  const fd=$("fixfolder");
+  if(fd){ fd.onchange=()=>{ took([...fd.files].filter(x=>/\.(png|jpe?g|webp|gif)$/i.test(x.name))); fd.value=""; }; }
 })();
 /* For an agent: the same run, as a promise of the same answer. */
 PB.fix=async function(o){

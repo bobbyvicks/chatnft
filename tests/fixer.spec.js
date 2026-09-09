@@ -87,13 +87,25 @@ test.describe('the Fix pixels tab', () => {
   test('only offers a mode the engine answers to', async ({ page }) => {
     /* core.detect throws by name on "full" - the arbitration pass is not
        ported. A menu offering it would be a button that fails on its first
-       press, which is how this read before it was measured. */
+       press, which is how this read before it was measured.
+
+       "scale" joined the menu and does not weaken that: it is the mode that
+       never reaches the engine at all, so there is nothing for detect to
+       throw on. What must stay true is that nothing on offer is a question
+       the engine refuses, and "full" is the only such value there is. */
     const r = await page.evaluate(() => ({
       values: [...document.getElementById('fixmode').options].map(o => o.value),
       picked: document.getElementById('fixmode').value,
+      /* The scale path is proven not to ask by reading the code that runs,
+         not by trusting the name of the mode. */
+      scaleAsks: /fixWorker|postMessage|fixAsk/.test(
+        String(fixRun).slice(String(fixRun).indexOf('if(mode==="scale"){'),
+          String(fixRun).indexOf('return Promise.resolve(r);'))),
     }));
-    expect(r.values).toEqual(['fast']);
+    expect(r.values).toEqual(['fast', 'scale']);
+    expect(r.values).not.toContain('full');
     expect(r.picked).toBe('fast');
+    expect(r.scaleAsks, 'scale mode must never reach the engine').toBe(false);
   });
 
   test('TAKES AN IMAGE, SHOWS IT, AND WAITS TO BE TOLD TO GO', async ({ page }) => {
@@ -422,7 +434,13 @@ test.describe('the Fix pixels tab', () => {
         shown: !document.getElementById('fixbatch').hidden };
     });
     expect(r.done, 'every image is done, the untyped ones included').toBe(6);
-    expect(r.sizes, 'each at its own native size').toEqual(['16x16']);
+    /* WAS "each at its own native size", ['16x16'], and that stopped being
+       what a save means: the 1280 switch is on by default, because writing
+       onto the collection's canvas is the stated workflow. The property this
+       was guarding - that a batch gives ONE size and does not mix them - is
+       what is still asserted, at the size the switch names. The native-size
+       path is covered with the switch off in fixergrid.spec.js. */
+    expect(r.sizes, 'one size across the batch, the collection canvas').toEqual(['1280x1280']);
     expect(r.names[0], 'named after what went in').toBe('untyped0-fixed.png');
     expect(r.said, 'and the one that is not an image is named, not skipped in silence')
       .toContain('notes');

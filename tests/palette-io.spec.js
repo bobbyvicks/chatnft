@@ -602,12 +602,22 @@ test.describe('drop, and the panel', () => {
         titled: ['pioimport', 'piodrop', 'piosrc', 'piofmt', 'pioexport'].map(id => ({ id, title: (document.getElementById(id).title || '').length > 0 })),
         close: !!card.querySelector('#clclose'),
         secondGrid: [...card.querySelectorAll('#pal, #piopal')].map(e => e.id),
-        /* recolour.spec.js pins ONE .swatches in the document - the property
-           that #pal's colours are never drawn twice. The imported grid is a
-           different set, so it lays out as a grid under its own id and does
-           not add to that count. Asserted here so the two specs cannot drift
-           into contradicting each other without one of them saying so. */
+        /* recolour.spec.js pins what .swatches MEANS: every one of them is a
+           view of the trait's own colours, and they must agree. It used to be
+           one grid and this asserted the count was 1; the colours are now also
+           shown always-open in the left column, so there are two views of one
+           set. The imported palette is a DIFFERENT set, so it stays under its
+           own id and is deliberately not .swatches - which is the thing worth
+           asserting from this side, and the reason this line exists: the two
+           specs cannot drift into contradicting each other without one of them
+           saying so. Both failed together when the second view went in. */
         swatchesClassed: document.querySelectorAll('.swatches').length,
+        importedIsNotAView: !document.getElementById('piopal').classList.contains('swatches'),
+        viewsAgree: (() => {
+          const g = [...document.querySelectorAll('.swatches')]
+            .map(x => [...x.querySelectorAll('.sw')].map(s => s.dataset.hex).join(','));
+          return g.every(x => x === g[0]);
+        })(),
         accept: document.getElementById('piofile').accept,
       };
     });
@@ -618,7 +628,9 @@ test.describe('drop, and the panel', () => {
     for (const t of r.titled) expect(t.title, t.id + ' has a title').toBe(true);
     expect(r.close, 'the panel still has its Close button').toBe(true);
     expect(r.secondGrid, "the imported grid is the second grid, after the trait's").toEqual(['pal', 'piopal']);
-    expect(r.swatchesClassed, 'and #pal is still the only .swatches').toBe(1);
+    expect(r.swatchesClassed, 'the trait palette has its views and no more').toBe(2);
+    expect(r.importedIsNotAView, 'the imported palette is a different set, not a view').toBe(true);
+    expect(r.viewsAgree, 'and every view shows the same colours').toBe(true);
     expect(r.accept).toBe('.gpl,.pal,.hex,image/*');
   });
 });

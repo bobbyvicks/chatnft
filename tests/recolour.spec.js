@@ -142,17 +142,65 @@ test.describe('the merged palette', () => {
     picked: rcPick.size,
   }));
 
-  test('there is one swatch grid, not two', async ({ page }) => {
+  test('there is one set of colours, however many views show it', async ({ page }) => {
+    /* WAS "there is one swatch grid, not two", counting .swatches and
+       requiring exactly 1. That count stopped being the property.
+
+       The defect it was written for was #rcpal: a SECOND grid of the same
+       colours where a click meant something else, with both selections living
+       on aria-pressed, so setColor's sweep wiped the replace marks. What made
+       that a bug was two grids that could DISAGREE - not two grids.
+
+       The colours are now also shown in the left column, always open, because
+       reaching them through the card was the thing being complained about.
+       That is a second VIEW of one set: buildPalette fills both from the same
+       list with the same handlers, and rcSummary and setColor both reach
+       every view. So this asserts the property instead of the count - the
+       views must agree, in colours and in marks - and still asserts #rcpal is
+       gone, which is the original defect by name.
+
+       palette-io.spec.js asserts the .swatches count from the other side and
+       names this test; the two are meant to fail together, and they did. */
     await openTrait(page, { w: 60, h: 60, draw: bands3 });
     await openPanel(page, 'cl');
-    const n = await page.evaluate(() => ({
-      grids: document.querySelectorAll('.swatches').length,
-      rcpal: !!document.getElementById('rcpal'),
-      pal: document.querySelectorAll('#pal .sw').length,
-    }));
-    expect(n.grids, 'the same colours were drawn twice').toBe(1);
-    expect(n.rcpal, 'the duplicate grid is gone').toBe(false);
-    expect(n.pal, 'and the remaining one has the colours').toBeGreaterThan(1);
+    const n = await page.evaluate(() => {
+      const grids = [...document.querySelectorAll('.swatches')];
+      return {
+        rcpal: !!document.getElementById('rcpal'),
+        ids: grids.map(g => g.id),
+        sets: grids.map(g => [...g.querySelectorAll('.sw')].map(s => s.dataset.hex)),
+        pal: document.querySelectorAll('#pal .sw').length,
+      };
+    });
+    expect(n.rcpal, 'the duplicate grid with the other meaning is gone').toBe(false);
+    expect(n.pal, 'the card has the colours').toBeGreaterThan(1);
+    expect(n.ids.length, 'and there is at least one view of them').toBeGreaterThan(0);
+    /* EVERY VIEW IS THE SAME SET, in the same order. A view that showed a
+       different list, or the same list stale, is the drift the old count was
+       standing in for. */
+    for (let i = 1; i < n.sets.length; i++)
+      expect(n.sets[i], n.ids[i] + ' shows the same colours as ' + n.ids[0]).toEqual(n.sets[0]);
+
+    /* AND THE MARKS REACH EVERY VIEW. This is the half that actually broke
+       last time: marks in one place and not the other. */
+    const marks = await page.evaluate(() => {
+      const first = document.querySelector('#pal .sw');
+      first.click();
+      const grids = [...document.querySelectorAll('.swatches')];
+      return { hex: first.dataset.hex,
+        per: grids.map(g => [...g.querySelectorAll('.sw[data-rc="1"]')].map(s => s.dataset.hex)) };
+    });
+    for (const got of marks.per) expect(got).toEqual([marks.hex]);
+
+    /* And changing the drawing colour does not cost them, in any view - the
+       exact collision #rcpal caused. */
+    const after = await page.evaluate(() => {
+      const second = [...document.querySelectorAll('#pal .sw')][1];
+      setColor(second.dataset.hex);
+      return [...document.querySelectorAll('.swatches')]
+        .map(g => g.querySelectorAll('.sw[data-rc="1"]').length);
+    });
+    for (const kept of after) expect(kept, 'the marks survive a colour change').toBe(1);
   });
 
   test('a second click unmarks, so a misclick is fixable', async ({ page }) => {

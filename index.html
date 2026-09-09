@@ -3490,6 +3490,94 @@ async function idHolder(id,exceptId){
   const hit=all.find(r=>r.id===id);
   return hit && hit.id!==exceptId ? hit : null;
 }
+/* WHAT A SHELF TILE IS ACTUALLY SHOWN AT, which until now was "whatever the
+   trait happens to be".
+
+   A tile is about 150 CSS pixels wide, a recent row is 34 and the review
+   shot is 88. The traits in a real collection here are 1280x1280. Giving
+   each tile a canvas at the trait size cost 6.5 MB of backing store per
+   tile and 2,053 MB across 318 of them - measured on this collection - for
+   a picture the compositor immediately threw 98% of away. That is what was
+   killing the tab on a phone.
+
+   192 is the cap on the LONG EDGE, and only downward: a trait already
+   smaller than that keeps its own size, so nothing about a 16 or 80 pixel
+   sprite changes. Above it, a WHOLE DIVISION is preferred over an
+   arbitrary scale, because dividing by a whole number keeps every art
+   pixel square and the same size as its neighbours. 1280 divides by 8 to
+   160, which for this collection is not a reduction at all - the traits
+   are drawn on a 160-cell grid at 8 pixels a cell, so 160 is one canvas
+   pixel per art pixel. The search is bounded at 0.6 of the cap so a size
+   with no useful divisor - 1279 - falls through to a plain scale rather
+   than dividing by 1279 and arriving at one pixel. */
+const SHELF_THUMB=192;
+function thumbSize(w,h){
+  w=Math.max(1,Math.round(w)||1); h=Math.max(1,Math.round(h)||1);
+  const long=Math.max(w,h);
+  if(long<=SHELF_THUMB) return {w:w,h:h};
+  const lo=Math.ceil(long/SHELF_THUMB), hi=Math.floor(long/Math.round(SHELF_THUMB*0.6));
+  for(let n=lo;n<=hi;n++) if(w%n===0&&h%n===0) return {w:w/n,h:h/n};
+  const k=SHELF_THUMB/long;
+  return {w:Math.max(1,Math.round(w*k)),h:Math.max(1,Math.round(h*k))};
+}
+/* Decode, draw at the thumbnail size, and CLOSE the bitmap.
+
+   The close is not tidiness. A decoded 1280x1280 bitmap is 6.5 MB, every
+   tile opened one, and not one of them was ever released - so a shelf that
+   survived its own canvases still had a second copy of the collection
+   sitting in the decoder. A failed decode leaves an empty box, as before,
+   rather than throwing the whole list away. */
+function thumbPaint(cv,blob){
+  if(!blob) return;
+  createImageBitmap(blob).then(function(bm){
+    const g=cv.getContext("2d");
+    g.imageSmoothingEnabled=false;
+    g.clearRect(0,0,cv.width,cv.height);
+    g.drawImage(bm,0,0,cv.width,cv.height);
+    if(bm.close) bm.close();
+  }).catch(function(){});
+}
+function thumbCanvas(rec){
+  const s=thumbSize(rec&&rec.w,rec&&rec.h);
+  const cv=document.createElement("canvas");
+  cv.width=s.w; cv.height=s.h;
+  return cv;
+}
+/* WHICH TILES HAVE ACTUALLY BEEN DECODED, which should be the ones you can
+   see and was every one of them.
+
+   renderShelf runs again on every status change, every pick, every hide and
+   every rarity edit, and each run decoded the entire collection from
+   scratch. Six tiles fit on a phone screen.
+
+   REBUILT WITH THE SHELF, not kept. An observer holds its targets, so one
+   that outlived a rebuild would be holding 318 detached canvases per
+   render - which is the leak this exists to avoid, one level up.
+   shelfWatchReset is called where the shelf body is emptied, so the old one
+   goes with the DOM it was watching.
+
+   400px of margin so a tile is decoded before it is scrolled to rather than
+   after. With no IntersectionObserver at all the tile paints immediately,
+   which is what every browser did before this. */
+let shelfWatch=null;
+function shelfWatchReset(){
+  if(shelfWatch){ shelfWatch.disconnect(); shelfWatch=null; }
+  if(typeof IntersectionObserver!=="function") return;
+  shelfWatch=new IntersectionObserver(function(entries,obs){
+    for(const e of entries){
+      if(!e.isIntersecting) continue;
+      obs.unobserve(e.target);
+      const paint=e.target.pbPaint;
+      if(paint){ e.target.pbPaint=null; paint(); }
+    }
+  },{rootMargin:"400px 0px"});
+}
+function shelfTile(rec){
+  const cv=thumbCanvas(rec);
+  if(shelfWatch){ cv.pbPaint=function(){ thumbPaint(cv,rec&&rec.blob); }; shelfWatch.observe(cv); }
+  else thumbPaint(cv,rec&&rec.blob);
+  return cv;
+}
 async function renderShelf(){
   /* Filled in at the end, once the records have been read. */
   let items=[];
@@ -3633,14 +3721,15 @@ async function renderShelf(){
     }
   }
   const body=$('projbody'); body.innerHTML='';
+  /* With the DOM the old observer was watching. See shelfWatchReset. */
+  shelfWatchReset();
   if(savedRefs.length){
     const rw=document.createElement('div'); rw.className='layer';
     rw.innerHTML='<h3>references <span style="color:var(--dim)">'+savedRefs.length+'</span></h3>';
     const rg=document.createElement('div'); rg.className='items';
     for(const t of savedRefs){
       const el=document.createElement('div'); el.className='item'; el.title=t.name;
-      const cv=document.createElement('canvas'); cv.width=t.w; cv.height=t.h;
-      createImageBitmap(t.blob).then(bm=>{const g=cv.getContext('2d'); g.imageSmoothingEnabled=false; g.drawImage(bm,0,0);}).catch(()=>{});
+      const cv=shelfTile(t);
       el.appendChild(cv);
       const nm=document.createElement('b'); nm.textContent=t.name; el.appendChild(nm);
       const x=document.createElement('button'); x.className='x'; x.textContent='×';
@@ -3716,10 +3805,7 @@ async function renderShelf(){
       const key=shelfCore.recordKey(t), hidden=visibility.isHidden(key);
       const el=document.createElement('div'); el.className='item'+(hidden?' temporarily-hidden':''); el.title=t.name;
       el.dataset.shelfCardKey=key;
-      const cv=document.createElement('canvas'); cv.width=t.w; cv.height=t.h;
-      createImageBitmap(t.blob).then(bm=>{
-        const g=cv.getContext('2d'); g.imageSmoothingEnabled=false; g.drawImage(bm,0,0);
-      }).catch(()=>{});
+      const cv=shelfTile(t);
       el.appendChild(cv);
       const nm=document.createElement('b'); nm.textContent=t.name; el.appendChild(nm);
       const st=document.createElement('span');
@@ -12414,14 +12500,10 @@ function renderRecent(items){
   body.innerHTML="";
   for(const t of top){
     const row=document.createElement("div"); row.className="rrow";
-    const cv=document.createElement("canvas");
-    cv.width=Math.max(1,t.w||1); cv.height=Math.max(1,t.h||1);
-    /* Same as the shelf tiles: decode, draw at natural size, let CSS do the
-       shrinking with pixelated. A failed decode leaves an empty box rather
-       than throwing the whole list away. */
-    if(t.blob) createImageBitmap(t.blob).then(bm=>{
-      const g=cv.getContext("2d"); g.imageSmoothingEnabled=false; g.drawImage(bm,0,0);
-    }).catch(()=>{});
+    /* A 34px row was being handed a 1280px canvas. thumbCanvas caps it and
+       thumbPaint closes the bitmap, which this never did. */
+    const cv=thumbCanvas(t);
+    thumbPaint(cv,t.blob);
     row.appendChild(cv);
     const nm=document.createElement("span"); nm.className="rname";
     nm.textContent=t.name||"a trait"; nm.title=nm.textContent;
@@ -12650,11 +12732,11 @@ async function renderReview(){
   if(document.activeElement!==nameBox)
     nameBox.value=e.finalName||reviewBase(t?t.name:e.currentName);
   const cv=$("revshot");
-  cv.width=t?Math.max(1,t.w||1):8; cv.height=t?Math.max(1,t.h||1):8;
-  const g=cv.getContext("2d"); g.clearRect(0,0,cv.width,cv.height);
-  if(t&&t.blob) createImageBitmap(t.blob).then(bm=>{
-    g.imageSmoothingEnabled=false; g.drawImage(bm,0,0);
-  }).catch(()=>{});
+  /* 88px on screen, and it was sized to the trait. */
+  const shot=t?thumbSize(t.w,t.h):{w:8,h:8};
+  cv.width=shot.w; cv.height=shot.h;
+  cv.getContext("2d").clearRect(0,0,cv.width,cv.height);
+  if(t&&t.blob) thumbPaint(cv,t.blob);
   $("revopen2").disabled=!t;
 }
 /* Moving through the queue. Written down on every step, so closing the tab

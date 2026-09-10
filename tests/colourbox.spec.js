@@ -132,10 +132,40 @@ test('a big palette scrolls in the box instead of growing it', async ({ page }) 
       scrollable: getComputedStyle(box).overflowY };
   });
   expect(r.count).toBeGreaterThan(8);
-  expect(r.h).toBeLessThanOrEqual(96);
+  /* WAS a literal 96. That number was the cap chosen to stop the box widening
+     the rail, and it showed about two rows of a real trait - which is the box
+     failing at the one thing it is for. The cap is min(260px, 28dvh) now,
+     measured against the zoom at five window shapes and five caps.
+
+     Asserted against the RULE rather than a number written here, so the two
+     cannot drift: what this test is for is that the box is capped at all and
+     scrolls past it, not what the cap happens to be. */
+  const cap = await page.evaluate(() => {
+    const v = getComputedStyle(document.getElementById('colbox')).maxHeight;
+    return Math.round(parseFloat(v));
+  });
+  expect(cap, 'the box is capped').toBeGreaterThan(0);
+  expect(r.h).toBeLessThanOrEqual(cap);
   expect(r.scrollable).toBe('auto');
-  /* The cap only means something while there is more than fits. */
-  expect(r.overflows).toBe(true);
+  /* And past the cap it scrolls rather than growing - checked with a palette
+     big enough that it must, since a trait whose colours all fit is exactly
+     the case where nothing scrolls and nothing is wrong. */
+  const big = await page.evaluate(() => {
+    const strip = document.getElementById('palrail');
+    const spare = [];
+    for (let i = 0; i < 400; i++) {
+      const b = document.createElement('button');
+      b.className = 'sw'; b.style.background = '#123456';
+      strip.appendChild(b); spare.push(b);
+    }
+    const box = document.getElementById('colbox');
+    const out = { h: Math.round(box.getBoundingClientRect().height),
+      overflows: box.scrollHeight > box.clientHeight + 1 };
+    for (const b of spare) b.remove();
+    return out;
+  });
+  expect(big.h, 'four hundred colours do not grow it').toBeLessThanOrEqual(cap);
+  expect(big.overflows, 'they scroll instead').toBe(true);
 });
 
 test('no tool sits outside the rail at any of nine window shapes', async ({ page }) => {

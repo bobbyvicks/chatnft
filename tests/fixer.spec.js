@@ -180,6 +180,13 @@ test.describe('the Fix pixels tab', () => {
       await page.evaluate(() => { try { authed = true; } catch (_) {} gateShow(false); showPage('fixer', false); });
       await feed(page, 3, 16);
       await runFix(page);
+      /* SWITCH OFF, because this test is about opening the rebuilt pixels AT
+         THEIR OWN SIZE - which is what it says and what it has always meant.
+         Open in the editor honours the 1280 switch now: it used to ignore it
+         and hand back a 160px canvas while the Download button wrote 1280, so
+         an evening of editing saved small. With the switch on the answer is
+         1280, and that path is covered in fixeropen.spec.js. */
+      await page.evaluate(() => { document.getElementById('fixgrid').checked = false; });
       await page.evaluate(() => fixOpen());
       await page.waitForTimeout(400);
       const r = await page.evaluate(() => ({

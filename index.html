@@ -112,12 +112,57 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
    the answer to a question about the extractor. */
 .panelbox{width:min(1180px,92vw); text-align:left; padding:18px;
   border-radius:13px; background:var(--panel); border:1px solid var(--line);}
+/* THE ONE PAGE THAT IS LOOKING AT PICTURES, not reading prose. 1180 is a
+   readable line length and a wasteful picture frame: on a 1920 screen it
+   left 740px empty beside two previews capped at 420px each. The other
+   four pages keep the column - a 1900px line of text is unreadable. */
+#land[data-page="fixer"] .panelbox{width:min(2100px,96vw);}
+/* THE WORK ON THE LEFT, WHAT YOU ALREADY FIXED ON THE RIGHT. One column
+   below 1100: a 300px rail there would leave the previews narrower than
+   they were before the page was widened at all, which is a worse trade
+   than putting the list underneath. */
+.fixcols{display:grid; grid-template-columns:minmax(0,1fr); gap:18px;
+  align-items:start;}
+@media (min-width:1100px){ .fixcols{grid-template-columns:minmax(0,1fr) 300px;} }
+.fixrail{border:1px solid var(--line); border-radius:11px;
+  background:var(--panel-2); padding:12px 12px 4px;}
+/* Sticky only where it is a column - stuck to the top of a page it is
+   sitting UNDER is a box that will not scroll away. */
+@media (min-width:1100px){ .fixrail{position:sticky; top:12px;
+  max-height:calc(100dvh - 24px); overflow-y:auto;} }
+.fixrail h3{font-size:12px; text-transform:uppercase; letter-spacing:.09em;
+  color:var(--good); margin:0;}
+.fixrail .railhead{display:flex; align-items:baseline; gap:8px;
+  margin-bottom:4px;}
+.fixrail .railhead .count{font-size:11.5px; color:var(--dim);}
+/* A row is a button, because every one of them does something. */
+.frow{width:100%; text-align:left; font:inherit; color:inherit;
+  background:none; border:none; border-bottom:1px solid var(--line);
+  cursor:pointer; padding:6px 0;}
+.frow:last-child{border-bottom:none;}
+.frow:hover .rname{color:var(--accent);}
+.fixrail .rrow img{width:44px; height:44px; flex:none; border-radius:6px;
+  background:var(--panel); image-rendering:pixelated; object-fit:contain;}
+.fixrail .rsize{color:var(--dim); font-size:11.5px; white-space:nowrap;}
 .panelbox h2{font-size:13px; text-transform:uppercase; letter-spacing:.1em;
   color:var(--good);}
 #agout{max-height:340px; overflow:auto; background:var(--panel);
   border:1px solid var(--line); border-radius:8px; padding:10px;
   font-size:12px; line-height:1.45; white-space:pre; margin:8px 0;}
 .agjob{display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:6px 0;}
+/* THE PIXEL SIZE READOUT. Two lines held open at 11.5px and line-height
+   1.5, so the one-line and two-line forms of the message occupy the same
+   space and nothing below it moves when it changes. */
+.fixsay{min-height:35px; margin:2px 0 4px;}
+/* A PRIMARY ACTION THE WIDTH OF THE SCREEN IS NOT MORE PROMINENT. .btn is
+   width:100% because almost every button here is in a narrow panel, where
+   that is right; in this row it wrapped Fix it onto a line of its own and
+   made it 1180px across at a 1600 screen. Sized to its words instead,
+   and only in this row - the narrow layout stacks and full width is
+   correct there. */
+@media (min-width:760px){
+  #fixer .agjob .btn{width:auto; padding-left:20px; padding-right:20px;}
+}
 /* The fixer's progress and its before/after. Both canvases are shown at
    the SAME size on screen: the after is a fraction of the before in pixels
    and would otherwise sit there as a thumbnail, which reads as "it shrank
@@ -149,7 +194,10 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
 .fixtile span{font-size:10px; color:var(--dim);}
 .fixpair{display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:10px;}
 .fixpair figure{margin:0; text-align:center;}
-.fixpair canvas{width:100%; max-width:420px; image-rendering:pixelated; background:
+/* 720, not 420. Past 720 a 160-cell trait is more than four screen pixels
+   to the art pixel, which is a magnifier rather than a preview, and the
+   pair stops sitting side by side on anything but the widest screens. */
+.fixpair canvas{width:100%; max-width:720px; image-rendering:pixelated; background:
   repeating-conic-gradient(#ffffff10 0 25%,transparent 0 50%) 0 0/16px 16px; border:1px solid var(--line); border-radius:8px;}
 .fixpair figcaption{font-size:12px; color:var(--muted); margin-top:5px;}
 @media (max-width:640px){ .fixpair{grid-template-columns:1fr;} }
@@ -1479,6 +1527,10 @@ footer .mono{color:var(--ink);}
   <p class="note">This is their quick pass: three detectors, and the answer they agree on.
     The thorough pass that arbitrates when those three disagree is not built yet, so a
     hard image can come back with a grid it is unsure of - it says which.</p>
+  <!-- TWO COLUMNS. The inner indentation is left as it was: reflowing
+       sixty lines to move them two spaces would bury the change. -->
+  <div class="fixcols">
+  <div class="fixwork">
   <div class="drop" id="fixdrop" tabindex="0" role="button" aria-label="Choose an image to fix">
     <strong>Drop an image here</strong>
     <span>or click to choose one · PNG, JPG, WEBP or GIF</span>
@@ -1499,8 +1551,10 @@ footer .mono{color:var(--ink);}
     <input type="number" id="fixforce" min="0" step="1" value="0" style="width:84px"
       inputmode="numeric"
       title="How many pixels of the picture make one pixel of the artwork, in whole numbers. 0 works it out. If the result still looks soft, the guess was too small - try 8, 12 or 16.">
-    <span class="note mono" id="fixsize"></span>
-    <label class="olrow" style="gap:6px; margin-left:auto"
+    <!-- WAS margin-left:auto, from when the readout shared this row and
+         the row was crowded. With the readout on its own line that put a
+         thousand pixels of nothing in the middle of five controls. -->
+    <label class="olrow" style="gap:6px"
       title="Write the result onto the collection's own 1280x1280 canvas instead of at its native size. The whole picture is scaled, so nothing moves relative to anything else.">
       <input type="checkbox" id="fixgrid" checked>
       <span>Save at 1280×1280</span></label>
@@ -1513,6 +1567,12 @@ footer .mono{color:var(--ink);}
     <button class="btn" id="fixrun" disabled>Fix it</button>
     <button class="btn ghost" id="fixstop" hidden>Stop</button>
   </div>
+  <!-- ON ITS OWN LINE. In the row above it was a flex item, so every time
+       the sentence changed length the row relaid out and the switches and
+       the Fix it button moved - measured at up to a line down and 995px
+       across. Two lines are reserved so the previews below hold still
+       too. -->
+  <p class="note mono fixsay" id="fixsize"></p>
   <div class="fixprog" id="fixprog" hidden><div class="fixbar"><i id="fixbar"></i></div><span class="mono" id="fixlabel"></span></div>
   <p class="note mono" id="fixout"></p>
   <div class="fixpair" id="fixpair" hidden>
@@ -1537,6 +1597,15 @@ footer .mono{color:var(--ink);}
       <button class="btn" id="fixbatchsave" disabled title="Put all of them on the shelf, each in the category its folder names.">Save all to project</button>
       <button class="btn ghost" id="fixbatchstop" hidden>Stop</button>
     </div>
+  </div>
+  </div>
+  <!-- LAST EDITED, FOR THE FIXER. Hidden until there is something in it,
+       the same as the list it is modelled on. -->
+  <aside class="fixrail" id="fixrail" hidden>
+    <div class="railhead"><h3>Last fixed</h3>
+      <span class="count" id="fixrecentcount"></span></div>
+    <div id="fixrecentbody"></div>
+  </aside>
   </div>
 </section>
 <section class="panelbox pg-agent">
@@ -18664,6 +18733,7 @@ function fixRun(){
       if(m.error){ fixSay("The fixer could not do this one: "+m.error); fixDone(w); resolve(null); return; }
       if(m.done){
         const r=fixStampMeasured(m.done); fixShow(r);
+        fixRecentFromRun(r);
         const secs=((performance.now()-t0)/1000).toFixed(1);
         $("fixaftercap").textContent=r.width+"\u00d7"+r.height+" real pixels \u00b7 pixel size "+(+r.stepX).toFixed(2)+(Math.abs(r.stepX-r.stepY)>0.01?"\u00d7"+(+r.stepY).toFixed(2):"")+" px";
         /* A SOFT RESULT SAYS WHAT TO DO ABOUT IT. An image whose edges were
@@ -18916,6 +18986,9 @@ async function fixBatch(files){
       w:oc.width, h:oc.height});
     oc.width=1; oc.height=1; c.width=1; c.height=1;
     fixTile(fixBatchFiles[fixBatchFiles.length-1]);
+    /* The thumbnail BYTES, not the URL the grid made for them - that one
+       is revoked when the next run clears the grid. */
+    fixRecentAdd(fixBatchFiles[fixBatchFiles.length-1],tb);
   }
   /* Guarded together: scale mode never built one, and reaching into
      w._url on null threw into a catch that hid it. */
@@ -19030,6 +19103,53 @@ async function fixSaveBatch(){
 /* ONE TILE. Appended as its image finishes, so the grid fills while the run
    is still going and a wrong pixel size is visible on tile three rather
    than after three hundred. */
+/* WHAT HAS BEEN FIXED THIS SESSION, newest first.
+
+   Not the batch grid: that is emptied and its thumbnails revoked at the
+   start of every run, and surviving the next run is the entire point of
+   this. So the rail owns its own URL for the same thumbnail bytes and
+   revokes it when the entry falls off the end.
+
+   24 because each entry keeps the fixed PNG so it can still be opened. As
+   bytes, not as a canvas - a decoded 1280 is 6.5MB and this page has
+   asked the browser for 2GB of canvas once already. */
+const FIX_RECENT_MAX=24;
+let fixRecent=[];
+function fixRecentAdd(f,thumbBlob){
+  if(!f||!f.data) return;
+  let url="";
+  try{ url=thumbBlob?URL.createObjectURL(thumbBlob):""; }catch(_){ }
+  fixRecent.unshift({name:f.name, data:f.data, cells:f.cells,
+    w:f.w, h:f.h, tw:f.tw, th:f.th, url:url, at:Date.now()});
+  while(fixRecent.length>FIX_RECENT_MAX){
+    const gone=fixRecent.pop();
+    if(gone&&gone.url) try{ URL.revokeObjectURL(gone.url); }catch(_){ }
+  }
+  fixRecentRender();
+}
+function fixRecentRender(){
+  const rail=$("fixrail"), body=$("fixrecentbody"), count=$("fixrecentcount");
+  if(!rail||!body) return;
+  rail.hidden=!fixRecent.length;
+  if(count) count.textContent=fixRecent.length>=FIX_RECENT_MAX
+    ? "the last "+FIX_RECENT_MAX : String(fixRecent.length);
+  body.innerHTML="";
+  for(const e of fixRecent){
+    const b=document.createElement("button");
+    b.className="rrow frow"; b.type="button";
+    b.title="Open "+e.name+" in the editor";
+    const im=document.createElement("img");
+    im.src=e.url; im.alt=""; im.loading="lazy";
+    if(e.tw) im.width=e.tw; if(e.th) im.height=e.th;
+    const nm=document.createElement("span");
+    nm.className="rname"; nm.textContent=e.name.split("/").pop();
+    const sz=document.createElement("span");
+    sz.className="rsize"; sz.textContent=e.w+"\u00d7"+e.h;
+    b.append(im,nm,sz);
+    b.onclick=()=>fixOpenOne(e);
+    body.appendChild(b);
+  }
+}
 function fixTile(f){
   const grid=$("fixresults"); if(!grid||!f) return;
   grid.hidden=false;
@@ -19106,6 +19226,26 @@ function fixGridCanvas(r){
   g.drawImage(src,0,0,c.width,c.height);
   src.width=1; src.height=1;
   return c;
+}
+/* ONE PICTURE FIXED IS STILL A PICTURE FIXED. A rail that only ever
+   listed folder runs would be empty for anyone who does them one at a
+   time, which is how the tab is used on a single trait. */
+async function fixRecentFromRun(r){
+  if(!r||!$("fixrail")) return;
+  try{
+    const c=fixGridCanvas(r);
+    const W=c.width, H=c.height;
+    const blob=await new Promise(res=>c.toBlob(res,"image/png"));
+    const t=fitSize(W,H,SHELF_THUMB);
+    const tc=document.createElement("canvas"); tc.width=t.w; tc.height=t.h;
+    const tg=tc.getContext("2d"); tg.imageSmoothingEnabled=false;
+    tg.drawImage(c,0,0,t.w,t.h);
+    const tb=await new Promise(res=>tc.toBlob(res,"image/png"));
+    tc.width=1; tc.height=1; c.width=1; c.height=1;
+    fixRecentAdd({name:(FIX.name||"image")+"-fixed.png",
+      data:new Uint8Array(await blob.arrayBuffer()),
+      cells:r.width, w:W, h:H, tw:t.w, th:t.h}, tb);
+  }catch(_){ }
 }
 function fixDownload(){
   const r=FIX.out; if(!r){ fixSay("Nothing fixed yet."); return; }

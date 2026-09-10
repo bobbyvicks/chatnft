@@ -5610,8 +5610,10 @@ function blackenEdge(t,W,H){
      edges and they are exactly the 58 backgrounds; none fills some edges
      but not all; the other 259 are untouched, 94 of them keeping perimeter
      black where the art genuinely runs off the side. */
-  let fullT=true, fullB=true, fullL=true, fullR=true;
-  for(let x=0;x<W;x++){ if(!m[x]) fullT=false; if(!m[(H-1)*W+x]) fullB=false; }
+  /* fullB is gone with the clause that read it - see the note below. The
+     bottom is still SCANNED for nothing, so it is not scanned. */
+  let fullT=true, fullL=true, fullR=true;
+  for(let x=0;x<W;x++){ if(!m[x]) fullT=false; }
   for(let y=0;y<H;y++){ if(!m[y*W]) fullL=false; if(!m[y*W+W-1]) fullR=false; }
   const ring=[];
   for(let y=0;y<H;y++) for(let x=0;x<W;x++){
@@ -5626,7 +5628,20 @@ function blackenEdge(t,W,H){
            crossed - and a diagonal neighbour off the top AND the left
            crosses two, so both have to be filled for it to count as
            covered. */
-        const covered=(xx>=0||fullL)&&(xx<W||fullR)&&(yy>=0||fullT)&&(yy<H||fullB);
+        /* THE BOTTOM OF THE FRAME IS NOT AN EDGE OF THE ART.
+
+           SUPERSEDES the fourth clause, which was `(yy<H||fullB)` and made
+           a trait running off the bottom an outer pixel all the way
+           across. Measured on a trait with no black in it: 0 black on the
+           bottom row before a save, 244 after, with no outline run at all.
+           A hoodie is cut by the frame there, not shaped by it, and a line
+           drawn across the cut lands in the middle of a character.
+
+           The other three are unchanged and the note above is right about
+           why: a hat cropped at the top still wants its outline there. An
+           edge INSIDE the canvas is untouched, so a trait that ends above
+           the bottom still gets outlined underneath. */
+        const covered=(xx>=0||fullL)&&(xx<W||fullR)&&(yy>=0||fullT);
         if(covered) continue;
         empty=true; break;
       }
@@ -18016,6 +18031,13 @@ async function fixLoad(file){
   $("fixaftercap").textContent="";
   $("fixpair").hidden=false; $("fixacts").hidden=true;
   $("fixrun").disabled=false;
+  /* THE CONTROLS TOO, not only the readout. Whether the pixel size box
+     decides anything depends on the PICTURE - the snap needs four real
+     pixels a cell before it applies - and fixModeUI was only ever called
+     when a control moved. So a fresh page decided the box was live, an
+     image arrived, and nobody asked again: the box invited a number and
+     nothing read it. See patch413. */
+  fixModeUI();
   fixSizeHint();
   fixSay(W+"\u00d7"+H+" pixels. Press Fix it.");
   return true;
@@ -18110,6 +18132,10 @@ function fixSnapping(){
    anything under 640 falls through to the detectors, which is what they
    are for. */
 const SNAP_MIN_STEP=4;
+/* What the last step decision had to change, so the run can say so. Set by
+   fixStepFor and read by whoever reports; cleared at the start of a run so
+   it cannot describe the one before. */
+let fixMoved=null;
 /* THE STEP FOR ONE PICTURE. Snapped, it is the width over the cell count -
    so any source size lands on exactly that many cells and the size
    difference is normalised rather than depended on. Not snapped, it is
@@ -18121,6 +18147,55 @@ function fixSnapStep(w){
   const s=w/g.cells;
   return s>=SNAP_MIN_STEP ? s : 0;
 }
+/* THE CELL COUNTS THAT CAN LAND ON THE COLLECTION CANVAS.
+
+   A count only gives square pixels at CANVAS_SIDE if it divides it, so
+   these are the divisors and there are eighteen of them. Computed rather
+   than listed, so changing CANVAS_SIDE cannot leave a stale table behind. */
+function fixCanvasCounts(){
+  const out=[];
+  for(let n=1;n<=CANVAS_SIDE;n++) if(CANVAS_SIDE%n===0) out.push(n);
+  return out;
+}
+/* THE NEAREST SIZE THAT ACTUALLY WORKS, and whether it moved.
+
+   Asked for 12 on a 1280 source: 1280/12 is 106.67, the nearest count
+   that divides 1280 is 128, and 1280/128 is 10. So 12 becomes 10 and the
+   blocks are square. Nearest by COUNT rather than by pixel size, because
+   the count is what has to divide the canvas.
+
+   TWO THINGS HAVE TO HOLD OR THE MOVE IS WORSE THAN THE PROBLEM.
+
+   The new step must be a WHOLE number of source pixels. A first version
+   only required the count to divide the canvas, and on a 96px source it
+   turned a request for 4 into 4.8 - a fractional step on a picture drawn
+   in whole 4px blocks, which slices every one of them. Requiring the
+   source to divide by the count is what keeps the sampling clean at both
+   ends.
+
+   And it must be NEAR what was asked. 1020 at 12 wants 85 cells, and the
+   only counts dividing both 1020 and 1280 are 1, 2, 4, 5, 10 and 20 - so
+   the nearest is 20, which is not a correction, it is a different
+   picture. Past a quarter off, nothing is moved and the readout goes back
+   to naming the sizes that would work, which is what it did before.
+
+   Returns null when nothing needs doing or nothing sensible is available,
+   so a caller can tell "fine" from "moved" without comparing floats. */
+const WHOLE_STEP_NEAR=0.25;
+function fixWholeStep(w,step){
+  if(!(w>0)||!(step>0)) return null;
+  const want=Math.max(1,Math.round(w/step));
+  if(CANVAS_SIDE%want===0) return null;
+  let best=null;
+  for(const n of fixCanvasCounts()){
+    if(w%n!==0) continue;
+    const d=Math.abs(n-want);
+    if(!best||d<best.d||(d===best.d&&n>best.n)) best={n:n,d:d};
+  }
+  if(!best) return null;
+  if(best.d>want*WHOLE_STEP_NEAR) return null;
+  return {cols:best.n, step:w/best.n, was:want};
+}
 function fixStepFor(w){
   if(fixSnapping()){
     const s=fixSnapStep(w);
@@ -18128,7 +18203,16 @@ function fixStepFor(w){
     /* Too small for the grid: fall through to what was typed, which is
        usually 0 and means the detectors answer it. */
   }
-  return +$("fixforce").value||0;
+  const typed=+$("fixforce").value||0;
+  /* A TYPED SIZE THAT CANNOT LAND IS MOVED, and only while the result is
+     going onto the collection canvas - with the switch off the output is
+     its own size and every step is whole already. See patch412. */
+  const grid=$("fixgrid")&&$("fixgrid").checked;
+  if(grid&&typed>0){
+    const fix=fixWholeStep(w,typed);
+    if(fix){ fixMoved={from:typed, to:fix.step, cols:fix.cols, was:fix.was}; return fix.step; }
+  }
+  return typed;
 }
 function fixMode(){
   const v=$("fixmode")?$("fixmode").value:"fast";
@@ -18180,8 +18264,14 @@ function fixSizeHint(){
   /* SNAPPED, THE COUNT IS THE GRID, whatever the source measures - that is
      the whole point of it. g is declared above, with the check that has to
      run before the bail-out. */
-  const cols=scale?FIX.src.width:(snap?g.cells:Math.max(1,Math.round(FIX.src.width/step)));
-  const rows=scale?FIX.src.height:(snap?g.cells:Math.max(1,Math.round(FIX.src.height/step)));
+  /* THE COUNT THE RUN WILL ACTUALLY USE, moved size and all - a readout
+     that describes the request rather than the answer is worse than none. */
+  const gridOn=$("fixgrid")&&$("fixgrid").checked;
+  const moved=(!scale&&!snap&&gridOn&&step>0)?fixWholeStep(FIX.src.width,step):null;
+  const cols=scale?FIX.src.width:(snap?g.cells:(moved?moved.cols
+    :Math.max(1,Math.round(FIX.src.width/step))));
+  const rows=scale?FIX.src.height:(snap?g.cells:(moved?moved.cols
+    :Math.max(1,Math.round(FIX.src.height/step))));
   /* AND WHETHER IT LANDS ON THE COLLECTION GRID. 1280/128 is 10 and every
      pixel comes out identical; 1280/85 is 15.06 and they differ by one.
      That is the difference between a trait that sits on the grid and one
@@ -18198,12 +18288,15 @@ function fixSizeHint(){
            to go and re-fix a finished picture. */
         +", so pixels come out uneven"+(scale?"":fixEvenSizes());
   }
-  el.textContent="\u2192 "+cols+"\u00d7"+rows+" pixels"+note;
+  el.textContent="\u2192 "+cols+"\u00d7"+rows+" pixels"+note
+    +(moved?" \u00b7 pixel size "+(Math.round(moved.step*100)/100)+", not "+step
+      +": "+moved.was+" cells does not divide "+CANVAS_SIDE:"");
 }
 function fixRun(){
   if(!FIX.src){ fixSay("Choose an image first."); return Promise.resolve(null); }
   fixStop();
   const mode=fixMode();
+  fixMoved=null;
   const forced=fixStepFor(FIX.src?FIX.src.width:0);
   const src=FIX.src;
   /* NOTHING TO ASK. The picture is already one pixel per cell, so there is
@@ -18354,6 +18447,7 @@ async function fixBatch(files){
   const list=all.slice(0,FIX_BATCH_MAX);
   const over=all.length-list.length;
   /* BEFORE the list is replaced: it is what holds the urls to revoke. */
+  fixMoved=null;
   fixTilesClear();
   fixBatchFiles=[]; fixBatchStop=false;
   $("fixbatch").hidden=false;
@@ -18425,6 +18519,10 @@ async function fixBatch(files){
        reads the category and the trait name out of. See patch402. */
     fixBatchFiles.push({name:fixZipName(rel,name),
       rel:rel,
+      /* The count the engine landed on, kept so the run can say whether it
+         divides the canvas. w and h are the SAVED size and cannot answer
+         that: 1280 is 1280 whether its pixels are eight across or one. */
+      cells:out.width,
       data:new Uint8Array(await blob.arrayBuffer()),
       thumb:URL.createObjectURL(tb), tw:t.w, th:t.h,
       w:oc.width, h:oc.height});
@@ -18440,7 +18538,27 @@ async function fixBatch(files){
   $("fixbatchdl").disabled=!fixBatchFiles.length;
   $("fixbatchsave").disabled=!fixBatchFiles.length;
   const secs=((performance.now()-t0)/1000).toFixed(1);
-  fixBatchSay(fixBatchFiles.length+" of "+list.length+" done in "+secs+"s"
+  /* THE SIZE ACTUALLY USED, when it is not the one that was asked for. A
+     folder import is the one path with no readout - fixSizeHint writes off
+     FIX.src and a batch never sets it - so three hundred files could take a
+     size that cannot land and say nothing at all. */
+  /* AND A DETECTED COUNT THAT DOES NOT DIVIDE THE CANVAS. Nothing typed,
+     no snap: the detectors answer whatever the picture says, and if that
+     count does not divide CANVAS_SIDE the blocks come out ragged. Counted
+     off the results rather than predicted, because only the engine knows
+     what it chose. */
+  const gridOn=$("fixgrid")&&$("fixgrid").checked;
+  const ragged = gridOn ? fixBatchFiles.filter(f=>f.cells&&CANVAS_SIDE%f.cells!==0).length : 0;
+  const raggedNote = ragged
+    ? " \u00b7 "+ragged+" came back on a pixel count that does not divide "
+      +CANVAS_SIDE+", so their pixels are uneven - turn Snap on, or type a size"
+    : "";
+  const movedNote = fixMoved
+    ? " \u00b7 pixel size "+(Math.round(fixMoved.to*100)/100)+" was used, not "
+      +fixMoved.from+": "+fixMoved.was+" cells does not divide "+CANVAS_SIDE
+      +", and "+fixMoved.cols+" does"
+    : "";
+  fixBatchSay(fixBatchFiles.length+" of "+list.length+" done in "+secs+"s"+movedNote+raggedNote
     +(fixBatchStop?" (stopped - what is done is kept)":"")
     +(over?" \u00b7 "+over+" past the limit of "+FIX_BATCH_MAX+" were left out":"")
     +(failed.length?" \u00b7 could not do: "+failed.slice(0,6).join(", ")

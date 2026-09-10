@@ -52,6 +52,10 @@ const CONTROLS = ['picker', 'curhex', 'brushrows', 'bslider',
   'rsmode', 'rspreset', 'rsgrid', 'rssnap', 'rsgo', 'rsnow', 'basepick', 'basedrop',
   'baseop', 'baseoplab', 'basefile', 'baseoutline', 'tname', 'tlayer', 'tstatus',
   'saveproj', 'dlNative', 'dlBig', 'dlTrim', 'reset', 'saveclose', 'closeed',
+  /* The Save at box, its Download and the line saying what will be written.
+     Same promise as every id above: a density pass that drops one fails here
+     rather than in somebody project. */
+  'savesize', 'dlSize', 'savesizenote',
   /* The text panel. Same promise as every id above it: a density pass that
      drops one fails here rather than in somebody's project. */
   'txtext', 'txfont', 'txpw', 'txph', 'txls', 'txlsp', 'txbold', 'txol', 'txolc',

@@ -2423,6 +2423,19 @@ footer .mono{color:var(--ink);}
              tallest section in the panel at 388px and these were three of its
              seven stacked buttons. Same three ids, same three actions; the
              sentence each one used to spell out is in its title. -->
+        <!-- THE SIZE THE FILE IS WRITTEN AT, and where the trait sits on
+             it. A trait is lined up against a base character; the base
+             holds still at the footprint it was pinned to, so a trait
+             shrunk to fit is a small picture in the middle of a full-size
+             square. Writing the shrunken canvas throws that away. -->
+        <div class="olrow"><label for="savesize">Save at</label>
+          <input id="savesize" type="number" min="0" max="4096" step="1"
+            style="width:84px" inputmode="numeric" placeholder=""
+            title="The width the PNG is written at. The trait keeps the size and the place it has on the base it is lined up against, so a trait shrunk to fit stays small on a full-size canvas instead of being stretched to fill it. Leave it empty to write that composition at its own size, which the box shows in grey.">
+          <span class="mono">px</span>
+          <button class="btn ghost" id="dlSize" style="width:auto;padding:6px 12px;font-size:12px"
+            title="Download the PNG at that size">Download</button></div>
+        <p class="note"><span class="mono" id="savesizenote">-</span></p>
         <div class="olrow"><span>Download</span>
           <div class="savebar" style="flex:1" role="group" aria-label="Download">
             <button class="btn ghost" id="dlNative" style="flex:1"
@@ -4509,12 +4522,73 @@ function traitCanvas(out){
    would have had to keep its own copy of how a trait is saved. It reports
    whether it worked, so closing after a failed save does not throw the work
    off the screen. */
+/* WHERE THE TRAIT SITS ON THE THING IT IS LINED UP AGAINST.
+
+   baseBox is the box the editor already composes in: the base is drawn
+   centred in it at its pinned footprint, and the art canvas is centred in
+   it too. So this is not a new idea about placement - it is the placement
+   already on screen, read back out.
+
+   With no base attached bw is the canvas width, so the box is the canvas
+   and everything below is the identity. */
+function saveFootprint(){
+  const bb=baseBox();
+  return { w:bb.bw, h:bb.bh,
+    ax:Math.floor(bb.bw/2)-Math.floor(art.width/2),
+    ay:Math.floor(bb.bh/2)-Math.floor(art.height/2) };
+}
+const SAVE_SIZE_KEY="pb.savesize";
+/* 0 means the canvas as it is, which is what every save did before this. */
+function saveSide(){
+  const el=$("savesize"); if(!el) return 0;
+  const v=Math.round(+el.value||0);
+  return v>0 ? Math.max(1,Math.min(MAX_SIDE,v)) : 0;
+}
+/* The trait as a file.
+
+   THE BORDER RULE RUNS AT THE SIZE IT WAS DRAWN. traitCanvas blackens the
+   outermost ring of opaque pixels, one pixel wide; doing that after a
+   scale would blacken a ring k pixels thick, which on a 2x save is twice
+   the line the collection asks for. So the rule is applied first and the
+   result placed, never the other way round. */
+function saveCanvas(out){
+  const t=traitCanvas(out);
+  const f=saveFootprint();
+  const side=saveSide();
+  const k=side>0 ? side/f.w : 1;
+  /* Nothing to do: the file is already the size and shape asked for. */
+  if(k===1&&f.w===t.width&&f.h===t.height) return t;
+  const W=Math.max(1,Math.round(f.w*k)), H=Math.max(1,Math.round(f.h*k));
+  const c=document.createElement("canvas"); c.width=W; c.height=H;
+  const g=c.getContext("2d"); g.imageSmoothingEnabled=false;
+  g.drawImage(t, Math.round(f.ax*k), Math.round(f.ay*k),
+    Math.max(1,Math.round(t.width*k)), Math.max(1,Math.round(t.height*k)));
+  return c;
+}
+/* WHAT THE NEXT SAVE WILL WRITE, before anything is pressed. A size box
+   that only tells you what it did after it did it is the shape of every
+   complaint on this tab so far. */
+function saveSizeNote(){
+  const el=$("savesizenote"); if(!el) return;
+  if(!ctx||!art||!art.width){ el.textContent="-"; return; }
+  const f=saveFootprint(), side=saveSide();
+  const k=side>0 ? side/f.w : 1;
+  const W=Math.max(1,Math.round(f.w*k)), H=Math.max(1,Math.round(f.h*k));
+  const tw=Math.max(1,Math.round(art.width*k)), th=Math.max(1,Math.round(art.height*k));
+  /* THE BOX SHOWS WHAT LEAVING IT EMPTY GIVES, in grey, so the size it
+     will use is on screen without being typed. */
+  const box=$("savesize"); if(box) box.placeholder=String(f.w);
+  el.textContent = (tw===W&&th===H)
+    ? "Writes "+W+"\u00d7"+H
+    : "Writes "+W+"\u00d7"+H+", the trait "+tw+"\u00d7"+th
+      +" where it sits on the base";
+}
 async function saveTrait(){
   if(!ctx) return;
   const name=($('tname').value.trim()||fileName.replace(/\.png$/,'')||'trait').slice(0,60);
   const layer=$('tlayer').value||'unsorted';
   const edge={};
-  const c=traitCanvas(edge);
+  const c=saveCanvas(edge);
   const blob=await blobOf(c);
   try{
     /* Said at the moment it happens, when it is fresh and one undo away,
@@ -4527,8 +4601,11 @@ async function saveTrait(){
        told the owner every save in a fine collection was off-grid. The
        multiple is the same rule snapToGrid enforces on the way in. */
     const gcells=Math.max(1,projectGrid|0);
-    const offGrid = !onCellGrid(art.width,art.height,gcells)
-      ? " \u2014 saved at "+art.width+"\u00d7"+art.height+", which is not on the"
+    /* THE SIZE THAT WAS WRITTEN, not the size on screen. With Save at set
+       those differ, and warning about the canvas while the file is fine is
+       a false alarm on every save. */
+    const offGrid = !onCellGrid(c.width,c.height,gcells)
+      ? " \u2014 saved at "+c.width+"\u00d7"+c.height+", which is not on the"
         +" collection's "+gcells+" cell grid"
       : "";
     /* SAID, because the file just written is not the canvas on screen.
@@ -4544,7 +4621,7 @@ async function saveTrait(){
     let shelfItems=[];
     try{ shelfItems=await dbAll(); }catch(_){}
     const rec={id:id, kind:'trait', name, layer, status, blob,
-      w:art.width, h:art.height, at:Date.now(),
+      w:c.width, h:c.height, at:Date.now(),
       shelfOrder:openRec&&openRec.layer===layer&&typeof openRec.shelfOrder==="number"
         ? openRec.shelfOrder : shelfCore.nextShelfOrder(shelfItems,layer)};
     /* Rarity lives on the shelf, not in the editor, so rebuilding the record
@@ -7722,6 +7799,8 @@ function resizeBoxes(){
      the mode changes and after an undo, and NOT on every stroke - a pass
      over 1.6 million pixels on each one would be felt. */
   try{ buildPixelSizes(); pixelSizeReport(); }catch(_){ }
+  /* The Save at line is a fact about the canvas, so it moves with it. */
+  try{ saveSizeNote(); }catch(_){ }
 }
 /* The cell a brush stroke should land on, given the cell under the pointer.
 
@@ -17034,8 +17113,49 @@ function download(scale){
     toast('Downloaded '+W+'\u00d7'+H+off);
   },'image/png');
 }
+/* THE SAME FILE THE PROJECT SAVE WRITES, on disk instead of the shelf.
+   Its own function rather than a flag on download(), because download()
+   is the button that promises not to rescale anything and that promise is
+   worth more than the shared lines. */
+function downloadAtSize(){
+  if(!ctx) return;
+  const c=saveCanvas();
+  c.toBlob(b=>{
+    const u=URL.createObjectURL(b), a=document.createElement("a");
+    a.href=u; a.download=fileName;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(u),1000);
+    const dcells=Math.max(1,projectGrid|0);
+    const off = !onCellGrid(c.width,c.height,dcells)
+      ? " \u2014 not on the collection\u0027s "+dcells+" cell grid"
+        +". A trait has to be a whole multiple of the cell count, or a whole division of it." : "";
+    toast("Downloaded "+c.width+"\u00d7"+c.height+off);
+  },"image/png");
+}
 $('dlNative').onclick=()=>download(1);
 $('dlBig').onclick=()=>download(8);
+$('dlSize').onclick=downloadAtSize;
+/* Remembered, because a size typed once is a setting and not a gesture. */
+$('savesize').addEventListener('input',()=>{
+  try{ localStorage.setItem(SAVE_SIZE_KEY,String(saveSide())); }catch(_){ }
+  saveSizeNote();
+});
+(function(){
+  let v=null;
+  try{ v=localStorage.getItem(SAVE_SIZE_KEY); }catch(_){ }
+  /* EMPTY BY DEFAULT, which means the footprint - so nothing is rescaled
+     unless somebody types a number. Defaulting to the collection canvas
+     was tried and is wrong: it multiplies EVERY canvas up to 1280, so a
+     deliberately small trait is silently enlarged eighty times, and every
+     off-size trait becomes on-size on the way out - which switches off the
+     collection wrong-size warning entirely. Five tests said so and they
+     were right: basenotbaked 110, and the four in collection-size. */
+  const n=(v===null?0:Math.max(0,Math.round(+v||0)));
+  /* EMPTY, not a bare 0. "Save at 0 px" reads as a bug on a screen; the
+     grey placeholder saves what it would write instead. */
+  $('savesize').value=(n>0?String(n):'');
+  saveSizeNote();
+})();
 /* Strip a flat background by flooding inwards from the border, so only colour
    REACHABLE from the edge goes. A white shirt in the middle of the character is
    never touched, which a plain "delete every white pixel" would wreck. */

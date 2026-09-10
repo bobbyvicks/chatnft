@@ -18014,10 +18014,26 @@ async function fixLoad(file){
   catch(_){ fixSay("That file is not an image this browser can read."); return false; }
   const W=bm.width, H=bm.height;
   if(Math.min(W,H)<FIX_MIN_SIDE){ fixSay("Too small - the shorter side has to be at least "+FIX_MIN_SIDE+" pixels."); return false; }
-  if(W*H>FIX_MAX_PIXELS){ fixSay("Too big - "+(W*H/1e6).toFixed(1)+" megapixels, and the limit is "+(FIX_MAX_PIXELS/1e6)+"."); return false; }
+  /* PAST THE PAGE OWN CEILING is a refusal. Between that and the engine
+     limit the picture is reduced by a whole factor, the same as a folder
+     full of them - one page, one rule. */
+  if(W>MAX_SIDE||H>MAX_SIDE){
+    fixSay("Too big - "+W+"\u00d7"+H+", and the limit is "+MAX_SIDE+" a side.");
+    return false;
+  }
   const c=document.createElement("canvas"); c.width=W; c.height=H;
   const g=c.getContext("2d"); g.drawImage(bm,0,0);
-  FIX.src={data:g.getImageData(0,0,W,H).data, width:W, height:H};
+  let sd=g.getImageData(0,0,W,H).data, sw=W, sh=H, shrank=null;
+  const small=fixShrinkToFit(sd,W,H);
+  if(small){ sd=small.data; sw=small.width; sh=small.height; shrank=small.factor; }
+  else if(W*H>FIX_MAX_PIXELS){
+    c.width=1; c.height=1;
+    fixSay("Too big - "+(W*H/1e6).toFixed(1)+" megapixels against a limit of "
+      +(FIX_MAX_PIXELS/1e6)+", and no whole factor brings it under. Resize it to "
+      +CANVAS_SIDE+" first.");
+    return false;
+  }
+  FIX.src={data:sd, width:sw, height:sh};
   FIX.name=String(file.name||"image").replace(/\.[^.]+$/,"");
   /* THE FOLDERS IT CAME IN WITH. A File chosen through the folder picker
      carries them and one chosen through the ordinary picker does not, so
@@ -18026,7 +18042,9 @@ async function fixLoad(file){
   FIX.rel=String(file.webkitRelativePath||file.name||"image");
   FIX.out=null;
   const b=$("fixbefore"); b.width=W; b.height=H; b.getContext("2d").drawImage(bm,0,0);
-  $("fixbeforecap").textContent=FIX.name+" \u00b7 "+W+"\u00d7"+H+" as it came in";
+  $("fixbeforecap").textContent=FIX.name+" \u00b7 "+W+"\u00d7"+H+" as it came in"
+    +(shrank?" \u00b7 reduced "+shrank+"\u00d7 to "+sw+"\u00d7"+sh
+      +", which is what the engine will take":"");
   const a=$("fixafter"); a.width=W; a.height=H; a.getContext("2d").clearRect(0,0,W,H);
   $("fixaftercap").textContent="";
   $("fixpair").hidden=false; $("fixacts").hidden=true;
@@ -18120,32 +18138,180 @@ function fixSnapping(){
   const b=$("fixsnap");
   return !!(b&&b.checked)&&fixMode()==="fast";
 }
-/* HOW MUCH SOURCE ONE CELL NEEDS BEFORE SNAPPING MEANS ANYTHING.
+/* WHEN CAN A PICTURE BE SNAPPED TO THE GRID AT ALL?
 
-   Snapping says "this picture is a trait drawn on the collection grid".
-   That is a statement about the SOURCE, and it stops being true when the
-   source is too small to carry the grid: 160 cells out of a 48-pixel
-   image is a step of 0.3, which is not a pixel size at all, and out of a
-   512 it is 3.2 - fine enough to slice the real blocks in half and invent
-   detail that is not there. Four real pixels a cell is the floor, so the
-   collection canvas at 1280 gives 8 and the old 1254 gives 7.8, while
-   anything under 640 falls through to the detectors, which is what they
-   are for. */
-const SNAP_MIN_STEP=4;
+   SUPERSEDES "four real pixels a cell", which refused 160, 320 and 512 -
+   and 160 at 160 cells is a step of exactly 1, the identity, which is as
+   snapped as anything can be. Measured with that floor in place: a 160px
+   source came back at 20 cells, not 160, with the switch ticked and
+   nothing said. The rule was drawn from a real case - 160 cells out of a
+   48-pixel image is a step of 0.3 - and drawn far too wide.
+
+   The limit is UPSAMPLING. A source narrower than the grid cannot answer
+   it without inventing cells nobody drew. From the grid width up it is a
+   reduction, which is the whole job. So: w >= cells, and nothing else. */
 /* What the last step decision had to change, so the run can say so. Set by
    fixStepFor and read by whoever reports; cleared at the start of a run so
    it cannot describe the one before. */
 let fixMoved=null;
+/* How many pictures in this run had no block structure for the snap to
+   use. They fall back to the declared grid, which keeps the pixels square
+   and cannot keep detail the picture never had on a grid - so the run
+   says how many, rather than averaging somebody art in silence. */
+let fixNoGrid=0;
+/* The counts the gridless search settled on across a batch, so the note
+   can say what happened rather than only that something did. */
+let fixGridlessAt=[];
+/* The block size the last step decision measured off the picture, or 0 if
+   it did not measure one. Read by the run that follows, so an exact answer
+   is not reported as a guess. */
+let fixMeasuredBlock=0;
+/* The count the gridless search settled on, or 0 when it was not used.
+   Read by the run that follows, so a picture put on a grid nobody asked
+   for is not put there quietly. */
+let fixGridlessPick=0;
 /* THE STEP FOR ONE PICTURE. Snapped, it is the width over the cell count -
    so any source size lands on exactly that many cells and the size
    difference is normalised rather than depended on. Not snapped, it is
    whatever was typed, and 0 still means "work it out". */
+/* THE PIXEL SIZE A PICTURE IS ACTUALLY DRAWN AT.
+
+   The largest N that divides the width and leaves every NxN square one
+   colour. MEASURED, not detected: no engine, no randomness, and exact -
+   if it says 10 then every 10x10 square really is flat, so reducing on
+   those boundaries cannot lose anything.
+
+   Capped at 64 because a block bigger than that is a picture with almost
+   nothing in it, and scanned largest-first so the answer is the coarsest
+   true grid rather than a divisor of it. Returns 0 when the picture has
+   no block structure at all - which is a real answer about the art, not
+   a failure to find one. */
+/* BRINGS A PICTURE UNDER THE ENGINE LIMIT WITHOUT RESAMPLING IT.
+
+   The smallest whole factor that divides both sides and gets the pixel
+   count under the cap. Whole, so every source pixel falls in exactly one
+   block and block edges land where pixel edges already were; the block
+   takes its majority colour, which is the same reduction the fix itself
+   does. Returns null when there is no such factor, which is a refusal,
+   not a silent resample. */
+function fixShrinkToFit(data,W,H){
+  if(!data||!(W>0)||!(H>0)||W*H<=FIX_MAX_PIXELS) return null;
+  let k=0;
+  for(let n=2;n<=16;n++){
+    if(W%n||H%n) continue;
+    if(W/n<FIX_MIN_SIDE||H/n<FIX_MIN_SIDE) break;
+    if((W/n)*(H/n)<=FIX_MAX_PIXELS){ k=n; break; }
+  }
+  if(!k) return null;
+  const w=W/k, h=H/k, out=new Uint8ClampedArray(w*h*4);
+  const seen=new Map();
+  for(let cy=0;cy<h;cy++) for(let cx=0;cx<w;cx++){
+    seen.clear();
+    let best=0, bestN=-1;
+    for(let y=cy*k;y<cy*k+k;y++) for(let x=cx*k;x<cx*k+k;x++){
+      const i=((y*W)+x)*4;
+      /* One key per colour, alpha included - a block that is half
+         transparent must not pick a colour nobody can see. */
+      const key=data[i]+","+data[i+1]+","+data[i+2]+","+data[i+3];
+      const n=(seen.get(key)||0)+1; seen.set(key,n);
+      if(n>bestN){ bestN=n; best=i; }
+    }
+    const o=((cy*w)+cx)*4;
+    out[o]=data[best]; out[o+1]=data[best+1];
+    out[o+2]=data[best+2]; out[o+3]=data[best+3];
+  }
+  return {data:out, width:w, height:h, factor:k};
+}
+function fixNativeBlock(data,W,H){
+  if(!data||!(W>0)||!(H>0)) return 0;
+  const flat=(N)=>{
+    for(let by=0;by+N<=H;by+=N) for(let bx=0;bx+N<=W;bx+=N){
+      const i0=((by*W)+bx)*4;
+      for(let y=by;y<by+N;y++) for(let x=bx;x<bx+N;x++){
+        const i=((y*W)+x)*4;
+        if(data[i]!==data[i0]||data[i+1]!==data[i0+1]
+          ||data[i+2]!==data[i0+2]||data[i+3]!==data[i0+3]) return false;
+      }
+    }
+    return true;
+  };
+  for(let N=Math.min(64,W);N>=2;N--){ if(W%N||H%N) continue; if(flat(N)) return N; }
+  return 0;
+}
+/* THE GRID FOR A PICTURE THAT HAS NONE.
+
+   Only reached when fixNativeBlock found no block structure, so there is
+   no true answer here and every candidate is invented. What can still be
+   asked is which invented one does the least harm, and that is measured
+   per picture rather than declared once:
+
+     coarsest first, take the first count that keeps the shape - the
+     opaque bounding box within one cell of where it was - and keeps 95%
+     of the opaque pixels.
+
+   Coarsest first because a coarser grid is more pixel-art, which is the
+   point of the tool; the conditions are what stop it going too far. If
+   nothing passes, the finest tried is returned - by then the question is
+   only how much to lose.
+
+   Candidates are divisors of the canvas from the declared grid up, so the
+   blocks are square whichever wins, and 640 is the floor because 2px
+   blocks on a 1280 canvas is about as fine as reduction still means
+   anything. Returns 0 if the declared grid cannot be used at all. */
+const FIX_GRIDLESS_KEEP=0.95;
+function fixGridlessCells(data,W,H){
+  const g=fixGridCells();
+  if(!g.exact) return 0;
+  const cand=[];
+  for(const n of [g.cells,256,320,640]){
+    if(n<g.cells||n>640||CANVAS_SIDE%n||cand.indexOf(n)>=0) continue;
+    if(n<=W&&n<=H) cand.push(n);
+  }
+  if(!cand.length) return 0;
+  cand.sort((a,b)=>a-b);
+  /* The source shape, once. */
+  let sx0=W,sy0=H,sx1=-1,sy1=-1,srcN=0;
+  for(let y=0;y<H;y++) for(let x=0;x<W;x++){
+    if(data[((y*W)+x)*4+3]<=8) continue;
+    srcN++;
+    if(x<sx0) sx0=x; if(x>sx1) sx1=x;
+    if(y<sy0) sy0=y; if(y>sy1) sy1=y;
+  }
+  if(sx1<0) return cand[0];
+  let last=cand[0];
+  for(const cells of cand){
+    last=cells;
+    const sw=W/cells, sh=H/cells;
+    let x0=cells,y0=cells,x1=-1,y1=-1,kept=0;
+    for(let cy=0;cy<cells;cy++) for(let cx=0;cx<cells;cx++){
+      let op=0,tot=0;
+      const yA=Math.floor(cy*sh), yB=Math.min(H,Math.ceil((cy+1)*sh));
+      const xA=Math.floor(cx*sw), xB=Math.min(W,Math.ceil((cx+1)*sw));
+      for(let y=yA;y<yB;y++) for(let x=xA;x<xB;x++){
+        tot++; if(data[((y*W)+x)*4+3]>8) op++;
+      }
+      if(op*2>tot){
+        kept+=op;
+        if(cx<x0) x0=cx; if(cx>x1) x1=cx;
+        if(cy<y0) y0=cy; if(cy>y1) y1=cy;
+      }
+    }
+    if(x1<0) continue;
+    /* Within one cell on every side, and most of the paint still there. */
+    const near=Math.abs(x0*sw-sx0)<=sw && Math.abs(y0*sh-sy0)<=sh
+      && Math.abs((x1+1)*sw-(sx1+1))<=sw && Math.abs((y1+1)*sh-(sy1+1))<=sh;
+    if(near && kept>=srcN*FIX_GRIDLESS_KEEP) return cells;
+  }
+  return last;
+}
 function fixSnapStep(w){
   if(!w||w<=0) return 0;
   const g=fixGridCells();
   if(!g.exact) return 0;
-  const s=w/g.cells;
-  return s>=SNAP_MIN_STEP ? s : 0;
+  /* Narrower than the grid would mean inventing detail; from the grid
+     width up it is a reduction, which is what this tool does. */
+  if(w<g.cells) return 0;
+  return w/g.cells;
 }
 /* THE CELL COUNTS THAT CAN LAND ON THE COLLECTION CANVAS.
 
@@ -18196,8 +18362,34 @@ function fixWholeStep(w,step){
   if(best.d>want*WHOLE_STEP_NEAR) return null;
   return {cols:best.n, step:w/best.n, was:want};
 }
-function fixStepFor(w){
+function fixStepFor(w,data,h){
+  /* THIS DECISION, NOT THE LAST ONE. The flag says the step about to be
+     returned was measured off the picture; left over from a previous run it
+     puts that label on an answer that was typed. */
+  fixMeasuredBlock=0; fixGridlessPick=0;
   if(fixSnapping()){
+    /* THE PICTURE FIRST, THE SETTING SECOND. projectGrid says 160 and the
+       art is mostly drawn at 128 cells; forcing the setting cut 8px cells
+       through 10px blocks and deleted up to 23% of a trait. A measured
+       block is exact, so reducing on its boundaries loses nothing. */
+    const px=data||(FIX.src&&FIX.src.data);
+    const ph=h||(FIX.src&&FIX.src.height)||0;
+    const nat=px?fixNativeBlock(px,w,ph):0;
+    if(nat>1&&w>0&&CANVAS_SIDE%(w/nat)===0){ fixMeasuredBlock=nat; return nat; }
+    /* NO BLOCK STRUCTURE. Letting the detectors answer here was tried
+       and is worse: their counts are things like 510 and 127, which do
+       not divide the canvas, so the blocks come out ragged - 48 traits
+       of 319 against 3. A picture with no grid loses detail under any
+       reduction, so the declared grid at least keeps the pixels square,
+       and fixNoGrid below is how the run says which ones these were. */
+    if(!nat){
+      fixNoGrid++;
+      /* NO GRID TO KEEP, so keep the shape instead. Forcing the declared
+         count on these moved two traits by a fifth of the canvas and cost
+         one of them 27.5% of its pixels. */
+      const cells=px?fixGridlessCells(px,w,ph||w):0;
+      if(cells>0&&w>0){ fixGridlessPick=cells; return w/cells; }
+    }
     const s=fixSnapStep(w);
     if(s>0) return s;
     /* Too small for the grid: fall through to what was typed, which is
@@ -18254,6 +18446,32 @@ function fixSizeHint(){
      An impossible grid produces no step, so the "nothing to say" line
      further down returns an empty readout and the warning never runs -
      silence in exactly the case that most needs a sentence. */
+  /* ASKED FOR AND NOT POSSIBLE ON THIS PICTURE. Falling through to the
+     detectors while the box says "Snap to the 160 cell grid" is worse
+     than refusing - a run that ignored the setting looked exactly like a
+     run that honoured it.
+
+     A NOTE, NOT A REPLACEMENT. A first version returned here and wrote
+     only this sentence, which hid the one thing the readout is for: what
+     the size actually in force is about to give. The snap not applying
+     does not stop a typed size working - it IS what works then. */
+  const snapBlocked = !!(FIX.src&&wantSnap&&g.exact&&FIX.src.width<g.cells);
+  const snapNote = snapBlocked
+    ? " \u00b7 "+FIX.src.width+" across cannot be snapped to "+g.cells
+      +" cells without inventing detail, so the pixel size is used instead"
+    : "";
+  /* WITH NOTHING TYPED THERE IS NO SIZE TO DESCRIBE, and the line below
+     would return an empty readout - which is the silence this whole patch
+     is about. So the note stands on its own there.
+
+     The field is read here rather than through `step`, which is declared
+     further down: reaching it from above is a ReferenceError that takes
+     the whole readout with it, and took thirteen tests with it once. */
+  if(snapBlocked&&!scale&&(+$("fixforce").value||0)<=0){
+    el.textContent="\u2192 "+FIX.src.width+" across cannot be snapped to "+g.cells
+      +" cells without inventing detail - the pixel size is being worked out instead";
+    return;
+  }
   if(FIX.src&&wantSnap&&!g.exact){
     el.textContent="\u2192 the "+g.cells+" cell grid does not divide "+CANVAS_SIDE
       +" evenly, so blocks would come out uneven - turn Snap off, or set a grid that divides it";
@@ -18288,7 +18506,7 @@ function fixSizeHint(){
            to go and re-fix a finished picture. */
         +", so pixels come out uneven"+(scale?"":fixEvenSizes());
   }
-  el.textContent="\u2192 "+cols+"\u00d7"+rows+" pixels"+note
+  el.textContent="\u2192 "+cols+"\u00d7"+rows+" pixels"+note+snapNote
     +(moved?" \u00b7 pixel size "+(Math.round(moved.step*100)/100)+", not "+step
       +": "+moved.was+" cells does not divide "+CANVAS_SIDE:"");
 }
@@ -18297,7 +18515,8 @@ function fixRun(){
   fixStop();
   const mode=fixMode();
   fixMoved=null;
-  const forced=fixStepFor(FIX.src?FIX.src.width:0);
+  const forced=fixStepFor(FIX.src?FIX.src.width:0,
+    FIX.src?FIX.src.data:null, FIX.src?FIX.src.height:0);
   const src=FIX.src;
   /* NOTHING TO ASK. The picture is already one pixel per cell, so there is
      no worker, no detector and no quantiser between it and the save - the
@@ -18324,7 +18543,7 @@ function fixRun(){
       if(m.progress!=null){ fixProgress(m.progress,m.label); return; }
       if(m.error){ fixSay("The fixer could not do this one: "+m.error); fixDone(w); resolve(null); return; }
       if(m.done){
-        const r=m.done; fixShow(r);
+        const r=fixStampMeasured(m.done); fixShow(r);
         const secs=((performance.now()-t0)/1000).toFixed(1);
         $("fixaftercap").textContent=r.width+"\u00d7"+r.height+" real pixels \u00b7 pixel size "+(+r.stepX).toFixed(2)+(Math.abs(r.stepX-r.stepY)>0.01?"\u00d7"+(+r.stepY).toFixed(2):"")+" px";
         /* A SOFT RESULT SAYS WHAT TO DO ABOUT IT. An image whose edges were
@@ -18350,7 +18569,9 @@ function fixRun(){
            piece exists and this must not call it wrong. */
         const big = Math.max(r.width,r.height) > FIX_NATIVE_MAX;
         const unsure = r.confidence!=="high" && r.consensus!=="forced";
-        fixSay((r.confidence||"")+" confidence ("+(r.consensus||"?")+") \u00b7 "+secs+"s"
+        fixSay((r.consensus==="measured"
+          ? "measured "+r.measuredBlock+"px blocks off the picture"
+          : (r.confidence||"")+" confidence ("+(r.consensus||"?")+")")+" \u00b7 "+secs+"s"
           +((big||unsure) ? " \u2014 if the edges still look soft, the pixel size it used ("
             +(+r.stepX).toFixed(2)+" px) was too small. "+fixTryThese() : ""));
         $("fixacts").hidden=false;
@@ -18368,6 +18589,15 @@ function fixRun(){
 /* THE RESULT, ON SCREEN. Both the detected answer and the scaled-only one
    land here, so there is one place that decides what a result looks like
    and FIX.out cannot be set by one path and drawn by another. */
+/* AN EXACT ANSWER SAYS SO. The engine reports "forced" for any step it was
+   given, which the readout reads as less certain - and a measured block is
+   the one answer that cannot be wrong. Stamped on the result rather than
+   worked out again at each place that reads it. */
+function fixStampMeasured(r){
+  if(!r||!fixMeasuredBlock) return r;
+  r.confidence="high"; r.consensus="measured"; r.measuredBlock=fixMeasuredBlock;
+  return r;
+}
 function fixShow(r){
   FIX.out=r;
   const a=$("fixafter"); a.width=r.width; a.height=r.height;
@@ -18395,6 +18625,17 @@ function fixStop(){ if(FIX.worker){ fixDone(FIX.worker); fixSay("Stopped."); } }
 /* Into the editor by the same door a dropped PNG uses, so everything the
    editor does on open - the palette, the grid guess, the draft - happens
    to this exactly as it would to a file. */
+/* THE BLOCK SIZE OF A RESULT ON THE CANVAS IT IS BEING OPENED AT.
+
+   Known rather than measured: the engine answered `cells` across, and it
+   is being drawn onto `side` - so one of its pixels is side/cells wide.
+   With the 1280 switch off the canvas IS the answer and the block is 1,
+   which is what it always was before the switch existed. */
+function fixBlockFor(cells,side){
+  if(!(cells>0)||!(side>0)) return 1;
+  const b=side/cells;
+  return b>=1.5 ? Math.round(b) : 1;
+}
 function fixOpen(){
   const r=FIX.out; if(!r){ fixSay("Nothing fixed yet."); return; }
   if(!mayUse()) return;
@@ -18411,6 +18652,11 @@ function fixOpen(){
   c.width=1; c.height=1;
   fileName=FIX.name+"-fixed.png";
   startEditor(d,W,H,W,H,palette(d,W*H,24,64),false);
+  /* AFTER startEditor, which resets gridBlock to 1 and leaves the caller
+     to say what the art is drawn in. Without this a 1280 canvas gets a
+     one-pixel brush and no snapping - an eighth of a collection pixel per
+     stroke. See patch415. */
+  adoptBlock(fixBlockFor(r.width,W));
 }
 /* HOW MANY IMAGES ONE GO MAY HOLD.
 
@@ -18447,7 +18693,9 @@ async function fixBatch(files){
   const list=all.slice(0,FIX_BATCH_MAX);
   const over=all.length-list.length;
   /* BEFORE the list is replaced: it is what holds the urls to revoke. */
-  fixMoved=null;
+  fixMoved=null; fixNoGrid=0; fixGridlessAt=[];
+  /* Pictures reduced by a whole factor to get under the engine limit. */
+  const shrunk=[];
   fixTilesClear();
   fixBatchFiles=[]; fixBatchStop=false;
   $("fixbatch").hidden=false;
@@ -18480,7 +18728,13 @@ async function fixBatch(files){
     try{ bm=await createImageBitmap(file); }
     catch(_){ failed.push(name+" (not an image this browser can read)"); continue; }
     const W=bm.width, H=bm.height;
-    if(Math.min(W,H)<FIX_MIN_SIDE||W*H>FIX_MAX_PIXELS){
+    /* Kept on the input so the report can count what the snap could not
+       be used on - by then the bitmap is closed and W is out of scope. */
+    try{ file.__w=W; }catch(_){ }
+    /* PAST THE PAGE OWN CEILING, or too small for any grid to be found in
+       - those are refusals. Between that and the engine limit the picture
+       is reduced by a whole factor below, not turned away. */
+    if(Math.min(W,H)<FIX_MIN_SIDE||W>MAX_SIDE||H>MAX_SIDE){
       if(bm.close) bm.close();
       failed.push(name+" ("+W+"\u00d7"+H+", outside what this can take)");
       continue;
@@ -18491,11 +18745,25 @@ async function fixBatch(files){
     const g=c.getContext("2d",{willReadFrequently:true});
     g.drawImage(bm,0,0);
     if(bm.close) bm.close();
-    const px=g.getImageData(0,0,W,H).data;
+    /* sw and sh, not w and h - w is the WORKER in this scope and fixAsk       takes it as its first argument. */
+    let px=g.getImageData(0,0,W,H).data, sw=W, sh=H;
+    /* Over the engine limit: reduced by a whole factor first, or refused
+       with the number and what to do about it. */
+    const small=fixShrinkToFit(px,W,H);
+    if(small){ px=small.data; sw=small.width; sh=small.height;
+      shrunk.push(name+" ("+W+"\u00d7"+H+" reduced "+small.factor+"\u00d7"+" to fit)"); }
+    else if(W*H>FIX_MAX_PIXELS){
+      c.width=1; c.height=1;
+      failed.push(name+" ("+W+"\u00d7"+H+", and no whole factor brings it under "
+        +(FIX_MAX_PIXELS/1e6)+" megapixels - resize it to "+CANVAS_SIDE+" first)");
+      continue;
+    }
     /* The same bytes, untouched, when there is nothing to ask. */
-    const r=scale ? {ok:{data:px, width:W, height:H, stepX:1, stepY:1}}
-      : await fixAsk(w,{data:new Uint8ClampedArray(px), width:W, height:H,
-        mode:mode, forceStep:(()=>{ const s=fixStepFor(W); return s>0?s:null; })()});
+    const r=scale ? {ok:{data:px, width:sw, height:sh, stepX:1, stepY:1}}
+      : await fixAsk(w,{data:new Uint8ClampedArray(px), width:sw, height:sh,
+        mode:mode, forceStep:(()=>{ const s=fixStepFor(sw,px,sh);
+          if(fixGridlessPick) fixGridlessAt.push(fixGridlessPick);
+          return s>0?s:null; })()});
     if(!r||r.error){ failed.push(name+" ("+((r&&r.error)||"no answer")+")"); continue; }
     const out=r.ok;
     /* The same canvas the single save uses, so the switch means one thing. */
@@ -18547,6 +18815,15 @@ async function fixBatch(files){
      count does not divide CANVAS_SIDE the blocks come out ragged. Counted
      off the results rather than predicted, because only the engine knows
      what it chose. */
+  /* AND THE SAME IN A BATCH, counted off what actually happened. A folder
+     of already-fixed traits is the ordinary way to hit this. */
+  const wantedSnap=fixSnapping();
+  const tooSmall=wantedSnap
+    ? list.filter(f=>f&&f.__w&&f.__w<fixGridCells().cells).length : 0;
+  const smallNote = tooSmall
+    ? " \u00b7 "+tooSmall+" narrower than the "+fixGridCells().cells
+      +" cell grid, so the snap could not be used on them"
+    : "";
   const gridOn=$("fixgrid")&&$("fixgrid").checked;
   const ragged = gridOn ? fixBatchFiles.filter(f=>f.cells&&CANVAS_SIDE%f.cells!==0).length : 0;
   const raggedNote = ragged
@@ -18558,7 +18835,17 @@ async function fixBatch(files){
       +fixMoved.from+": "+fixMoved.was+" cells does not divide "+CANVAS_SIDE
       +", and "+fixMoved.cols+" does"
     : "";
-  fixBatchSay(fixBatchFiles.length+" of "+list.length+" done in "+secs+"s"+movedNote+raggedNote
+  const shrunkNote = shrunk.length
+    ? " \u00b7 "+shrunk.length+" were larger than the engine takes and were reduced"
+      +" by a whole factor first: "+shrunk.join(", ")
+    : "";
+  const noGridNote = fixNoGrid
+    ? " \u00b7 "+fixNoGrid+" are not drawn on any pixel grid, so each was put on the"
+      +" coarsest grid that kept its shape ("
+      +[...new Set(fixGridlessAt)].sort((a,b)=>a-b).join(", ")+" cells)"
+      +" and lost detail it had between cells"
+    : "";
+  fixBatchSay(fixBatchFiles.length+" of "+list.length+" done in "+secs+"s"+movedNote+raggedNote+smallNote+noGridNote+shrunkNote
     +(fixBatchStop?" (stopped - what is done is kept)":"")
     +(over?" \u00b7 "+over+" past the limit of "+FIX_BATCH_MAX+" were left out":"")
     +(failed.length?" \u00b7 could not do: "+failed.slice(0,6).join(", ")
@@ -18655,6 +18942,9 @@ async function fixOpenOne(f){
   c.width=1; c.height=1;
   fileName=f.name.split("/").pop();
   startEditor(new Uint8ClampedArray(d),W,H,W,H,palette(d,W*H,24,64),false);
+  /* The saved bytes are the same canvas, so the same arithmetic. The count
+     is kept on the result for exactly this. */
+  adoptBlock(fixBlockFor(f.cells,W));
 }
 /* A SECOND RUN MUST NOT KEEP THE FIRST ONE'S BLOBS. Nothing points at them
    once the grid is emptied, and an object URL is not collected on its own. */

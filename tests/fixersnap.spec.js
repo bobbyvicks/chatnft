@@ -42,6 +42,25 @@ const load = (page, W = 1280, cell = 5) => page.evaluate(async ({ W, cell }) => 
   return await fixLoad(new File([b], 'grid.png', { type: 'image/png' }));
 }, { W, cell });
 
+/* THIN ART: single 5px blocks with transparent ground between them, which is
+   what a stroke, an outline or an eyelash looks like. Solid fields survive
+   the wrong grid - only the thin parts show what it costs, and the traits
+   that were coming back wrecked were the thin ones. */
+const thin = (page) => page.evaluate(async () => {
+  const W = 1280, cell = 5;
+  const c = document.createElement('canvas'); c.width = W; c.height = W;
+  const g = c.getContext('2d');
+  const n = W / cell;
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+    if ((x * 7 + y * 11) % 3) continue;
+    g.fillStyle = ['#2e222f', '#8b5fbf', '#f2a65a'][(x + y) % 3];
+    g.fillRect(x * cell, y * cell, cell, cell);
+  }
+  const b = await new Promise(r => c.toBlob(r, 'image/png'));
+  c.width = 1; c.height = 1;
+  return await fixLoad(new File([b], 'thin.png', { type: 'image/png' }));
+});
+
 const setSnap = (page, on) => page.evaluate((v) => {
   const b = document.getElementById('fixsnap');
   b.checked = v;
@@ -52,30 +71,49 @@ const setSnap = (page, on) => page.evaluate((v) => {
 /* How many grid squares of the saved canvas hold more than one colour. This
    is what "on the grid" means, and a cell count that merely divides the
    canvas does not imply it. */
-const impure = (page, cellPx) => page.evaluate(async (N) => {
+/* How many blocks of the saved canvas hold more than one colour, measured at
+   the size the ANSWER chose rather than a number written here. Passing 8 in
+   asked whether the output sat on the DECLARED grid; what makes pixel art
+   right is that it sits on its OWN, so the block size is read back off the
+   result. Also returns what the source lost, because a picture can be
+   perfectly uniform and still be missing half of itself. */
+const impure = (page) => page.evaluate(async () => {
   const out = FIX.out;
   document.getElementById('fixgrid').checked = true;
   const sv = fixGridCanvas(out);
   const d = sv.getContext('2d').getImageData(0, 0, sv.width, sv.height).data;
   const W = sv.width;
-  let bad = 0;
-  for (let by = 0; by < W; by += N) for (let bx = 0; bx < W; bx += N) {
-    const i0 = (by * W + bx) * 4;
-    const r0 = d[i0], g0 = d[i0 + 1], b0 = d[i0 + 2], a0 = d[i0 + 3];
-    let mixed = false;
-    for (let y = by; y < by + N && !mixed; y++)
-      for (let x = bx; x < bx + N; x++) {
-        const i = (y * W + x) * 4;
-        if (d[i] !== r0 || d[i + 1] !== g0 || d[i + 2] !== b0 || d[i + 3] !== a0) {
-          mixed = true; break;
+  const N = W / out.width;
+  let bad = -1;
+  if (Number.isInteger(N)) {
+    bad = 0;
+    for (let by = 0; by + N <= W; by += N) for (let bx = 0; bx + N <= W; bx += N) {
+      const i0 = (by * W + bx) * 4;
+      let mixed = false;
+      for (let y = by; y < by + N && !mixed; y++)
+        for (let x = bx; x < bx + N; x++) {
+          const i = (y * W + x) * 4;
+          if (d[i] !== d[i0] || d[i + 1] !== d[i0 + 1]
+            || d[i + 2] !== d[i0 + 2] || d[i + 3] !== d[i0 + 3]) { mixed = true; break; }
         }
-      }
-    if (mixed) bad++;
+      if (mixed) bad++;
+    }
+  }
+  /* Source pixels with nothing opaque left in the same place. */
+  let lost = 0, srcN = 0, s = FIX.src;
+  if (s && s.width === W && s.height === W) {
+    for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) {
+      const i = (y * W + x) * 4;
+      if (s.data[i + 3] <= 8) continue;
+      srcN++;
+      if (d[i + 3] <= 8) lost++;
+    }
   }
   const w = sv.width, h = sv.height;
   sv.width = 1; sv.height = 1;
-  return { bad, saved: w + 'x' + h, cells: out.width + 'x' + out.height };
-}, cellPx);
+  return { bad, N, saved: w + 'x' + h, cells: out.width + 'x' + out.height,
+    lostPct: srcN ? Math.round(lost / srcN * 1000) / 10 : -1 };
+});
 
 test('the switch is on, and names the grid it snaps to', async ({ page }) => {
   await ready(page);
@@ -89,50 +127,89 @@ test('the switch is on, and names the grid it snaps to', async ({ page }) => {
   expect(r.label).toBe('Snap to the 160 cell grid');
 });
 
-test('SNAPPED, EVERY GRID SQUARE IS ONE COLOUR', async ({ page }) => {
+test('SNAPPED, EVERY BLOCK OF THE GRID THE PICTURE IS ON IS ONE COLOUR', async ({ page }) => {
   await ready(page);
   await load(page);
   await setSnap(page, true);
   await page.evaluate(() => fixRun());
-  const r = await impure(page, 8);
-  expect(r.cells, 'exactly the collection grid').toBe('160x160');
+  const r = await impure(page);
+  /* WAS 160x160, measured with 8 written into the test. That number was the
+     bug: this fixture is drawn in 5px blocks on 1280, which is 256 cells,
+     and 8px cells cut straight through 5px blocks. Measured across the 319
+     approved traits, forcing 160 cost 202 of them a percent or more of their
+     pixels and 24 of them a tenth; following the picture, 26 and 4 - and
+     those 26 are the ones with no grid at all, where there is nothing to
+     follow. */
+  expect(r.cells, 'the picture own grid, not the declared one').toBe('256x256');
+  expect(r.N, 'which is 5px blocks on the collection canvas').toBe(5);
   expect(r.saved).toBe('1280x1280');
-  /* THE WHOLE POINT. Not one of the 160x160 squares holds two colours. */
-  expect(r.bad, 'grid squares holding more than one colour').toBe(0);
+  /* THE WHOLE POINT. Not one block holds two colours. */
+  expect(r.bad, 'blocks holding more than one colour').toBe(0);
+  /* Uniform is guaranteed once the count divides 1280 - the save upscales by
+     a whole number - so what that pair really pins is that the count IS a
+     divisor. What it costs to be on the wrong one is measured in the test
+     below, on art thin enough to lose. */
 });
 
-test('and detected, it does not - which is what was being seen', async ({ page }) => {
+test('AND THE GRID IT WAS BEING FORCED ONTO DELETES THIN ART', async ({ page }) => {
   await ready(page);
-  await load(page);
-  /* THE POSITIVE CONTROL. Without this, "0 mixed squares" could mean the
-     measurement cannot find any, rather than the snap working. */
-  await setSnap(page, false);
-  await page.evaluate(() => {
-    const f = document.getElementById('fixforce');
-    f.value = '0'; f.dispatchEvent(new Event('input', { bubbles: true }));
-    return fixRun();
-  });
-  const r = await impure(page, 8);
-  expect(r.cells, 'the detectors do not land on the collection grid here')
-    .not.toBe('160x160');
-  expect(r.bad, 'squares holding more than one colour, off the grid')
-    .toBeGreaterThan(0);
+  /* WAS "and detected, it does not" - snap off, and count the mixed squares.
+     That control is dead twice over: the detectors find 256 on this fixture
+     too now, so the two paths agree, and mixed squares cannot be nonzero once
+     the count divides 1280. It was a real control when the snap forced 160
+     and the detectors did not.
+
+     This is what it was standing in for. Same picture, two grids. */
+  const at = async (snap, force) => {
+    await thin(page);
+    await page.evaluate(async ({ snap, force }) => {
+      const sn = document.getElementById('fixsnap');
+      sn.checked = snap; sn.dispatchEvent(new Event('change', { bubbles: true }));
+      const f = document.getElementById('fixforce');
+      f.disabled = false; f.value = String(force);
+      f.dispatchEvent(new Event('input', { bubbles: true }));
+      await fixRun();
+    }, { snap, force });
+    return await impure(page);
+  };
+  const own = await at(true, 0);
+  const forced = await at(false, 8);
+  expect(own.cells, 'the grid the art is on').toBe('256x256');
+  expect(forced.cells, 'and the grid it was being put on').toBe('160x160');
+  /* 8px cells over 5px blocks with gaps between them: the transparent ground
+     wins nearly every vote and the art is gone. This is the number behind
+     "it saves small" and "half the trait is missing". */
+  expect(forced.lostPct, 'source pixels with nothing left in their place')
+    .toBeGreaterThan(50);
+  expect(own.lostPct, 'and on its own grid, none of them').toBe(0);
 });
 
-test('any source size lands on the same grid', async ({ page }) => {
+test('EVERY SOURCE SIZE COMES OUT ON A WHOLE GRID AT 1280', async ({ page }) => {
   await ready(page);
-  /* 1254 is the old canvas and does not divide 160 evenly - the step is
-     7.8375 - and it still has to come out at exactly 160 cells and save as
-     8-pixel blocks. The snap normalises the size difference rather than
-     depending on it, which matters while the library is half converted. */
+  /* WAS "any source size lands on the same grid", asserting 160 cells for
+     all three. Landing everything on one number was the defect, not the
+     property: the fixture is 5px art and 160 cells put 8px boundaries
+     through it. What has to hold is that the result is 1280 square, on a
+     count that divides 1280, with every block one colour.
+
+     1280 is 5px art exactly, so it keeps its own 256. 1254 and 1024 are not
+     divisible by 5, so there is no grid to measure and both fall back to the
+     declared 160 - which is the fallback doing its job, and the reason it
+     was kept. */
+  const got = [];
   for (const W of [1280, 1254, 1024]) {
     await load(page, W, 5);
     await setSnap(page, true);
     await page.evaluate(() => fixRun());
-    const r = await impure(page, 8);
-    expect(r.cells, W + ' lands on the grid').toBe('160x160');
-    expect(r.saved, W + ' saves at the collection size').toBe('1280x1280');
+    const r = await impure(page);
+    got.push(W + ': ' + r.cells + ' blocks=' + r.N + ' mixed=' + r.bad
+      + ' saved=' + r.saved);
   }
+  expect(got).toEqual([
+    '1280: 256x256 blocks=5 mixed=0 saved=1280x1280',
+    '1254: 160x160 blocks=8 mixed=0 saved=1280x1280',
+    '1024: 160x160 blocks=8 mixed=0 saved=1280x1280',
+  ]);
 });
 
 test('the batch takes the step per file, not once for all of them', async ({ page }) => {

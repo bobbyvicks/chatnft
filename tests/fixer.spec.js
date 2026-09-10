@@ -139,7 +139,13 @@ test.describe('the Fix pixels tab', () => {
     expect({ cols: r.cols, rows: r.rows }, 'the native size, recovered').toEqual({ cols: 16, rows: 16 });
     expect(r.w, 'and the canvas it wrote is that size').toBe(16);
     expect(r.h).toBe(16);
-    expect(r.confidence, 'a clean 3x is the case the quick pass is sure of').toBe('high');
+    /* WAS just high confidence. The block size is MEASURED off the picture
+       now - fixNativeBlock returns 3 only when every 3x3 square really is
+       one colour - so there is nothing left to be unsure about, and the
+       result says which of the two happened. High still holds: a
+       measurement is at least as good as the detection it replaced. */
+    expect(r.confidence, 'a measured answer is certain').toBe('high');
+    expect(r.consensus, 'and it says it measured rather than guessed').toBe('measured');
 
     const after = await page.evaluate(() => ({
       w: document.getElementById('fixafter').width,
@@ -158,7 +164,11 @@ test.describe('the Fix pixels tab', () => {
     expect(after.cap).toContain('pixel size 3');
     expect(after.acts, 'and now there is something to do with it').toBe(true);
     expect(after.progressGone, 'the progress bar is put away').toBe(true);
-    expect(after.said).toContain('high confidence');
+    /* WAS 'high confidence'. The run says which of the two happened now, and
+       for a clean 3x it is a measurement, not a guess - so it names the block
+       it measured, which is more use than a word about how sure it is. */
+    expect(after.said, 'it says what it measured')
+      .toContain('measured 3px blocks off the picture');
   });
 
   test('and the engine is text the page never runs itself', async ({ page }) => {
@@ -260,7 +270,14 @@ test.describe('the Fix pixels tab', () => {
     });
     expect(size).toEqual({ w: 96, h: 96 });
     expect(r.label, 'the control is named for what it sets').toBe('Pixel size');
-    expect(r.detect, 'with 0 there is nothing to promise').toBe('');
+    /* WAS '' - "with 0 there is nothing to promise". That was true when the
+       snap did not exist. This image is 96 across and the collection grid is
+       160 cells, so the snap is ticked and cannot be used on it; saying
+       nothing there is the exact silence that had somebody chasing a snap
+       that was on and doing nothing. With a size typed the readout goes back
+       to promising what that size gives, which is the rest of this test. */
+    expect(r.detect, 'with 0 it says why the snap is not deciding')
+      .toContain('cannot be snapped to 160 cells');
     expect(r.four, 'four pixels to one gives a 24 square').toContain('24×24');
     expect(r.twelve, 'and twelve gives an 8').toContain('8×8');
   });
@@ -282,6 +299,13 @@ test.describe('the Fix pixels tab', () => {
 
     /* Forced: the person has already answered, so it stays quiet there too. */
     const forced = await page.evaluate(async () => {
+      /* SNAP OFF. Typing a size is the field deciding, and the field only
+         decides when the snap is not - which is why it greys out while the
+         snap is on. Left on, the picture own measured block wins and the
+         forced path this test is about is never taken. */
+      const sn = document.getElementById('fixsnap');
+      sn.checked = false; sn.dispatchEvent(new Event('change', { bubbles: true }));
+      document.getElementById('fixforce').disabled = false;
       document.getElementById('fixforce').value = '3';
       const r = await fixRun();
       document.getElementById('fixforce').value = '0';
@@ -322,9 +346,17 @@ test.describe('the Fix pixels tab', () => {
       }
       const blob = await new Promise(r => c.toBlob(r, 'image/png'));
       await fixLoad(new File([blob], 'blocks.png', { type: 'image/png' }));
-      document.getElementById('fixforce').value = '1';
+      /* SNAP OFF. This drives the pixel size FIELD, and the field only decides
+         anything when the snap is not deciding for it - which is why the box
+         greys out while the snap is on. With the snap left on, 512 lands on
+         the 160 grid and the typed 1 is never consulted, so the state this
+         test exists to reach is unreachable. */
+      const s = document.getElementById('fixsnap');
+      s.checked = false; s.dispatchEvent(new Event('change', { bubbles: true }));
+      const ff = document.getElementById('fixforce');
+      ff.disabled = false; ff.value = '1';
       const r = await fixRun();
-      document.getElementById('fixforce').value = '0';
+      ff.value = '0';
       return { long: r && Math.max(r.width, r.height),
         out: document.getElementById('fixout').textContent };
     });

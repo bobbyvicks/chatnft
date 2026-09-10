@@ -117,6 +117,52 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
    left 740px empty beside two previews capped at 420px each. The other
    four pages keep the column - a 1900px line of text is unreadable. */
 #land[data-page="fixer"] .panelbox{width:min(2100px,96vw);}
+/* AND THE HEIGHT. place-content:center floats a short page in the middle
+   of a tall window - measured at 1600x1000, the panel ran y378 to y744
+   with 378px of ground above it and 256 below. A column that starts at
+   the top, with the panel taking what is left, and no number to keep in
+   step with the height of the header. */
+#land[data-page="fixer"]{display:flex; flex-direction:column;
+  align-items:center; justify-content:flex-start;}
+/* #fixer, NOT .panelbox. The page-hiding rules are one id, one attribute
+   and one class, and so is #land[data-page=fixer] .panelbox - the same
+   specificity, written later, so a display on it BEATS their display:none
+   and the Agent panel came back on the Fix pixels page. Measured: its
+   computed display read flex and it was 493px tall in the layout, which
+   is also why the panel would not grow - a container already past its
+   min-height has no free space left to hand out. */
+#land[data-page="fixer"] #fixer{flex:1 1 auto; display:flex;
+  flex-direction:column;}
+/* So the columns take the room the panel just gained. */
+#land[data-page="fixer"] .fixcols{flex:1 1 auto;}
+/* NO COLUMN FOR A RAIL THAT IS NOT THERE. A grid track exists whether or
+   not anything is placed in it, so the hidden aside was costing 300px of
+   width on an empty page. */
+@media (min-width:1100px){
+  .fixcols:has(> .fixrail[hidden]){grid-template-columns:minmax(0,1fr);}
+}
+/* AND THE DROP ZONE TAKES THE ROOM WHILE THERE IS NOTHING ELSE ON THE
+   PAGE. It is the only thing there and the thing you are meant to hit; a
+   150px box with 463px of empty panel under it is a layout holding space
+   for something that has not happened yet. It goes back to its own size
+   the moment a picture or a batch arrives, which is what the two hidden
+   attributes below already say - so this reads them rather than adding a
+   third piece of state to keep in step. */
+.fixwork{display:flex; flex-direction:column; align-self:stretch;}
+/* ORDER IS RESET INSIDE THIS COLUMN. The landing page sets .drop{order:3}
+   to arrange ITS grid, and that declaration lands on any .drop in any flex
+   or grid parent - so the moment this became a flex column the dropzone
+   jumped below the controls. Document order is what is wanted here. */
+.fixwork > *{order:0;}
+/* align-self:stretch above, or the column is only as tall as its content
+   and there is no height for the dropzone to grow into. */
+.fixwork:has(> #fixpair[hidden]):has(> #fixbatch[hidden]) #fixdrop{
+  flex:1 1 auto; display:flex; flex-direction:column; justify-content:center;
+  /* CENTRED, both ways. Left-aligned text floating in the middle of a
+     700px dashed box reads as a layout accident; centred it reads as a
+     target. align-items rather than a width, or the folder button
+     stretches the whole width of the panel. */
+  align-items:center; text-align:center; gap:8px;}
 /* THE WORK ON THE LEFT, WHAT YOU ALREADY FIXED ON THE RIGHT. One column
    below 1100: a 300px rail there would leave the previews narrower than
    they were before the page was widened at all, which is a worse trade
@@ -154,6 +200,9 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
    1.5, so the one-line and two-line forms of the message occupy the same
    space and nothing below it moves when it changes. */
 .fixsay{min-height:35px; margin:2px 0 4px;}
+/* The two paragraphs at the top were being set to a 1498px line once the
+   panel stopped being 1180 wide. This is the width they always had. */
+#fixer > .note{max-width:100ch;}
 /* A PRIMARY ACTION THE WIDTH OF THE SCREEN IS NOT MORE PROMINENT. .btn is
    width:100% because almost every button here is in a narrow panel, where
    that is right; in this row it wrapped Fix it onto a line of its own and
@@ -173,7 +222,10 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
 /* THE BATCH, SEEN. Same shape as the shelf: a grid that fills the width
    with whatever tiles fit, capped in height so a run of five hundred does
    not push the buttons off the screen. */
-.fixgridout{display:grid; grid-template-columns:repeat(auto-fill,minmax(104px,1fr));
+/* 190, not 104. A folder run is what this page is for and its results
+   were coming out 110px square in a 1180px column - ten across, each one
+   too small to tell a good answer from a bad one. */
+.fixgridout{display:grid; grid-template-columns:repeat(auto-fill,minmax(190px,1fr));
   gap:9px; margin-top:10px; max-height:52dvh; overflow-y:auto; padding:2px;}
 .fixtile{display:flex; flex-direction:column; gap:4px; padding:0; border:0;
   background:transparent; font:inherit; color:inherit; cursor:pointer; text-align:center;}
@@ -665,7 +717,16 @@ body.shelf-dragging,body.shelf-dragging *{cursor:grabbing!important;}
    button fills its section, and inside a row of two that is exactly what
    makes each take a line of its own - which cost the Transform panel 44
    pixels of height for no reading gain. */
+/* THE ROW ITSELF. This rule has always said flex:1 and there has never
+   been a flex container to hear it: .btnrow carried no display, so it
+   worked only where the element also carried .savebar, which is where it
+   was written. Every bare .btnrow - the fixer twice, the agent, the link
+   prompt - was a column of buttons shrunk to their words. */
+.btnrow{display:flex; gap:8px; align-items:center; flex-wrap:wrap;}
 .btnrow .btn{flex:1; width:auto;}
+/* But not stretched across a workbench: flex:1 over a 1180px column is a
+   390px button, which is the same mistake the other way up. */
+#fixer .btnrow{max-width:640px;}
 .savebar input,.savebar select{padding:8px 9px; border-radius:8px; background:var(--ground);
   border:1px solid var(--line); color:var(--ink); font:inherit; font-size:12.5px;}
 .savebar input{flex:1; min-width:0;}
@@ -3088,6 +3149,18 @@ function strength(p,q,B){
    in a measurement must not stop a trait opening. */
 function measuredBlock(d,W,H){
   try{
+    /* THE EXACT ANSWER FIRST. fixNativeBlock is not a detector: it
+       returns N only when every NxN square of the picture really is one
+       colour, so when it answers there is nothing left to infer. The
+       fixer has used it since patch416 and the editor did not - measured
+       on the approved traits, of the 144 with an exact grid the detector
+       agreed on 109 and answered 1 on the other 35. A block of 1 also
+       turns snapping off, since that reads g<2, which is why the brush
+       and the snap were reported broken together. */
+    const exact=fixNativeBlock(d,W,H);
+    if(exact>1) return exact;
+    /* No exact grid - 167 of the 311 measured. The detector is what has
+       anything to say about those, so it stays. */
     const t=transitions(d,W,H);
     /* The second axis only when the first has nothing to say. Measured on a
        1280 trait: 28ms for x, 24ms more for a y that is never read when x
@@ -6518,6 +6591,14 @@ function startEditor(data,w,h,srcW,srcH,pal,recovered){
   N=w;
   art.width=w; art.height=h;
   gridBlock=1;   /* callers that measured a block size set it after this */
+  /* AND THE BRUSH FOLLOWS THE NEW PICTURE. brushAuto is turned off by the
+     slider and by [ and ], and nothing ever turned it back on - so one
+     nudge stopped every trait opened afterwards from having its brush set
+     for the rest of the session, and since the line above resets the
+     brush to 1 they all arrived at 1x1 rather than at the nudged size.
+     The pixel size is a fact about the picture being opened, not a
+     preference held over from the last one. */
+  brushAuto=true;
   openRec=null;  /* set by callers that opened a saved record, same as above */
   const opv=$('olpv'); opv.width=w; opv.height=h; opv.style.display='none';
   selReset();  /* a mask is the size of the canvas it was made on */

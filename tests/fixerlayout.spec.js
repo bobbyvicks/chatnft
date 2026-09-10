@@ -247,3 +247,126 @@ test('and on a narrow screen the button goes back to full width', async ({ page 
   expect(r.run, 'the full width of the row').toBe(r.row);
   expect(r.doc, 'and the phone has no sideways scroll').toBe(r.view);
 });
+
+/* ---- the page is the screen, not a card in the middle of it -------- */
+
+const showFixer = (page) => page.evaluate(async () => {
+  try { authed = true; } catch (_) {}
+  gateShow(false);
+  showPage('fixer', false);
+  await new Promise(r => setTimeout(r, 200));
+});
+
+for (const H of [1000, 1400]) {
+  test('THE PANEL IS THE PAGE, at a window ' + H + ' tall', async ({ page }) => {
+    await page.setViewportSize({ width: 1600, height: H });
+    await page.goto('/index.html');
+    await page.waitForFunction(() => typeof fixRecentAdd === 'function');
+    await showFixer(page);
+    const r = await page.evaluate(() => {
+      const b = document.getElementById('fixer').getBoundingClientRect();
+      return { top: Math.round(b.top), bottom: Math.round(b.bottom),
+        view: window.innerHeight };
+    });
+    /* Was y378 to y744 in a 1000px window - 378px of ground above it and 256
+       below, 63% of the screen empty, on the one page that is a workbench. */
+    expect(r.top, 'it starts near the top').toBeLessThan(220);
+    expect(r.view - r.bottom, 'and ends at the bottom').toBeLessThan(60);
+  });
+}
+
+test('and nothing from another page comes with it', async ({ page }) => {
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await page.goto('/index.html');
+  await page.waitForFunction(() => typeof fixRecentAdd === 'function');
+  await showFixer(page);
+  /* THE GUARD FOR WHAT THIS BROKE ONCE. The page-hiding rules are one id, one
+     attribute and one class; so is `#land[data-page="fixer"] .panelbox`, and
+     it is written later - so a display declared on THAT beats their
+     display:none. The first version of the fill did exactly that and the
+     Agent panel came back, 493px tall, on the Fix pixels page. */
+  const r = await page.evaluate(() => {
+    const shown = [...document.querySelectorAll('#land > section, #land > div')]
+      .filter(e => getComputedStyle(e).display !== 'none')
+      .map(e => e.id || e.className.split(' ')[0]);
+    return { shown, agent: getComputedStyle(document.querySelector('.pg-agent')).display };
+  });
+  expect(r.agent, 'the agent page stays on the agent page').toBe('none');
+  expect(r.shown.filter(n => /pg-|panelbox/.test(n)),
+    'no other page section is showing').toEqual([]);
+});
+
+test('THE BUTTON ROWS ARE ROWS', async ({ page }) => {
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await page.goto('/index.html');
+  await page.waitForFunction(() => typeof fixRecentAdd === 'function');
+  const r = await page.evaluate(async (srcs) => {
+    try { authed = true; } catch (_) {}
+    gateShow(false);
+    showPage('fixer', false);
+    // eslint-disable-next-line no-new-func
+    const mk = (s) => new Function('return (' + s + ')')();
+    await fixBatch([await mk(srcs.a), await mk(srcs.b)]);
+    const top = (id) => Math.round(document.getElementById(id).getBoundingClientRect().top);
+    const wide = (id) => Math.round(document.getElementById(id).getBoundingClientRect().width);
+    return { dl: top('fixbatchdl'), sv: top('fixbatchsave'),
+      dlW: wide('fixbatchdl'), svW: wide('fixbatchsave'),
+      tile: Math.round(document.querySelector('.fixtile img').getBoundingClientRect().width),
+      note: Math.round(document.querySelector('#fixer > .note').getBoundingClientRect().width) };
+  }, { a: art(640, 5, 'a.png'), b: art(640, 8, 'b.png') });
+  /* .btnrow has always said .btnrow .btn{flex:1} and never had a flex parent
+     to hear it, so every bare one was a column of buttons shrunk to their
+     words: measured at y782 and y816, 138px and 121px wide. */
+  expect(r.dl, 'both batch buttons on one line').toBe(r.sv);
+  expect(r.dlW, 'and the same width as each other').toBe(r.svW);
+  expect(r.dlW, 'without being stretched across the workbench').toBeLessThan(400);
+  /* A folder run is what this page is for and its results were 110px square. */
+  expect(r.tile, 'the results are big enough to judge').toBeGreaterThan(180);
+  /* And the prose is a line, not a banner: it was 1498px once the panel grew. */
+  expect(r.note, 'the explanation is still readable').toBeLessThan(800);
+});
+
+test('AN EMPTY PAGE IS ALL DROP ZONE, AND KEEPS NO ROOM FOR A HIDDEN RAIL',
+  async ({ page }) => {
+    await page.setViewportSize({ width: 1600, height: 1000 });
+    await page.goto('/index.html');
+    await page.waitForFunction(() => typeof fixRecentAdd === 'function');
+    await showFixer(page);
+    const r = await page.evaluate(() => {
+      const drop = document.getElementById('fixdrop').getBoundingClientRect();
+      const work = document.querySelector('.fixwork').getBoundingClientRect();
+      const cols = document.querySelector('.fixcols').getBoundingClientRect();
+      return { dropH: Math.round(drop.height), dropTop: Math.round(drop.top),
+        rowTop: Math.round(document.querySelector('#fixer .agjob').getBoundingClientRect().top),
+        workW: Math.round(work.width), colsW: Math.round(cols.width),
+        railHidden: document.getElementById('fixrail').hidden };
+    });
+    expect(r.railHidden, 'nothing fixed yet').toBe(true);
+    /* A grid track exists whether or not anything is placed in it, so the
+       hidden aside was costing 300px of width on an empty page. */
+    expect(r.colsW - r.workW, 'no column kept for a rail that is not there')
+      .toBeLessThan(4);
+    /* The dropzone is the page while it is the only thing on it - it was a
+       150px box with 463px of empty panel underneath. */
+    expect(r.dropH, 'the drop target is the panel').toBeGreaterThan(400);
+    /* And the controls are still below it, not above: .drop carries order:3
+       from the landing grid and that reaches into any flex parent. */
+    expect(r.rowTop, 'the controls stay under the drop zone')
+      .toBeGreaterThan(r.dropTop);
+  });
+
+test('and it gives the room back the moment there is something to show',
+  async ({ page }) => {
+    await page.setViewportSize({ width: 1600, height: 1000 });
+    await page.goto('/index.html');
+    await page.waitForFunction(() => typeof fixRecentAdd === 'function');
+    /* THE CONTROL. A dropzone that always grew would pass the test above and
+       push every preview off the bottom of the page. */
+    await openFixer(page, art(96, 4, 'p.png'));
+    const r = await page.evaluate(() => ({
+      dropH: Math.round(document.getElementById('fixdrop').getBoundingClientRect().height),
+      pairShown: !document.getElementById('fixpair').hidden,
+    }));
+    expect(r.pairShown, 'a picture is loaded').toBe(true);
+    expect(r.dropH, 'and the drop zone is back to its own size').toBeLessThan(260);
+  });

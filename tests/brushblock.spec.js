@@ -95,22 +95,46 @@ test.describe('the brush matches the block size the art was drawn at', () => {
     expect(r.brush).toBe(8);
   });
 
-  test('BUT A SIZE YOU CHOSE SURVIVES THE NEXT TRAIT', async ({ page }) => {
-    /* The half that makes the feature bearable. Picking 1px to fix a stray
-       pixel and having the next open overrule you is the difference between a
-       default and a nuisance - and in a 317-trait pass it is 317 nuisances. */
+  test('A SIZE YOU CHOSE HOLDS FOR THAT TRAIT, AND NOT PAST IT', async ({ page }) => {
+    /* REVERSED, and the reversal is the point of this comment.
+
+       This test used to be called "BUT A SIZE YOU CHOSE SURVIVES THE NEXT
+       TRAIT" and read: "Picking 1px to fix a stray pixel and having the next
+       open overrule you is the difference between a default and a nuisance -
+       and in a 317-trait pass it is 317 nuisances."
+
+       That is a fair worry and it was wrong about which way round the
+       nuisance falls, because brushAuto had no way back. Nothing anywhere set
+       it true again, so one nudge turned following off for the rest of the
+       session - and startEditor resets the brush to 1 and leaves the setting
+       to the caller that measured a block, so the traits after it did not
+       even keep the chosen size. Measured before the change:
+
+         open a 5px trait       block 10, brush 10x10
+         nudge the slider to 3  block 10, brush  3x3
+         open an 8px trait      block 16, brush  1x1
+
+       317 traits at 1x1 on art drawn in eights and tens, which is what
+       "its not making the brush size automatically the pixel size" is.
+
+       What the old reasoning got right is kept: a size you pick is not
+       overruled while you are working on the trait you picked it for. It
+       stops being carried into the next picture, which is a different
+       picture, and whose pixel size is a fact about it rather than a
+       preference. */
     await openBlockArt(page, 10, 20);
     await page.evaluate(() => {
       const sl = document.getElementById('bslider');
       sl.value = '1';
       sl.dispatchEvent(new Event('input', { bubbles: true }));
     });
+    /* THE HALF THAT STILL HOLDS: on this trait, the choice stands. */
     expect(await page.evaluate(() => ({ brush, auto: brushAuto })))
       .toEqual({ brush: 1, auto: false });
     const r = await openBlockArt(page, 8, 40);
     expect(r.block, 'the art is still measured').toBe(8);
-    expect(r.brush, 'but the brush is the one you chose').toBe(1);
-    expect(r.auto).toBe(false);
+    expect(r.brush, 'and the next picture gets its own pixel size').toBe(8);
+    expect(r.auto, 'following starts again with a new picture').toBe(true);
   });
 
   test('and the bracket keys count as choosing too', async ({ page }) => {
@@ -126,13 +150,24 @@ test.describe('the brush matches the block size the art was drawn at', () => {
   test('and a measurement that throws does not stop the trait opening',
     async ({ page }) => {
       /* This now runs on every open, so it must be unable to take the editor
-         down with it. */
-      await page.evaluate(() => { window.__realT = transitions;
-        transitions = () => { throw new Error('boom'); }; });
+         down with it.
+
+         BOTH MEASUREMENTS ARE STUBBED. There are two now: fixNativeBlock is
+         asked first and answers exactly where the art has a grid, and this
+         fixture is 10px block art, so breaking only the detector no longer
+         reaches the throw at all - the test went green for a reason that had
+         nothing to do with what it is about. */
+      await page.evaluate(() => {
+        window.__realT = transitions; window.__realN = fixNativeBlock;
+        transitions = () => { throw new Error('boom'); };
+        fixNativeBlock = () => { throw new Error('boom'); };
+      });
       const r = await openBlockArt(page, 10, 20);
       expect(r.block, 'fell back to native').toBe(1);
       expect(r.brush).toBe(1);
-      await page.evaluate(() => { transitions = window.__realT; });
+      await page.evaluate(() => {
+        transitions = window.__realT; fixNativeBlock = window.__realN;
+      });
       const back = await openBlockArt(page, 10, 20);
       expect(back.brush, 'and it measures again once it can').toBe(10);
     });

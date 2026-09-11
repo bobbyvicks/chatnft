@@ -118,51 +118,63 @@ test('a size that already lands is left exactly alone', async ({ page }) => {
     .not.toContain('not 8');
 });
 
-test('the snap still wins, and still lands on the grid', async ({ page }) => {
+test('A TYPED SIZE WINS, AND STILL LANDS ON THE GRID', async ({ page }) => {
   await ready(page);
-  const r = await batchAt(page, { snap: true, force: 12 });
-  /* Snap is the default and decides the count; the typed 12 is not consulted,
-     which is exactly why the box must not look live. */
-  expect(r.block).toBe(8);
-  expect(r.cells).toBe(160);
+  /* REVERSED. This read "the snap still wins ... the typed 12 is not
+     consulted, which is exactly why the box must not look live", and that
+     was the defect: asking sixteen glasses for 4 gave 5, 8 and 10, with no
+     way to ask at all without turning the snap off. The measurement beats
+     the declared grid; it does not beat a number somebody typed. */
+  const four = await batchAt(page, { snap: true, force: 4 });
+  /* THE CELL COUNT, not the measured block. 1280/4 is 320 cells and that is
+     what the run used; the block MEASURED back off the output can be coarser
+     than the step - this fixture has no detail at 4px, so its 4px cells come
+     out in matching pairs and fixNativeBlock reports 8. Both are true, and
+     the count is the one that says which grid the run chose. */
+  expect(four.cells, 'the size asked for, as a count').toBe(320);
+  expect(four.said, 'nothing was moved, so nothing is said about moving')
+    .not.toContain('not 4');
+
+  /* AND THE WHOLE-STEP RULE STILL APPLIES ON TOP, which is not new and is
+     not the snap: 1280/12 is 106.67 cells, so 12 cannot give square pixels
+     and is moved to the nearest size that can. The run says it moved. */
+  const twelve = await batchAt(page, { snap: true, force: 12 });
+  expect(twelve.cells, 'moved to a count that lands').toBe(128);
+  expect(Number.isInteger(1280 / twelve.cells), 'a whole grid').toBe(true);
+  expect(twelve.said, 'and it is said').toContain('not 12');
 });
 
-test('THE PIXEL SIZE BOX DOES NOT LOOK LIVE WHILE THE SNAP DECIDES', async ({ page }) => {
+test('THE PIXEL SIZE BOX IS LIVE, BECAUSE IT DECIDES', async ({ page }) => {
   await ready(page);
+  /* REVERSED, both of these. They were called "DOES NOT LOOK LIVE WHILE THE
+     SNAP DECIDES" and "comes back the moment the snap stops deciding", and
+     they were right about the rule at the time: the snap answered and the
+     box was ignored, so a live box would have been a control that lies.
+
+     The box answers now whenever it holds a number. What is left of the
+     original point is that a control which decides nothing must not look
+     live - and the one place that is still true is scale only, where the
+     picture really is already one pixel per cell. That is the control at
+     the bottom of this test. */
   const r = await page.evaluate(async (src) => {
     // eslint-disable-next-line no-new-func
     const c = new Function(src + '\nreturn c;')();
     const b = await new Promise(res => c.toBlob(res, 'image/png'));
     c.width = 1; c.height = 1;
-    const atStart = document.getElementById('fixforce').disabled;
     await fixLoad(new File([b], 'trait.png', { type: 'image/png' }));
-    return { atStart, afterLoad: document.getElementById('fixforce').disabled,
-      snap: document.getElementById('fixsnap').checked };
-  }, source());
-  expect(r.snap, 'the snap is on by default').toBe(true);
-  /* fixModeUI decides this and only ran when a CONTROL moved. A picture
-     arriving changes whether the snap applies, and nobody asked again - so
-     the box invited a number and nothing read it. */
-  expect(r.afterLoad, 'greyed out once a picture makes the snap apply').toBe(true);
-});
-
-test('and it comes back the moment the snap stops deciding', async ({ page }) => {
-  await ready(page);
-  const r = await page.evaluate(async (src) => {
-    // eslint-disable-next-line no-new-func
-    const c = new Function(src + '\nreturn c;')();
-    const b = await new Promise(res => c.toBlob(res, 'image/png'));
-    c.width = 1; c.height = 1;
-    await fixLoad(new File([b], 'trait.png', { type: 'image/png' }));
-    const on = document.getElementById('fixforce').disabled;
+    const snapOn = document.getElementById('fixforce').disabled;
     const s = document.getElementById('fixsnap');
     s.checked = false; s.dispatchEvent(new Event('change', { bubbles: true }));
-    return { on, off: document.getElementById('fixforce').disabled };
+    const snapOff = document.getElementById('fixforce').disabled;
+    const m = document.getElementById('fixmode');
+    m.value = 'scale'; m.dispatchEvent(new Event('change', { bubbles: true }));
+    return { snapOn, snapOff, scale: document.getElementById('fixforce').disabled,
+      snap: document.getElementById('fixsnap').checked };
   }, source());
-  /* THE POSITIVE CONTROL. A box that is always disabled would pass the test
-     above and be worse than the defect. */
-  expect(r.on).toBe(true);
-  expect(r.off, 'live again when it decides something').toBe(false);
+  expect(r.snapOn, 'live while the snap is on').toBe(false);
+  expect(r.snapOff, 'and live with it off').toBe(false);
+  /* THE CONTROL that keeps the original point alive. */
+  expect(r.scale, 'and switched off where it really decides nothing').toBe(true);
 });
 
 test('a detected count that cannot land is reported, not passed off as fine',

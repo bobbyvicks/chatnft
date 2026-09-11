@@ -240,24 +240,37 @@ test('the batch takes the step per file, not once for all of them', async ({ pag
   expect(r.sizes, 'all three at the collection size').toEqual(['1280x1280']);
 });
 
-test('the pixel size box stops pretending it decides anything', async ({ page }) => {
+test('THE PIXEL SIZE BOX DECIDES, SNAP OR NO SNAP', async ({ page }) => {
   await ready(page);
   await load(page);
   await setSnap(page, true);
+  /* REVERSED. This was called "the pixel size box stops pretending it decides
+     anything" and asserted it is greyed out while the snap is on, for the
+     honest reason that "a live box that changes no answer is a control that
+     lies". It was true: the measured block beat the typed size, so the box
+     changed nothing.
+
+     Asking sixteen glasses for 4 pixels gave 5, 8 and 10 and never 4, with
+     no way to say 4 at all without giving up the snap. A measurement should
+     beat a SETTING - projectGrid says 160 and the art is drawn at 128 cells -
+     and it has no business beating an INSTRUCTION. So the box decides when it
+     holds a number, and the fix for that sentence is to make it decide
+     something rather than to keep it switched off. */
   const on = await page.evaluate(() => ({
     disabled: document.getElementById('fixforce').disabled,
     title: document.getElementById('fixforce').title,
     hint: (fixSizeHint(), document.getElementById('fixsize').textContent),
   }));
-  expect(on.disabled, 'a live box that changes no answer is a control that lies').toBe(true);
-  expect(on.title).toContain('160 cell grid');
-  /* The readout says the grid count and the block size, without a size typed. */
-  expect(on.hint).toContain('160×160 pixels');
-  expect(on.hint).toContain('×8 to 1280');
+  expect(on.disabled, 'live, because it changes the answer').toBe(false);
+  expect(on.title, 'and says so').toContain('even with Snap on');
+  /* WAS 160x160 and x8. The readout asks the run now, and the run measures
+     the picture - this fixture is 5px art, which is 256 cells. */
+  expect(on.hint).toContain('256×256 pixels');
+  expect(on.hint).toContain('×5 to 1280');
 
   await setSnap(page, false);
   const off = await page.evaluate(() => document.getElementById('fixforce').disabled);
-  expect(off, 'and it comes back when it matters again').toBe(false);
+  expect(off, 'and it stays live with the snap off').toBe(false);
 });
 
 test('a grid that cannot divide the canvas is said, not faked', async ({ page }) => {

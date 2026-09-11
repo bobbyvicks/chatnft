@@ -38,6 +38,31 @@ const full = (set, W, H) => {
    runs. 320 is above projectGrid, which is what makes blackenEdge apply at
    all; below the grid a trait is not a collection trait and the rule is
    deliberately silent. */
+/* THE RULE, APPLIED DIRECTLY.
+
+   These used to go through traitCanvas, which applied the collection's
+   border rule on every save. It does not any more - saving a finished trait
+   was repainting 1163 pixels of it black, an eighth of an art pixel wide on
+   1280 art, over an outline the artist had already drawn. The rule still
+   runs where it was asked for, in the extraction pipeline that cuts a trait
+   out of a rendered character, so what these tests are about - which edges
+   it treats as edges of the ART - is asked of the rule itself. */
+const ruleRow = (page) => page.evaluate(() => {
+  const W = art.width, H = art.height;
+  const d = ctx.getImageData(0, 0, W, H).data;
+  blackenEdge(d, W, H);
+  const row = (y) => {
+    let n = 0;
+    for (let x = 0; x < W; x++) {
+      const i = (y * W + x) * 4;
+      if (d[i + 3] >= 128 && d[i] < 20 && d[i + 1] < 20 && d[i + 2] < 20) n++;
+    }
+    return n;
+  };
+  return { bottom: row(H - 1), top: row(Math.floor(H * 0.45)),
+    firstRow: row(0), grid: projectGrid, W };
+});
+
 const savedRow = (page) => page.evaluate(() => {
   const W = art.width, H = art.height;
   const c = traitCanvas({});
@@ -67,30 +92,33 @@ test('A TRAIT CUT OFF BY THE FRAME GETS NO LINE ACROSS THE CUT', async ({ page }
 
 test('but the top of the shape is still outlined - the rule still works', async ({ page }) => {
   await openTrait(page, { w: 320, h: 320, draw: cutOff });
-  const r = await savedRow(page);
+  const r = await ruleRow(page);
   /* THE CONTROL. Without this, "no black on the bottom" would also be true of
-     a version that turned the whole rule off, and that is the easy mistake. */
+     a version that turned the whole rule off, and that is the easy mistake.
+     Asked of blackenEdge directly: the save stopped calling it, and this file
+     is about which edges the RULE treats as edges of the art. */
   expect(r.top, 'the top edge of the shape is blackened').toBeGreaterThan(100);
 });
 
 test('and a trait that ends above the bottom keeps its underside', async ({ page }) => {
   await openTrait(page, { w: 320, h: 320, draw: floating });
+  /* Through the rule rather than through the save, for the reason above. */
   const r = await page.evaluate(() => {
     const W = art.width, H = art.height;
-    const c = traitCanvas({});
-    const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+    const d = ctx.getImageData(0, 0, W, H).data;
+    blackenEdge(d, W, H);
     const y = Math.floor(H * 0.7) - 1;
     let n = 0;
     for (let x = 0; x < W; x++) {
       const i = (y * W + x) * 4;
       if (d[i + 3] >= 128 && d[i] < 20 && d[i + 1] < 20 && d[i + 2] < 20) n++;
     }
-    c.width = 1; c.height = 1;
     return n;
   });
-  /* An edge INSIDE the canvas is still an edge. Only the frame's own bottom
-     stopped counting, so this shape is outlined all the way round. */
-  expect(r, 'the underside is blackened, because it is real').toBeGreaterThan(100);
+  /* A shape that stops short of the frame has a real underside, and the rule
+     outlines it - the bottom clause that was removed was only ever about art
+     the FRAME cuts. */
+  expect(r, 'the underside of a floating shape is still outlined').toBeGreaterThan(100);
 });
 
 test('a trait that fills every edge is untouched either way', async ({ page }) => {

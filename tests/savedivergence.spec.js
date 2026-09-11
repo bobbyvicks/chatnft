@@ -108,16 +108,27 @@ test.describe('a save that repaints says so', () => {
     await page.waitForFunction(() => typeof traitCanvas === 'function');
   });
 
-  test('a non-black edge is blackened, and the count is stated',
+  test('A SAVE NO LONGER REPAINTS THE EDGE, SO IT SAYS NOTHING',
     async ({ page }) => {
-      /* 200 square at a 160 grid, inset by 4 so the artwork has an edge of its
-         own, drawn light grey. The border rule repaints that ring and the save
-         says how much of the picture it changed - 192*4-4 = 764. */
+      /* REVERSED. This was "a non-black edge is blackened, and the count is
+         stated": 200 square at a 160 grid, inset by 4, light grey, and the
+         border rule repainted that ring and the save reported 764 changed
+         pixels.
+
+         The save stopped applying the rule. On a real trait it was turning
+         1163 pixels black, one CANVAS pixel wide on art drawn in eights -
+         a fringe at a resolution the art is not drawn at, laid over an
+         outline that was already there. The rule still runs in the
+         extraction pipeline, which is what it was written for.
+
+         What this file is about survives intact: the stored file is the
+         visible canvas, and the save does not say things that did not
+         happen. Both halves now say the same thing, which is the point. */
       const r = await saveAndCompare(page,
         { size: 200, grid: 160, blackEdge: false, inset: 4 });
-      expect(r.differing, 'the whole outer ring of the ARTWORK').toBe(764);
-      expect(r.said, 'and the save said so').toContain('764 edge pixels');
-      expect(r.said).toContain("collection's border rule");
+      expect(r.differing, 'the stored file is the visible canvas').toBe(0);
+      expect(r.said, 'and nothing is claimed about a border')
+        .not.toContain('edge pixels');
     });
 
   test('and an edge that is already black is silent', async ({ page }) => {

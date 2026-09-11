@@ -210,3 +210,116 @@ test('and the three downloads that promise not to rescale still do not',
     expect(r.out, 'and the save is the footprint').toBe('1280x1280');
     expect(r.title).toContain('at its own size, unscaled');
   });
+
+/* ---- saving big, and keeping the pixels square ---------------------- */
+
+/* "we should have an option to save to the highest resolution because 8x is
+   so clear ... i need it to be crisper than crisp and high def/res"
+
+   Measured on 1280 art in 8px blocks, reading run lengths along the middle
+   row of the saved file:
+
+     as it is  1280   every block 8
+     2560      x2     every block 16
+     3840      x3     every block 24
+     4096      x3.2   blocks of 25 AND 26
+
+   4096 is the ceiling the rest of the page draws, so asking for the biggest
+   number was the one thing that came out not crisp. */
+
+const openBlockArt = (page, S, cell) => page.evaluate(async (o) => {
+  try { authed = true; } catch (_) {}
+  gateShow(false);
+  await dbClear();
+  const c = document.createElement('canvas'); c.width = o.S; c.height = o.S;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  for (let y = 0; y < o.S / o.cell; y++) for (let x = 0; x < o.S / o.cell; x++) {
+    g.fillStyle = ['#2e222f', '#8b5fbf', '#f2a65a', '#e8d5b7'][(x * 5 + y * 3) % 4];
+    g.fillRect(x * o.cell, y * o.cell, o.cell, o.cell);
+  }
+  const d = g.getImageData(0, 0, o.S, o.S).data;
+  c.width = 1; c.height = 1;
+  fileName = 'probe.png';
+  startEditor(new Uint8ClampedArray(d), o.S, o.S, o.S, o.S,
+    palette(d, o.S * o.S, 24, 64), false);
+  await new Promise(r => setTimeout(r, 250));
+}, { S, cell });
+
+/* The saved file at a given box value: its size, and the set of run lengths
+   along the middle row - one entry means every art pixel is the same size. */
+const savedAt = (page, side) => page.evaluate((v) => {
+  const box = document.getElementById('savesize');
+  box.value = String(v);
+  box.dispatchEvent(new Event('input', { bubbles: true }));
+  const c = saveCanvas();
+  const g = c.getContext('2d', { willReadFrequently: true });
+  const W = c.width, H = c.height;
+  const p = g.getImageData(0, 0, W, H).data;
+  const y = Math.floor(H / 2), runs = [];
+  let last = -1, n = 0;
+  for (let x = 0; x < W; x++) {
+    const i = (y * W + x) * 4;
+    const k = p[i] + ',' + p[i + 1] + ',' + p[i + 2] + ',' + p[i + 3];
+    if (k === last) n++; else { if (n) runs.push(n); last = k; n = 1; }
+  }
+  if (n) runs.push(n);
+  c.width = 1; c.height = 1;
+  return { out: W + 'x' + H,
+    /* First and last run dropped: they run off the edge of the picture. */
+    widths: [...new Set(runs.slice(1, -1))].sort((a, b) => a - b),
+    note: document.getElementById('savesizenote').textContent };
+}, side);
+
+test('A WHOLE MULTIPLE KEEPS EVERY ART PIXEL THE SAME SIZE', async ({ page }) => {
+  await ready(page);
+  await openBlockArt(page, 1280, 8);
+  const two = await savedAt(page, 2560);
+  const three = await savedAt(page, 3840);
+  expect(two.out).toBe('2560x2560');
+  expect(two.widths, 'every block 16 across').toEqual([16]);
+  expect(three.out).toBe('3840x3840');
+  expect(three.widths, 'every block 24 across').toEqual([24]);
+});
+
+test('AND A SIZE THAT WOULD NOT IS TAKEN DOWN TO ONE THAT DOES',
+  async ({ page }) => {
+    await ready(page);
+    await openBlockArt(page, 1280, 8);
+    const r = await savedAt(page, 4096);
+    /* WAS 4096x4096 with blocks of 25 and 26 - the one size that is not
+       crisp, reached by asking for the biggest number there is. */
+    expect(r.out, 'the whole multiple below it').toBe('3840x3840');
+    expect(r.widths, 'and the pixels are all one size').toEqual([24]);
+    /* Said before anything is pressed, with the reason. */
+    expect(r.note).toContain('not 4096');
+    expect(r.note).toContain('3.2×');
+    expect(r.note).toContain('uneven');
+  });
+
+test('and a reduction is left alone, because that is a different question',
+  async ({ page }) => {
+    await ready(page);
+    await openBlockArt(page, 1280, 8);
+    /* THE CONTROL. Snapping everything to whole multiples would pass the two
+       tests above and would quietly refuse to save anything smaller than the
+       trait - half of what the box is for. */
+    const r = await savedAt(page, 640);
+    expect(r.out).toBe('640x640');
+    expect(r.note, 'and it does not claim it moved anything').not.toContain('not 640');
+  });
+
+test('and Max fills in the biggest one that fits', async ({ page }) => {
+  await ready(page);
+  await openBlockArt(page, 1280, 8);
+  const r = await page.evaluate(() => {
+    document.getElementById('savemax').click();
+    return { value: document.getElementById('savesize').value,
+      note: document.getElementById('savesizenote').textContent };
+  });
+  /* 4096 is the ceiling the rest of the page draws, and 3 x 1280 is the
+     largest whole multiple under it. */
+  expect(r.value).toBe('3840');
+  expect(r.note).toContain('3840×3840');
+  /* Nothing to apologise for - it is exactly what was asked for. */
+  expect(r.note).not.toContain('not ');
+});

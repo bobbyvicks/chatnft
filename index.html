@@ -2563,6 +2563,11 @@ footer .mono{color:var(--ink);}
             style="width:84px" inputmode="numeric" placeholder=""
             title="The width the PNG is written at. The trait keeps the size and the place it has on the base it is lined up against, so a trait shrunk to fit stays small on a full-size canvas instead of being stretched to fill it. Leave it empty to write that composition at its own size, which the box shows in grey.">
           <span class="mono">px</span>
+          <!-- The largest whole multiple that fits under the page ceiling.
+               Not a number anybody should have to work out, and the whole
+               multiple is what keeps every art pixel the same size. -->
+          <button class="btn ghost" id="savemax" style="width:auto;padding:6px 10px;font-size:12px"
+            title="Fill in the largest whole multiple of this trait that fits. Bigger adds no detail - it is the same pixels, larger - but nothing downstream gets to soften them.">Max</button>
           <button class="btn ghost" id="dlSize" style="width:auto;padding:6px 12px;font-size:12px"
             title="Download the PNG at that size">Download</button></div>
         <p class="note"><span class="mono" id="savesizenote">-</span></p>
@@ -4626,36 +4631,35 @@ function traitCanvas(out){
   const g=c.getContext("2d"); g.imageSmoothingEnabled=false;
   g.drawImage(art,0,0);
   const im=g.getImageData(0,0,c.width,c.height);
-  /* At the collection grid size and above only.
+  /* WAS A GATE, and the reasoning for it: "At the collection grid size
+     and above only", because the border rule ate a shrunken trait -
+     measured at 4% of the art at 160, 62.5% at 8, and 100% of six
+     one-pixel lines shrunk to 40. That gate guarded a rule this path no
+     longer applies at all, so it guards nothing. Kept as a note because
+     those numbers are the argument against ever putting it back here
+     without asking what a pixel is worth at the size being saved. */
+  /* THE SAVE NO LONGER REPAINTS THE EDGE.
 
-     The border is one pixel wide at whatever size the canvas now is, and the
-     reasoning above blackenEdge weighs that against ENLARGEMENT only. Shrinking
-     redefines what a pixel is worth, and the share of the art it consumes was
-     measured on a sprite with no black in it: 4% at 160, 7.8% at 80, 14.9% at
-     40, 36% at 16, 62.5% at 8 - and 100% of six one-pixel lines shrunk to 40,
-     which came out of the canvas sky blue and out of the export solid black.
-     A thin line is entirely edge, so this rule was eating precisely what the
-     resampler rescue exists to save.
+     This ran on every save and set every opaque pixel touching empty space
+     to pure black. Measured on clothing/Exit Liquidity Red Hood Up, opened
+     and saved straight back with nothing else touched: 1163 pixels turned
+     black, none of them on the art own grid. The rule is one CANVAS pixel
+     wide and was written when a trait canvas was its own resolution; at
+     1280 with 8px blocks that is an eighth of an art pixel, laid over an
+     outline the artist had already drawn.
 
-     A canvas below the grid is not a collection trait, so the collection's
-     border rule has nothing to say about it. At or above the grid nothing here
-     changes, which covers every trait that was not deliberately shrunk.
+     THE RULE ITSELF IS NOT GONE. Its other caller is the extraction
+     pipeline, where a trait is cut out of a rendered character and an
+     anti-aliased export leaves a pale rim - that is what asserting black
+     removes, and the decision there that it must not become a checkbox
+     stands. This is the save path only: art that has already been through
+     that once and has just been edited by hand.
 
-     This gates on the CANVAS. Trait mode holds the canvas at the grid and
-     shrinks the art inside it, so a small trait on a full canvas is still
-     outlined - a 30x30 trait inside 160 loses about 13% of itself. Smaller
-     than what is being fixed here, and a separate question. */
-  if(c.width>=projectGrid && c.height>=projectGrid){
-    const was = out ? im.data.slice() : null;
-    const ring = blackenEdge(im.data,c.width,c.height);
-    if(out){
-      let changed=0;
-      for(let i=0;i<was.length;i+=4)
-        if(was[i]!==im.data[i]||was[i+1]!==im.data[i+1]
-         ||was[i+2]!==im.data[i+2]||was[i+3]!==im.data[i+3]) changed++;
-      out.edgeRing=ring; out.edgeChanged=changed;
-    }
-  }
+     edgeRing and edgeChanged are still set, at zero, because saveTrait
+     reads them to decide whether to say anything - and a save that says
+     "0 edge pixels set to black" would be worse than one that says
+     nothing. */
+  if(out){ out.edgeRing=0; out.edgeChanged=0; }
   g.putImageData(im,0,0);
   return c;
 }
@@ -4693,11 +4697,37 @@ function saveSide(){
    scale would blacken a ring k pixels thick, which on a 2x save is twice
    the line the collection asks for. So the rule is applied first and the
    result placed, never the other way round. */
+/* THE SCALE THE SAVE WILL USE, AND WHETHER IT HAD TO MOVE.
+
+   A whole multiple keeps every art pixel the same size; a fraction does
+   not. Measured on 1280 art in 8px blocks: at 3840 every block is 24
+   across, and at 4096 - which is 3.2x - they come out 25 and 26. So a
+   size that would scale up by a fraction is taken down to the whole
+   multiple below it.
+
+   UP ONLY. Below 1x the art is being reduced rather than enlarged, which
+   is a different question with a different answer, and this leaves it
+   exactly as it was. */
+function saveScale(f){
+  const side=saveSide();
+  if(!(side>0)||!(f&&f.w>0)) return {k:1, asked:0};
+  const k=side/f.w;
+  if(k>1&&!Number.isInteger(k)) return {k:Math.floor(k), asked:side};
+  return {k:k, asked:0};
+}
+/* The largest whole multiple of this trait that fits under the ceiling the
+   rest of the page draws. 3840 on a 1280 trait. */
+function saveMaxSide(){
+  const f=saveFootprint();
+  if(!(f.w>0)) return 0;
+  return Math.max(f.w, Math.floor(MAX_SIDE/f.w)*f.w);
+}
 function saveCanvas(out){
   const t=traitCanvas(out);
   const f=saveFootprint();
-  const side=saveSide();
-  const k=side>0 ? side/f.w : 1;
+  /* Through saveScale, so the file and the line under the box cannot
+     disagree about what is about to be written. */
+  const k=saveScale(f).k;
   /* Nothing to do: the file is already the size and shape asked for. */
   if(k===1&&f.w===t.width&&f.h===t.height) return t;
   const W=Math.max(1,Math.round(f.w*k)), H=Math.max(1,Math.round(f.h*k));
@@ -4713,17 +4743,24 @@ function saveCanvas(out){
 function saveSizeNote(){
   const el=$("savesizenote"); if(!el) return;
   if(!ctx||!art||!art.width){ el.textContent="-"; return; }
-  const f=saveFootprint(), side=saveSide();
-  const k=side>0 ? side/f.w : 1;
+  const f=saveFootprint();
+  const sc=saveScale(f), k=sc.k;
   const W=Math.max(1,Math.round(f.w*k)), H=Math.max(1,Math.round(f.h*k));
   const tw=Math.max(1,Math.round(art.width*k)), th=Math.max(1,Math.round(art.height*k));
   /* THE BOX SHOWS WHAT LEAVING IT EMPTY GIVES, in grey, so the size it
      will use is on screen without being typed. */
   const box=$("savesize"); if(box) box.placeholder=String(f.w);
+  /* SAID BEFORE ANYTHING IS PRESSED. A size taken down to a whole
+     multiple is a change to what was asked for, and the reason is worth
+     one clause: the alternative is blocks of 25 and 26. */
+  const movedNote = sc.asked
+    ? " \u00b7 not "+sc.asked+": that is "+(Math.round(sc.asked/f.w*100)/100)
+      +"\u00d7 and the pixels would come out uneven"
+    : "";
   el.textContent = (tw===W&&th===H)
-    ? "Writes "+W+"\u00d7"+H
+    ? "Writes "+W+"\u00d7"+H+movedNote
     : "Writes "+W+"\u00d7"+H+", the trait "+tw+"\u00d7"+th
-      +" where it sits on the base";
+      +" where it sits on the base"+movedNote;
 }
 async function saveTrait(){
   if(!ctx) return;
@@ -17285,6 +17322,13 @@ function downloadAtSize(){
 $('dlNative').onclick=()=>download(1);
 $('dlBig').onclick=()=>download(8);
 $('dlSize').onclick=downloadAtSize;
+$('savemax').onclick=()=>{
+  const n=saveMaxSide();
+  if(!n) return;
+  const box=$('savesize');
+  box.value=String(n);
+  box.dispatchEvent(new Event('input',{bubbles:true}));
+};
 /* Remembered, because a size typed once is a setting and not a gesture. */
 $('savesize').addEventListener('input',()=>{
   try{ localStorage.setItem(SAVE_SIZE_KEY,String(saveSide())); }catch(_){ }
@@ -18304,6 +18348,10 @@ async function fixLoad(file){
     return false;
   }
   FIX.src={data:sd, width:sw, height:sh};
+  /* MEASURED ONCE, HERE. Both the run and the readout want the block
+     size, the readout wants it on every keystroke, and measuring costs a
+     median 39ms and 664ms on the worst file in the collection. */
+  FIX.native=fixNativeBlock(sd,sw,sh);
   FIX.name=String(file.name||"image").replace(/\.[^.]+$/,"");
   /* THE FOLDERS IT CAME IN WITH. A File chosen through the folder picker
      carries them and one chosen through the ordinary picker does not, so
@@ -18632,11 +18680,44 @@ function fixWholeStep(w,step){
   if(best.d>want*WHOLE_STEP_NEAR) return null;
   return {cols:best.n, step:w/best.n, was:want};
 }
+/* The measured block, from the cache when this is the picture the single
+   tab has loaded and by measuring when it is not.
+
+   KEYED ON BEING THE VERY ARRAY, not on matching its size: a batch hands
+   over its own pixels, and a cache that matched on width would hand a
+   1280 file in a folder run the block size of whatever was loaded in the
+   other tab. */
+function fixNativeBlockFor(data,w,h){
+  if(data&&FIX.src&&data===FIX.src.data&&typeof FIX.native==="number")
+    return FIX.native;
+  return fixNativeBlock(data,w,h);
+}
 function fixStepFor(w,data,h){
   /* THIS DECISION, NOT THE LAST ONE. The flag says the step about to be
      returned was measured off the picture; left over from a previous run it
      puts that label on an answer that was typed. */
   fixMeasuredBlock=0; fixGridlessPick=0;
+  /* A NUMBER IN THE BOX IS AN INSTRUCTION, AND IT WINS.
+
+     This used to sit below the snap, so while the snap was on the
+     measured block answered and the box was ignored - asking sixteen
+     glasses for 4 gave 5, 8 and 10 and never 4. The measurement is there
+     to beat the declared grid, which is a setting nobody chose for this
+     picture; it has no business beating a size somebody typed for it.
+
+     0 still means work it out, which is what the box has always said. */
+  const asked=+$("fixforce").value||0;
+  const onGrid=$("fixgrid")&&$("fixgrid").checked;
+  if(asked>0){
+    /* Moved to a size that can give square pixels, if it cannot - the
+       same rule and the same note as the unsnapped path below. */
+    if(onGrid){
+      const fix=fixWholeStep(w,asked);
+      if(fix){ fixMoved={from:asked, to:fix.step, cols:fix.cols, was:fix.was};
+        return fix.step; }
+    }
+    return asked;
+  }
   if(fixSnapping()){
     /* THE PICTURE FIRST, THE SETTING SECOND. projectGrid says 160 and the
        art is mostly drawn at 128 cells; forcing the setting cut 8px cells
@@ -18644,7 +18725,7 @@ function fixStepFor(w,data,h){
        block is exact, so reducing on its boundaries loses nothing. */
     const px=data||(FIX.src&&FIX.src.data);
     const ph=h||(FIX.src&&FIX.src.height)||0;
-    const nat=px?fixNativeBlock(px,w,ph):0;
+    const nat=px?fixNativeBlockFor(px,w,ph):0;
     if(nat>1&&w>0&&CANVAS_SIDE%(w/nat)===0){ fixMeasuredBlock=nat; return nat; }
     /* NO BLOCK STRUCTURE. Letting the detectors answer here was tried
        and is worse: their counts are things like 510 and 127, which do
@@ -18685,19 +18766,22 @@ function fixMode(){
    control that lies. */
 function fixModeUI(){
   const scale=fixMode()==="scale";
-  /* SNAPPED, THE FIELD DECIDES NOTHING EITHER. A live box that changes no
-     answer is a control that lies, which is why scale already turns it
-     off and why this has to as well. */
-  const snap=fixSnapping()&&fixSnapStep(FIX.src?FIX.src.width:0)>0;
+  /* WAS ALSO GREYED OUT WHILE THE SNAP WAS ON, for the honest reason that
+     a live box changing no answer is a control that lies. It changes the
+     answer now - a typed size beats the measurement - so the fix for that
+     sentence is to let it decide, not to keep it switched off. Scale only
+     still turns it off, because there the picture really is already one
+     pixel per cell and there is nothing for a size to do. */
   const g=fixGridCells();
   const lab=$("fixsnaplab");
   if(lab) lab.textContent="Snap to the "+g.cells+" cell grid";
   const b=$("fixrun"); if(b) b.textContent=scale?"Scale it":"Fix it";
-  const f=$("fixforce"); if(f){ f.disabled=scale||snap; f.title=scale
+  const f=$("fixforce"); if(f){ f.disabled=scale; f.title=scale
     ? "Not used in scale only - the picture is already one pixel per cell."
-    : snap
-    ? "Not used while Snap is on - the pixel size comes from the "+g.cells+" cell grid."
-    : f.title; }
+    : "How many pixels of the picture make one pixel of the artwork."
+      +" A number here decides, even with Snap on. 0 works it out:"
+      +" the grid the picture is actually drawn on, or the "+g.cells
+      +" cell grid when it is not drawn on one."; }
 }
 function fixSizeHint(){
   const el=$("fixsize"); if(!el) return;
@@ -18755,11 +18839,21 @@ function fixSizeHint(){
   /* THE COUNT THE RUN WILL ACTUALLY USE, moved size and all - a readout
      that describes the request rather than the answer is worse than none. */
   const gridOn=$("fixgrid")&&$("fixgrid").checked;
-  const moved=(!scale&&!snap&&gridOn&&step>0)?fixWholeStep(FIX.src.width,step):null;
-  const cols=scale?FIX.src.width:(snap?g.cells:(moved?moved.cols
-    :Math.max(1,Math.round(FIX.src.width/step))));
-  const rows=scale?FIX.src.height:(snap?g.cells:(moved?moved.cols
-    :Math.max(1,Math.round(FIX.src.height/step))));
+  /* ASKED, NOT WORKED OUT AGAIN. This used to decide for itself that a
+     snapped run lands on the declared grid "whatever the source
+     measures", and then the run started measuring the source - so the
+     line said 160 on a picture about to come out at 256. A readout that
+     describes a different answer than the one about to be produced is
+     worse than no readout, and the only way it can be right for good is
+     to stop being a second opinion. fixStepFor sets fixMoved as a side
+     effect, which is where the moved-size note below comes from. */
+  fixMoved=null;
+  const decided=scale?0:fixStepFor(FIX.src.width,FIX.src.data,FIX.src.height);
+  const moved=fixMoved;
+  const cols=scale?FIX.src.width
+    :(decided>0?Math.max(1,Math.round(FIX.src.width/decided)):g.cells);
+  const rows=scale?FIX.src.height
+    :(decided>0?Math.max(1,Math.round(FIX.src.height/decided)):g.cells);
   /* AND WHETHER IT LANDS ON THE COLLECTION GRID. 1280/128 is 10 and every
      pixel comes out identical; 1280/85 is 15.06 and they differ by one.
      That is the difference between a trait that sits on the grid and one

@@ -452,13 +452,27 @@ test.describe('the exported PNG', () => {
     await page.waitForTimeout(300);
   };
 
-  test('a full-size trait is still outlined in black', async ({ page }) => {
-    // The half that must NOT change. Every trait that was not deliberately
-    // shrunk goes down this path, and the border is the collection's look.
+  test('THE EXPORT NO LONGER OUTLINES ANYTHING, AT ANY SIZE', async ({ page }) => {
+    /* REVERSED. This was "a full-size trait is still outlined in black", the
+       half that must NOT change, paired with "a shrunk trait is not" below -
+       and the pair was right about the rule at the time: the border was the
+       collection's look and the gate stopped it eating a shrunken trait.
+
+       The save stopped applying it at all. Measured on a real trait, opened
+       and saved straight back with nothing touched: it was turning 1163
+       pixels black, one CANVAS pixel wide on art drawn in eights, over an
+       outline the artist had already drawn. The rule still runs where it was
+       asked for, cutting a trait out of a rendered character.
+
+       So the two sizes now agree, and this says so rather than pretending
+       there is still a difference between them to check. */
     await openTrait(page, { w: 160, h: 160, draw: SPRITE });
-    const out = await exported(page);
-    expect(out.size).toBe('160x160');
-    expect(out.black, 'the collection border must survive at full size').toBeGreaterThan(300);
+    const full = await exported(page);
+    expect(full.size).toBe('160x160');
+    /* The sprite contains no black anywhere, so any black in the export was
+       invented by the border rule and nothing else. It used to be over 300. */
+    expect(full.black, 'nothing was repainted at full size').toBe(0);
+    expect(full.opaque, 'and the art itself is untouched').toBeGreaterThan(500);
   });
 
   test('a shrunk trait is not', async ({ page }) => {

@@ -231,16 +231,76 @@ test('THE FIXER CAN DO IT TO A WHOLE FOLDER', async ({ page }) => {
     const offRun = await run(false);
     const onRun = await run(true);
     return { offRun, onRun,
-      defaultOff: !document.getElementById('fixpal').defaultChecked };
+      defaultOn: document.getElementById('fixpal').defaultChecked };
   });
-  /* OFF BY DEFAULT: it rewrites every colour, which is not a thing to do to
-     somebody's art because they pressed Fix it. */
-  expect(r.defaultOff, 'off unless asked for').toBe(true);
-  expect(r.offRun.off, 'with the switch off the colours are the picture own')
+  /* ON BY DEFAULT, REVERSED. This read "OFF BY DEFAULT: it rewrites every
+     colour, which is not a thing to do to somebody's art because they
+     pressed Fix it" - and that was answering the wrong question. This tab
+     already rebuilds every pixel of the picture on a grid it worked out;
+     putting those pixels on the collection palette is the same kind of act,
+     not a new liberty. Asked for in as many words: "i want the site to
+     detect that and change it to the colour thats closest to it".
+
+     It is still a switch - on by default is not the same as always - and
+     the run still says what it did to every file. */
+  expect(r.defaultOn, 'it does it unless told not to').toBe(true);
+  expect(r.offRun.off, 'turned off, the colours are the picture own')
     .toBeGreaterThan(1000);
   expect(r.offRun.said, 'and nothing is claimed').not.toContain('palette');
   /* ON: the written file is entirely on the palette, and the run says so. */
   expect(r.onRun.off, 'every pixel of the file is a palette colour').toBe(0);
   expect(r.onRun.said).toContain('put on the palette');
   expect(r.onRun.said).toContain('colours moved across');
+});
+
+test('AND THE EDITOR SAYS WHAT IS OFF THE PALETTE WITHOUT BEING ASKED',
+  async ({ page }) => {
+    await ready(page);
+    await openOffPalette(page);
+    /* specCheck could always answer this - it is what the agent panel prints -
+       but you had to go to that panel and press something. It is the line
+       under the button that fixes it now, written whenever the swatches are
+       rebuilt, so it is right again after anything that changes the colours. */
+    const r = await page.evaluate(async () => {
+      const onOpen = document.getElementById('palsnapnote').textContent;
+      const realToast = window.toast; window.toast = () => {};
+      try { document.getElementById('palsnap').click(); } finally { window.toast = realToast; }
+      const afterPress = document.getElementById('palsnapnote').textContent;
+      document.getElementById('undo').click();
+      await new Promise(r2 => setTimeout(r2, 200));
+      return { onOpen, afterPress,
+        afterUndo: document.getElementById('palsnapnote').textContent };
+    });
+    expect(r.onOpen, 'it noticed on its own').toContain('2 colours not in the palette');
+    expect(r.afterPress, 'and then says what it did').toContain('2 colours moved');
+    /* THE ONE THAT MAKES IT USEFUL: undo puts the colours back, so the line
+       has to go back to describing them. A note written once at open would
+       still be claiming the trait was fixed. */
+    expect(r.afterUndo, 'and is right again after an undo')
+      .toContain('2 colours not in the palette');
+  });
+
+test('and it says so when there is nothing to say', async ({ page }) => {
+  await ready(page);
+  /* THE CONTROL. A line that only ever appears when something is wrong leaves
+     you unable to tell "checked and fine" from "never ran". */
+  const r = await page.evaluate(async () => {
+    try { authed = true; } catch (_) {}
+    gateShow(false);
+    await dbClear();
+    const pal = paletteList();
+    const S = 64, d = new Uint8ClampedArray(S * S * 4);
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+      const h = pal[(x + y) % pal.length], i = (y * S + x) * 4;
+      d[i] = parseInt(h.slice(1, 3), 16);
+      d[i + 1] = parseInt(h.slice(3, 5), 16);
+      d[i + 2] = parseInt(h.slice(5, 7), 16);
+      d[i + 3] = 255;
+    }
+    fileName = 'onpal.png';
+    startEditor(d, S, S, S, S, palette(d, S * S, 24, 64), false);
+    await new Promise(r2 => setTimeout(r2, 250));
+    return document.getElementById('palsnapnote').textContent;
+  });
+  expect(r).toBe('every colour is in the palette');
 });

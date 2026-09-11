@@ -120,17 +120,33 @@ test('A TRAIT SHRUNK ONTO THE BASE IS SAVED ON THE BASE, NOT CROPPED TO ITSELF',
     expect(r.basePixels, 'no base pixel in the file').toBe(0);
   });
 
-test('and with no base attached nothing changes at all', async ({ page }) => {
-  await ready(page);
-  /* THE CONTROL. The footprint is the canvas when there is no base, so this
-     is the path every save took before and has to still take - a version that
-     always padded to 1280 would pass the test above and quietly enlarge every
-     trait in a project drawn at a smaller size. */
-  const r = await run(page, { open: 1280, shrink: 640 });
-  expect(r.canvas).toBe('640x640');
-  expect(r.file, 'the canvas as it is').toBe('640x640');
-  expect(r.paint, 'and the art where it is').toBe('320x320@160,160');
-});
+test('AND WITH NO BASE, A SAVE IS STILL NEVER SMALLER THAN THE TRAIT',
+  async ({ page }) => {
+    await ready(page);
+    /* REVERSED. This was "and with no base attached nothing changes at all",
+       the control that a shrunken canvas with nothing to line up against
+       saves at its own size - 640 - because that is the path every save took
+       before patch422.
+
+       That is the case being complained about: shrink a 1280 trait to fit by
+       eye with no base pinned, and the file comes out 640, which looks soft
+       the moment a viewer or a mint scales it back up. Measured: the pixels
+       are exact at every size, four colours in and four out - what was wrong
+       was the size.
+
+       An empty box now writes at least the size the trait OPENED at. Not a
+       constant: a 16px trait has a floor of 16 and an off-size 200px trait a
+       floor of 200, so nothing that is deliberately small is enlarged and the
+       collection wrong-size check still has something to catch. */
+    const r = await run(page, { open: 1280, shrink: 640 });
+    expect(r.canvas, 'the canvas on screen is still the shrunken one').toBe('640x640');
+    expect(r.file, 'and the file is the size it opened at').toBe('1280x1280');
+    /* Scaled whole, so the art is where it was as a fraction of the picture
+       and every pixel is still square. */
+    expect(r.paint, 'the same picture, at the size it came in').toBe('640x640@320,320');
+    expect(r.note, 'and the line says why it is bigger than the canvas')
+      .toContain('the size this trait opened at');
+  });
 
 test('and a size typed in the box takes the whole thing to that size',
   async ({ page }) => {
@@ -168,10 +184,16 @@ test('and the wrong-size warning is about the file, not the canvas',
 test('but a file that really is off the grid is still named', async ({ page }) => {
   await ready(page);
   /* THE POSITIVE CONTROL for the line above. Without it, "says nothing" could
-     mean the warning was removed rather than aimed at the right number. */
+     mean the warning was removed rather than aimed at the right number.
+
+     600 was the size before the floor; with it the file is 1200, which is
+     the whole multiple of 600 that fits under the 1280 the trait opened at.
+     1200 is still not a whole multiple of the 160 cell grid, which is the
+     property this test is about - the number moved, what it is testing did
+     not. */
   const r = await run(page, { open: 1280, shrink: 600 });
-  expect(r.file).toBe('600x600');
-  expect(r.said, 'and it says which size it was').toContain('600×600');
+  expect(r.file).toBe('1200x1200');
+  expect(r.said, 'and it says which size it was').toContain('1200×1200');
   expect(r.said).toContain('not on the');
 });
 
@@ -322,4 +344,34 @@ test('and Max fills in the biggest one that fits', async ({ page }) => {
   expect(r.note).toContain('3840×3840');
   /* Nothing to apologise for - it is exactly what was asked for. */
   expect(r.note).not.toContain('not ');
+});
+
+test('and the floor is the trait, not a number', async ({ page }) => {
+  await ready(page);
+  /* THE CONTROL that keeps the floor honest. Defaulting the box to the
+     collection canvas was tried first and is wrong: it enlarges everything,
+     including traits that are deliberately small and traits that are the
+     wrong size - and an off-size trait silently becoming on-size turns off
+     the collection's own wrong-size check. Five tests said so.
+
+     A 40px trait opened at 40 has a floor of 40. */
+  const r = await page.evaluate(async () => {
+    try { authed = true; } catch (_) {}
+    gateShow(false);
+    await dbClear();
+    const S = 40, d = new Uint8ClampedArray(S * S * 4);
+    for (let i = 0; i < S * S; i++) { d[i * 4] = 200; d[i * 4 + 3] = 255; }
+    fileName = 'small.png';
+    startEditor(d, S, S, S, S, palette(d, S * S, 24, 64), false);
+    await new Promise(r2 => setTimeout(r2, 200));
+    const box = document.getElementById('savesize');
+    box.value = ''; box.dispatchEvent(new Event('input', { bubbles: true }));
+    const c = saveCanvas();
+    const out = c.width + 'x' + c.height;
+    c.width = 1; c.height = 1;
+    return { out, note: document.getElementById('savesizenote').textContent };
+  });
+  expect(r.out, 'a small trait is not enlarged to the collection canvas').toBe('40x40');
+  expect(r.note, 'and nothing claims a floor was applied')
+    .not.toContain('the size this trait opened at');
 });

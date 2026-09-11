@@ -645,6 +645,21 @@ button.planhead:focus-visible{outline:2px solid var(--accent); outline-offset:2p
 .item .x{position:absolute; top:3px; right:3px; width:19px; height:19px; border-radius:5px;
   background:#0b0910cc; color:var(--muted); font-size:13px; line-height:1; display:none;}
 .item:hover .x{display:grid; place-items:center;}
+/* THE SAME TREATMENT AS THE REMOVE BUTTON, on the other corner. Its own
+   rule rather than a shared selector: the two are the same shape today
+   and one of them is destructive, so a change to that one must not reach
+   this one by accident. */
+.item .fx{position:absolute; top:3px; left:3px; height:19px; padding:0 6px;
+  border-radius:5px; background:#0b0910cc; color:var(--muted);
+  font-size:10px; line-height:19px; display:none;}
+.item:hover .fx{display:block;}
+.item .fx:hover{color:var(--accent);}
+/* And it exists on a touch screen, where there is no hover to reveal it -
+   the remove button carries the same note and the same 30px target. */
+@media (hover:none){
+  .item .fx{display:block; height:30px; line-height:30px; font-size:12px;
+    padding:0 9px;}
+}
 /* WITHOUT A HOVER THERE IS NO REMOVE BUTTON AT ALL. The rule above is the
    only thing that shows it, so on a touch screen it never appeared once and
    nothing else on the tile removes a trait. (hover:none) rather than a
@@ -1091,6 +1106,37 @@ input[type=range]{width:100%; accent-color:var(--accent); cursor:pointer;}
    at the 64-swatch cap nine columns is still eight rows, so the extra column
    would have cost a smaller target for no fewer rows. */
 .swatches{display:grid; grid-template-columns:repeat(8,1fr); gap:4px;}
+/* THE COLOURS IN THE PICTURE STAY IN VIEW.
+
+   #pal only, not .swatches: the strip in the left column is the same set
+   under a different id and is already always open, and making the shared
+   class sticky would pin it inside a column it does not scroll in.
+
+   The panel grew 420px past what it can show when the project palette went
+   in under this, and scrolling to reach that took these off the top -
+   measured from 171px inside the card to 249px above it. Everything else
+   on the panel acts on them, so they have to be there while it does.
+
+   An opaque background, or the palette scrolls THROUGH them rather than
+   behind. Padding underneath for the same reason: without it a row of
+   swatches sits flush against the ones passing under it.
+
+   AND IT IS PINNED 22px HIGHER THAN IT SITS, with 22px of its own padding
+   putting the swatches back where they were. A scroll box clips at its
+   BORDER box while sticky pins to its PADDING box, so .card{padding:22px}
+   leaves a 22px band above the pinned row that the palette scrolls
+   through - measured, a visible sliver of swatches over the top of them.
+
+   A NEGATIVE MARGIN DOES NOT DO THIS, which was the first attempt: the
+   sticky constraint pins the MARGIN box to top, so -22px is absorbed by it
+   and the element only grows downward. Measured after that change - the
+   painted top was still 23px in and elementFromPoint at the top of the
+   card still answered projpal. top:-22px moves what sticky pins to.
+
+   The number is the card padding. If that changes, this is the other half
+   of that change, and the check below fails until it is made. */
+#pal{position:sticky; top:-22px; z-index:2; background:var(--panel);
+  padding:22px 0 6px;}
 /* Moves WITH the column count above, never on its own: at 26px the floor
    binds at nine columns and swallows the change. */
 .sw{aspect-ratio:1; min-height:22px; border-radius:4px; border:1px solid #ffffff1a; padding:0;}
@@ -2031,6 +2077,9 @@ footer .mono{color:var(--ink);}
         <label for="shelfpicklayer" class="sr-only">Move the picked traits to</label>
         <select id="shelfpicklayer" aria-label="Move the picked traits to"></select>
         <button class="mini go" id="shelfpickmove" disabled>Move</button>
+        <!-- The same traits, the other way out. -->
+        <button class="mini" id="shelfpickfix" disabled
+          title="Send the picked traits to Fix pixels as one run. They come back to the layers they came from.">Fix pixels</button>
         <button class="mini" id="shelfpicknone" disabled>Clear</button>
       </div>
     </div>
@@ -3743,6 +3792,7 @@ function shelfPickPaint(){
     const c=$("shelfpickcount"); if(c) c.textContent = n ? n+" picked" : "Nothing picked";
     const mv=$("shelfpickmove"); if(mv) mv.disabled=!n;
     const cl=$("shelfpicknone"); if(cl) cl.disabled=!n;
+    const fx=$("shelfpickfix"); if(fx) fx.disabled=!n;
   }
   for(const el of document.querySelectorAll("#projbody [data-shelf-card-key]")){
     const on=shelfPick.has(el.dataset.shelfCardKey);
@@ -4566,6 +4616,17 @@ async function renderShelf(viewOnly){
         if(!confirm('Remove "'+t.name+'" from '+(t.layer||"unsorted")+'?')) return;
         const gone=await dbDelShared(t); visibility.show(key); renderShelf(); toast(gone ? ('Removed '+t.name) : ('Removed '+t.name+' here, but the group still has it - it will come back')); };
       el.appendChild(x);
+      /* STRAIGHT INTO THE FIXER. Beside the remove button rather than on
+         the tile body, which already opens the editor - two different
+         things to do with a trait, two places to press. */
+      const fx=document.createElement("button"); fx.className="fx";
+      fx.textContent="fix";
+      fx.title="Send "+t.name+" to Fix pixels";
+      fx.setAttribute("aria-label","Send "+t.name+" to Fix pixels");
+      fx.onclick=async ev=>{ ev.stopPropagation();
+        if(!await fixFromRecords([t])) return;
+        toast("Sent "+t.name+" to Fix pixels"); };
+      el.appendChild(fx);
       el.onclick=async()=>{
         if(!await openTraitRecord(t)) toast("Could not open "+(t.name||"that trait"));
       };
@@ -5244,6 +5305,20 @@ function zip(files){
   return new Blob([...parts,...central,new Uint8Array(end.buffer)],{type:'application/zip'});
 }
 $('shelfpickmove').onclick=()=>bulkMoveToLayer($('shelfpicklayer').value);
+/* THE PICKED TRAITS, INTO THE FIXER. Read out of the same records the
+   shelf rendered, in the order they are on the shelf, so what is sent is
+   what is showing. */
+$('shelfpickfix').onclick=async()=>{
+  const keys=[...shelfPick];
+  if(!keys.length){ toast("Pick some traits first"); return; }
+  let items=[];
+  try{ items=await dbAll(); }catch(_){ toast("Could not read the project"); return; }
+  const want=new Set(keys);
+  const recs=items.filter(i=>i&&i.kind==="trait"&&want.has(shelfCore.recordKey(i)));
+  if(!recs.length){ toast("Those traits are no longer here"); return; }
+  if(!await fixFromRecords(recs)) return;
+  toast("Sent "+recs.length+" trait"+(recs.length===1?"":"s")+" to Fix pixels");
+};
 $('shelfpicknone').onclick=()=>{ shelfPick.clear(); shelfPickPaint(); };
 /* SHOWN, not all. The shelf filters by search and by status, and picking
    traits a person cannot see - then moving them - is the kind of surprise that
@@ -19499,6 +19574,35 @@ function fileWithPath(bytes,rel){
   const f=new File([bytes],base,{type:"image/png"});
   try{ Object.defineProperty(f,"webkitRelativePath",{value:parts.join("/")}); }catch(_){ }
   return f;
+}
+/* TRAITS OFF THE SHELF, INTO THE FIXER.
+
+   Through fileWithPath, so each one arrives carrying "layer/name.png" -
+   the same shape a folder import has. That is what makes the round trip
+   work: the fixer Save to project reads the layer out of the path, so a
+   trait goes back to the layer it came from under the name it had, and
+   nobody has to say where it lives twice.
+
+   One goes to fixLoad and several to fixBatch, which is the same fork the
+   drop handler makes - written once here so the two cannot drift. */
+async function fixFromRecords(recs){
+  const list=(recs||[]).filter(r=>r&&r.blob);
+  if(!list.length){ toast("Nothing to send"); return false; }
+  if(typeof mayUse==="function"&&!mayUse()) return false;
+  const files=[];
+  for(const r of list){
+    let bytes;
+    try{ bytes=new Uint8Array(await r.blob.arrayBuffer()); }
+    catch(_){ continue; }
+    const layer=String(r.layer||"unsorted");
+    const name=String(r.name||"trait").replace(/[\\/]/g,"-");
+    files.push(fileWithPath(bytes,layer+"/"+name+".png"));
+  }
+  if(!files.length){ toast("Could not read those traits"); return false; }
+  showPage("fixer",false);
+  if(files.length===1){ $("fixbatch").hidden=true; await fixLoad(files[0]); }
+  else await fixBatch(files);
+  return true;
 }
 function fixSaveSay(m){ const el=$("fixsaveout"); if(el) el.textContent=m; }
 /* INTO THE PROJECT BY THE DOOR AN IMPORT USES.

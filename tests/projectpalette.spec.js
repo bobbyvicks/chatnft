@@ -304,3 +304,54 @@ test('and it says so when there is nothing to say', async ({ page }) => {
   });
   expect(r).toBe('every colour is in the palette');
 });
+
+test('AND THE COLOURS IN THE PICTURE STAY IN VIEW WHILE THE PALETTE SCROLLS',
+  async ({ page }) => {
+    await ready(page);
+    await openOffPalette(page);
+    /* Putting 256 colours under the trait's own made the panel 420px taller
+       than it can show, and the trait's swatches are at the top of that - so
+       scrolling to reach the palette took them off screen entirely. Measured
+       before: from 171px inside the card to 249px above it. Everything else
+       on this panel acts on those colours, so they have to be there while it
+       does. */
+    const r = await page.evaluate(async () => {
+      try { railPanel('cl', true); } catch (_) {}
+      await new Promise(r2 => setTimeout(r2, 400));
+      const card = document.querySelector('.scrim.pop:not([hidden]) .card');
+      const pal = document.getElementById('pal');
+      const box = () => {
+        const c = card.getBoundingClientRect(), p = pal.getBoundingClientRect();
+        return { top: Math.round(p.top - c.top), bottom: Math.round(p.bottom - c.top),
+          cardTop: c.top, cardLeft: c.left, cardWidth: c.width };
+      };
+      const before = box();
+      card.scrollTop = card.scrollHeight;
+      await new Promise(r2 => setTimeout(r2, 200));
+      const after = box();
+      /* And what is actually painted at the very top of the card - a sliver of
+         palette scrolling through the card's padding was the first attempt's
+         failure, and a position check alone did not see it. */
+      const atTop = document.elementFromPoint(
+        Math.round(after.cardLeft + after.cardWidth / 2),
+        Math.round(after.cardTop + 6));
+      return { before, after, scrolled: card.scrollTop > 100,
+        atTop: atTop ? (atTop.id || atTop.className || atTop.tagName) : 'none' };
+    });
+    expect(r.scrolled, 'the panel really did scroll').toBe(true);
+    /* It is still on screen, near the top rather than off it. */
+    expect(r.after.top, 'pinned to the top of the panel').toBeLessThan(12);
+    /* THE SAME BOX, not the same place: pinned means it moves relative to the
+       card, which is the point. What must not change is its size - the 22px
+       of padding that covers the band above it is inside the element, and a
+       version that grew downward instead would show here. */
+    /* Within a pixel: the two boxes are rounded from different positions, so
+       a sub-pixel offset lands as 61 against 62 and is not a defect. */
+    expect(Math.abs((r.after.bottom - r.after.top) - (r.before.bottom - r.before.top)),
+      'the same height as before').toBeLessThanOrEqual(1);
+    /* THE ONE A POSITION CHECK MISSES. A negative margin left the element
+       pinned where it was and only grew it downward, so the palette still
+       scrolled through the card's 22px of padding above it - measured, the
+       painted top was 23px in and this answered "projpal". */
+    expect(r.atTop, 'and nothing scrolls through above them').toBe('pal');
+  });

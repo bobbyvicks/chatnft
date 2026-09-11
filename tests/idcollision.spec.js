@@ -97,12 +97,18 @@ test.describe('one trait must not overwrite another', () => {
   });
 
   test('cycling a trait right round returns it to itself', async ({ page }) => {
-    // The other control: wip -> approved -> rejected -> wip lands back on the
-    // id it started from, which must NOT be read as a collision with itself.
+    // The other control: the cycle lands back on the id it started from,
+    // which must NOT be read as a collision with itself.
+    //
+    // FOUR STEPS NOW, not three. stfp was added between approved and
+    // rejected, so the round trip is wip -> approved -> stfp -> rejected ->
+    // wip. Walking the list rather than naming each step, so the next state
+    // added lengthens the walk instead of breaking it.
     await page.evaluate(async () => { await dbDel('t_gold_skins_approved'); await renderShelf(); });
     await page.waitForTimeout(300);
     await cycle(page, 'wip');
     await cycle(page, 'approved');
+    await cycle(page, 'stfp');
     const r = await cycle(page, 'rejected');
     expect(r.said.join(' '), 'the last step is allowed').toContain('gold -> wip');
     expect(r.records.length).toBe(1);

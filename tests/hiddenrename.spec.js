@@ -126,8 +126,12 @@ test.describe('a hidden trait stays hidden when it is renamed', () => {
       finally { window.toast = realToast; }
     });
     const r = await state(page);
-    expect(r.ids, 'the status changed').toContain('t_cap_hats_rejected');
-    expect(r.hidden, 'and the key came with it').toEqual(['t_cap_hats_rejected']);
+    /* STFP, not rejected. The trait seeds as approved and one press of the
+       cycle used to land on rejected; stfp was added between them, so the
+       next state along is now that. What this test is about - the hidden key
+       following a status change - is untouched by which state it lands in. */
+    expect(r.ids, 'the status changed').toContain('t_cap_hats_stfp');
+    expect(r.hidden, 'and the key came with it').toEqual(['t_cap_hats_stfp']);
   });
 
   test('a trait with a server row keeps its key, and stays hidden', async ({ page }) => {

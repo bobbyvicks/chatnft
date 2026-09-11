@@ -168,7 +168,10 @@ test.describe('the editing panel', () => {
         w: Math.round(b.getBoundingClientRect().width),
         needs: b.scrollWidth,
       })));
-    expect(chips.length, 'all three states are there').toBe(3);
+    /* FOUR. Was three - stfp joined wip, approved and rejected as the set
+       that ships. The count is asserted rather than a minimum because a chip
+       going MISSING is the failure this file exists for. */
+    expect(chips.length, 'all four states are there').toBe(4);
     for (const c of chips)
       expect(c.w, c.text + ' is wide enough to read').toBeGreaterThanOrEqual(c.needs);
   });

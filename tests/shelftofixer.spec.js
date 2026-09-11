@@ -75,7 +75,13 @@ test('A TILE SENDS ONE TRAIT, CARRYING ITS LAYER', async ({ page }) => {
   /* THE HALF THAT MAKES THE ROUND TRIP WORK. Without the layer in the path,
      the fixer's save reads no category and everything comes back to
      unsorted. */
-  expect(r.rel, 'it carries where it came from').toBe('clothing/Hoodie.png');
+  /* WAS 'clothing/Hoodie.png'. The layer alone was not enough: the id is
+     t_name_layer_status, so a trait saved back under a status the path did
+     not carry landed on a new record and the old one was deleted as a file
+     that had moved. See fixerroundtrip.spec.js, which goes all the way
+     round - this one only ever looked at the path. */
+  expect(r.rel, 'it carries where it came from')
+    .toBe('clothing/approved/Hoodie.png');
   /* One trait goes down the single-image path, not the batch one - the same
      fork the drop handler makes. */
   expect(r.batchHidden).toBe(true);
@@ -108,7 +114,9 @@ test('AND THE PICKED ONES GO AS ONE RUN', async ({ page }) => {
   expect(r.page).toBe('fixer');
   expect(r.n, 'both of them, in one run').toBe(2);
   /* EACH ONE CARRYING ITS OWN LAYER, which is what sends them home again. */
-  expect(r.rels).toEqual(['clothing/Hoodie.png', 'glasses/Shades.png']);
+  /* WAS without the status folders, for the reason in the test above. */
+  expect(r.rels).toEqual(['clothing/approved/Hoodie.png',
+    'glasses/approved/Shades.png']);
   expect(r.said).toContain('Sent 2 traits to Fix pixels');
 });
 

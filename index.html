@@ -19620,7 +19620,18 @@ async function fixFromRecords(recs){
     catch(_){ continue; }
     const layer=String(r.layer||"unsorted");
     const name=String(r.name||"trait").replace(/[\\/]/g,"-");
-    files.push(fileWithPath(bytes,layer+"/"+name+".png"));
+    /* THE STATUS TOO, or the trait comes back wip and takes the record it
+       came from with it. The id is t_name_layer_status, so a save under a
+       different status is a new record - and bulkImport then reads the old
+       one as a file that moved on disk and deletes it. Measured: an
+       approved Hoodie with a rarity of 7 came back as wip with none.
+
+       Against STATUSES, not passed through: an unrecognised segment is not
+       a status to readPath, it is a FOLDER, and that invents a category.
+       Anything it does not know means wip, which is what it meant before. */
+    const st=String(r.status||"wip");
+    const status=STATUSES.indexOf(st)>=0?st:"wip";
+    files.push(fileWithPath(bytes,layer+"/"+status+"/"+name+".png"));
   }
   if(!files.length){ toast("Could not read those traits"); return false; }
   showPage("fixer",false);

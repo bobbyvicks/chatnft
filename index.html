@@ -362,6 +362,23 @@ button.planhead:focus-visible{outline:2px solid var(--accent); outline-offset:2p
   border:1px solid var(--line); color:var(--muted); font-size:12px; flex:none;}
 .lbtn:hover:not([disabled]){border-color:var(--accent); color:var(--ink);}
 .lbtn[disabled]{opacity:.28; cursor:not-allowed;}
+/* THE DRAG HANDLE. touch-action:none is not decoration: without it the
+   browser claims the gesture as a scroll and the row never moves on a
+   touch screen, which is every phone and half the tablets. 27px to match
+   the buttons beside it, which is over the 22px target floor. */
+.lgrip{width:27px; height:27px; border-radius:6px; background:var(--panel-2);
+  border:1px solid var(--line); color:var(--dim); font-size:12px; flex:none;
+  letter-spacing:1px; cursor:grab; touch-action:none; user-select:none;}
+.lgrip:hover{border-color:var(--accent); color:var(--ink);}
+.lgrip:active{cursor:grabbing;}
+/* The row being dragged, so it reads as picked up rather than as a
+   glitch while the others move around it. */
+.lrow.dragging{opacity:.6; background:var(--panel-2); border-radius:6px;}
+/* A set that is off. Dimmed rather than hidden - it is still in the draw
+   order and still has its traits, it is just not being drawn. */
+.lrow.off .lname,.lrow.off .lcount{opacity:.45;}
+.leye{width:auto; min-width:42px; padding:0 8px; font-size:11px;}
+.leye.on{border-color:var(--accent); color:var(--ink);}
 .projhead .acts input{width:150px;}
 #projsearch{padding:7px 10px; border-radius:8px; background:var(--ground);
   border:1px solid var(--line); color:var(--ink); font:inherit; font-size:12.5px;}
@@ -1920,6 +1937,29 @@ footer .mono{color:var(--ink);}
   </section>
   <!-- What the group has been doing. First on the settings page because it
        is the thing you glance at, not the thing you configure. -->
+  <section class="proj pg-settings" id="layers" hidden>
+    <div class="projhead">
+      <h2>Layers</h2>
+      <span class="count" id="layercount"></span>
+      <div class="acts">
+        <input id="newlayer" type="text" placeholder="new layer name" aria-label="New layer name" autocapitalize="none" autocorrect="off" spellcheck="false">
+        <button class="mini" id="addlayer">Add</button>
+      </div>
+    </div>
+    <div id="layerbody"></div>
+    <p class="note">Top of the list draws in front. Removing a layer sends its traits to unsorted.</p>
+  </section>
+  <section class="proj pg-settings" id="plan" hidden>
+    <div class="projhead">
+      <h2><button class="projfold" id="planfold" type="button" aria-controls="planbody"
+        aria-expanded="true" title="Hide the rarity plan">Plan rarity<span class="fold" aria-hidden="true">▾</span></button></h2>
+      <span class="count" id="plancount"></span>
+      <div class="acts">
+        <button class="mini" id="planseedall">Set the rest to normal</button>
+      </div>
+    </div>
+    <div id="planbody"></div>
+  </section>
   <section class="proj pg-settings" id="updates" hidden>
     <div class="projhead">
       <h2>What changed</h2>
@@ -2013,29 +2053,6 @@ footer .mono{color:var(--ink);}
     </div>
     <p class="note" id="ruleimportnote" hidden></p>
     <input type="file" id="rulefile" accept="application/json,.json,.txt,text/plain" hidden>
-  </section>
-  <section class="proj pg-settings" id="layers" hidden>
-    <div class="projhead">
-      <h2>Layers</h2>
-      <span class="count" id="layercount"></span>
-      <div class="acts">
-        <input id="newlayer" type="text" placeholder="new layer name" aria-label="New layer name" autocapitalize="none" autocorrect="off" spellcheck="false">
-        <button class="mini" id="addlayer">Add</button>
-      </div>
-    </div>
-    <div id="layerbody"></div>
-    <p class="note">Top of the list draws in front. Removing a layer sends its traits to unsorted.</p>
-  </section>
-  <section class="proj pg-settings" id="plan" hidden>
-    <div class="projhead">
-      <h2><button class="projfold" id="planfold" type="button" aria-controls="planbody"
-        aria-expanded="true" title="Hide the rarity plan">Plan rarity<span class="fold" aria-hidden="true">▾</span></button></h2>
-      <span class="count" id="plancount"></span>
-      <div class="acts">
-        <button class="mini" id="planseedall">Set the rest to normal</button>
-      </div>
-    </div>
-    <div id="planbody"></div>
   </section>
   <section class="proj pg-project" id="proj" hidden>
     <div class="projhead">
@@ -13523,8 +13540,15 @@ async function saveLayers(){
      hidden is deliberately NOT sent: a set turned off is how one person is
      working today, not a property of the project. */
   const sig=LAYERS.join("\u0000");
-  if(!activeWs){ sharedLayerSig=null; await renderShelf(); return true; }
-  if(sig===sharedLayerSig){ await renderShelf(); return true; }
+  /* THE PAINT FIRST, THE GROUP SECOND. All three ways out of here ended
+     in the same renderShelf, and on the one that talks to the server it
+     came AFTER the round trip - so in a group the list did not move until
+     the PATCH came back, on every single press. What is on screen is a
+     fact about this browser and the write above has already happened; the
+     send is still awaited, so a caller can still say it did not land. */
+  await renderShelf();
+  if(!activeWs){ sharedLayerSig=null; return true; }
+  if(sig===sharedLayerSig) return true;
   let shared=false;
   try{
     const u=await sbUser();
@@ -13539,7 +13563,6 @@ async function saveLayers(){
   /* Remembered only when it actually arrived, so a failed send is retried by
      the next change rather than being assumed done. */
   sharedLayerSig = shared ? sig : null;
-  await renderShelf();
   return shared;
 }
 
@@ -13639,6 +13662,85 @@ async function renameLayer(oldName,raw){
         +(r.stranded?" - "+r.stranded+" not shared yet, press Save to cloud":""));
 }
 
+/* DRAGGING ONE LAYER PAST THE OTHERS.
+
+   The rows carry the order and the DOM is where it is rearranged while
+   the gesture is happening - LAYERS is written once, at the end, from
+   what the rows ended up as. Nothing is saved mid-drag: a reorder that
+   wrote on every crossing would be the arrows again with extra steps.
+
+   Pointer events rather than the drag-and-drop API, which never fires on
+   touch.
+
+   THE LISTENERS GO ON THE WINDOW, AND THERE IS NO setPointerCapture.
+   That was the first version and it is wrong in a way worth writing
+   down: a capture is released the moment its element leaves the
+   document, and reordering moves the row - handle and all - in the DOM.
+   Measured, dragging a layer the length of the panel: the row moved
+   exactly ONE place and then went deaf, because the first insertBefore
+   released the capture the rest of the gesture depended on. A window
+   listener does not care where the row went. */
+let layerDrag=null;
+function layerDragStart(e,row){
+  if(e.button!==undefined&&e.button>0) return;
+  /* Or the browser takes it as a scroll or a text selection. */
+  e.preventDefault();
+  const body=$("layerbody"); if(!body) return;
+  layerDrag={row:row, body:body, moved:false, id:e.pointerId, move:null, end:null};
+  row.classList.add("dragging");
+  layerDrag.move=ev=>layerDragMove(ev);
+  layerDrag.end=ev=>layerDragEnd(ev);
+  window.addEventListener("pointermove",layerDrag.move,true);
+  window.addEventListener("pointerup",layerDrag.end,true);
+  window.addEventListener("pointercancel",layerDrag.end,true);
+}
+/* One finger at a time: a second pointer landing mid-drag would otherwise
+   steer the row the first one is holding. */
+function layerDragMine(e){
+  return !layerDrag || layerDrag.id===undefined || e.pointerId===undefined
+    || e.pointerId===layerDrag.id;
+}
+/* The row moves when the pointer passes the MIDDLE of a neighbour, not
+   its edge: on edges a row swaps back and forth the whole way across a
+   boundary, because moving it puts the edge under the pointer again. */
+function layerDragMove(e){
+  if(!layerDrag||!layerDragMine(e)) return;
+  const rows=[...layerDrag.body.querySelectorAll(".lrow")];
+  const cur=rows.indexOf(layerDrag.row);
+  if(cur<0) return;
+  const y=e.clientY;
+  for(let i=0;i<rows.length;i++){
+    if(i===cur) continue;
+    const b=rows[i].getBoundingClientRect();
+    const mid=b.top+b.height/2;
+    if(i<cur&&y<mid){ layerDrag.body.insertBefore(layerDrag.row,rows[i]); layerDrag.moved=true; return; }
+    if(i>cur&&y>mid){ layerDrag.body.insertBefore(layerDrag.row,rows[i].nextSibling); layerDrag.moved=true; return; }
+  }
+}
+async function layerDragEnd(e){
+  if(!layerDragMine(e)) return;
+  const d=layerDrag; layerDrag=null;
+  if(!d) return;
+  window.removeEventListener("pointermove",d.move,true);
+  window.removeEventListener("pointerup",d.end,true);
+  window.removeEventListener("pointercancel",d.end,true);
+  d.row.classList.remove("dragging");
+  /* A press that went nowhere is not a reorder, and writing on one would
+     put a save behind every stray tap on the handle. */
+  if(!d.moved) return;
+  const shown=[...d.body.querySelectorAll(".lrow")].map(r=>r.dataset.layer);
+  /* The panel paints the FRONT at the top and LAYERS is back to front. */
+  const order=shown.slice().reverse();
+  /* REFUSED RATHER THAN WRITTEN if the rows and the list disagree - a
+     render that landed mid-drag would otherwise write a list missing a
+     layer, and the layer is what every trait id and rule is keyed on. */
+  const same = order.length===LAYERS.length
+    && order.every(n=>typeof n==="string"&&LAYERS.indexOf(n)>=0)
+    && new Set(order).size===order.length;
+  if(!same){ await renderShelf(); return; }
+  LAYERS=order;
+  if(!await saveLayers()) toast("Order changed here"+LAYERS_NOT_SHARED);
+}
 function buildLayerPanel(items){
   const sec=$("layers");
   if(!items.length){ sec.hidden=true; return; }
@@ -13657,6 +13759,18 @@ function buildLayerPanel(items){
     const n=traits.filter(t=>t.layer===name).length;
     const row=document.createElement("div");
     row.className="lrow";
+    /* WHAT THE DRAG WRITES BACK. Read off the row at the end of the
+       gesture rather than captured in the handler, so a row that was
+       rebuilt underneath still says which layer it is. */
+    row.dataset.layer=name;
+    const off=HIDDEN_LAYERS.has(name);
+    if(off) row.classList.add("off");
+    const grip=document.createElement("button");
+    grip.type="button"; grip.className="lgrip";
+    grip.textContent=String.fromCharCode(8942)+String.fromCharCode(8942);
+    grip.title="Drag to move this layer in front of or behind the others";
+    grip.setAttribute("aria-label","Drag "+name+" to reorder");
+    grip.onpointerdown=e=>layerDragStart(e,row);
     const inp=document.createElement("input");
     inp.className="lname"; inp.value=name; inp.setAttribute("aria-label","Layer name");
     inp.onkeydown=e=>{ if(e.key==="Enter"){ e.preventDefault(); inp.blur(); }
@@ -13680,7 +13794,29 @@ function buildLayerPanel(items){
     del.setAttribute("aria-label","Remove "+name);
     del.disabled=(name==="unsorted");
     del.onclick=()=>removeLayer(name);
-    row.appendChild(inp); row.appendChild(cnt);
+    /* THE SAME SET, FROM THE ROW IT IS ABOUT. This is the shelf heading
+       button in the place people look when they are thinking about draw
+       order - one HIDDEN_LAYERS, one saveLayers, so both controls say the
+       same thing and neither is a second opinion. */
+    const eye=document.createElement("button");
+    eye.className="lbtn leye"+(off?" on":"");
+    eye.type="button";
+    eye.textContent=off?"off":"on";
+    eye.setAttribute("aria-pressed",String(off));
+    eye.setAttribute("aria-label",(off?"Turn on the ":"Turn off the ")+name+" set");
+    eye.title=off
+      ? "This set is off - nothing in it is drawn. Click to draw from it again."
+      : "Stop drawing from this set. The traits stay here and nothing is deleted.";
+    eye.onclick=async()=>{
+      if(HIDDEN_LAYERS.has(name)) HIDDEN_LAYERS.delete(name);
+      else HIDDEN_LAYERS.add(name);
+      try{ await saveLayers(); }catch(_){ toast("Could not save that"); return; }
+      toast(HIDDEN_LAYERS.has(name)
+        ? name+" is off - nothing in it will be drawn"
+        : name+" is on again");
+    };
+    row.appendChild(grip); row.appendChild(inp); row.appendChild(cnt);
+    row.appendChild(eye);
     row.appendChild(up); row.appendChild(dn); row.appendChild(del);
     body.appendChild(row);
   }

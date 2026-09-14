@@ -986,7 +986,29 @@ header .logo{width:24px; height:24px; border-radius:6px;}
    still surrounds it - which is what makes the edge readable rather than
    just bright. A class on a div, so it cannot reach a save or an export for
    the same reason the base never does: neither is a canvas. */
+/* THE EMPTY PARTS OF THE CANVAS, and the one thing that says they are
+   empty. It was var(--panel) against a 55% mix of --ground - #1a1720 and
+   #16131b - which is 1.04 between the squares and 1.14 against a black
+   pixel. A black dot on nothing was invisible, and the chequer that is
+   supposed to say "nothing" was invisible too.
+
+   #948da0 and #7a7387 measure 4.63 against black and 3.19 against white,
+   so both ends clear the 3:1 that tells two non-text things apart, and
+   1.42 between the squares reads as a chequer. Lighter helps black and
+   costs white: the next candidate measured was 5.06 and 2.62.
+
+   16px squares, matching the stage behind it, so the two do not beat
+   against each other at the frame edge. */
+.frame{background:
+  linear-gradient(45deg,#948da0 25%,transparent 25%,transparent 75%,#948da0 75%),
+  linear-gradient(45deg,#948da0 25%,#7a7387 25%,#7a7387 75%,#948da0 75%);
+  background-size:16px 16px; background-position:0 0,8px 8px;}
+/* A PLAIN BACKDROP, for the times the chequer itself is the thing in the
+   way: white for a dark trait, black for a pale one. Neither reaches a
+   save or an export, for the same reason the base does not - they are a
+   class on a div and not a canvas. */
 .frame.whitebg{background:#fff;}
+.frame.blackbg{background:#0b0910;}
 canvas{display:block; image-rendering:pixelated; cursor:crosshair; touch-action:none;}
 /* The base sits BEHIND the art and is never part of it: no export, no save,
    no undo entry. It exists so you can see where the trait lands. */
@@ -2774,7 +2796,7 @@ footer .mono{color:var(--ink);}
         <!-- A BLACK OUTLINE ON A CHEQUERBOARD IS UNREADABLE, and the outline
              tool changes exactly that edge now. See patch409. -->
         <button class="btn ghost" id="basewhite" aria-pressed="false"
-          title="Put white behind the trait instead of the chequerboard, so a dark outline reads. It is never part of the artwork.">White background</button>
+          title="What sits behind the trait where it is transparent: a chequerboard, white for judging a dark outline, or black for a pale one. Never part of the artwork.">White background</button>
       </div>
       <p class="note" title="The base is never part of the artwork"><kbd>M</kbd> to move</p>
     <div class="savebar" style="margin-top:18px">
@@ -21488,11 +21510,25 @@ $('basepick').onchange=async()=>{
 /* A WAY OF LOOKING, not a setting on the work - so unlike the outline
    controls it is NOT reset when a trait opens. Somebody checking 320
    outlines should not switch it on 320 times. */
+/* THREE BACKDROPS, CYCLED. The label says what the NEXT press gives, which
+   is what it always said - there is simply one more of them now. A pale
+   trait on white is the same complaint as a black dot on near-black, so
+   black is here for the same reason white is.
+
+   aria-pressed stays true for anything that is not the chequer: the
+   button is "the backdrop is not the default one", which is the fact a
+   screen reader can use. */
+const FRAME_BGS=["","whitebg","blackbg"];
+const FRAME_BG_NEXT={"":"White background","whitebg":"Black background",
+  "blackbg":"Chequerboard background"};
+let frameBg=0;
 $("basewhite").onclick=()=>{
-  const b=$("basewhite"), on=b.getAttribute("aria-pressed")!=="true";
-  b.setAttribute("aria-pressed",String(on));
-  b.textContent=on?"Chequerboard background":"White background";
-  $("frame").classList.toggle("whitebg",on);
+  const b=$("basewhite"), f=$("frame");
+  frameBg=(frameBg+1)%FRAME_BGS.length;
+  const now=FRAME_BGS[frameBg];
+  for(const c of FRAME_BGS) if(c) f.classList.toggle(c,c===now);
+  b.setAttribute("aria-pressed",String(now!==""));
+  b.textContent=FRAME_BG_NEXT[now];
 };
 $('baseoutline').onclick=()=>{
   if(!baseBitmap){ toast('Pick a base first'); return; }

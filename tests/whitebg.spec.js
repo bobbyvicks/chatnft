@@ -113,16 +113,81 @@ test('THE WHITE BACKDROP GOES BEHIND THE TRAIT AND NOWHERE ELSE', async ({ page 
   }));
   expect(on.pressed).toBe('true');
   expect(on.frame, 'white lands on the frame').toBe('rgb(255, 255, 255)');
-  expect(on.label, 'and the button says how to undo it').toContain('Chequerboard');
+  /* WAS "Chequerboard", because this used to be white or chequer and nothing
+     else. There are three backdrops now - a pale trait on white is the same
+     complaint as a black dot on near-black - and the label still names what
+     the NEXT press gives, which is what it always meant. */
+  expect(on.label, 'and the button says what comes next').toContain('Black');
   /* NOT THE STAGE. The chequer around the trait is what makes the white read
      as a backdrop rather than the page turning white. */
   expect(on.stage, 'the stage keeps its chequer').toContain('gradient');
   expect(before.frame).not.toBe(on.frame);
 
   await page.click('#basewhite');
-  const off = await page.evaluate(() =>
-    getComputedStyle(document.getElementById('frame')).backgroundColor);
-  expect(off, 'and it goes back').toBe(before.frame);
+  const black = await page.evaluate(() => ({
+    frame: getComputedStyle(document.getElementById('frame')).backgroundColor,
+    label: document.getElementById('basewhite').textContent,
+    pressed: document.getElementById('basewhite').getAttribute('aria-pressed'),
+  }));
+  expect(black.frame, 'then black, for judging a pale trait').toBe('rgb(11, 9, 16)');
+  expect(black.label).toContain('Chequerboard');
+  expect(black.pressed, 'still not the default backdrop').toBe('true');
+
+  await page.click('#basewhite');
+  const off = await page.evaluate(() => ({
+    colour: getComputedStyle(document.getElementById('frame')).backgroundColor,
+    image: getComputedStyle(document.getElementById('frame')).backgroundImage,
+    pressed: document.getElementById('basewhite').getAttribute('aria-pressed'),
+  }));
+  /* ONE AT A TIME, and all the way round. Two backdrop classes left on at
+     once would be a rule fight settled by source order rather than by the
+     button. */
+  expect(off.colour, 'and round to the chequer again').toBe(before.frame);
+  expect(off.image, 'which is a chequer, not a flat colour').toContain('gradient');
+  expect(off.pressed).toBe('false');
+});
+
+test('AND A BLACK DOT ON NOTHING IS ACTUALLY VISIBLE', async ({ page }) => {
+  await openTrait(page, { w: 40, h: 40, draw: (set) => { set(20, 20, [0, 0, 0]); } });
+  await openPanel(page, 'bl');
+  const r = await page.evaluate(() => {
+    /* The two squares of the chequer that sits behind the artwork. */
+    const img = getComputedStyle(document.getElementById('frame')).backgroundImage;
+    const hits = img.match(/rgb\(\s*\d+,\s*\d+,\s*\d+\s*\)/g) || [];
+    const rgb = (s) => s.match(/\d+/g).map(Number);
+    const lum = (c) => {
+      const v = c.map(x => x / 255).map(x => x <= 0.03928 ? x / 12.92
+        : Math.pow((x + 0.055) / 1.055, 2.4));
+      return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2];
+    };
+    const ratio = (c, d) => {
+      const a = lum(c), b = lum(d), hi = Math.max(a, b), lo = Math.min(a, b);
+      return (hi + 0.05) / (lo + 0.05);
+    };
+    const squares = [...new Set(hits)].map(rgb);
+    return {
+      squares,
+      vsBlack: Math.min(...squares.map(s => ratio(s, [0, 0, 0]))),
+      vsWhite: Math.min(...squares.map(s => ratio(s, [255, 255, 255]))),
+      chequer: squares.length > 1 ? ratio(squares[0], squares[1]) : 1,
+    };
+  });
+  /* "theres like black spots where its supposed to be nothing but the user
+     thinks they see nothing but theres actually a black dot"
+
+     The old backdrop was var(--panel) against a 55% mix of --ground: measured
+     1.14 against a black pixel, where 1.00 is two identical colours. It was
+     not hard to see, it was not visible. */
+  expect(r.squares.length, 'it is a chequer, so there are two').toBe(2);
+  expect(r.vsBlack, 'a black pixel reads against the empty canvas')
+    .toBeGreaterThan(4);
+  /* AND THE OTHER END TOO, which is what stops this being the white button
+     with extra steps: 3:1 is the threshold for telling two non-text things
+     apart, and a pale trait has to clear it as well. */
+  expect(r.vsWhite, 'and so does a white one').toBeGreaterThan(3);
+  /* AND IT READS AS A CHEQUER - the one thing that says "this part is empty".
+     The old pair differed by 1.04, so it did not. */
+  expect(r.chequer, 'the two squares are visibly different').toBeGreaterThan(1.3);
 });
 
 test('it cannot reach the artwork, the save, or the export', async ({ page }) => {

@@ -155,7 +155,7 @@ test('THE PANEL DOES NOT SCROLL AT ALL', async ({ page }) => {
      Removing the palette's own scroller moved the bar rather than losing it:
      1,046px of controls in a card that can be 940. Two columns with each
      set's tools underneath it brings that to 673. */
-  for (const [w, h] of [[1600, 1000], [1500, 900], [1400, 820], [1280, 760]]) {
+  for (const [w, h] of [[1600, 1000], [1500, 900], [1366, 660], [1024, 650], [860, 700], [821, 650]]) {
     await page.setViewportSize({ width: w, height: h });
     await openTrait(page, { w: 32, h: 32, draw: FEW });
     await open(page);
@@ -181,7 +181,7 @@ test('THE PANEL DOES NOT SCROLL AT ALL', async ({ page }) => {
 
 test('and it goes back to one column, and scrolls, when there is no room',
   async ({ page }) => {
-    await page.setViewportSize({ width: 1000, height: 900 });
+    await page.setViewportSize({ width: 780, height: 900 });
     await openTrait(page, { w: 32, h: 32, draw: FEW });
     await open(page);
     const r = await page.evaluate(() => {
@@ -194,7 +194,7 @@ test('and it goes back to one column, and scrolls, when there is no room',
        had quietly stopped showing most of its contents, and the claim above
        would be about nothing. Two columns need 760px of card; below that the
        panel is the single column it always was, and it scrolls. */
-    expect(r.w, 'one column').toBe(340);
+    expect(r.w, 'one column').toBe(560);
     expect(r.scrolls, 'which does scroll').toBe(true);
   });
 
@@ -231,3 +231,123 @@ test('ALL 256 COLOURS, WITH NO SCROLLER INSIDE THE SCROLLER', async ({ page }) =
   expect(r.cols, 'still the 16-wide grid it is published on').toBe(16);
   expect(r.swH, 'still clears the 22px target floor').toBeGreaterThanOrEqual(22);
 });
+
+test('ON A TOUCH SCREEN THE TOOL BLOCKS FOLD', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openTrait(page, { w: 32, h: 32, draw: FEW });
+  await open(page);
+  const shut = await page.evaluate(() => ({
+    rc: document.getElementById('clrcbody').getBoundingClientRect().height,
+    file: document.getElementById('clfilebody').getBoundingClientRect().height,
+    tog: getComputedStyle(document.querySelector('#clrc .clsectog')).display,
+    said: document.querySelector('#clrc .clsectog').getAttribute('aria-expanded'),
+    /* The two things the panel is FOR are not folded. */
+    pal: document.getElementById('pal').getBoundingClientRect().height,
+    proj: document.getElementById('projpal').getBoundingClientRect().height,
+  }));
+  /* 1,234px of content in an 810px card, and two columns are not available
+     here: the sheet floors targets at 30px for touch and the palette is 16
+     wide, so splitting it would put them under that floor. Folding the two
+     tool blocks is what is left. */
+  expect(shut.rc, 'the recolour tools start folded').toBe(0);
+  expect(shut.file, 'and so does the palette file block').toBe(0);
+  expect(shut.tog, 'with a toggle you can see').toBe('flex');
+  expect(shut.said).toBe('false');
+  /* THE CONTROL. Folding the colours themselves would be a worse panel than
+     one that scrolls - "can you make the colours that are in the current
+     artwork always visible" was an earlier ask and this must not undo it. */
+  expect(shut.pal, 'the trait colours are still there').toBeGreaterThan(0);
+  expect(shut.proj, 'and so is the palette').toBeGreaterThan(0);
+
+  await page.click('#clrc .clsectog');
+  await page.waitForTimeout(150);
+  const open2 = await page.evaluate(() => ({
+    rc: document.getElementById('clrcbody').getBoundingClientRect().height,
+    said: document.querySelector('#clrc .clsectog').getAttribute('aria-expanded'),
+    clean: document.getElementById('rcclean').getBoundingClientRect().height > 0,
+  }));
+  expect(open2.rc, 'a tap opens it').toBeGreaterThan(100);
+  expect(open2.said).toBe('true');
+  expect(open2.clean, 'and the buttons inside really are reachable').toBe(true);
+});
+
+test('and on a wider screen there is no toggle and nothing is folded',
+  async ({ page }) => {
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await openTrait(page, { w: 32, h: 32, draw: FEW });
+    await open(page);
+    const r = await page.evaluate(() => ({
+      tog: getComputedStyle(document.querySelector('#clrc .clsectog')).display,
+      rc: document.getElementById('clrcbody').getBoundingClientRect().height,
+      file: document.getElementById('clfilebody').getBoundingClientRect().height,
+    }));
+    /* THE REASON NOTHING IS REMEMBERED. The rule that hides a body lives
+       inside the touch query, so a block folded on a phone cannot follow
+       anybody onto a desktop and sit there shut with a toggle that is not
+       rendered to open it again. */
+    expect(r.tog, 'no toggle where there is room').toBe('none');
+    expect(r.rc, 'and the tools are simply there').toBeGreaterThan(100);
+    expect(r.file).toBeGreaterThan(50);
+  });
+
+test('EVERY COLOUR IS REACHABLE ON A PHONE', async ({ page }) => {
+  /* Found by measuring, and confirmed against the committed version so it was
+     not new: the palette is 16 columns and the touch sheet floors targets at
+     30px, so one row wanted 16*30 + 15*3 = 525px in a box of 321. The last
+     six columns of all sixteen rows ran off the side - not clipped, not
+     scrollable, simply unreachable. About 40% of the palette, on every phone.
+
+     Sixteen tappable swatches do not fit a phone, so the grid asks for as
+     many 30px columns as the box holds instead. The ramps break up here and
+     the palette gets taller; both were the trade chosen over swatches too
+     small to hit. */
+  for (const [w, h, want] of [[390, 844, 9], [414, 896, 10], [600, 900, 15]]) {
+    await page.setViewportSize({ width: w, height: h });
+    await openTrait(page, { w: 32, h: 32, draw: FEW });
+    await open(page);
+    const r = await page.evaluate(() => {
+      const pp = document.getElementById('projpal');
+      const sw = [...pp.querySelectorAll('.sw')];
+      const box = pp.getBoundingClientRect();
+      let minSide = 1e9, past = -1e9;
+      for (const s of sw) {
+        const b = s.getBoundingClientRect();
+        minSide = Math.min(minSide, b.width, b.height);
+        past = Math.max(past, b.right - box.right);
+      }
+      return { n: sw.length, minSide: Math.round(minSide),
+        past: Math.round(past),
+        overflowX: pp.scrollWidth > pp.clientWidth + 1,
+        cols: getComputedStyle(pp).gridTemplateColumns.split(' ').length };
+    });
+    expect(r.n, 'all 256 are there at ' + w).toBe(256);
+    /* THE DEFECT ITSELF. */
+    expect(r.overflowX, 'nothing runs off the side at ' + w).toBe(false);
+    expect(r.past, 'and no swatch is past the right edge at ' + w)
+      .toBeLessThanOrEqual(0);
+    /* AND THEY ARE STILL BIG ENOUGH TO HIT, which is the whole reason the
+       column count had to come down rather than the swatches. */
+    expect(r.minSide, 'every target clears 30px at ' + w).toBeGreaterThanOrEqual(30);
+    expect(r.cols, 'as many as fit at ' + w).toBe(want);
+  }
+});
+
+test('and the published 16-wide grid is what every screen with room still shows',
+  async ({ page }) => {
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await openTrait(page, { w: 32, h: 32, draw: FEW });
+    await open(page);
+    const r = await page.evaluate(() => {
+      const pp = document.getElementById('projpal');
+      const sw = pp.querySelector('.sw').getBoundingClientRect();
+      return { cols: getComputedStyle(pp).gridTemplateColumns.split(' ').length,
+        side: Math.round(sw.width),
+        overflowX: pp.scrollWidth > pp.clientWidth + 1 };
+    });
+    /* THE CONTROL. The phone rule must not reach a screen that has room:
+       sixteen is the width the palette is published at and its rows are
+       ramps, so any other count cuts the families in half. */
+    expect(r.cols, 'sixteen where there is room for sixteen').toBe(16);
+    expect(r.side, 'at the 22px floor a mouse is held to').toBeGreaterThanOrEqual(22);
+    expect(r.overflowX).toBe(false);
+  });

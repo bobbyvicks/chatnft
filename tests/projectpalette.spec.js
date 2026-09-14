@@ -319,7 +319,7 @@ test('AND THE COLOURS IN THE PICTURE STAY IN VIEW WHILE THE PALETTE SCROLLS',
        card, which is the shape this test was written for and the shape a
        narrow window still has. The pinning is what matters and it is
        unchanged; what changed is where it can be observed. */
-    await page.setViewportSize({ width: 1000, height: 900 });
+    await page.setViewportSize({ width: 780, height: 900 });
     await openOffPalette(page);
     /* Putting 256 colours under the trait's own made the panel 420px taller
        than it can show, and the trait's swatches are at the top of that - so

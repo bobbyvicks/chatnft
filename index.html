@@ -3385,11 +3385,18 @@ const rcPick=new Set();
    answer - which is what this did before there was a way to say. */
 let rcTo=null;
 let autoPending=null; /* debounce handle for the working-canvas autosave */
-/* The undo depth the canvas was last SAVED at. Not "was it edited" - saving
-   does not empty the undo stack, so a canvas can be heavily edited and
-   perfectly saved at the same time, which is the normal state of a trait
-   somebody just pressed Save on. */
-let savedDepth=0;
+/* WHAT THE CANVAS LOOKED LIKE WHEN IT LAST BECAME THE RECORD - on open,
+   and on save. Compared against the pixels that are there now, which is
+   the question autosaveNow needs answered before it decides a draft is
+   not worth writing.
+
+   SUPERSEDES savedDepth, the undo depth at the last save. The note here
+   used to explain that saving does not empty the undo stack, which is
+   true, and then the depth was used as a stand-in for "edited", which it
+   is not: undo makes it smaller, and snapshot() caps it, so past the cap
+   it stops changing at all. Both put the canvas somewhere the record is
+   not while the number said otherwise. */
+let savedSig="";
 let undoStack=[], redoStack=[], original=null, painting=false, panMode=false, fileName='pixel-art.png';
 let brush=1;
 /* What the artist ASKED for, as opposed to what the canvas currently allows.
@@ -5214,7 +5221,7 @@ async function saveTrait(){
     /* THE CANVAS IS NOW THE RECORD. Without this the next open flushes a
        draft of work that was just saved, and re-opening this trait offers
        changes that are not changes. */
-    savedDepth=undoStack.length;
+    markCanvasSaved();
     openRec=rec;
     await renderShelf();
     if(activeWs){
@@ -7022,7 +7029,7 @@ function startEditor(data,w,h,srcW,srcH,pal,recovered){
   original=ctx.getImageData(0,0,w,h);
   undoStack=[]; redoStack=[];
   /* A freshly opened canvas is the record it came from. */
-  savedDepth=0;
+  markCanvasSaved();
   resizeBoxes();
   tboxShow();
   $('fname').textContent=fileName;
@@ -7457,6 +7464,36 @@ function trimHistory(){
    stack back EXACTLY as it was. Without that, taking a snapshot and dropping
    it again on a full stack silently ate the oldest step - measured at 160:
    60 entries in, 59 out, and the oldest one gone. */
+/* A cheap, whole-canvas signature. Two FNV-1a states with different
+   starting points and different multipliers, so a collision needs both to
+   collide at once.
+
+   THE SIZE RIDES ON THE RETURNED STRING, not in the hash. 16x16 and 256x1
+   hold the same words in the same order, so the two states collide -
+   measured, both come out avkz45:10p20n - and only the prefix tells them
+   apart. A first version also folded w and h into the states; the same
+   measurement showed that did nothing the prefix was not already doing, so
+   it is gone rather than left in looking load-bearing.
+
+   Read as words rather than bytes: a quarter of the iterations for the
+   same coverage, and the alignment holds because an ImageData buffer is
+   always a whole number of four-byte pixels. */
+function canvasSig(){
+  if(!ctx||!art) return "";
+  const w=art.width, h=art.height;
+  const d=new Uint32Array(ctx.getImageData(0,0,w,h).data.buffer);
+  let a=2166136261>>>0, b=2246822519>>>0;
+  for(let i=0;i<d.length;i++){
+    const v=d[i];
+    a=Math.imul(a^v,16777619)>>>0;
+    b=Math.imul(b^v,2654435761)>>>0;
+  }
+  return w+"x"+h+":"+a.toString(36)+":"+b.toString(36);
+}
+/* THE CANVAS IS NOW THE RECORD. Both moments that can make that true say
+   so through here, so there is one definition of it rather than two. */
+function markCanvasSaved(){ savedSig=canvasSig(); }
+
 function snapshot(){
   /* EVERY MUTATION COMES THROUGH HERE, which makes it the one place a stale
      inspection can be dropped without hunting for call sites. */
@@ -9525,7 +9562,11 @@ function autosaveNow(){
 
      The unattached canvas is unconditional as before: it is the only copy
      of a picture that has never been saved anywhere. */
-  if(of && undoStack.length===savedDepth) return Promise.resolve(true);
+  /* SUPERSEDED: this was `undoStack.length===savedDepth`. See the note on
+     savedSig - the depth goes down on undo and stops going up once the
+     stack saturates, so after a save the equality stopped meaning
+     "unchanged" and the draft was silently skipped. */
+  if(of && canvasSig()===savedSig) return Promise.resolve(true);
   /* RESOLVES WITH WHETHER IT WORKED. This was `.then(done, done)` - the same
      callback for kept and lost - so a write refused by a full or evicted
      store finished exactly like one that succeeded, and the editor closed

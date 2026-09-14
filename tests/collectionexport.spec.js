@@ -198,8 +198,17 @@ test.describe('packaging the collection', () => {
       const r = await packageIt(page);
       expect(r.manifest.counts.packaged).toBe(2);
       expect(r.manifest.counts.notPackaged).toBe(1);
+      /* THE REASON IS PART OF THE SHAPE NOW. This asserted
+           { name, layer, status }
+         and went red when patch461 added a reason, because this list stopped
+         holding one KIND of trait: a trait whose picture will not read is
+         held back here too, and without the reason a reader cannot tell it
+         from one somebody rejected on purpose. Widening the object alone
+         would have dropped that, so the reason is asserted by value. The
+         unreadable half lives in saywhathappened.spec.js. */
       expect(r.manifest.notPackaged).toEqual([
-        { name: 'Half Done', layer: 'eyes', status: 'wip' }]);
+        { name: 'Half Done', layer: 'eyes', status: 'wip',
+          reason: 'not in the collection' }]);
       expect(r.note).toContain('not approved');
     });
 

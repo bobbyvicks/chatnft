@@ -9509,6 +9509,14 @@ function autosaveNow(){
      and openRec can change while it runs, which would file this canvas
      under whichever trait was opened in the meantime. */
   const key=draftId(), of=openRec&&openRec.id?openRec.id:null;
+  /* THE REST OF THE RECORD, on the same line and for the same reason. The
+     comment above is right and was applied to half the fields: the key and
+     the open record were captured, and the size and the name were read
+     inside the toBlob callback, which runs as a later task. Open a trait,
+     let an autosave start, open another before the encode lands, and the
+     draft is written with the first picture's bytes under the second
+     one's dimensions and name - a draft that restores wrong. */
+  const W=art.width, H=art.height, nm=fileName||"untitled.png";
   /* A saved trait opened and closed without a stroke has nothing to keep -
      the record already says it. startEditor empties undoStack, so a
      non-empty one is exactly "edited since this was opened", and without
@@ -9528,8 +9536,8 @@ function autosaveNow(){
   return new Promise(done=>{
     art.toBlob(b=>{
       if(!b){ done(false); return; }
-      dbPut({id:key, kind:"autosave", traitId:of, name:fileName||"untitled.png",
-             w:art.width, h:art.height, blob:b, at:Date.now()})
+      dbPut({id:key, kind:"autosave", traitId:of, name:nm,
+             w:W, h:H, blob:b, at:Date.now()})
         .then(()=>done(true), ()=>{
           try{ toast("Could not save your work to this browser - copy it out"
             +" with Download before closing the tab."); }catch(_){}
@@ -9904,6 +9912,9 @@ function sortShow(plan){
    overwrites, so moving onto it would destroy the trait already there. */
 async function sortApply(plan){
   let made=0, moved=0, refused=[], failed=0;
+  /* Moved here but not for anybody else. The tile status cycle and
+     bulkMoveLayer both keep this answer and say so; this discarded it. */
+  let stranded=0;
   for(const l of plan.layers){
     if(LAYERS.indexOf(l)>=0) continue;
     const u=LAYERS.indexOf("unsorted");
@@ -9926,11 +9937,11 @@ async function sortApply(plan){
       await dbDel(old.id);
       taken.delete(old.id); taken.add(id);
       await retargetRules([{from:traitKey(old), to:traitKey(rec)}]);
-      if(activeWs) await cloudMoveOne(old,rec);
+      if(activeWs&&!await cloudMoveOne(old,rec)) stranded++;
       moved++;
     }catch(_){ failed++; }
   }
-  return {made, moved, refused, failed};
+  return {made, moved, refused, failed, stranded};
 }
 function pairState(a,b){
   if(RULES.some(g=>g.indexOf(a)>=0&&g.indexOf(b)>=0)) return "no";
@@ -10587,6 +10598,12 @@ async function bulkImport(files){
     if(u>=0) LAYERS.splice(u,0,l); else LAYERS.push(l);
   }
   let ok=0,failed=0,refs=0,oversized=0,strips=0,renamed=0;
+  /* WHAT DID NOT REACH THE GROUP. cloudSyncOne returns null on a failed
+     upload, on a 401 or 403, and when there is no user, team or
+     collection to write to - and both call sites threw that away, so a
+     folder could import forty traits into this browser, upload none of
+     them, and say "Imported 40 files". */
+  let notShared=0;
   /* What this batch actually contained, so the reconcile below can tell a
      file that MOVED from one the import never mentioned. */
   const supplied=[];
@@ -10710,7 +10727,7 @@ async function bulkImport(files){
            hundred instead of one at a time - so in a group they go up too.
            Without this, importing a folder into a shared project put nothing
            anywhere anyone else could reach, and said "Imported 40 files". */
-        if(activeWs) await cloudSyncOne(rrec, await uploadCtx());
+        if(activeWs&&!await cloudSyncOne(rrec, await uploadCtx())) notShared++;
         refs++;
       }else{
         /* Before the id is built from it - the id is
@@ -10862,7 +10879,7 @@ async function bulkImport(files){
         supplied.push({name:info.name, layer:layer, status:status, id:trec.id});
         shelfItems.push(trec);
         wroteThisRun.push(trec);
-        if(activeWs) await cloudSyncOne(trec, await uploadCtx());
+        if(activeWs&&!await cloudSyncOne(trec, await uploadCtx())) notShared++;
         perLayer[layer]=(perLayer[layer]||0)+1;
       }
       ok++;
@@ -11047,6 +11064,12 @@ async function bulkImport(files){
   if(noLayer.length) bits.push(noLayer.length+" had no layer in the path and went to unsorted"+
     (noLayer.length<=4?" ("+noLayer.join(", ")+")":""));
   if(failed) bits.push(failed+" could not be read");
+  /* SAID, because the alternative is finding out when a teammate opens the
+     project and half the collection is not there. The traits are in this
+     browser either way - this is a wrong message, not lost work - and
+     Save to cloud is the thing that fixes it. */
+  if(notShared) bits.push(notShared+" saved here only - the group did not get "
+    +(notShared===1?"it":"them")+", press Save to cloud when you are back");
   if(pngs.length>MAX) bits.push("stopped at "+MAX+" of "+pngs.length+" PNGs");
   if(all.length>pngs.length) bits.push((all.length-pngs.length)+" non-PNG ignored");
   /* Once, after the writes. applyLayers would re-adopt these from the
@@ -11055,6 +11078,13 @@ async function bulkImport(files){
   if(adopted.length){ try{ await saveLayers(); }catch(_){ } }
   note.textContent=bits.join(". ")+".";
   toast("Imported "+ok+" file"+(ok===1?"":"s"));
+  /* THE COUNTERS, FOR A CALLER THAT HAS ITS OWN MESSAGE TO WRITE. This
+     returned nothing, so the fixer's Save to project reported the number
+     of files it HANDED OVER rather than the number written - and four
+     paths in here drop a file without throwing. Every one of these was
+     already in scope for the report above. */
+  return {ok, failed, oversized, strips, refs, notShared,
+    skipped:failed+oversized+strips};
 }
 
 /* ---- a sheet of random characters -------------------------------
@@ -16629,9 +16659,16 @@ async function cloudPush(){
      failed: an item that did not upload contributes no path, so its picture
      reads as unwanted. */
   let swept=0;
-  if(!activeWs && !failed) swept=await cloudSweep(team,c,rows.map(r=>r.path));
-  await fetch(SB_URL+"/rest/v1/collections?id=eq."+c.id,{method:"PATCH",headers:h,
-    body:JSON.stringify({layers:LAYERS})});
+  /* GUARDED SEPARATELY from the catch at the binding: a network hiccup on
+     either of these should let the push finish and report what it did,
+     rather than abandoning a run that has already uploaded everything. */
+  try{
+    if(!activeWs && !failed) swept=await cloudSweep(team,c,rows.map(r=>r.path));
+  }catch(_){ }
+  try{
+    await fetch(SB_URL+"/rest/v1/collections?id=eq."+c.id,{method:"PATCH",headers:h,
+      body:JSON.stringify({layers:LAYERS})});
+  }catch(_){ }
   $("cloudpush").disabled=false;
   await cloudStatus(u);
   /* Every number that is not zero, and none that is. "0 skipped" on a first
@@ -18240,7 +18277,22 @@ function planFold(on,remember){
   let want=true; try{ const s=localStorage.getItem(PLAN_KEY); if(s!==null) want=s==="1"; }catch(_){}
   planFold(want,false);
 })();
-$('cloudpush').onclick=cloudPush;
+/* THE BUTTON COMES BACK WHATEVER HAPPENS. cloudPush disables it at the top
+   and re-enables it 120 lines later, and nothing else in the file assigns
+   that property - so a throw in between left Save to cloud dead until the
+   page was reloaded.
+
+   HERE RATHER THAN A try/finally AROUND THE BODY, which was the first
+   idea: `saved`, `failed` and `unchangedSkipped` are declared inside that
+   window and read after it, so a try block around it would put them out of
+   scope for the report that uses them. A catch at the binding cannot break
+   scoping and covers the whole window rather than the calls I noticed. */
+$('cloudpush').onclick=()=>{
+  Promise.resolve().then(cloudPush).catch(e=>{
+    try{ $("cloudpush").disabled=false; }catch(_){ }
+    try{ toast("Save to cloud stopped: "+((e&&e.message)||e)); }catch(_){ }
+  });
+};
 $('cloudpull').onclick=cloudPull;
 /* Read the sign-in fragment BEFORE the first render, so someone arriving from
    the email sees themselves signed in rather than the form again. */
@@ -19807,6 +19859,8 @@ function fixRun(){
   fixMoved=null;
   const forced=fixStepFor(FIX.src?FIX.src.width:0,
     FIX.src?FIX.src.data:null, FIX.src?FIX.src.height:0);
+  /* WITH the decision, not read again when the worker answers. */
+  const measured=fixMeasuredBlock;
   const src=FIX.src;
   /* NOTHING TO ASK. The picture is already one pixel per cell, so there is
      no worker, no detector and no quantiser between it and the save - the
@@ -19840,7 +19894,7 @@ function fixRun(){
       if(m.progress!=null){ fixProgress(m.progress,m.label); return; }
       if(m.error){ fixSay("The fixer could not do this one: "+m.error); fixDone(w); resolve(null); return; }
       if(m.done){
-        const r=fixStampMeasured(m.done);
+        const r=fixStampMeasured(m.done,measured);
         /* Before it is shown, so the preview is the picture that saves. */
         const pal=fixPalApply(r);
         fixShow(r);
@@ -19899,9 +19953,16 @@ function fixRun(){
    given, which the readout reads as less certain - and a measured block is
    the one answer that cannot be wrong. Stamped on the result rather than
    worked out again at each place that reads it. */
-function fixStampMeasured(r){
-  if(!r||!fixMeasuredBlock) return r;
-  r.confidence="high"; r.consensus="measured"; r.measuredBlock=fixMeasuredBlock;
+/* TAKES THE BLOCK IT IS STAMPING, rather than reading the module flag when
+   it runs. This is called from the worker's onmessage, long after
+   fixStepFor decided - and anything that calls fixStepFor in between
+   rewrites the flag, which the Pixel size readout does on every keystroke.
+   patch418 fixed the other half of this, the flag not being cleared
+   between runs, and left the read. */
+function fixStampMeasured(r,block){
+  const b=(block===undefined)?fixMeasuredBlock:block;
+  if(!r||!b) return r;
+  r.confidence="high"; r.consensus="measured"; r.measuredBlock=b;
   return r;
 }
 function fixShow(r){
@@ -20242,15 +20303,27 @@ async function fixSaveFiles(files,say){
   if(!files.length){ say("Nothing to save yet."); return 0; }
   if(typeof mayUse==="function"&&!mayUse()) return 0;
   say("Saving "+files.length+" to the project…");
-  try{ await bulkImport(files); }
+  let r=null;
+  try{ r=await bulkImport(files); }
   catch(e){ say("Could not save: "+((e&&e.message)||e)); return 0; }
+  /* WHAT WAS WRITTEN, not what was handed over. bulkImport drops a file on
+     four paths without throwing - a bitmap that will not decode, one past
+     the size ceiling, a palette strip, and a catch around the whole
+     per-file body - so this said 320 when 319 arrived.
+
+     The fallback keeps the old number if bulkImport ever stops answering,
+     because a save that worked and said nothing is worse than a save that
+     worked and counted optimistically. */
+  const wrote=r&&typeof r.ok==="number" ? r.ok : files.length;
   const withFolder=files.filter(f=>String(f.webkitRelativePath||"").indexOf("/")>=0).length;
-  say(files.length+" sent to the project"
-    +(withFolder?" · "+withFolder+" filed by their folder":"")
-    +(withFolder<files.length?" · "+(files.length-withFolder)
+  say(wrote+" sent to the project"
+    +(withFolder?" \u00b7 "+withFolder+" filed by their folder":"")
+    +(withFolder<files.length?" \u00b7 "+(files.length-withFolder)
       +" had no folder, so they are in unsorted":"")
+    +(r&&r.skipped?" \u00b7 "+r.skipped+" could not be saved":"")
+    +(r&&r.notShared?" \u00b7 "+r.notShared+" here only, not sent to the group":"")
     +". Open the project to see them.");
-  return files.length;
+  return wrote;
 }
 async function fixSaveOne(){
   const r=FIX.out; if(!r){ fixSaveSay("Nothing fixed yet."); return; }
@@ -20485,6 +20558,12 @@ PB.fix=async function(o){
   if(o.file) await fixLoad(o.file);
   else if(o.data&&o.width&&o.height){
     FIX.src={data:new Uint8ClampedArray(o.data), width:o.width, height:o.height}; FIX.name=o.name||"image"; FIX.out=null;
+    /* AND ITS OWN MEASUREMENT. fixNativeBlockFor caches on data identity
+       against FIX.src.data, and FIX.native is written in exactly one other
+       place - fixLoad, on the line after it sets FIX.src. Setting the
+       picture without it left a scripted run holding the block size of
+       whatever file was last opened by hand. */
+    FIX.native=fixNativeBlock(FIX.src.data,o.width,o.height);
     const b=$("fixbefore"); b.width=o.width; b.height=o.height;
     const im=b.getContext("2d").createImageData(o.width,o.height); im.data.set(FIX.src.data); b.getContext("2d").putImageData(im,0,0);
     $("fixpair").hidden=false; $("fixrun").disabled=false;
@@ -21083,7 +21162,9 @@ $('sortgo').onclick=async()=>{
   }
   $("bulknote").hidden=false;
   $("bulknote").textContent=bits.join(". ")+".";
-  toast("Moved "+r.moved+" trait"+(r.moved===1?"":"s"));
+  toast("Moved "+r.moved+" trait"+(r.moved===1?"":"s")
+    +(r.stranded?" - "+r.stranded+" here only, the group still has the old"
+      +(r.stranded===1?" one":" ones"):""));
   sortPlan=null;
 };
 $('sortscrim').onclick=e=>{ if(e.target===$('sortscrim')) $('sortscrim').hidden=true; };
@@ -21158,9 +21239,28 @@ async function exportCollection(){
   const safe=s=>String(s||"").replace(/[^a-z0-9._ -]+/gi,"-").trim()||"trait";
   const files=[], rows=[], seen=new Set();
   let unhashed=0;
+  /* The ones whose bytes would not come back. See below - they used to
+     leave no trace in the package at all. */
+  const unreadable=[];
   for(const t of approved){
     let bytes=null;
-    try{ bytes=new Uint8Array(await t.blob.arrayBuffer()); }catch(_){ continue; }
+    /* NAMED, NOT DROPPED. This `continue` comes before both pushes, so a
+       trait whose blob will not read was missing from the zip, from
+       manifest.traits and from counts.packaged - and from notPackaged too,
+       because that list is built from the ones a STATUS keeps out. It left
+       no trace anywhere, which is the thing the comment below this loop
+       was written against. */
+    try{ bytes=new Uint8Array(await t.blob.arrayBuffer()); }
+    catch(_){
+      unreadable.push({name:t.name, layer:t.layer||"unsorted",
+        status:t.status||"wip", reason:"the picture could not be read"});
+      continue;
+    }
+    if(!bytes){
+      unreadable.push({name:t.name, layer:t.layer||"unsorted",
+        status:t.status||"wip", reason:"the picture could not be read"});
+      continue;
+    }
     const dir="traits/"+safe(t.layer||"unsorted")+"/";
     let path=dir+safe(t.name)+".png", k=2;
     while(seen.has(path)) path=dir+safe(t.name)+"-"+(k++)+".png";
@@ -21178,7 +21278,11 @@ async function exportCollection(){
      image tree. Dropping them silently is how a collection ships short with
      nothing to point at. */
   const held=traits.filter(t=>!inCollection(t.status))
-    .map(t=>({name:t.name, layer:t.layer||"unsorted", status:t.status||"wip"}));
+    .map(t=>({name:t.name, layer:t.layer||"unsorted", status:t.status||"wip",
+      reason:"not in the collection"}))
+    /* AND THE ONES THAT SHOULD HAVE GONE IN AND COULD NOT. Accounted for
+       here rather than nowhere, which is what "every trait" means. */
+    .concat(unreadable);
   /* Progress, from the queue when there is one. Without a pass started this
      is not "finished", it is "never begun", and the manifest says which. */
   const rev=REVIEW?{

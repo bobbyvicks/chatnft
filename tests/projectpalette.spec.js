@@ -308,6 +308,18 @@ test('and it says so when there is nothing to say', async ({ page }) => {
 test('AND THE COLOURS IN THE PICTURE STAY IN VIEW WHILE THE PALETTE SCROLLS',
   async ({ page }) => {
     await ready(page);
+    /* WAS 1600x1000, WHICH NO LONGER SCROLLS AT ALL. The panel is two
+       columns on a wide window now - the trait's colours beside the project
+       palette, each with the tools that act on it underneath - and measured,
+       673px of content in a 675px card: there is no scrollbar left there to
+       test against.
+
+       So this moves to the window where the panel DOES still scroll. Below
+       1080px it goes back to one column, 1,144px of content in an 828px
+       card, which is the shape this test was written for and the shape a
+       narrow window still has. The pinning is what matters and it is
+       unchanged; what changed is where it can be observed. */
+    await page.setViewportSize({ width: 1000, height: 900 });
     await openOffPalette(page);
     /* Putting 256 colours under the trait's own made the panel 420px taller
        than it can show, and the trait's swatches are at the top of that - so

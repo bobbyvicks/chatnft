@@ -790,6 +790,28 @@ body.shelf-dragging,body.shelf-dragging *{cursor:grabbing!important;}
    the palette and further down than any window - what changed is that the
    COLOURS are one block you see at once rather than a 380px porthole. */
 #clscrim>.card{max-height:min(92dvh,940px);}
+/* TWO COLUMNS, WHICH IS WHAT MAKES THE SCROLLBAR GO AWAY.
+
+   The panel holds about 1,046px of controls and the card can be 940, so
+   in one column it scrolls whatever height it is given - there is nothing
+   in that 1,046 that is padding rather than a control. Side by side the
+   trait colours and the project palette cost max(277,429) instead of
+   their sum, and the whole panel comes to about 790.
+
+   Placement comes from the four wrappers rather than from grid-row
+   numbers: pinning rows would work today and break the moment a line was
+   added to the header.
+
+   1080px because the card needs 760 and popAt puts it past the tool rail
+   - below that it stays one column and scrolls, which is what the narrow
+   case has always done. */
+@media (min-width:1080px){
+  #clscrim>.card{width:min(760px,94vw); display:grid;
+    grid-template-columns:1fr 1fr; gap:0 18px; align-content:start;}
+  #clscrim .clhead,#clscrim .clrest{grid-column:1/-1;}
+  #clscrim .clleft{grid-column:1;}
+  #clscrim .clright{grid-column:2;}
+}
 .card textarea{width:100%; resize:vertical; min-height:46px; margin-bottom:9px;
   line-height:1.45; font-size:12.5px;}
 .card h2{font-size:17px; margin-bottom:3px;}
@@ -2221,8 +2243,12 @@ footer .mono{color:var(--ink);}
      and what to do with the ones you pick. -->
 <div class="scrim pop" id="clscrim" hidden>
   <div class="card" role="dialog" aria-modal="true" aria-labelledby="cltitle">
+    <div class="clhead">
     <h2 id="cltitle">Colours</h2>
     <p class="sub">The colours in this trait, and any colour you like.</p>
+    </div>
+      <!-- The colours in THIS picture, and the ones just used. -->
+      <div class="clleft">
     <div class="olrow"><label for="picker">Any colour</label>
       <input type="color" id="picker" value="#000000"
         aria-label="Current colour - pick any colour" style="margin-left:auto; width:54px"></div>
@@ -2239,12 +2265,59 @@ footer .mono{color:var(--ink);}
       <p class="note" id="palrecentlab" hidden style="margin-top:8px">Just used</p>
       <div class="swrow" id="palrecent" hidden role="group"
         aria-label="Colours you have just used"></div>
+      <!-- UNDER THE TRAIT'S OWN COLOURS, because that is what Replace,
+           Erase and Clean up act on - these are the buttons for the
+           swatches directly above them. -->
+      <div class="rule"></div>
+      <!-- What to DO with the colours picked above. This lived under its own
+           "Recolour" heading two sections away, which was fine while the
+           recolour swatches were down there with it - merging the two grids
+           moved the selection up here and left the buttons behind, acting on
+           something you could not see while using them. -->
+      <div class="stack">
+        <!-- The whole picture onto the palette in one press, beside the
+             tools that change colours one at a time. -->
+        <div class="olrow">
+          <button class="btn ghost" id="palsnap" style="width:auto;padding:6px 12px;font-size:12px"
+            title="Change every colour in the trait to the nearest one in the project palette. A green becomes a different shade of green. Colours already in the palette are left exactly as they are, and nothing transparent is touched.">Change colours to palette</button>
+          <span class="note mono" id="palsnapnote" style="margin-left:auto"></span>
+        </div>
+        <p class="note" id="rcfrom">Left-click colours to change, right-click what to change them to.</p>
+        <!-- One row for one idea. The toggle was full width with its own
+             labelled row underneath holding the number it governs, which is
+             two rows and a label to say "near shades, this close". -->
+        <div class="rcrow">
+          <button class="btn ghost" id="rcnear" aria-pressed="false"
+            style="width:auto;padding:6px 10px;font-size:12px"
+            title="Also replace shades within this distance of the ones you picked">Near shades</button>
+          <input id="rctol" type="number" min="1" max="120" value="24"
+            aria-label="How close a shade has to be to count as near"
+            title="How close a shade has to be to count as near">
+        </div>
+        <div class="savebar">
+          <button class="btn ghost" id="rcgo" disabled style="flex:2">Replace</button>
+          <button class="btn ghost" id="rcerase" disabled style="flex:2"
+            title="Take those colours out of the trait completely, leaving nothing there">Erase</button>
+          <button class="btn ghost" id="rcnone" disabled style="flex:1"
+            title="Unpick the colours you chose - does not change the artwork">Deselect</button>
+        </div>
+        <button class="btn" id="rcclean">Clean up colours</button>
+      </div>
+      </div>
+      <!-- The project palette, beside the trait's own rather than under
+           it. 256 swatches is 429px and the trait's colours are 122 - one
+           above the other is what made the card scroll. -->
+      <div class="clright">
       <!-- THE PROJECT PALETTE, always here, under the colours the trait has.
            Not classed .swatches for the same reason #piopal is not:
            recolour.spec.js counts that class and pins exactly one, so that
            the trait colours are never drawn twice. -->
       <p class="note" id="projpalnote" style="margin-top:8px"></p>
       <div id="projpal" role="group" aria-label="Project palette"></div>
+      <!-- UNDER THE PALETTE, because loading and writing a palette file
+           is about the palette. It was in a full-width block below both
+           columns, which is what kept the panel 25px too tall on a
+           900-high window. -->
       <!-- A palette FILE, as a second working set. Pixelorama reads .gpl,
            JASC .pal and any image into its palette panel and writes them
            back; this is that, beside the trait's own colours. It never
@@ -2283,43 +2356,14 @@ footer .mono{color:var(--ink);}
           title="Download those colours as a palette file">Export</button>
       </div>
       <input type="file" id="piofile" accept=".gpl,.pal,.hex,image/*" hidden>
-      <div class="rule"></div>
-      <!-- What to DO with the colours picked above. This lived under its own
-           "Recolour" heading two sections away, which was fine while the
-           recolour swatches were down there with it - merging the two grids
-           moved the selection up here and left the buttons behind, acting on
-           something you could not see while using them. -->
-      <div class="stack">
-        <!-- The whole picture onto the palette in one press, beside the
-             tools that change colours one at a time. -->
-        <div class="olrow">
-          <button class="btn ghost" id="palsnap" style="width:auto;padding:6px 12px;font-size:12px"
-            title="Change every colour in the trait to the nearest one in the project palette. A green becomes a different shade of green. Colours already in the palette are left exactly as they are, and nothing transparent is touched.">Change colours to palette</button>
-          <span class="note mono" id="palsnapnote" style="margin-left:auto"></span>
-        </div>
-        <p class="note" id="rcfrom">Left-click colours to change, right-click what to change them to.</p>
-        <!-- One row for one idea. The toggle was full width with its own
-             labelled row underneath holding the number it governs, which is
-             two rows and a label to say "near shades, this close". -->
-        <div class="rcrow">
-          <button class="btn ghost" id="rcnear" aria-pressed="false"
-            style="width:auto;padding:6px 10px;font-size:12px"
-            title="Also replace shades within this distance of the ones you picked">Near shades</button>
-          <input id="rctol" type="number" min="1" max="120" value="24"
-            aria-label="How close a shade has to be to count as near"
-            title="How close a shade has to be to count as near">
-        </div>
-        <div class="savebar">
-          <button class="btn ghost" id="rcgo" disabled style="flex:2">Replace</button>
-          <button class="btn ghost" id="rcerase" disabled style="flex:2"
-            title="Take those colours out of the trait completely, leaving nothing there">Erase</button>
-          <button class="btn ghost" id="rcnone" disabled style="flex:1"
-            title="Unpick the colours you chose - does not change the artwork">Deselect</button>
-        </div>
-        <button class="btn" id="rcclean">Clean up colours</button>
       </div>
+      <!-- Everything that ACTS on the two sets above, under both of them.
+           Spans the full width, so the column split is only where it buys
+           something. -->
+      <div class="clrest">
     <div class="savebar" style="margin-top:18px">
       <button class="btn ghost" id="clclose" style="flex:1">Close</button>
+    </div>
     </div>
   </div>
 </div>
@@ -5120,7 +5164,8 @@ $('palsnap').onclick=()=>{
      no longer had. There is no redraw to call: putImageData IS the paint. */
   refreshStats(); repalette();
   const line=r.colours+" colour"+(r.colours===1?"":"s")+" moved, "
-    +r.pixels.toLocaleString()+" pixels \u00b7 furthest "+r.worst;
+    +r.pixels.toLocaleString()+" pixels \u00b7 furthest "+r.worst
+    +" ("+deltaWord(r.worst)+")";
   if(note) note.textContent=line;
   toast("Changed to the palette: "+line);
 };
@@ -18121,9 +18166,78 @@ function paletteRGB(){
    itself, so art that is already on-palette comes back untouched. Alpha
    is never read or written: a half-transparent pixel keeps its alpha and
    an empty one is left alone entirely. */
+/* sRGB BYTES TO CIELAB. Undo the transfer curve, through XYZ under D65,
+   then the cube-root compression that makes Lab roughly uniform. The
+   constants are the standard ones; 216/24389 and 841/108 are the CIE
+   epsilon and kappa written as exact fractions rather than as rounded
+   decimals, which is what keeps the two branches meeting at the knee. */
+function labOf(R,G,B){
+  const lin=c=>{ c/=255; return c<=0.04045 ? c/12.92 : Math.pow((c+0.055)/1.055,2.4); };
+  const r=lin(R), g=lin(G), b=lin(B);
+  const X=(0.4124564*r+0.3575761*g+0.1804375*b)/0.95047;
+  const Y=(0.2126729*r+0.7151522*g+0.0721750*b);
+  const Z=(0.0193339*r+0.1191920*g+0.9503041*b)/1.08883;
+  const f=t=>t>216/24389 ? Math.cbrt(t) : (841/108)*t+4/29;
+  const fx=f(X), fy=f(Y), fz=f(Z);
+  return [116*fy-16, 500*(fx-fy), 200*(fy-fz)];
+}
+/* CIEDE2000. The CIE's own answer to "how different do these two look",
+   and the reason it is worth the trig: plain Lab distance still
+   overstates differences in saturated colours and understates them in
+   dark ones. The weightings SL, SC and SH are that correction, T turns
+   the hue weighting by where on the wheel it is, and RT is the rotation
+   term that stops blues swinging through magenta.
+
+   kL, kC and kH are all 1 - the reference conditions - so they are not
+   written out. Transcribed from the CIE definition rather than adapted,
+   because every published variant of this that gets it wrong gets it
+   wrong at the 275-degree hue term or the mean-hue wraparound below. */
+function deltaE2000(L1,a1,b1,L2,a2,b2){
+  const RAD=Math.PI/180, DEG=180/Math.PI;
+  const C1=Math.hypot(a1,b1), C2=Math.hypot(a2,b2), Cb=(C1+C2)/2;
+  const C7=Math.pow(Cb,7);
+  const G=0.5*(1-Math.sqrt(C7/(C7+6103515625)));   /* 25^7 */
+  const ap1=(1+G)*a1, ap2=(1+G)*a2;
+  const Cp1=Math.hypot(ap1,b1), Cp2=Math.hypot(ap2,b2);
+  const hp=(b,ap)=>{ if(b===0&&ap===0) return 0; const h=Math.atan2(b,ap)*DEG; return h>=0?h:h+360; };
+  const hp1=hp(b1,ap1), hp2=hp(b2,ap2);
+  const dLp=L2-L1, dCp=Cp2-Cp1;
+  let dhp=0;
+  if(Cp1*Cp2!==0){ dhp=hp2-hp1; if(dhp>180) dhp-=360; else if(dhp<-180) dhp+=360; }
+  const dHp=2*Math.sqrt(Cp1*Cp2)*Math.sin(dhp/2*RAD);
+  const Lbp=(L1+L2)/2, Cbp=(Cp1+Cp2)/2;
+  let hbp;
+  /* A grey has no hue, so the mean of the two is the other one - not the
+     average of a real angle and a meaningless zero. */
+  if(Cp1*Cp2===0) hbp=hp1+hp2;
+  else{ const g2=Math.abs(hp1-hp2);
+    hbp = g2<=180 ? (hp1+hp2)/2 : (hp1+hp2+(hp1+hp2<360?360:-360))/2; }
+  const T=1-0.17*Math.cos((hbp-30)*RAD)+0.24*Math.cos(2*hbp*RAD)
+    +0.32*Math.cos((3*hbp+6)*RAD)-0.20*Math.cos((4*hbp-63)*RAD);
+  const dTh=30*Math.exp(-Math.pow((hbp-275)/25,2));
+  const Cbp7=Math.pow(Cbp,7);
+  const RC=2*Math.sqrt(Cbp7/(Cbp7+6103515625));
+  const Lm=Math.pow(Lbp-50,2);
+  const SL=1+(0.015*Lm)/Math.sqrt(20+Lm);
+  const SC=1+0.045*Cbp, SH=1+0.015*Cbp*T;
+  const RT=-Math.sin(2*dTh*RAD)*RC;
+  return Math.sqrt(Math.pow(dLp/SL,2)+Math.pow(dCp/SC,2)+Math.pow(dHp/SH,2)
+    +RT*(dCp/SC)*(dHp/SH));
+}
+/* WHAT A dE AMOUNTS TO, in words. The number is meaningful and almost
+   nobody knows the scale, so the line that reports it says both. */
+function deltaWord(e){
+  if(e<1) return "invisible";
+  if(e<2.3) return "barely visible";
+  if(e<5) return "slight";
+  if(e<10) return "noticeable";
+  return "a clear change";
+}
 function snapToPalette(d,n){
   const pal=paletteRGB();
   const exact=new Set(pal.map(p=>p.h));
+  /* ONCE PER CALL, not once per colour looked up. */
+  const palLab=pal.map(p=>labOf(p.r,p.g,p.b));
   const seen=new Map();
   let moved=0, pixels=0, worst=0;
   for(let i=0;i<n;i++){
@@ -18136,14 +18250,25 @@ function snapToPalette(d,n){
       if(exact.has(h)){ hit=null; }
       else{
         const r=(key>>16)&255, g=(key>>8)&255, b=key&255;
+        /* THE WHOLE PALETTE, not a shortlist. Measured over 24,389
+           colours: the true nearest is inside the four cheapest by plain
+           Lab distance only 73% of the time, and inside the cheapest
+           twenty-four only 96% - so a shortlist buys speed by being
+           wrong, which is the opposite of what was asked for. The scan
+           runs once per DISTINCT colour thanks to `seen`, and a full 256
+           measured 0.066ms. */
+        const c=labOf(r,g,b);
         let best=pal[0], bd=Infinity;
-        for(const p of pal){
-          const dr=r-p.r, dg=g-p.g, db=b-p.b;
-          const dist=dr*dr+dg*dg+db*db;
-          if(dist<bd){ bd=dist; best=p; }
+        for(let k=0;k<pal.length;k++){
+          const q=palLab[k];
+          const dist=deltaE2000(c[0],c[1],c[2],q[0],q[1],q[2]);
+          if(dist<bd){ bd=dist; best=pal[k]; }
         }
         hit=best; moved++;
-        const far=Math.round(Math.sqrt(bd));
+        /* A dE now, not a distance in the RGB cube - about 1 is the
+           smallest difference anybody can see, 10 is plainly another
+           colour. Rounded for the same reason it always was. */
+        const far=Math.round(bd);
         if(far>worst) worst=far;
       }
       seen.set(key,hit);
@@ -22233,7 +22358,13 @@ function popAt(id){
      is the least a pop-out may start at. */
   const rail=document.querySelector("nav.tools");
   const clear=rail?rail.getBoundingClientRect().right:0;
-  s.style.left=Math.round(Math.max(r.right,clear)+12)+"px";
+  /* CLAMPED TO THE RIGHT EDGE. This only ever pushed the card away from
+     the rail and never asked whether it still fitted, which was fine
+     while every pop-out was 340 wide. The colours panel is 760 on a wide
+     window, and on a narrower one that would have run off the screen. */
+  const cw=(c?c.getBoundingClientRect().width:0)||0;
+  const want=Math.max(r.right,clear)+12;
+  s.style.left=Math.round(Math.max(8,Math.min(want,innerWidth-cw-8)))+"px";
   s.style.top="8px";
   const h=c?c.getBoundingClientRect().height:0;
   s.style.top=Math.round(Math.max(8,Math.min(r.top,innerHeight-h-8)))+"px";

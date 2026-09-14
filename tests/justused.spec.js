@@ -106,8 +106,12 @@ test('IT SITS UNDER THE PICTURE COLOURS AND ABOVE THE PALETTE', async ({ page })
   await openTrait(page, { w: 32, h: 32, draw: FEW });
   await open(page);
   const r = await page.evaluate(() => {
-    const ids = [...document.querySelectorAll('#clscrim .card > *')]
-      .map(e => e.id).filter(Boolean);
+    /* DOCUMENT ORDER, not the card's direct children. The panel is two
+       columns now and these live inside the column wrappers, so a
+       direct-child list sees the wrappers and none of the three. Reading
+       order is what "underneath" means here, and it is what a screen reader
+       and the tab order follow. */
+    const ids = [...document.querySelectorAll('#clscrim [id]')].map(e => e.id);
     return { ids,
       pal: ids.indexOf('pal'), rec: ids.indexOf('palrecent'),
       proj: ids.indexOf('projpal'),
@@ -142,6 +146,57 @@ test('and it is not there at all until something has been used', async ({ page }
   expect(after.strip).toBe(false);
   expect(after.label).toBe(false);
 });
+
+test('THE PANEL DOES NOT SCROLL AT ALL', async ({ page }) => {
+  /* "There is still an outer scroll bar in the menu so now its just a scroll
+     bar in a different spot, i want to be able to eliminate that scroll bar
+     completely."
+
+     Removing the palette's own scroller moved the bar rather than losing it:
+     1,046px of controls in a card that can be 940. Two columns with each
+     set's tools underneath it brings that to 673. */
+  for (const [w, h] of [[1600, 1000], [1500, 900], [1400, 820], [1280, 760]]) {
+    await page.setViewportSize({ width: w, height: h });
+    await openTrait(page, { w: 32, h: 32, draw: FEW });
+    await open(page);
+    const r = await page.evaluate(() => {
+      const card = document.querySelector('#clscrim .card');
+      const sw = document.querySelectorAll('#projpal .sw');
+      const cb = card.getBoundingClientRect();
+      const last = sw[sw.length - 1].getBoundingClientRect();
+      return { scrolls: card.scrollHeight > card.clientHeight + 1,
+        content: card.scrollHeight, box: Math.round(cb.height),
+        onScreen: cb.left >= -0.5 && cb.right <= innerWidth + 0.5
+          && cb.top >= -0.5 && cb.bottom <= innerHeight + 0.5,
+        all256: last.bottom <= cb.bottom + 0.5 };
+    });
+    expect(r.scrolls, 'no scrollbar at ' + w + 'x' + h
+      + ' (' + r.content + 'px of content in ' + r.box + ')').toBe(false);
+    expect(r.all256, 'and every colour is in view at ' + w + 'x' + h).toBe(true);
+    /* A 760px panel that runs off the edge of a 1280 window would be a worse
+       problem than the scrollbar. popAt clamps to the right edge now. */
+    expect(r.onScreen, 'and the whole panel is on screen at ' + w + 'x' + h).toBe(true);
+  }
+});
+
+test('and it goes back to one column, and scrolls, when there is no room',
+  async ({ page }) => {
+    await page.setViewportSize({ width: 1000, height: 900 });
+    await openTrait(page, { w: 32, h: 32, draw: FEW });
+    await open(page);
+    const r = await page.evaluate(() => {
+      const card = document.querySelector('#clscrim .card');
+      return { scrolls: card.scrollHeight > card.clientHeight + 1,
+        cols: getComputedStyle(card).gridTemplateColumns,
+        w: Math.round(card.getBoundingClientRect().width) };
+    });
+    /* THE CONTROL. Without it, "no scrollbar" would also pass on a panel that
+       had quietly stopped showing most of its contents, and the claim above
+       would be about nothing. Two columns need 760px of card; below that the
+       panel is the single column it always was, and it scrolls. */
+    expect(r.w, 'one column').toBe(340);
+    expect(r.scrolls, 'which does scroll').toBe(true);
+  });
 
 test('ALL 256 COLOURS, WITH NO SCROLLER INSIDE THE SCROLLER', async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 1000 });

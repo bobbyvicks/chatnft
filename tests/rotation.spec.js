@@ -215,6 +215,16 @@ test.describe('a turn through the Transform panel', () => {
 
   test.beforeEach(async ({ page }) => {
     await openTrait(page, { w: 3, h: 3, draw: NINE });
+    /* GROW, ASKED FOR RATHER THAN INHERITED. The editor defaults to keeping
+       the canvas now - a trait that changes size stops lining up on the
+       character it was drawn against, which is what made a turn useless in
+       practice. These tests are about the SAMPLER, and its natural output is
+       the grown canvas: ceil(3cos30 + 3sin30) = 5, which is the size every
+       pixel array below was worked out at in REPORT.md. Keeping the canvas
+       does not change one sampled pixel - it only decides which canvas the
+       result is put down on - so this line pins the size these arrays are
+       about and leaves what they are testing untouched. */
+    await page.evaluate(() => setChip('turncan', 'grow'));
     /* Precondition, asserted: the open path put the fixture down unchanged. */
     expect(await pixels(page)).toEqual(bytes([[A(0, 0), A(1, 0), A(2, 0)], [A(0, 1), A(1, 1), A(2, 1)], [A(0, 2), A(1, 2), A(2, 2)]]));
   });
@@ -223,13 +233,13 @@ test.describe('a turn through the Transform panel', () => {
     const r = await page.evaluate(() => ({ chip: chipVal('rotalg'), turns: PB.turns(), res: PB.rotate(30) }));
     expect(r.chip).toBe('nearest');
     expect(r.turns).toEqual(['nearest', 'rotxel']);
-    expect(r.res).toEqual({ ok: true, deg: 30, alg: 'nearest', turned: true, w: 5, h: 5 });
+    expect(r.res).toEqual({ ok: true, deg: 30, alg: 'nearest', canvas: 'grow', turned: true, w: 5, h: 5 });
     expect(await pixels(page)).toEqual(bytes(NEAREST));
   });
 
   test('Rotxel is Pixelorama\'s, on the same canvas size, and the chip is what decides', async ({ page }) => {
     const r = await page.evaluate(() => PB.rotate(30, 'rotxel'));
-    expect(r).toEqual({ ok: true, deg: 30, alg: 'rotxel', turned: true, w: 5, h: 5 });
+    expect(r).toEqual({ ok: true, deg: 30, alg: 'rotxel', canvas: 'grow', turned: true, w: 5, h: 5 });
     expect(await page.evaluate(() => chipVal('rotalg')), 'the panel shows the choice that was made').toBe('rotxel');
     expect(await pixels(page)).toEqual(bytes(ROTXEL));
     /* The two are different pictures - the positive control that the chip
@@ -423,12 +433,12 @@ test.describe('what Rotxel promises on real art', () => {
       const key = d => { const s = new Set(); for (let i = 0; i < d.length; i += 4) s.add(d[i] + ',' + d[i + 1] + ',' + d[i + 2] + ',' + d[i + 3]); return s; };
       const src = ctx.getImageData(0, 0, art.width, art.height).data;
       const inSet = key(src); inSet.add('0,0,0,0');
-      PB.rotate(37, 'rotxel');
+      PB.rotate(37, 'rotxel', 'grow');
       const outR = ctx.getImageData(0, 0, art.width, art.height).data, sizeR = art.width + 'x' + art.height;
       let foreign = 0; for (const k of key(outR)) if (!inSet.has(k)) foreign++;
       let opaque = 0; for (let i = 3; i < outR.length; i += 4) if (outR[i]) opaque++;
       $('undo').click();
-      PB.rotate(37, 'nearest');
+      PB.rotate(37, 'nearest', 'grow');
       const sizeN = art.width + 'x' + art.height;
       let opaqueN = 0; const outN = ctx.getImageData(0, 0, art.width, art.height).data;
       for (let i = 3; i < outN.length; i += 4) if (outN[i]) opaqueN++;

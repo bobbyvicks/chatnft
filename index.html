@@ -781,6 +781,15 @@ body.shelf-dragging,body.shelf-dragging *{cursor:grabbing!important;}
   display:block; pointer-events:none;}
 .scrim.pop>.card{width:min(340px,92vw); max-height:min(78dvh,640px);
   pointer-events:auto; box-shadow:0 22px 54px #000000a8;}
+/* THE COLOURS PANEL ALONE. 640px cannot hold the project palette (403) on
+   top of the picture's own colours and the header, so the one panel whose
+   job is to show you every colour gets the height to do it. The others
+   keep 640: a tall empty card is its own problem.
+
+   It still scrolls. The palette file rows and the recolour stack are below
+   the palette and further down than any window - what changed is that the
+   COLOURS are one block you see at once rather than a 380px porthole. */
+#clscrim>.card{max-height:min(92dvh,940px);}
 .card textarea{width:100%; resize:vertical; min-height:46px; margin-bottom:9px;
   line-height:1.45; font-size:12.5px;}
 .card h2{font-size:17px; margin-bottom:3px;}
@@ -940,7 +949,15 @@ canvas{display:block; image-rendering:pixelated; cursor:crosshair; touch-action:
   background:#fff; border:2px solid #14131a; border-radius:3px; pointer-events:auto;
   box-shadow:0 1px 5px #0006; touch-action:none;}
 #tbox .tc{border-radius:50%;}
-#tbox .trot{background:var(--accent); border-color:#14131a; border-radius:50%; cursor:grab;}
+/* BIGGER THAN THE REST, because it is the one you hunt for. The resize
+   handles sit on the corners of the art and can be found by the corner;
+   this one floats 36px above the top edge on a 1px line with nothing
+   around it, and at 13px it is under the 22px floor this project holds
+   panel controls to. Canvas handles are not in what paneldensity scans,
+   so it escaped that rule rather than being exempted from it.
+   The margin is half the size, which is what centres it on its point. */
+#tbox .trot{background:var(--accent); border-color:#14131a; border-radius:50%;
+  cursor:grab; width:22px; height:22px; margin:-11px 0 0 -11px;}
 #tbox .tline{position:absolute; left:50%; top:-36px; width:1px; height:36px;
   background:var(--accent); opacity:.55; pointer-events:none;}
 #tbox .tang{position:absolute; left:50%; top:-62px; transform:translateX(-50%);
@@ -1123,6 +1140,13 @@ input[type=range]{width:100%; accent-color:var(--accent); cursor:pointer;}
    at the 64-swatch cap nine columns is still eight rows, so the extra column
    would have cost a smaller target for no fewer rows. */
 .swatches{display:grid; grid-template-columns:repeat(8,1fr); gap:4px;}
+/* THE SAME SHAPE, A DIFFERENT SET. .swatches does not mean "a grid of
+   colours" in this file - it means A VIEW OF THE COLOURS IN THE PICTURE,
+   and recolour.spec.js asserts that every element carrying it holds the
+   same colours with the same replace marks. Colours you have just used
+   are a different set by definition: one of them may not be in the
+   artwork at all. So it borrows the layout and not the name. */
+.swrow{display:grid; grid-template-columns:repeat(8,1fr); gap:4px;}
 /* THE COLOURS IN THE PICTURE STAY IN VIEW.
 
    #pal only, not .swatches: the strip in the left column is the same set
@@ -1209,8 +1233,14 @@ input[type=range]{width:100%; accent-color:var(--accent); cursor:pointer;}
    published on - its own rows are ramps, so any other width cuts them in
    half and the colours stop reading as families. Capped in height so 256
    swatches cannot push the rest of the panel off the screen. */
+/* NO CAP AND NO SCROLLER OF ITS OWN. This was capped so 256 swatches could
+   not push the rest of the panel off the screen, and the cost was a
+   scrollbar inside a scrollbar: the card scrolls, then the palette takes
+   the wheel when you reach it. 16 rows of 22 plus the gaps is 403px, and
+   38dvh is 380 on a 1000-tall window - it was thirty pixels short of not
+   needing this at all. The card below is allowed the height instead. */
 #projpal{display:grid; grid-template-columns:repeat(16,1fr); gap:3px;
-  max-height:38dvh; overflow-y:auto; padding:2px 2px 4px;}
+  padding:2px 2px 4px;}
 /* NO min-height OVERRIDE HERE. .sw carries a 22px floor and
    paneldensity.spec.js enforces it - a target under that is hard to hit,
    and 256 swatches shrank to 15. Sixteen columns in this panel is about
@@ -1517,7 +1547,7 @@ footer .mono{color:var(--ink);}
      drags out of the way now. The transition is on max-height rather than
      transform so the stage above genuinely grows into the space instead of
      the sheet sliding over it. */
-  .swatches{grid-template-columns:repeat(10,1fr);} .sw{min-height:30px;}
+  .swatches,.swrow{grid-template-columns:repeat(10,1fr);} .sw{min-height:30px;}
   /* THE SHORTHAND HERE OUTRANKS THE INSET ON THE BASE RULE, so it has to
      carry it too - this is the only breakpoint where a home indicator
      exists, which made it the one place the inset had to survive and the
@@ -2196,9 +2226,19 @@ footer .mono{color:var(--ink);}
     <div class="olrow"><label for="picker">Any colour</label>
       <input type="color" id="picker" value="#000000"
         aria-label="Current colour - pick any colour" style="margin-left:auto; width:54px"></div>
-      <p class="note" id="palhow">Left-click a colour to use it and mark it.
-        Right-click one to set what it changes to.</p>
+      <!-- Covers every grid below it, which is why the project palette no
+           longer repeats it in different words. -->
+      <p class="note" id="palhow">Left-click any colour below to use it and
+        mark it. Right-click one to set what it changes to.</p>
       <div class="swatches" id="pal"></div>
+      <!-- UNDER the colours in the picture, which is where it was asked
+           for and also where it belongs: these are colours you have used,
+           and the ones above are the colours that are actually in the
+           artwork. Hidden until there is something in it rather than
+           showing an empty row on a trait nobody has painted yet. -->
+      <p class="note" id="palrecentlab" hidden style="margin-top:8px">Just used</p>
+      <div class="swrow" id="palrecent" hidden role="group"
+        aria-label="Colours you have just used"></div>
       <!-- THE PROJECT PALETTE, always here, under the colours the trait has.
            Not classed .swatches for the same reason #piopal is not:
            recolour.spec.js counts that class and pins exactly one, so that
@@ -2558,7 +2598,14 @@ footer .mono{color:var(--ink);}
             title="Pixelorama's Rotxel. The same one-pixel sampling done at three times the resolution, then Scale3x's edge rules pick which neighbour fills each step, so a diagonal comes out as a clean stair. No colour is invented: every pixel is one the art already had.">Rotxel</button>
         </div>
         <button class="btn ghost" id="rotgo" style="width:auto;padding:4px 9px;font-size:12px"
-          title="Turn the art by the angle. A quarter turn is exact; anything else grows the canvas to fit and samples the way the choice beside it says. One undo step.">Turn</button></div>
+          title="Turn the art by the angle. A quarter turn is exact; anything else samples the way the choice beside it says, and the canvas follows the Canvas chips. One undo step.">Turn</button></div>
+      <div class="olrow" style="margin-top:8px"><label>Canvas on a turn</label>
+        <div class="chips" id="turncan" role="group" aria-label="What a turn does to the canvas size">
+          <button type="button" data-v="keep" aria-pressed="true"
+            title="The canvas stays the size it is, so a turned trait still lines up on the character. Anything pushed past the edge is cut, and the message says how much.">Keep size</button>
+          <button type="button" data-v="grow" aria-pressed="false"
+            title="The canvas grows to hold the whole turn, which is what the turn itself produces. Nothing is cut, but the trait is no longer the size the collection expects.">Grow</button>
+        </div></div>
       <div class="olrow" style="margin-top:8px"><label for="rsw">Size</label>
         <input id="rsw" type="number" min="1" max="4096">
         <span class="mono">x</span>
@@ -6975,6 +7022,10 @@ function buildPalette(list){
      there is one place that fills the colour panel, and no way to rebuild
      half of it. */
   buildProjectPalette();
+  /* AND THE ONES JUST USED. Here for the same reason the project palette
+     is here: one place fills the colour panel, so there is no way to
+     rebuild half of it. */
+  buildRecentColours();
   /* AND WHAT IS OFF IT. Here, so it is right again after every change to
      the colours rather than only when the trait opened. */
   palOffNote();
@@ -7035,11 +7086,62 @@ function buildProjectPalette(){
     w.appendChild(b);
   }
   const n=$("projpalnote");
-  if(n) n.textContent=PALETTE_SOURCE.name+" \u00b7 "+list.length
-    +" colours \u00b7 left-click to paint with one, right-click to change the"
-    +" marked colours to it";
+  /* WHICH PALETTE AND HOW BIG - the two things only this line knows. How
+     to click a swatch is said once, in #palhow above, which covers both
+     grids: the same rule in two wordings reads as two rules, and it cost
+     three lines of height directly above the 256 colours this panel
+     exists to show. */
+  if(n) n.textContent=PALETTE_SOURCE.name+" \u00b7 "+list.length+" colours";
 }
-function setColor(h){
+/* THE COLOURS YOU JUST USED. Newest first, no repeats.
+
+   Sixteen is one row of the project palette grid. This is a shortcut back
+   to a colour you were just using, not a second palette - a list long
+   enough to search is the thing it exists to save you from.
+
+   In this browser and this session only. What somebody reached for this
+   afternoon is not a fact about the collection, which is the same reason
+   the hidden layer sets are not sent to the group. */
+const RECENT_COLOURS_MAX=16;
+let recentColours=[];
+function recentColourAdd(h){
+  const s=String(h||"").toLowerCase();
+  if(!/^#[0-9a-f]{6}$/.test(s)) return;
+  /* MOVED, not repeated. Going back and forth between two colours would
+     otherwise fill the whole strip with those two. */
+  const i=recentColours.indexOf(s);
+  if(i>=0) recentColours.splice(i,1);
+  recentColours.unshift(s);
+  if(recentColours.length>RECENT_COLOURS_MAX) recentColours.length=RECENT_COLOURS_MAX;
+  buildRecentColours();
+}
+/* The same swatch the palette uses, through the same helper, so a recent
+   colour looks and behaves like a colour - one difference, deliberate:
+   clicking one paints with it and does NOT mark it for replacing. The
+   marks are about colours that are IN the picture, and a colour you used
+   an hour ago may not be in it at all. */
+function buildRecentColours(){
+  const wrap=$("palrecent"), lab=$("palrecentlab");
+  if(!wrap) return;
+  const any=recentColours.length>0;
+  wrap.hidden=!any; if(lab) lab.hidden=!any;
+  wrap.innerHTML="";
+  for(const h of recentColours){
+    const b=document.createElement("button");
+    b.className="sw"; b.dataset.hex=h; b.style.background=h;
+    b.title=h+" \u00b7 just used";
+    b.setAttribute("aria-pressed",String(h===String(color||"").toLowerCase()));
+    b.setAttribute("aria-label","Recently used colour "+h);
+    b.onclick=()=>setColor(h);
+    wrap.appendChild(b);
+  }
+}
+/* used=false is a colour being PREVIEWED, not chosen. The OS colour picker
+   fires input on every movement inside it, and recording those puts every
+   colour swept past into the list - see the picker handlers below, where
+   input previews and change is what commits. */
+function setColor(h,used){
+  if(used!==false) recentColourAdd(h);
   color=h; $('picker').value=h; $('curhex').textContent=h;
   /* The button IS the well now, so it has to carry the colour. */
   const cb=$('clbtn'); if(cb) cb.style.background=h;
@@ -7053,7 +7155,13 @@ function setColor(h){
      goes stale the moment the colour changes unless it is redrawn here. */
   rcSummary();
 }
-$('picker').oninput=e=>{ setColor(e.target.value); selectTool('pencil'); };
+/* TWO EVENTS, ON PURPOSE. input fires the whole time the OS picker is
+   being dragged - that is what makes the canvas follow it live, and it is
+   also why those colours must not be recorded: they are the ones swept
+   past, not the one chosen. change fires once, when the picker is done,
+   and that is the colour that was actually picked. */
+$('picker').oninput=e=>{ setColor(e.target.value,false); selectTool('pencil'); };
+$('picker').onchange=e=>{ setColor(e.target.value); };
 
 function applyZoom(){
   art.style.width=(art.width*zoom)+'px'; art.style.height=(art.height*zoom)+'px';
@@ -7757,6 +7865,17 @@ function scale3xTo(src,W,H,nw,nh,plan){
 }
 /* Which sampling a free turn uses - the chip in the Transform panel. */
 function rotAlg(){ return (typeof chipVal==="function"&&chipVal("rotalg")==="rotxel") ? "rotxel" : "nearest"; }
+/* WHAT A TURN DOES TO THE CANVAS, in one place for the same reason rotAlg
+   is in one place: the Turn button, the drag handle on the canvas and
+   PB.rotate must not disagree about what a turn is.
+
+   Keep is the default because every trait here is lined up against a base
+   at a fixed size, and a turn that resizes the canvas takes the trait off
+   the character. Grow is what the turn itself produces and is still one
+   click away. */
+function turnKeepsCanvas(){
+  return !(typeof chipVal==="function"&&chipVal("turncan")==="grow");
+}
 /* Rotxel on this editor's terms. The canvas grows to the turned bounding
    box so nothing is clipped, so the artwork is centred on a transparent
    canvas of that size first - recanvas's own floor rule, so a turn and the
@@ -7831,8 +7950,31 @@ function rotateFree(deg){
     out[b]=src[a]; out[b+1]=src[a+1]; out[b+2]=src[a+2]; out[b+3]=src[a+3];
   }
   }
+  /* BACK ONTO THE CANVAS IT CAME FROM, when that is what was asked for.
+
+     Not a different turn: the sampling above is untouched and runs at the
+     size the algorithm asks for, so every pixel is the one it would have
+     been. This only decides which canvas the result is put down on, and
+     recanvas is the centred rule the rest of the app already uses for
+     exactly that - a scale, a pad and a turn all keep the art at the same
+     fraction of the canvas, or it stops sitting where the base expects.
+
+     Before snapshot(), so this is one undo step rather than two. */
+  const keep=turnKeepsCanvas();
+  let ow=nw, oh=nh;
+  let cut=0;
+  if(keep&&(nw!==W||nh!==H)){
+    /* SAID, NOT DISCOVERED. A turn can push art past an edge that is not
+       growing to meet it, and the number is the difference in painted
+       pixels - counted rather than predicted. */
+    const ink=d2=>{ let n=0; for(let i=3;i<d2.length;i+=4) if(d2[i]) n++; return n; };
+    const had=ink(out);
+    out=recanvas(out,nw,nh,W,H);
+    cut=Math.max(0,had-ink(out));
+    ow=W; oh=H;
+  }
   snapshot();
-  restoreImage(new ImageData(out,nw,nh));
+  restoreImage(new ImageData(out,ow,oh));
   refreshStats(); fitZoom(); resizeBoxes();
   /* No colour is averaged into existence here - the comment above says so and
      it is true - but a turn CLIPS, so a colour living only in a corner can
@@ -7844,7 +7986,11 @@ function rotateFree(deg){
      permutation onto a swapped canvas - every pixel lands somewhere and the
      set out is exactly the set in, which rotateQuarter already states. */
   repalette();
-  toast("Turned "+d.toFixed(1)+String.fromCharCode(176)+" - now "+nw+" by "+nh+(alg==="rotxel"?" with Rotxel":""));
+  toast("Turned "+d.toFixed(1)+String.fromCharCode(176)
+    +(keep ? " - still "+ow+" by "+oh+(cut?", "+cut+" pixel"+(cut===1?"":"s")
+        +" turned off the canvas":"")
+      : " - now "+ow+" by "+oh)
+    +(alg==="rotxel"?" with Rotxel":""));
   return true;
 }
 
@@ -8598,7 +8744,7 @@ function setChip(id,v){
      "no choice" and send chipVal to the first one anyway. */
   if(!hit&&all.length) all[0].setAttribute("aria-pressed","true");
 }
-for(const id of ["rsmode","tstatus","txalign","rotalg","rsalg"]){
+for(const id of ["rsmode","tstatus","txalign","rotalg","rsalg","turncan"]){
   const g=document.getElementById(id);
   if(g) g.onclick=e=>{ const b=e.target.closest("button[data-v]"); if(b){ setChip(id,b.dataset.v); if(id==="rsmode") resizeBoxes(); if(id==="txalign") textBuild(); if(id==="rsalg") resizePreview(); } };
 }
@@ -18542,11 +18688,19 @@ PB.text=function(o){
    drag handle call, so what an agent gets is what the panel would show. */
 const ROT_ALGS=["nearest","rotxel"];
 PB.turns=function(){ return ROT_ALGS.slice(); };
-PB.rotate=function(deg,alg){
+/* canvas is "keep" or "grow", and omitting it leaves whatever the panel
+   says - the same contract alg has. Named rather than a boolean so a
+   caller reads as the chip it is setting. */
+PB.rotate=function(deg,alg,canvas){
   if(!ctx) return {ok:false, why:"nothing is open"};
   if(alg!==undefined){ if(ROT_ALGS.indexOf(alg)<0) return {ok:false, why:"no turn called "+alg}; setChip("rotalg",alg); }
+  if(canvas!==undefined){
+    if(canvas!=="keep"&&canvas!=="grow") return {ok:false, why:"no canvas rule called "+canvas};
+    setChip("turncan",canvas);
+  }
   const turned=!!rotateFree(+deg||0);
-  return {ok:true, deg:+deg||0, alg:rotAlg(), turned, w:art.width, h:art.height};
+  return {ok:true, deg:+deg||0, alg:rotAlg(), canvas:turnKeepsCanvas()?"keep":"grow",
+    turned, w:art.width, h:art.height};
 };
 PB.scale3x=function(apply){
   if(!ctx) return {ok:false, why:"nothing is open"};

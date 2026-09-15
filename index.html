@@ -10271,10 +10271,26 @@ function ruleState(){
   el.hidden=false;
   el.textContent=bits.join(". ")+".";
 }
+/* WHAT THE RULE LIST WAS LAST BUILT FROM.
+
+   buildRules creates |RULES| x |traits| elements - one "add a trait"
+   option per trait, per rule - and renderShelf calls it on every gesture
+   from 43 bare call sites. Measured at 324 traits: 24 ms with no rules,
+   242 ms at 158, 408 ms at 298, per click.
+
+   Nothing it draws depends on anything but the trait keys and RULES. */
+let rulesBuiltSig=null;
 function buildRules(traits){
   const A=$("rulea"), B=$("ruleb"), L=$("rulelist");
   if(!A||!B||!L) return;
   const keys=[...new Set(traits.map(traitKey))].sort();
+  /* THE SKIP, AND ITS OWN CHECK. A signature that outlived the DOM it
+     describes would leave the panel blank for good, so what is on screen
+     is counted too - a skip has to be able to notice it is wrong. */
+  const sig=JSON.stringify([keys,RULES]);
+  if(sig===rulesBuiltSig && L.childElementCount===RULES.length
+     && A.options.length===keys.length && B.options.length===keys.length) return;
+  rulesBuiltSig=sig;
   for(const sel of [A,B]){
     const keep=sel.value;
     sel.innerHTML="";
@@ -11565,10 +11581,27 @@ function driftLine(drift,n){
    about one candidate against a partial character; here the whole combination
    already exists and the question is whether any group holds two of it. */
 const LEGAL_SAMPLES=4000;
+/* THE SHARE THE RULES LEAVE, kept until something it depends on moves.
+
+   4,000 draws, each tested against every rule, re-run on every non-viewOnly
+   renderShelf. Measured at 324 traits: 0 ms with no rules, 144 ms at 158.
+
+   KEYED ON WHAT THIS FUNCTION READS, which is why the memo is here and
+   not on comboStats. comboStats also counts the base characters and folds
+   their weights in - there is a comment recording that leaving them out
+   was a measured bug - and the key distributionOf uses is built from
+   traitEligible, which rejects anything that is not kind "trait". A memo
+   on comboStats keyed that way would go stale the moment a base was added
+   or re-weighted. This reads the pools and RULES and nothing else. */
+let legalCache=null, legalKey="";
 function legalFraction(by){
   if(!RULES.length) return 1;
   const layers=[...by.keys()];
   if(!layers.length) return 1;
+  /* The pools IN ORDER, because the draw picks by index against a fixed
+     seed - the same traits in a different order is a different answer. */
+  const key=JSON.stringify([layers.map(l=>[l,(by.get(l)||[]).map(traitKey)]),RULES]);
+  if(legalCache!==null && legalKey===key) return legalCache;
   let legal=0;
   for(let i=0;i<LEGAL_SAMPLES;i++){
     const keys=[];
@@ -11590,7 +11623,8 @@ function legalFraction(by){
     }
     if(ok) legal++;
   }
-  return legal/LEGAL_SAMPLES;
+  legalCache=legal/LEGAL_SAMPLES; legalKey=key;
+  return legalCache;
 }
 function comboStats(items,wipIncluded){
   const by=new Map();

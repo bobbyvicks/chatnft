@@ -8830,17 +8830,38 @@ function symDraw(){
   g.style.display="block";
 }
 function stroke(e){
-  const c=cellFrom(e); if(!c) return;
+  /* OFF THE ART THE STROKE KEEPS ITS PATH, as the shade tool already says
+     and does: each pixel is clipped, not the line. This bailed before
+     touching lastCell, so a pointer that left the canvas and came back
+     somewhere else drew a straight chord across everything in between. */
+  const c=cellFrom(e);
+  const p=c||rawCell(e);
   const pts=[];
-  if(lastCell){ const dx=c.x-lastCell.x, dy=c.y-lastCell.y, n=Math.max(Math.abs(dx),Math.abs(dy));
+  if(lastCell){ const dx=p.x-lastCell.x, dy=p.y-lastCell.y, n=Math.max(Math.abs(dx),Math.abs(dy));
     for(let i=1;i<=n;i++) pts.push({x:lastCell.x+Math.round(dx*i/n),y:lastCell.y+Math.round(dy*i/n)}); }
-  else pts.push(c);
+  /* The first point of a stroke only counts if it is on the art. After
+     that the line carries the position whether it is or not. */
+  else if(c) pts.push(c);
   const rgb=hx2(color);
-  for(const p of pts){
-    if(tool==='pencil') dabSym(p.x,p.y,rgb,255);
-    else if(tool==='eraser') dabSym(p.x,p.y,[0,0,0],0);
+  /* WHERE THE DAB CANNOT REACH, SKIP IT - not the point, the dab. The line
+     still runs through these cells, so what lands on the art is exactly
+     the path. dab() clips anyway, but the pixel-perfect path reads a pixel
+     back per step to decide about corners, and a long drag off the canvas
+     would be thousands of reads to find out nothing can be painted.
+
+     The margin is the brush radius, because a wide brush whose centre is
+     just off the art still paints its inside edge. Mirroring maps outside
+     to outside, so a point skipped here has no mirror that would have
+     landed either. */
+  const reach=Math.floor((brush-1)/2)+1;
+  for(const q of pts){
+    if(q.x<-reach||q.y<-reach||q.x>=art.width+reach||q.y>=art.height+reach) continue;
+    if(tool==='pencil') dabSym(q.x,q.y,rgb,255);
+    else if(tool==='eraser') dabSym(q.x,q.y,[0,0,0],0);
   }
-  lastCell=c;
+  /* The position the pointer REACHED, on the art or not - that is what
+     makes the next segment follow the path rather than cut across it. */
+  lastCell=p;
 }
 /* The top of the slider, from the canvas rather than a constant: a fixed 128
    is absurd on a 40px trait and a fixed 16 is useless on a 1280 one. Capped
@@ -24353,8 +24374,22 @@ function shpRows(kind){
 for(const kind of SHP_KINDS) registerTool(kind,{
   brush:true,
   down:(e,c)=>shpBegin(kind,c,shpMods(e)),
-  move:e=>{ if(SHP.drawing&&SHP.kind===kind){ const p=rawCell(e); shpMoveTo([p.x,p.y],shpMods(e)); } },
-  up:e=>{ const p=rawCell(e); shpFinish([p.x,p.y],shpMods(e),!!(e&&e.type==='pointercancel')); },
+  /* SNAPPED ON THE ART, RAW OFF IT. snapCell covers these tools on purpose
+     - its guard admits anything registered with brush:true - so the press
+     landed on the grid and these two threw that away, leaving the far edge
+     of every shape running through a block. Measured on 10px blocks with
+     Snap on: start (34,44) snapped, dest (97,104) raw, painted box right
+     edge 93..102 straddling the boundary at 99/100.
+
+     Not snapCell(rawCell(e)): snapCell clamps to art.width-1, and a corner
+     dragged past the edge is meant to be clipped rather than stopped. The
+     cell the dispatcher already computed is snapped when it is on the art
+     and null when it is not - the pattern the shade tool uses - and keeps
+     both rules. */
+  move:(e,c)=>{ if(SHP.drawing&&SHP.kind===kind){ const p=c||rawCell(e); shpMoveTo([p.x,p.y],shpMods(e)); } },
+  /* T.up is called with one argument - including by the scripted replay -
+     so this works the cell out rather than being handed it. */
+  up:e=>{ const p=cellFrom(e)||rawCell(e); shpFinish([p.x,p.y],shpMods(e),!!(e&&e.type==='pointercancel')); },
   select:()=>shpRows(kind),
   deselect:()=>{ shpReset(); shpRows(null); },
 });

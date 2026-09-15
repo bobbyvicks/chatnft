@@ -254,16 +254,32 @@ test('the rail is a grid item, which is what stops it spilling', async ({ page }
     return { railParent: rail.parentElement === app,
       boxParent: box.parentElement === app,
       railArea: getComputedStyle(rail).gridArea.split(' ')[0],
-      boxArea: getComputedStyle(box).gridArea.split(' ')[0],
-      rows: getComputedStyle(app).gridTemplateRows.split(' ').length };
+      boxArea: getComputedStyle(box).gridArea.split(' ')[0] };
   });
   expect(r.railParent).toBe(true);
   expect(r.boxParent).toBe(true);
   expect(r.railArea).toBe('tools');
   expect(r.boxArea).toBe('cols');
-  /* Five areas want five rows. Four would make the stage's row auto, and the
-     stage would stop being the thing that grows. */
-  expect(r.rows).toBe(5);
+  /* GONE: this asserted `rows === 5`, under the note "Five areas want five
+     rows. Four would make the stage's row auto, and the stage would stop being
+     the thing that grows." patch467 gave the restored-draft bar a row of its
+     own, which makes it six - but changing the 5 to a 6, or to a count of the
+     area rows, would have been worse than deleting it, because MEASURED: that
+     assertion never discriminated.
+
+     getComputedStyle().gridTemplateRows returns the USED tracks, implicit ones
+     included, so it reports six whether the sixth was declared or invented -
+     and .app is height:100dvh, so the stage absorbs the leftover space even
+     when every track is auto. Both mutations - a track removed, and the 1fr
+     turned to auto - leave this green, with the stage growing by exactly the
+     250px the window gained.
+
+     The property is real and it IS covered: dropping the track collapses the
+     colour box to 19px and "the colours are on screen without opening
+     anything", at the top of this file, goes red. That test can fail; this
+     count could not. What is left here is the part that does hold - the rail
+     and the box are grid ITEMS of .app in their own areas, which is the
+     mechanism this test is named for. */
 });
 
 test('a phone keeps the door and does not get the box', async ({ page }) => {

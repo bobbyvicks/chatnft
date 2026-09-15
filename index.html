@@ -323,7 +323,7 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
 .revmeta{flex:1; min-width:0;}
 .revmeta b{display:block; font-size:13.5px;}
 .revdone{color:var(--accent);}
-.draftbar{display:flex; gap:10px; align-items:center; flex-wrap:wrap;
+.draftbar{grid-area:draft; display:flex; gap:10px; align-items:center; flex-wrap:wrap;
   padding:7px 12px; background:var(--panel); border-bottom:1px solid var(--line);
   font-size:12.5px; color:var(--muted);}
 .urow{display:flex; gap:8px; align-items:baseline; padding:4px 0;
@@ -909,7 +909,7 @@ body.shelf-dragging,body.shelf-dragging *{cursor:grabbing!important;}
 .big span{font-size:12.5px; opacity:.8;}
 
 /* ---------- editor ---------- */
-.app{display:grid; grid-template-columns:auto 1fr; grid-template-rows:auto auto auto 1fr auto;
+.app{display:grid; grid-template-columns:auto 1fr; grid-template-rows:auto auto auto auto 1fr auto;
   /* The rail, then the canvas, and nothing across from it. The 244px column
      that used to sit between them is a strip under the header now, because
      what it still held is looked at rather than gone to. */
@@ -918,7 +918,13 @@ body.shelf-dragging,body.shelf-dragging *{cursor:grabbing!important;}
      be sized right when that height is the row height - definite, and
      known before the track is measured. Inside a flex wrapper it was
      neither, and three columns of tools hung out of a two-column track. */
-  grid-template-areas:"head head" "opts opts" "cols stage" "tools stage" "foot foot"; height:100dvh;}
+  /* THE DRAFT BAR HAS A ROW. It named no area, so it auto-placed into an
+     implicit sixth row below the footer - and column one is an auto track,
+     so it was ALSO sized by the bar and the canvas lost that width.
+     Measured at 1280x900: stage 1105 -> 710, rail 175 -> 570. An auto row
+     collapses to nothing while the bar is hidden, which it is until a
+     draft is actually restored. */
+  grid-template-areas:"head head" "draft draft" "opts opts" "cols stage" "tools stage" "foot foot"; height:100dvh;}
 header{grid-area:head; display:flex; align-items:center; gap:13px; flex-wrap:wrap;
   padding:calc(5px + var(--sat)) calc(16px + var(--sar)) 5px calc(16px + var(--sal)); border-bottom:1px solid var(--line); background:var(--panel);}
 header .brand h1{font-size:15px;}
@@ -1506,8 +1512,10 @@ footer .mono{color:var(--ink);}
     right:0; bottom:0; background:#0b0910e0; backdrop-filter:blur(3px);
     display:grid; place-items:center; padding:16px; pointer-events:auto;}
   .scrim.pop>.card{width:min(560px,94vw); max-height:90dvh;}
-  .app{grid-template-columns:1fr; grid-template-rows:auto auto auto minmax(0,1fr) auto;
-    grid-template-areas:"head" "tools" "opts" "stage" "foot";}
+  .app{grid-template-columns:1fr; grid-template-rows:auto auto auto auto minmax(0,1fr) auto;
+    /* Under the header here too - on a phone the implicit row put it over
+       the home indicator. */
+    grid-template-areas:"head" "draft" "tools" "opts" "stage" "foot";}
   .spec{width:100%; margin-left:0; gap:11px; font-size:9.5px;}
   /* .spec wraps to its own row here, which would carry the close button
      down with it. It stays in the top-right corner instead. */
@@ -7363,6 +7371,27 @@ function applyZoom(){
   $('zlab').textContent = zoom>=1
     ? (Math.round(zoom*10)/10).toFixed(1).replace(/\.0$/,'')+'\u00d7'
     : Math.round(zoom*100)+'%';
+  /* THE OVERLAYS THAT ARE SHOWING. Each is drawn at the pixel
+     resolution of the art and stretched to art.width*zoom by whoever
+     draws it, and each is absolutely positioned at the top-left - so one
+     left at the old size is anchored right and scaled wrong, with every
+     pixel in it displaced by its own distance from that corner.
+
+     The text preview is the one that costs something: it is the only
+     thing that says where the lettering will land, and the drag handle
+     stays where the sprite really is while the letters are drawn
+     somewhere else, so pressing the visible letters does not grab them.
+
+     NOT #shpv, #gdpv, #sdpv or #cmppv, which were considered: each of
+     those exists only while a pointer is down, and the zoom cannot change
+     during a drag. Named so the next person does not have to work that
+     out again. */
+  for(const id of ["txpv","fxpv","qapv"]){
+    const el=$(id);
+    if(el && el.style.display!=="none" && el.width){
+      el.style.width=(art.width*zoom)+'px'; el.style.height=(art.height*zoom)+'px';
+    }
+  }
   paintCursor();
   symDraw();
   selDraw(true); if(seLift) seLiftDraw();

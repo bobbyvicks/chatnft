@@ -2138,7 +2138,7 @@ footer .mono{color:var(--ink);}
           title="How many characters to generate. Each one is different from the others.">make
           <input id="cgen" type="number" min="1" max="10000" step="1" value="100" style="width:64px"></label>
         <button class="mini" id="cgenzip"
-          title="Generate that many different characters and download them as a zip of images and metadata">Generate set</button>
+          title="Generate that many different characters from the traits in the final project and download them as a zip of images and metadata">Generate set</button>
         <button class="mini" id="cclear">Clear</button>
         <button class="mini go" id="cdl">Download</button>
       </div>
@@ -10797,7 +10797,13 @@ async function drawCompose(){
     : [];
   $("cnote").textContent = odd.length
     ? "Not all the same size: "+odd.join(" and ")+". They are scaled to fit one canvas when a character is drawn."
-    : "Stacks one trait per layer over a base, in draw order, to check the set works together.";
+    /* WIDER THAN GENERATE, ON PURPOSE, and it has to say so now that they
+       differ: checking a trait sits right on a skin is something you do
+       BEFORE deciding it is final, so this draws from everything approved
+       while Generate set draws from the final project only. */
+    : "Stacks one trait per layer over a base, in draw order, to check the set"
+      +" works together. Draws from every approved trait - Generate set builds"
+      +" the final project only.";
   $("cdl").disabled=!picked.length;
 }
 function composeRandom(){
@@ -12436,7 +12442,28 @@ function sizeLine(list){
     +" "+(rest===1?"is":"are")+" drawn at native size and centred, so they look small on it. Make them one size before minting.";
 }
 async function buildCollection(n,onProgress){
-  const pools=cPools();
+  /* THE FINAL PROJECT, NOT THE PROJECT. cPools() reads the rows on the
+     project page, which hold every approved trait - so the page that exists
+     to say which traits are shipping had no effect on what shipped.
+
+     Read from the database rather than from cItems: cItems is whatever the
+     project page last rendered, and this runs from a button that does not
+     need that page to have been visited. */
+  let items=[];
+  try{ items=await dbAll(); }catch(_){ items=[]; }
+  /* The same records, filtered - handed back so the report describes the set
+     that was actually built. traitEligible(t,false) is approved-or-stfp, so
+     a list of stfp traits and the bases passes every counter unchanged. */
+  const pool=items.filter(i=>i&&(i.kind==="ref"
+    || (i.kind==="trait" && String(i.status||"wip")==="stfp")));
+  const pools=finalPools(items);
+  /* REFUSED, NOT QUIETLY WIDENED. A button that means the final project when
+     there is one and everything approved when there is not is a button whose
+     meaning you cannot see, and marking one trait stfp to try it would make
+     the next press build a collection of one. */
+  if(!Object.keys(pools).some(k=>k!=="__base"))
+    return { files:[], made:0, asked:n, combos:[], sizes:[], pool:pool,
+      reason:"final-empty" };
   const combos=uniqueCombos(pools,n);
   let W=0,H=0;
   /* THE FIXED CANVAS, not the biggest trait in this draw - see CANVAS_SIDE.
@@ -12444,14 +12471,19 @@ async function buildCollection(n,onProgress){
      at two different resolutions and say nothing about it. */
   /* From the collection, not from this draw - see autoCanvas. Sizing to
      the picks is what made the preview change size between draws. */
-  { const S=await autoCanvas(cItems); W=S; H=S; }
+  /* FROM THE SET BEING BUILT. This asked about every approved trait while
+     the collection was becoming a smaller one, so the zip could come out at
+     a cell size no trait in it wanted. The preview on the final page already
+     sizes from these; this is what makes the two agree. */
+  { const S=await autoCanvas(pool.filter(i=>i.kind==="trait")); W=S; H=S; }
   /* WHAT SIZES WENT IN. The canvas is the largest of them and paintTrait
      scales by a whole number, so anything smaller is drawn at its native
      size and centred - a 1024 hat on a 1280 head is a hat that looks too
      small, in every one of these files. drawCompose and drawSheet both say
      this; the zip somebody mints from did not. */
   const sizeSpread=sizesIn(combos);
-  if(!combos.length||!W||!H) return { files:[], made:0, asked:n, combos:[], sizes:[] };
+  if(!combos.length||!W||!H)
+    return { files:[], made:0, asked:n, combos:[], sizes:[], pool:pool };
   const cv=document.createElement("canvas"); cv.width=W; cv.height=H;
   const g=cv.getContext("2d"); g.imageSmoothingEnabled=false;
   const enc=new TextEncoder();
@@ -12482,7 +12514,10 @@ async function buildCollection(n,onProgress){
      against what each tile promised, and it can only do that if the thing
      built is handed back - the first version of this returned only the count
      and the whole report was silently inert. */
-  return { files, made:combos.length, asked:n, combos, sizes:sizeSpread };
+  /* pool travels with the files for the same reason combos does: the report
+     below measures what was built against what the set promised, and it can
+     only do that against the set that was actually drawn from. */
+  return { files, made:combos.length, asked:n, combos, sizes:sizeSpread, pool };
 }
 /* LAY CHARACTERS OUT ON A CANVAS AND PAINT THEM.
 
@@ -21363,8 +21398,13 @@ async function finalPreview(n,items){
       ? " The Never-together rules could not be met on "+ruleMisses+" draw"
         +(ruleMisses===1?"":"s")+" - the final set is over-constrained." : "";
     const bare = got===0 ? " Nothing could be drawn from it." : "";
-    const mismatch=" Generate set on the project page still draws from every"
-      +" approved trait, not only from these.";
+    /* WAS A CONFESSION, NOW A STATEMENT. Until 476 this read "Generate set on
+       the project page still draws from every approved trait, not only from
+       these" - true, and the reason this line existed. Generate set builds
+       exactly this set now, so the line says that instead of apologising
+       for the difference. */
+    const mismatch=" Generate set on the project page builds this, and nothing"
+      +" else.";
     note.textContent=head+from
       +" The Never-together rules, the layer order and the empty chance are"
       +" the ones a character is generated with."+shortBy+missed+bare+mismatch;
@@ -22528,6 +22568,18 @@ $('cgenzip').onclick=async()=>{
     const r=await buildCollection(n,(done,total)=>{
       $("cnote").textContent="Building "+done+" of "+total+"...";
     });
+    /* TOLD WHAT TO DO, not just that nothing happened. This is the first
+       press for anybody who has not curated a final project yet, and
+       "nothing saved to build from" would be false - there is plenty
+       saved, none of it chosen. */
+    if(r.reason==="final-empty"){
+      toast("Nothing is in the final project yet");
+      $("cnote").textContent="Generate set builds the FINAL PROJECT - the"
+        +" traits marked stfp - and nothing is in it yet. Open Final project"
+        +" and add the ones you want, or press the status chip on a trait"
+        +" here until it reads stfp.";
+      return;
+    }
     if(!r.made){ toast("Nothing saved to build from"); $("cnote").textContent=""; return; }
     const b=zip(r.files), u=URL.createObjectURL(b), a=document.createElement("a");
     a.href=u; a.download="buildanft-collection-"+r.made+".zip";
@@ -22540,14 +22592,21 @@ $('cgenzip').onclick=async()=>{
        say so before the zip is opened somewhere else. */
     const missed = ruleMisses ? " The Never-together rules could not be met on "
       +ruleMisses+" draw"+(ruleMisses===1?"":"s")+" - the set is over-constrained." : "";
-    const cstat=comboStats(cItems,$("cwip").checked);
+    /* OVER WHAT WAS BUILT FROM. These counted every approved trait, which
+       after this change is a different set from the one drawn - and a
+       denominator that describes the wrong population makes a sentence
+       nobody can check. false rather than the wip box for the same reason:
+       wip is not in the final project either. */
+    const cstat=comboStats(r.pool,false);
     const short = r.made<r.asked
       ? " Asked for "+r.asked+" - "+bigLabel(cstat.distinct)+" combinations exist"
         +(cstat.effective < cstat.distinct*0.9
           ? ", and the weights make it behave like "+bigLabel(cstat.effective)+"." : ".")
       : "";
     $("cnote").textContent="Built "+r.made+" different character"+(r.made===1?"":"s")
-      +" with metadata."+short+missed+sizeLine(r.sizes)+driftLine(shareDrift(r.combos,cItems,$("cwip").checked),r.made);
+    $("cnote").textContent="Built "+r.made+" different character"+(r.made===1?"":"s")
+      +" from the final project, with metadata."+short+missed+sizeLine(r.sizes)
+      +driftLine(shareDrift(r.combos,r.pool,false),r.made);
     toast("Downloaded "+r.made+" character"+(r.made===1?"":"s"));
   }catch(e){
     toast("Could not build the set: "+((e&&e.message)||"error"));

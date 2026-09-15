@@ -33,7 +33,12 @@ const put = (page, rows) => page.evaluate(async list => {
   };
   let i = 0;
   for (const r of list) {
-    await dbPut({ id: 't_' + r.n, kind: 'trait', name: r.n, layer: r.l, status: 'approved',
+    /* stfp, NOT approved. Generate set builds the FINAL PROJECT now - the
+       traits marked stfp - so a fixture of approved traits builds nothing at
+       all, and every test here would pass vacuously over an empty zip. The
+       sheet tests above are unaffected: their pool is approved-or-stfp, and
+       stfp is in it. Pass r.s to seed a status deliberately. */
+    await dbPut({ id: 't_' + r.n, kind: 'trait', name: r.n, layer: r.l, status: r.s || 'stfp',
                   blob: await png((i++ * 47) % 360), w: 160, h: 160, rarity: r.r || 1, at: 1 });
   }
   await renderShelf();
@@ -187,6 +192,11 @@ test.describe('the generated collection', () => {
     await put(page, SET);
     await page.waitForTimeout(300);
     const r = await build(page, 6);
+    /* FIRST, because every assertion below is over a LIST: .every and a loop
+       over metas are both true of nothing, so a generator that built an empty
+       zip passed this test and the one below it. Found when Generate stopped
+       drawing from approved traits and these two stayed green. */
+    expect(r.made, 'six were built').toBe(6);
     expect(r.pngHeaders.every(Boolean), 'every file starts with the PNG signature').toBe(true);
     expect(Math.min(...r.imageBytes), 'and none is an empty stub').toBeGreaterThan(100);
   });
@@ -196,6 +206,8 @@ test.describe('the generated collection', () => {
     await put(page, SET);
     await page.waitForTimeout(300);
     const r = await build(page, 12);
+    /* Same reason as above: a loop over an empty metas list asserts nothing. */
+    expect(r.made, 'twelve were built').toBe(12);
     const names = new Set(SET.map(s => s.n));
     const layers = new Set(SET.map(s => s.l));
     for (const m of r.metas) {
@@ -242,6 +254,97 @@ test.describe('the generated collection', () => {
     expect(imgs.slice().sort(), 'sorted order is generation order').toEqual(imgs);
     expect(imgs[0], 'and the first is padded to the width of the last').toBe('images/01.png');
   });
+
+  test('IT BUILDS THE FINAL PROJECT, NOT EVERY APPROVED TRAIT', async ({ page }) => {
+    /* The request: "yes make generate set use the final project". An approved
+       trait that was never chosen must not reach the zip, and the way to prove
+       it is to put one in a layer of its own - so if it were being drawn, every
+       character would carry it and the failure is total rather than statistical. */
+    await openTrait(page, { w: 160, h: 160, draw: BLOCK });
+    await put(page, [{ n: 'tan', l: 'skins' }, { n: 'pale', l: 'skins' },
+      { n: 'crown', l: 'hair-headwear', s: 'approved' }]);
+    await page.waitForTimeout(300);
+    const r = await build(page, 12);
+    expect(r.made, 'two skins is two characters').toBe(2);
+    const values = new Set();
+    for (const m of r.metas) for (const a of m.attributes) values.add(a.value);
+    expect([...values].sort(), 'the approved-but-not-chosen trait is not in the collection')
+      .toEqual(['pale', 'tan']);
+  });
+
+  test('and refuses rather than quietly widening when nothing is chosen', async ({ page }) => {
+    /* The control on the line above, and the reason there is no fallback: a
+       button that means the final project when there is one and everything
+       approved when there is not is a button whose meaning you cannot see.
+       Marking one trait stfp to try it out would otherwise make the next press
+       build a collection of one. */
+    await openTrait(page, { w: 160, h: 160, draw: BLOCK });
+    await put(page, SET.map(x => ({ ...x, s: 'approved' })));
+    await page.waitForTimeout(300);
+    const r = await page.evaluate(async () => {
+      const res = await buildCollection(12, null);
+      return { made: res.made, reason: res.reason, files: res.files.length };
+    });
+    expect(r.made, 'nothing was built').toBe(0);
+    expect(r.files, 'and no zip was filled').toBe(0);
+    expect(r.reason, 'it says why rather than looking like an empty project')
+      .toBe('final-empty');
+  });
+
+  test('and the button says so rather than saying nothing is saved', async ({ page }) => {
+    /* What a person actually sees. "Nothing saved to build from" would be
+       false - there are seven approved traits saved, none of them chosen - and
+       it points at the wrong problem. */
+    await openTrait(page, { w: 160, h: 160, draw: BLOCK });
+    await put(page, SET.map(x => ({ ...x, s: 'approved' })));
+    await page.waitForTimeout(300);
+    await page.evaluate(async () => {
+      const realToast = window.toast; window.toast = () => {};
+      try { await document.getElementById('cgenzip').onclick(); } finally { window.toast = realToast; }
+      await new Promise(r => setTimeout(r, 400));
+    });
+    const said = await note(page);
+    expect(said).toContain('FINAL PROJECT');
+    expect(said).toContain('Open Final project');
+    expect(said, 'and not the sentence that blames an empty project')
+      .not.toContain('Nothing saved to build from');
+  });
+
+  test('AND THE SHORTFALL COUNTS THE FINAL PROJECT, NOT EVERY APPROVED TRAIT',
+    async ({ page }) => {
+      /* The number that says how big the set is. It took its population from
+         cItems - every approved trait - which after Generate stopped drawing
+         from those is a denominator describing a different set from the one
+         built. A wrong count is worse than a wrong zip: the zip you can open.
+
+         Two chosen skins are two combinations. The five approved traits sitting
+         in three other layers would make far more, so the two answers cannot be
+         confused for one another. */
+      await openTrait(page, { w: 160, h: 160, draw: BLOCK });
+      await put(page, [
+        { n: 'tan', l: 'skins' }, { n: 'pale', l: 'skins' },
+        { n: 'crown', l: 'hair-headwear', s: 'approved' },
+        { n: 'cap', l: 'hair-headwear', s: 'approved' },
+        { n: 'wig', l: 'hair-headwear', s: 'approved' },
+        { n: 'tee', l: 'clothing', s: 'approved' },
+        { n: 'coat', l: 'clothing', s: 'approved' }]);
+      await page.waitForTimeout(300);
+      await page.evaluate(async () => {
+        const realToast = window.toast; window.toast = () => {};
+        try { await document.getElementById('cgenzip').onclick(); }
+        finally { window.toast = realToast; }
+        await new Promise(r => setTimeout(r, 500));
+      });
+      const said = await note(page);
+      expect(said, 'it built the two it could').toContain('Built 2 different characters');
+      expect(said, 'and named the final project as what it built from')
+        .toContain('from the final project');
+      /* The count the shortfall names. 2 over the final set; with the approved
+         traits counted it is 2 x 4 x 3 = 24. */
+      expect(said, 'the set is two combinations, not twenty-four')
+        .toContain('- 2 combinations exist');
+      expect(said).not.toContain('24 combinations');
+    });
 
   test('asking for more than the set holds returns what exists', async ({ page }) => {
     // The same fact the sheet reports: a limit of the set, not a failure.

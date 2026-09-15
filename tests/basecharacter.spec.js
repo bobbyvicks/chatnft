@@ -33,9 +33,12 @@ const seed = (page, withBase) => page.evaluate(async ([b64, base]) => {
   for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
   const png = new Blob([arr], { type: 'image/png' });
   if (base) await dbPut({ id: 'ref_hero', kind: 'ref', name: 'hero', blob: png, w: 160, h: 160, at: 1 });
-  await dbPut({ id: 't_tan', kind: 'trait', name: 'tan', layer: 'skins', status: 'approved',
+  /* stfp, NOT approved: Generate set builds the final project now, so an
+     approved-but-unchosen trait is not in the collection and buildCollection
+     below would hand back an empty one. */
+  await dbPut({ id: 't_tan', kind: 'trait', name: 'tan', layer: 'skins', status: 'stfp',
     blob: png, w: 160, h: 160, rarity: 1, at: 1 });
-  await dbPut({ id: 't_pale', kind: 'trait', name: 'pale', layer: 'skins', status: 'approved',
+  await dbPut({ id: 't_pale', kind: 'trait', name: 'pale', layer: 'skins', status: 'stfp',
     blob: png, w: 160, h: 160, rarity: 1, at: 1 });
   await renderShelf();
   RULES = [];
@@ -142,7 +145,8 @@ test.describe('a collection built on a base character', () => {
       // "unsorted" is a real layer here - it is the bucket LAYERS always holds -
       // so a trait put in it is the genuine case the fallback exists for.
       await dbPut({ id: 't_stray', kind: 'trait', name: 'stray', layer: 'unsorted',
-        status: 'approved', blob: new Blob([arr], { type: 'image/png' }),
+        /* stfp for the same reason as the two above. */
+        status: 'stfp', blob: new Blob([arr], { type: 'image/png' }),
         w: 160, h: 160, rarity: 1, at: 1 });
       await renderShelf();
     });

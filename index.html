@@ -3886,6 +3886,13 @@ function db(){
 async function dbPut(rec){ const d=await db(); return new Promise((res,rej)=>{
   const t=d.transaction(STORE,'readwrite'); t.objectStore(STORE).put(rec);
   t.oncomplete=()=>res(); t.onerror=()=>rej(t.error); }); }
+/* ONE RECORD, BY KEY. dbAll reads every row in the project including every
+   picture, and several places wanted a single record and paid that price -
+   which at 324 traits and 1.5 GB of blobs is the whole collection to answer
+   a question about one of them. */
+async function dbGet(id){ const d=await db(); return new Promise((res,rej)=>{
+  const t=d.transaction(STORE,'readonly'), q=t.objectStore(STORE).get(id);
+  q.onsuccess=()=>res(q.result||null); q.onerror=()=>rej(q.error); }); }
 async function dbAll(){ const d=await db(); return new Promise((res,rej)=>{
   const t=d.transaction(STORE,'readonly'), q=t.objectStore(STORE).getAll();
   q.onsuccess=()=>res(q.result||[]); q.onerror=()=>rej(q.error); }); }
@@ -3967,6 +3974,9 @@ async function commitShelfMove(spec){
     await dbApplyShelfRecords(plan.updates.map(update=>update.oldId),plan.updates.map(update=>update.record));
   }catch(_){ toast('Could not save the new order'); return false; }
   for(const update of plan.updates) state.transfer(update.oldKey,shelfCore.recordKey(update.record));
+  /* The selection survives a drag too: a cross-layer move rewrites the local
+     id, and dragging one card out of a picked batch used to unpick it. */
+  for(const update of plan.updates) pickTransfer(update.oldKey,shelfCore.recordKey(update.record));
   /* A cross-layer drag rewrites the local id, so the draft moves with it. */
   try{ await draftsFollow(plan.updates.map(u=>({from:u.oldId, to:u.record.id}))); }catch(_){}
   await renderShelf();
@@ -4020,6 +4030,22 @@ async function keyboardShelfMove(recordKey,direction,betweenLayers){
    the visibility filter and the planner all use, so nothing has to translate
    between two notions of "which trait is this". */
 let shelfPick=new Set();
+/* THE PICK FOLLOWS THE TRAIT. shelfPick holds record keys, and the render
+   deletes any key with no live trait behind it - which is right for a trait
+   that is gone and wrong for the same trait under a new key. The hidden set
+   has a transfer at every site that re-ids a record; this had none, so
+   pressing a status chip on a picked tile dropped it from the selection and
+   the next Move skipped it without naming it.
+
+   Mirrors visibility.transfer, including returning early when there is
+   nothing at the old key - a trait that was not picked must not become
+   picked by being moved. */
+function pickTransfer(from,to){
+  if(!from||!to||from===to) return false;
+  if(!shelfPick.has(from)) return false;
+  shelfPick.delete(from); shelfPick.add(to);
+  return true;
+}
 /* WHAT PICKING ACTUALLY CHANGES ON SCREEN.
 
    All three of these went through renderShelf, which rebuilds 318 tiles,
@@ -4732,7 +4758,10 @@ async function renderShelf(viewOnly){
         }
         await dbDel(t.id);
         await dbPut(moved);
-        visibility.transfer(key,shelfCore.recordKey(moved));
+        const movedKey=shelfCore.recordKey(moved);
+        visibility.transfer(key,movedKey);
+        /* And the selection, for the same reason and at the same moment. */
+        pickTransfer(key,movedKey);
         /* And the unsaved work, which used to be the one id-keyed thing this
            did not carry - the line above has always carried the other. */
         await draftsFollow([{from:t.id, to:moved.id}]);
@@ -4741,6 +4770,20 @@ async function renderShelf(viewOnly){
            situation - "Saved X here only, could not reach the group" - and this
            says the same kind of thing rather than a different one. */
         const shared=await cloudMoveOne(t,moved);
+        /* AND AGAIN, BECAUSE THE ROW ID MOVED UNDERNEATH BOTH KEYS. A move
+           inside a group uploads the trait as a NEW row and writes the id
+           the insert returned back onto the local record - so for a synced
+           trait the key this just transferred TO is already stale, and the
+           render below drops both entries as naming nothing. Hide a trait,
+           press its chip, and it came back onto the shelf. */
+        if(shared){
+          let now=null; try{ now=await dbGet(moved.id); }catch(_){}
+          const freshKey=now?shelfCore.recordKey(now):null;
+          if(freshKey&&freshKey!==movedKey){
+            visibility.transfer(movedKey,freshKey);
+            pickTransfer(movedKey,freshKey);
+          }
+        }
         renderShelf();
         toast(activeWs && !shared
           ? t.name+' -> '+next+' here only - the group still has the old one'
@@ -5240,6 +5283,9 @@ async function saveTrait(){
          trait behind it - after it the entry is already gone. */
       try{ currentShelfVisibility().transfer(
         shelfCore.recordKey(openWas), shelfCore.recordKey(rec)); }catch(_){}
+      /* And the pick, which the note above is about too - renaming an open
+         trait re-ids it exactly as the chip does. */
+      pickTransfer(shelfCore.recordKey(openWas), shelfCore.recordKey(rec));
       /* And the rules, which name a trait by layer/name. `moved` is also true
          for a status-only change, where the traitKey does not move at all -
          retargetRules ignores a pair whose ends are equal. */

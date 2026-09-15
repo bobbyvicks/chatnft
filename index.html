@@ -124,6 +124,19 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
    status chip, no drag handle and no hide button here, because getting away
    from those is the point of the page. */
 #finalset .item{cursor:default;}
+/* THE LAYER PICKER. Full tile width, because a layer name truncated to
+   three letters is not a label. Its own min-height because the only rule
+   that gives a select one lives inside the phone media query, and the file
+   already records what that omission costs: six selects "took the browser
+   default: measured 21px at 375x812, against 30 or more for every other
+   select on that viewport." This is that list again, so it is written down
+   here rather than left to be remembered. */
+#finalset .item select.fslayer{display:block; width:100%; margin-top:5px;
+  min-height:30px; padding:4px 5px; border-radius:6px; background:var(--ground);
+  border:1px solid var(--line); color:var(--muted); font:inherit;
+  font-size:10.5px; cursor:pointer;}
+#finalset .item select.fslayer:hover{border-color:var(--accent); color:var(--ink);}
+#finalset .item select.fslayer:disabled{opacity:.5; cursor:default;}
 #finalset .fsnote{font-size:10px; color:var(--muted); opacity:.8;}
 #finalset .fsadd{margin-top:9px;}
 #finalset .fsadd>summary{cursor:pointer; font-size:11px; color:var(--muted);
@@ -3177,7 +3190,11 @@ footer .mono{color:var(--ink);}
     </div>
   </footer>
 </div>
-<div class="toast" id="toast"></div>
+<!-- role=status so what the app says is also announced. Every message in
+     the app goes through toast(); none of them reached a screen reader,
+     and the region announceShelf writes to lives inside #proj, which is
+     display:none on five of the six pages. -->
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script>
 "use strict";
@@ -3294,6 +3311,10 @@ const $=id=>document.getElementById(id);
       ok: true,
       sourceLayer,
       destinationLayer: toLayer,
+      /* So a caller can name the trait without reading the record back: the
+         planner is the only thing that knows which of the updates is the one
+         that actually moved, the rest being renumbered neighbours. */
+      movedName: String(source.name || ""),
       updates,
     };
   }
@@ -4007,7 +4028,11 @@ async function dbApplyShelfRecords(deleteIds,records){
 
 let shelfMoveBusy=false;
 async function commitShelfMove(spec){
-  if(shelfMoveBusy) return false;
+  /* SAID, NOT SILENT. This returned false without a word, which was fine
+     while a drag was the only way in - pointerdown checks the same flag and
+     never starts one. A control on the final project page can reach it, and
+     a gesture answered with nothing reads as a broken control. */
+  if(shelfMoveBusy){ toast("Still moving the last one"); return false; }
   shelfMoveBusy=true;
   /* Every path out of this function releases it. It was cleared at six
      separate returns, and cloudCollection has no try/catch around its
@@ -4017,6 +4042,10 @@ async function commitShelfMove(spec){
   let items=[];
   try{ items=await dbAll(); }
   catch(_){ toast('Could not read the project'); return false; }
+  /* Read BEFORE the plan, which hands back records already carrying the
+     destination layer - so afterwards there is nothing left to compare. */
+  const moving=items.find(i=>shelfCore.recordKey(i)===String(spec&&spec.recordKey||""));
+  const originalLayer=moving?moving.layer:null;
   const plan=shelfCore.planShelfMove(items,spec);
   if(!plan.ok){
 
@@ -4062,7 +4091,17 @@ async function commitShelfMove(spec){
   await retargetRules(plan.updates.map(u=>
     ({from:traitKey(items.find(i=>i.id===u.oldId)), to:traitKey(u.record)})));
   announceShelf('Moved trait to '+plan.destinationLayer+'.');
-  toast(activeWs?'Order saved for the group':'Order saved');
+  /* WHICH THING HAPPENED. A drag within a layer is a reorder and "Order
+     saved" is the whole of it. A move to another layer is a filing, and
+     saying "Order saved" for it described the renumbering this also does
+     rather than the thing that was asked for - while announceShelf one line
+     up already had the right sentence and gave it only to a screen reader.
+     Same sentence, both audiences. */
+  const crossed=plan.destinationLayer!==originalLayer;
+  toast(crossed
+    ? 'Moved '+(plan.movedName||'the trait')+' to '+plan.destinationLayer
+      +(activeWs?' for the group':'')
+    : (activeWs?'Order saved for the group':'Order saved'));
   return true;
   }finally{ shelfMoveBusy=false; }
 }
@@ -21032,6 +21071,46 @@ function pageFromHash(){
 /* ONE TILE ON THE FINAL PAGE. Picture, name, what it is if that is worth
    saying, and one button. Deliberately not the shelf tile: that one carries
    eight controls, and getting away from them is what this page is for. */
+/* How long the layer picker waits for a choice to stop changing. A closed
+   select fires change on every arrow key, so this is what separates one
+   choice from the four steps taken to reach it. Long enough to cover held
+   and repeated presses, short enough that a mouse pick does not feel like
+   it was ignored. */
+const FSORT_SETTLE=350;
+/* MOVE ONE TRAIT TO ANOTHER LAYER, from this page.
+
+   Straight to commitShelfMove, which is the single-trait move the drag
+   handle and the keyboard already use. It carries the hidden key, the shelf
+   selection, the unsaved draft and the rules across the rewritten record id,
+   refuses a name already in the destination, refuses an unsynced trait while
+   a group is attached, and rolls the whole thing back if the group refuses.
+
+   beforeKey null: appended to the end of the destination, which is what a
+   filing means. There is no position to choose on this page - the order
+   within a layer is business for the shelf.
+
+   THE SAME-LAYER GUARD. planShelfMove does not refuse a move to the layer
+   the trait is already in: with no anchor it appends, so the trait lands at
+   the bottom of its own layer and every record in that layer is renumbered
+   and sent to the group. A change event cannot carry the value it already
+   had, so nobody reaches that by hand - a render landing under a
+   half-finished gesture can, and this costs one comparison. */
+async function finalSort(t,layer){
+  const now=t.layer||"unsorted";
+  if(!layer||layer===now) return false;
+  const ok=await commitShelfMove({recordKey:shelfCore.recordKey(t),
+    toLayer:layer, beforeKey:null});
+  /* ON EVERY PATH, not only the one that worked. A select is a claim about
+     the record: a refused move leaves it naming a layer the trait is not in,
+     under a heading that says otherwise, and only a redraw takes that back.
+
+     After commitShelfMove rather than before, because it ends with
+     renderShelf and renderShelf resets the IntersectionObserver every tile
+     canvas here is registered on. Drawn again afterwards, the tiles on
+     tiles go on the new one. */
+  await renderFinal();
+  return ok;
+}
 function finalTile(t,label,note,press){
   const el=document.createElement("div");
   el.className="item"; el.title=t.name;
@@ -21044,6 +21123,63 @@ function finalTile(t,label,note,press){
   b.setAttribute("aria-label",label+" "+t.name);
   b.onclick=press;
   el.appendChild(b);
+  /* WHICH LAYER IT IS IN, AND THE WAY OUT OF THE WRONG ONE. On every tile,
+     not only the unsorted ones: a trait filed under the wrong layer is wrong
+     wherever it is sitting.
+
+     A select rather than buttons. A project has a dozen layers and a dozen
+     buttons is not a tile, and the shelf already offers its bulk destination
+     as a select - so this is the control the app already has rather than a
+     second idea of what choosing a layer looks like. Named after its trait,
+     because a page of these would otherwise read as 324 identical boxes. */
+  const sel=document.createElement("select");
+  sel.className="fslayer";
+  sel.setAttribute("aria-label","Layer for "+t.name);
+  sel.title="Which layer "+t.name+" belongs to";
+  const here=t.layer||"unsorted";
+  /* From LAYERS, not from the sections on screen: renderFinal draws a section
+     only for a layer that already holds a trait, so an empty layer would be
+     unreachable exactly when it is the one you need. Plus the layer the trait
+     layer if the list has never heard of it, so the control can always say
+     where the trait actually is. */
+  const names=LAYERS.slice();
+  if(names.indexOf(here)<0) names.push(here);
+  for(const name of names){
+    const o=document.createElement("option");
+    o.value=name; o.textContent=name;
+    sel.appendChild(o);
+  }
+  sel.value=here;
+  /* ON THE CHOICE, NOT ON EVERY STEP TOWARDS IT. A closed select in Chromium
+     fires change on every arrow key - measured, four presses fired four change
+     events, one per step. Acting on each ends the gesture at the FIRST of
+     them, because the line below shuts the control for the length of the move
+     it has just started and the rest of the keypresses never arrive. Measured
+     on that build: arrowing three layers up from unsorted moved the trait one
+     layer up, to eyes, and the app said "Moved loose to eyes" - the wrong
+     answer, stated plainly, with nothing on screen to contradict it.
+
+     So the value is allowed to settle and whatever it lands on is what moves.
+     Leaving the control commits at once, because no more steps are coming. */
+  let settle=null;
+  const commit=async()=>{
+    if(settle){ clearTimeout(settle); settle=null; }
+    const want=sel.value;
+    /* Held shut for the length of the move: commitShelfMove refuses a second
+       one while the first runs, and a control that answers a gesture with the
+       refusal earned by the previous gesture is worse than no answer at all. */
+    sel.disabled=true;
+    try{ await finalSort(t,want); }
+    finally{ sel.disabled=false; }
+  };
+  sel.onchange=()=>{
+    if(settle) clearTimeout(settle);
+    settle=setTimeout(()=>{ settle=null; commit(); },FSORT_SETTLE);
+  };
+  /* Only while one is still waiting. commit() clears the timer on the way in,
+     so a blur after it has already fired does nothing. */
+  sel.onblur=()=>{ if(settle) commit(); };
+  el.appendChild(sel);
   return el;
 }
 /* MOVE ONE TRAIT IN OR OUT OF THE FINAL SET.
@@ -21106,6 +21242,14 @@ async function renderFinal(){
   const order=LAYERS.slice();
   for(const t of traits){ const l=t.layer||"unsorted"; if(order.indexOf(l)<0) order.push(l); }
   const bare=[];
+  /* WHICH FOLDS WERE OPEN. This rebuilds the whole page, so without carrying
+     this across, every move snapped shut the "add from unsorted (12)" fold
+     the trait was being filed out of - and filing them one after another is
+     what that fold is for. Read before the host is emptied, applied after
+     each one is rebuilt. */
+  const wasOpen=new Set();
+  for(const d of host.querySelectorAll("details.fsadd"))
+    if(d.open&&d.dataset.layer) wasOpen.add(d.dataset.layer);
   host.innerHTML="";
   for(const layer of order){
     const mine=traits.filter(t=>(t.layer||"unsorted")===layer);
@@ -21139,6 +21283,14 @@ async function renderFinal(){
         for(const t of rest) g.appendChild(finalTile(t,"add",String(t.status||"wip"),
           ()=>finalMove(t,"stfp")));
       };
+      /* Named, so the next render can find it again. */
+      d.dataset.layer=layer;
+      /* Filled here rather than left to the toggle event the browser sends,
+         which arrives a task later - long enough for the page to be read as
+         an empty fold. Calling it directly is what the ontoggle guard above
+         already tolerates: the real event fires afterwards, finds the grid
+         no longer empty, and returns. */
+      if(wasOpen.has(layer)){ d.open=true; d.ontoggle(); }
       sec.appendChild(d);
     }
     host.appendChild(sec);

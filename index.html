@@ -3330,7 +3330,18 @@ const $=id=>document.getElementById(id);
       path: remote.path || local.path,
       kind: remote.kind || local.kind,
       name,
-      synced: true,
+      /* CARRIED, NOT MANUFACTURED. This was `synced: true`, which told every
+         record that came back through a pull that it had reached the server -
+         including one whose upload failed, because a failed save keeps its
+         rowId and that is all this branch matches on.
+
+         synced means the bytes on this device are on the server, and only an
+         upload can learn that. A merge of the server metadata is not an
+         upload. Measured: save a trait with the connection down, reload, and
+         Save to cloud counted it as "already up to date" and uploaded
+         nothing - and every later open re-asserted the same flag, so it did
+         not drift back on its own either. */
+      synced: !!local.synced,
     };
     if (refreshed.kind === "trait") {
       refreshed.layer = layer;

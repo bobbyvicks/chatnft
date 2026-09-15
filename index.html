@@ -1568,6 +1568,16 @@ footer .mono{color:var(--ink);}
   .opts .tool,.card .tool{width:42px; height:42px;}
   .opts .olrow{gap:6px; line-height:1.5;}
   .opts .rule{margin:5px 2px;}
+  /* EVERY SELECT, not another list of containers. The rules below size the
+     ones inside .opts, .card and .crow, and six were outside all three -
+     #fixmode in .agjob and the rule and review pickers in .olrow - so they
+     took the browser default: measured 21px at 375x812, against 30 or more
+     for every other select on that viewport.
+
+     A container list is a list of the places somebody remembered, and this
+     is the second time it has come up short. A bare selector is weaker than
+     every rule below it, so anything already sized stays exactly as it was. */
+  select{min-height:30px; padding:6px 7px;}
   .opts select,.opts input[type=number],.opts input[type=text],
   .card select,.card input[type=number],.card input[type=text]{
     padding:6px 7px; line-height:1.5; min-height:30px;}
@@ -19614,6 +19624,11 @@ async function fixLoad(file){
      nobody stopped anything - they opened another picture. Placed after
      every refusal above, so a file that is too big or not an image does
      not kill a run that is going fine. */
+  /* AND NOT DURING A BATCH. Opening one image does $("fixbatch").hidden=true,
+     which takes the panel and the Stop button away from a running batch - a
+     run nobody can see or stop. The same sentence fixBatch gives, because
+     it is the same answer. */
+  if(fixBatchRunning){ fixSay(FIX_BATCH_BUSY); return false; }
   if(FIX.worker) fixDone(FIX.worker);
   FIX.src={data:sd, width:sw, height:sh};
   /* MEASURED ONCE, HERE. Both the run and the readout want the block
@@ -20381,7 +20396,25 @@ function fixAsk(w,payload,onProgress){
   });
 }
 function fixBatchSay(m){ const el=$("fixbatchout"); if(el) el.textContent=m; }
+/* WHETHER A BATCH IS RUNNING. fixBatch owns three module-level variables and
+   had no re-entrancy guard, so a second run cleared the Stop flag of the
+   first, took over the array it was pushing into, revoked its thumbnails,
+   and let whichever loop finished first enable Download all over a list the
+   other was still writing. */
+let fixBatchRunning=false;
+/* Said in one place, because two controls reach it and the answer is the
+   same from both. */
+const FIX_BATCH_BUSY="A folder is still being fixed. Press Stop first.";
 async function fixBatch(files){
+  if(fixBatchRunning){ fixSay(FIX_BATCH_BUSY); return; }
+  fixBatchRunning=true;
+  try{ return await fixBatchRun(files); }
+  finally{ fixBatchRunning=false; }
+}
+/* The run itself, unchanged. Split out so the flag is cleared on every way
+   out of it, including a throw - a flag left set by an error would refuse
+   every later folder for the rest of the session. */
+async function fixBatchRun(files){
   const all=[...files];
   const list=all.slice(0,FIX_BATCH_MAX);
   const over=all.length-list.length;
@@ -20827,7 +20860,19 @@ function fixDownload(){
   d.onclick=()=>f.click();
   const fb=$("fixfolderbtn");
   if(fb) fb.onclick=e=>{ e.stopPropagation(); const x=$("fixfolder"); if(x) x.click(); };
-  d.onkeydown=e=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); f.click(); } };
+  /* ONLY WHEN THE ZONE ITSELF HAS THE KEY. #fixfolderbtn is a real button
+     nested inside this div, and its CLICK is guarded by a stopPropagation
+     that this had no equivalent of - so Enter on the button bubbled here,
+     opened the plain image picker, and preventDefault cancelled the
+     activation of the button itself, so the folder picker never opened.
+
+     Which matters because the folder is where the trait category comes from:
+     a pile chosen the other way has no category to read and lands in
+     unsorted. */
+  d.onkeydown=e=>{
+    if(e.target!==d) return;
+    if(e.key==="Enter"||e.key===" "){ e.preventDefault(); f.click(); }
+  };
   /* One file is the old behaviour; several is a batch. The value is cleared
      either way so picking the SAME file again fires again. */
   const took=(files)=>{ if(!files||!files.length) return;

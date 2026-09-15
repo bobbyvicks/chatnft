@@ -219,8 +219,15 @@ test('the batch and the single save go through the same canvas', async ({ page }
   /* ONE SWITCH, ONE ANSWER. Both call fixGridCanvas; if either grew its own
      resize there would be two answers to what a save is, and a batch of 320
      could differ from the one you checked by hand. */
+  /* BOTH HALVES OF THE BATCH. This read String(fixBatch) alone, and went red
+     when patch470 split the re-entrancy guard into fixBatch and the work into
+     fixBatchRun - the property was untouched and the instrument stopped
+     pointing at it. Reading both, and tolerating the run not existing, means a
+     later merge back into one function leaves this working either way. */
   const src = await page.evaluate(() => ({
-    download: String(fixDownload), batch: String(fixBatch),
+    download: String(fixDownload),
+    batch: String(fixBatch)
+      + (typeof fixBatchRun === 'function' ? ' ' + String(fixBatchRun) : ''),
   }));
   expect(src.download).toContain('fixGridCanvas(');
   expect(src.batch).toContain('fixGridCanvas(');

@@ -4040,6 +4040,61 @@ async function keyboardShelfMove(recordKey,direction,betweenLayers){
    the visibility filter and the planner all use, so nothing has to translate
    between two notions of "which trait is this". */
 let shelfPick=new Set();
+/* WHAT HAPPENS WHEN THE STATUS OF A TRAIT CHANGES.
+
+   The id is built from name, layer and status, so a status change is an id
+   change, and by now six things have to follow it. Written out at the one
+   call site it used to have, a second caller would mean two copies that
+   agree today and drift on the next thing added to the list.
+
+   RETURNS rather than says. The shelf tile and the final-set page want to
+   report different things about the same event, and a function that toasts
+   is a function only one of them can use. */
+async function setTraitStatus(t,next){
+  if(!t||!next) return {ok:false};
+  if(String(t.status||"wip")===String(next)) return {ok:true, moved:t, shared:null, same:true};
+  const moved={...t, id:"t_"+t.name+"_"+t.layer+"_"+next, status:next};
+  /* REFUSE, do not overwrite. This used to dbDel the old record and dbPut
+     over whatever held the new id, destroying its artwork and rarity and
+     reporting success. planShelfMove already refuses a clash and names it;
+     this does the same rather than renaming, because the person is setting a
+     status deliberately and gold-2 is not what they asked for. */
+  if(await idHolder(moved.id,t.id)) return {ok:false, clash:true};
+  const visibility=currentShelfVisibility();
+  const key=shelfCore.recordKey(t);
+  await dbDel(t.id);
+  await dbPut(moved);
+  const movedKey=shelfCore.recordKey(moved);
+  visibility.transfer(key,movedKey);
+  /* And the selection, for the same reason and at the same moment. */
+  pickTransfer(key,movedKey);
+  /* And the unsaved work, which used to be the one id-keyed thing this did
+     not carry - the line above has always carried the other. */
+  await draftsFollow([{from:t.id, to:moved.id}]);
+  const shared=await cloudMoveOne(t,moved);
+  /* AND AGAIN, BECAUSE THE ROW ID MOVED UNDERNEATH BOTH KEYS. A move inside
+     a group uploads the trait as a NEW row and writes the id the insert
+     returned back onto the local record - so for a synced trait the key just
+     transferred TO is already stale, and the next render drops both entries
+     as naming nothing. Hide a trait, press its chip, and it came back. */
+  if(shared){
+    let now=null; try{ now=await dbGet(moved.id); }catch(_){}
+    const freshKey=now?shelfCore.recordKey(now):null;
+    if(freshKey&&freshKey!==movedKey){
+      visibility.transfer(movedKey,freshKey);
+      pickTransfer(movedKey,freshKey);
+    }
+  }
+  return {ok:true, moved, shared};
+}
+/* The order the states happen in, and the one place that says so. */
+const STATUS_CYCLE=["wip","approved","stfp","rejected"];
+function nextStatus(st){
+  /* STATUS_CYCLE.length, not 3: a fifth state with a hard-coded number is a
+     state the cycle can never reach. */
+  return STATUS_CYCLE[(STATUS_CYCLE.indexOf(String(st||"wip"))+1)%STATUS_CYCLE.length];
+}
+
 /* THE PICK FOLLOWS THE TRAIT. shelfPick holds record keys, and the render
    deletes any key with no live trait behind it - which is right for a trait
    that is gone and wrong for the same trait under a new key. The hidden set
@@ -4749,53 +4804,23 @@ async function renderShelf(viewOnly){
       cyc.className='cyc'; cyc.textContent=(t.status||'wip');
       cyc.title='Click to change status';
       cyc.onclick=async ev=>{ ev.stopPropagation();
-        /* The order the states happen in. */
-        const order=['wip','approved','stfp','rejected'];
-        /* order.length, not 3: a fourth state with a hard-coded 3 is a
-           state the cycle can never reach. */
-        const next=order[(order.indexOf(t.status||'wip')+1)%order.length];
-        const moved={...t, id:'t_'+t.name+'_'+t.layer+'_'+next, status:next};
-        /* REFUSE, do not overwrite. This used to dbDel the old record and dbPut
-           over whatever held the new id, destroying its artwork and rarity and
-           reporting success. planShelfMove already refuses a clash and names it;
-           this does the same rather than renaming, because the person is setting
-           a status deliberately and gold-2 is not what they asked for. */
-        const clash=await idHolder(moved.id,t.id);
-        if(clash){
+        const next=nextStatus(t.status);
+        /* EVERYTHING THIS USED TO DO IS IN setTraitStatus, unchanged and in
+           the same order - the record, the draft, the hidden key, the picked
+           key, the group, and both keys again after the upload. It is a
+           function because the final-set page calls it too, and two copies
+           of that list would drift on the next thing added to it. */
+        const r=await setTraitStatus(t,next);
+        if(r.clash){
           toast("There is already "+article(next)+" "+t.name+" in "+(t.layer||"unsorted")
             +" - rename one of them first");
           return;
         }
-        await dbDel(t.id);
-        await dbPut(moved);
-        const movedKey=shelfCore.recordKey(moved);
-        visibility.transfer(key,movedKey);
-        /* And the selection, for the same reason and at the same moment. */
-        pickTransfer(key,movedKey);
-        /* And the unsaved work, which used to be the one id-keyed thing this
-           did not carry - the line above has always carried the other. */
-        await draftsFollow([{from:t.id, to:moved.id}]);
-        /* The result was discarded, so a move the group never received still
-           said "hat -> approved". saveTrait already tells the truth in this
-           situation - "Saved X here only, could not reach the group" - and this
-           says the same kind of thing rather than a different one. */
-        const shared=await cloudMoveOne(t,moved);
-        /* AND AGAIN, BECAUSE THE ROW ID MOVED UNDERNEATH BOTH KEYS. A move
-           inside a group uploads the trait as a NEW row and writes the id
-           the insert returned back onto the local record - so for a synced
-           trait the key this just transferred TO is already stale, and the
-           render below drops both entries as naming nothing. Hide a trait,
-           press its chip, and it came back onto the shelf. */
-        if(shared){
-          let now=null; try{ now=await dbGet(moved.id); }catch(_){}
-          const freshKey=now?shelfCore.recordKey(now):null;
-          if(freshKey&&freshKey!==movedKey){
-            visibility.transfer(movedKey,freshKey);
-            pickTransfer(movedKey,freshKey);
-          }
-        }
+        if(!r.ok) return;
         renderShelf();
-        toast(activeWs && !shared
+        /* The result was discarded once, so a move the group never received
+           still said "hat -> approved". */
+        toast(activeWs && !r.shared
           ? t.name+' -> '+next+' here only - the group still has the old one'
           : t.name+' -> '+next); };
       el.appendChild(cyc);

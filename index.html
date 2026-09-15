@@ -105,7 +105,34 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
 #land[data-page="fixer"] .pg-home,
 #land[data-page="fixer"] .pg-project,
 #land[data-page="fixer"] .pg-settings,
-#land[data-page="fixer"] .pg-agent{display:none;}
+#land[data-page="fixer"] .pg-agent,
+/* The sixth page, same shape. Ten more lines because the block above says
+   why it is pairwise: "the failure they prevent is a section appearing on a
+   page nobody meant it to". */
+#land[data-page="home"] .pg-final,
+#land[data-page="project"] .pg-final,
+#land[data-page="settings"] .pg-final,
+#land[data-page="agent"] .pg-final,
+#land[data-page="fixer"] .pg-final,
+#land[data-page="final"] .pg-home,
+#land[data-page="final"] .pg-project,
+#land[data-page="final"] .pg-settings,
+#land[data-page="final"] .pg-agent,
+#land[data-page="final"] .pg-fixer{display:none;}
+/* The final-set page. The tiles reuse .items and .item, which are generic
+   grid and card rules, and add nothing but the row of buttons - there is no
+   status chip, no drag handle and no hide button here, because getting away
+   from those is the point of the page. */
+#finalset .item{cursor:default;}
+#finalset .fsnote{font-size:10px; color:var(--muted); opacity:.8;}
+#finalset .fsadd{margin-top:9px;}
+#finalset .fsadd>summary{cursor:pointer; font-size:11px; color:var(--muted);
+  padding:5px 2px; list-style:revert;}
+#finalset .fsadd>summary:hover{color:var(--ink);}
+#finalset .fsadd .items{margin-top:8px;}
+#finalset .fswarn{margin:10px 0 4px; padding:8px 10px; border-radius:8px;
+  border:1px solid var(--line); background:var(--ground); font-size:12px;}
+#finalset .fscount{font-variant-numeric:tabular-nums;}
 /* The same box the extractor sits in, under its own name. Sharing the
    class instead cost two tests: querySelector(".extract") returns the
    first match in the document, so a second one earlier in the page became
@@ -1766,6 +1793,11 @@ footer .mono{color:var(--ink);}
       title="Turn fake pixel art into real pixels at its native size">Fix pixels</button>
     <button type="button" class="pgjump pg-project" id="tosettings"
       data-page="settings">Project settings</button>
+    <!-- The other room inside the project: only the traits that ship. -->
+    <button type="button" class="pgjump pg-project" id="tofinal"
+      data-page="final">Final project</button>
+    <button type="button" class="pgjump pg-final" id="finalback"
+      data-page="project">← Back to the project</button>
     <button type="button" class="pgjump pg-settings" id="toproject"
       data-page="project">← Back to the project</button>
   </nav>
@@ -2091,6 +2123,16 @@ footer .mono{color:var(--ink);}
   </section>
   <!-- What the group has been doing. First on the settings page because it
        is the thing you glance at, not the thing you configure. -->
+  <!-- THE FINAL PROJECT. Only the traits marked stfp, grouped by layer,
+       with the count and a warning for any layer holding none of them - a
+       layer with no final trait means every character is missing that
+       piece. Adding and removing both happen here. -->
+  <section class="proj pg-final" id="finalset" hidden>
+    <h2>Final project</h2>
+    <p class="sub" id="finalsub">Nothing is in the final project yet.</p>
+    <div class="fswarn" id="finalwarn" hidden></div>
+    <div id="finallayers"></div>
+  </section>
   <section class="proj pg-settings" id="layers" hidden>
     <div class="projhead">
       <h2>Layers</h2>
@@ -19577,7 +19619,7 @@ function agShow(out){
       +" used by a single trait \u00b7 rarest "
       +(out.rarest[0]?out.rarest[0].hex+" ("+out.rarest[0].pixels+" px)":"none"));
 }
-const PAGES=["home","project","settings","agent","fixer"];
+const PAGES=["home","project","settings","agent","fixer","final"];
 
 /* ---- the Fix pixels tab ---------------------------------------------------
 
@@ -20976,6 +21018,129 @@ function pageFromHash(){
   const h=String(location.hash||"").replace(/^#\/?/,"");
   return PAGES.indexOf(h)>=0 ? h : "home";
 }
+/* ONE TILE ON THE FINAL PAGE. Picture, name, what it is if that is worth
+   saying, and one button. Deliberately not the shelf tile: that one carries
+   eight controls, and getting away from them is what this page is for. */
+function finalTile(t,label,note,press){
+  const el=document.createElement("div");
+  el.className="item"; el.title=t.name;
+  el.appendChild(shelfTile(t));
+  const nm=document.createElement("b"); nm.textContent=t.name; el.appendChild(nm);
+  if(note){ const s=document.createElement("b"); s.className="fsnote"; s.textContent=note;
+    el.appendChild(s); }
+  const b=document.createElement("button");
+  b.className="mini"; b.type="button"; b.textContent=label;
+  b.setAttribute("aria-label",label+" "+t.name);
+  b.onclick=press;
+  el.appendChild(b);
+  return el;
+}
+/* MOVE ONE TRAIT IN OR OUT OF THE FINAL SET.
+
+   Through setTraitStatus, which is the one place that knows what a status
+   change has to carry - the record, the unsaved draft, the hidden key, the
+   picked key, the group copy, and both keys again after the upload. A second
+   copy of that list here would agree today and drift tomorrow.
+
+   OUT GOES TO approved, not wip: it passed review, it is just not in the
+   final cut. */
+async function finalMove(t,next){
+  const r=await setTraitStatus(t,next);
+  if(r.clash){
+    toast("There is already "+article(next)+" "+t.name+" in "+(t.layer||"unsorted")
+      +" - rename one of them first");
+    return;
+  }
+  if(!r.ok) return;
+  await renderFinal();
+  renderShelf();
+  /* Said the same way the shelf says it, because it is the same event. */
+  toast(activeWs && !r.shared
+    ? t.name+(next==="stfp"?" is in the final project":" is out of the final project")
+      +" here only - the group still has the old one"
+    : t.name+(next==="stfp"?" is in the final project":" is out of the final project"));
+}
+/* THE FINAL PROJECT, DRAWN.
+
+   Only the traits marked stfp, grouped by layer, with the count and a
+   warning naming any layer holding none of them - a layer with no final
+   trait means every character generated is missing that piece.
+
+   unsorted is left out of that warning on purpose: a trait still in
+   unsorted has not been filed yet, and "unsorted has nothing final in it"
+   is the ordinary state of a finished project rather than a problem. */
+async function renderFinal(){
+  const host=$("finallayers"); if(!host) return;
+  /* SHOWN HERE, because the page rules only ever ADD display:none - the note
+     on them says so, so that a section which hides itself for being empty
+     stays hidden on its own page too. Every section carries its own hidden
+     attribute, and this one starts hidden like the rest.
+
+     Always shown rather than only when the set has something in it: a page
+     saying nothing is in the final project yet is the answer to opening it,
+     and a blank screen is not. */
+  const sec=$("finalset"); if(sec) sec.hidden=false;
+  let items=[];
+  try{ items=await dbAll(); }catch(_){ }
+  const traits=items.filter(i=>i&&i.kind==="trait");
+  const isIn=t=>String(t&&t.status||"wip")==="stfp";
+  const chosen=traits.filter(isIn);
+  const sub=$("finalsub");
+  if(sub) sub.textContent = chosen.length
+    ? chosen.length+" trait"+(chosen.length===1?"":"s")+" will go into the final project."
+    : "Nothing is in the final project yet. Add traits below, or press stfp on a trait in the project.";
+  /* LAYERS first, because that is paint order, then any layer a trait names
+     that the list has never heard of - a trait in a layer nobody declared is
+     exactly the one somebody needs to see. */
+  const order=LAYERS.slice();
+  for(const t of traits){ const l=t.layer||"unsorted"; if(order.indexOf(l)<0) order.push(l); }
+  const bare=[];
+  host.innerHTML="";
+  for(const layer of order){
+    const mine=traits.filter(t=>(t.layer||"unsorted")===layer);
+    if(!mine.length) continue;
+    const keep=mine.filter(isIn);
+    if(!keep.length && layer!=="unsorted") bare.push(layer);
+    const sec=document.createElement("div"); sec.className="layer";
+    const h=document.createElement("h3");
+    h.className="fscount";
+    h.textContent=layer+" \u00b7 "+keep.length+" of "+mine.length;
+    sec.appendChild(h);
+    if(keep.length){
+      const g=document.createElement("div"); g.className="items";
+      for(const t of keep) g.appendChild(finalTile(t,"take out","",
+        ()=>finalMove(t,"approved")));
+      sec.appendChild(g);
+    }
+    const rest=mine.filter(t=>!isIn(t));
+    if(rest.length){
+      const d=document.createElement("details"); d.className="fsadd";
+      const sm=document.createElement("summary");
+      sm.textContent="add from "+layer+" ("+rest.length+")";
+      d.appendChild(sm);
+      const g=document.createElement("div"); g.className="items";
+      d.appendChild(g);
+      /* FILLED WHEN IT IS OPENED. Every tile decodes a picture, and this page
+         is about the set you have chosen - a project of 324 would otherwise
+         decode all of them to show you the twelve you picked. */
+      d.ontoggle=()=>{
+        if(!d.open||g.childElementCount) return;
+        for(const t of rest) g.appendChild(finalTile(t,"add",String(t.status||"wip"),
+          ()=>finalMove(t,"stfp")));
+      };
+      sec.appendChild(d);
+    }
+    host.appendChild(sec);
+  }
+  const warn=$("finalwarn");
+  if(warn){
+    warn.hidden=!bare.length;
+    warn.textContent=bare.length
+      ? "Nothing is in the final project from "+bare.join(", ")
+        +" - every character would be missing that."
+      : "";
+  }
+}
 function showPage(p,push){
   const land=$("land"); if(!land) return;
   const want=PAGES.indexOf(p)>=0?p:"home";
@@ -20995,7 +21160,7 @@ function showPage(p,push){
        project to change its rarity - settings is a room inside it, and a tab
        bar showing nothing selected would say otherwise. */
     const here = b.dataset.page===want
-      || (want==="settings" && b.dataset.page==="project");
+      || ((want==="settings"||want==="final") && b.dataset.page==="project");
     if(here) b.setAttribute("aria-current","page");
     else b.removeAttribute("aria-current");
   }
@@ -21010,6 +21175,10 @@ function showPage(p,push){
   /* Asked when you arrive rather than on every render: it is a request to
      the server, and the page it is on is the only one that shows it. */
   if(want==="settings") renderUpdates();
+  /* Read when you arrive rather than on every shelf render: this page is a
+     second pass over every trait, and the page it is on is the only one
+     that shows it. */
+  if(want==="final") renderFinal();
 }
 (function(){
   const run=async(fn)=>{

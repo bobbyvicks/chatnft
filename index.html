@@ -3936,6 +3936,8 @@ async function commitShelfMove(spec){
     await dbApplyShelfRecords(plan.updates.map(update=>update.oldId),plan.updates.map(update=>update.record));
   }catch(_){ toast('Could not save the new order'); return false; }
   for(const update of plan.updates) state.transfer(update.oldKey,shelfCore.recordKey(update.record));
+  /* A cross-layer drag rewrites the local id, so the draft moves with it. */
+  try{ await draftsFollow(plan.updates.map(u=>({from:u.oldId, to:u.record.id}))); }catch(_){}
   await renderShelf();
   const shared=await cloudSaveShelfPlan(plan.updates);
   if(!shared.ok){
@@ -4073,6 +4075,7 @@ async function bulkMoveToLayer(toLayer){
     /* Every id a plan retires, paired with the id that replaces it, so the
        hidden set can follow the traits across the move. */
     const transfers=[];
+    const draftMoves=[];
     const ruleMoves=[];
     let moved=0;
     for(const key of keys){
@@ -4082,6 +4085,10 @@ async function bulkMoveToLayer(toLayer){
       const plan=shelfCore.planShelfMove(working,{recordKey:key,toLayer,beforeKey:null});
       if(!plan.ok){ refused.push({name:rec.name,reason:plan.reason}); continue; }
       for(const u of plan.updates) transfers.push({from:u.oldKey,to:shelfCore.recordKey(u.record)});
+      /* Ids rather than record keys, because a draft is filed under the id.
+         Pushed per plan and in order, so a record two plans touched arrives
+         as A->B and B->C - draftsFollow walks those to their end. */
+      for(const u of plan.updates) draftMoves.push({from:u.oldId, to:u.record.id});
       /* traitKeys, not record keys: a rule names a trait by layer/name and a
          record key is its row or local id. Read from `working` BEFORE the plan
          is applied to it just below, or every from would already be the to. */
@@ -4114,6 +4121,7 @@ async function bulkMoveToLayer(toLayer){
        order the plans were made, so a record two plans touched ends on the key
        the last of them gave it. */
     for(const t of transfers) state.transfer(t.from,t.to);
+    try{ await draftsFollow(draftMoves); }catch(_){}
     await retargetRules(ruleMoves);
     shelfPick.clear();
     await renderShelf();
@@ -4694,6 +4702,9 @@ async function renderShelf(viewOnly){
         await dbDel(t.id);
         await dbPut(moved);
         visibility.transfer(key,shelfCore.recordKey(moved));
+        /* And the unsaved work, which used to be the one id-keyed thing this
+           did not carry - the line above has always carried the other. */
+        await draftsFollow([{from:t.id, to:moved.id}]);
         /* The result was discarded, so a move the group never received still
            said "hat -> approved". saveTrait already tells the truth in this
            situation - "Saved X here only, could not reach the group" - and this
@@ -9532,6 +9543,56 @@ const AUTO_ID="autosave.working";
    bar still finds exactly what it used to. */
 const draftKey=id=>"autosave."+id;
 function draftId(){ return openRec&&openRec.id ? draftKey(openRec.id) : AUTO_ID; }
+/* A DRAFT FOLLOWS ITS TRAIT. Six paths retire a trait id - the status chip,
+   Sort unsorted, retagLayer, commitShelfMove, bulkMoveToLayer and the cloud
+   pull repair pass - and every one of them used to leave the draft under
+   the dead key, where openTraitRecord can never ask for it again and nothing
+   sweeps it. The work was gone with no warning before and no message after.
+
+   RE-STAMPED, because the open path only accepts a draft newer than its
+   record, and Sort unsorted bumps the `at` on the record as it moves it.
+   None of these six touches the artwork, so the draft pixels really are the
+   newer ones and the stamp says something true.
+
+   CHAINS COLLAPSED FIRST. Every get in one transaction is issued before any
+   handler runs, so applying A->B and B->C as written would have the second
+   read a draft the first has not written yet. bulkMoveToLayer chains plans
+   as a matter of course, so this is the ordinary case.
+
+   Keyed gets, not dbAll: a bulk move of forty traits would otherwise read
+   every blob in the project forty times to find the nought or one draft
+   that exists. */
+async function draftsFollow(pairs){
+  const next=new Map();
+  for(const p of (pairs||[])) if(p&&p.from&&p.to&&p.from!==p.to) next.set(p.from,p.to);
+  if(!next.size) return 0;
+  const isTarget=new Set(next.values());
+  const ends=[];
+  for(const from of next.keys()){
+    if(isTarget.has(from)) continue;  /* not the start of a chain */
+    let to=next.get(from); const seen=new Set([from]);
+    /* seen, because a cycle of moves would otherwise walk forever. */
+    while(next.has(to)&&!seen.has(to)){ seen.add(to); to=next.get(to); }
+    if(to!==from) ends.push({from:from, to:to});
+  }
+  if(!ends.length) return 0;
+  const d=await db();
+  return new Promise((res,rej)=>{
+    const t=d.transaction(STORE,"readwrite"), s=t.objectStore(STORE);
+    let n=0;
+    for(const m of ends){
+      const q=s.get(draftKey(m.from));
+      q.onsuccess=()=>{
+        const got=q.result;
+        if(!got) return;
+        s.put(Object.assign({},got,{id:draftKey(m.to), traitId:m.to, at:Date.now()}));
+        s.delete(draftKey(m.from));
+        n++;
+      };
+    }
+    t.oncomplete=()=>res(n); t.onerror=()=>rej(t.error); t.onabort=()=>rej(t.error);
+  });
+}
 /* The debounced write, on its own, so closing can force it. Without this,
    closing within 1.5s of the last stroke left that stroke in a timeout
    that never fired - the one case where work really was lost. */
@@ -9956,6 +10017,9 @@ async function sortApply(plan){
   /* Moved here but not for anybody else. The tile status cycle and
      bulkMoveLayer both keep this answer and say so; this discarded it. */
   let stranded=0;
+  /* Collected and applied in one transaction after the loop, rather than a
+     transaction per trait across a sort of three hundred. */
+  const draftMoves=[];
   for(const l of plan.layers){
     if(LAYERS.indexOf(l)>=0) continue;
     const u=LAYERS.indexOf("unsorted");
@@ -9978,10 +10042,12 @@ async function sortApply(plan){
       await dbDel(old.id);
       taken.delete(old.id); taken.add(id);
       await retargetRules([{from:traitKey(old), to:traitKey(rec)}]);
+      draftMoves.push({from:old.id, to:id});
       if(activeWs&&!await cloudMoveOne(old,rec)) stranded++;
       moved++;
     }catch(_){ failed++; }
   }
+  try{ await draftsFollow(draftMoves); }catch(_){}
   return {made, moved, refused, failed, stranded};
 }
 function pairState(a,b){
@@ -13992,6 +14058,9 @@ async function retagLayer(items,from,to){
   /* Collected, then applied once at the end - the rules are one record and
      writing it per trait would be forty writes for forty traits. */
   const ruleMoves=[];
+  /* Same shape as ruleMoves above, and for the same reason: one write at
+     the end rather than one per trait on the layer. */
+  const draftMoves=[];
   for(const t of mine){
     const status=t.status||"wip";
     let name=t.name, id="t_"+name+"_"+to+"_"+status, k=2;
@@ -14002,6 +14071,7 @@ async function retagLayer(items,from,to){
     await dbDel(t.id);
     await dbPut(rec);
     ruleMoves.push({from:traitKey(t), to:traitKey(rec)});
+    draftMoves.push({from:t.id, to:rec.id});
     /* activeWs, because cloudMoveOne returns null when there is no group at
        all - nothing left the browser and nothing was meant to. Without this
        every rename on a personal page would warn about a group. */
@@ -14010,6 +14080,7 @@ async function retagLayer(items,from,to){
     moved++;
   }
   await retargetRules(ruleMoves);
+  try{ await draftsFollow(draftMoves); }catch(_){}
   return {moved:moved,renamed:renamed,stranded:stranded};
 }
 
@@ -16924,7 +16995,14 @@ async function cloudPull(opts){
          version of the row it is, or the next pull cannot tell whether the
          server has moved on. */
       if(rp.rowAt!==undefined) rp.record.rowAt=rp.rowAt;
-      if(rp.oldId!==rp.record.id) await dbDel(rp.oldId);
+      /* The server can name a trait something this browser filed
+         differently, and the repair re-ids the local record to match. The
+         draft goes with it, or a pull silently costs somebody their
+         unsaved work. */
+      if(rp.oldId!==rp.record.id){
+        await dbDel(rp.oldId);
+        try{ await draftsFollow([{from:rp.oldId, to:rp.record.id}]); }catch(_){}
+      }
       await dbPut(rp.record);
       repaired++;
     }catch(_){}

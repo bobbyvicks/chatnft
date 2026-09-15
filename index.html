@@ -3838,6 +3838,21 @@ function mayUse(){ return authed; }
    The personal store keeps the old name so nothing saved before today moves. */
 let activeWs=(function(){ try{ return localStorage.getItem("chatnft.ws")||null; }catch(_){ return null; } })();
 function wsDbName(){ return activeWs ? 'chatnft.ws.'+activeWs : DBN; }
+/* WHICH PROJECT A LONG WRITE BELONGS TO.
+
+   db() reads activeWs on every call, so anything that awaits between
+   deciding what to write and writing it lands in whatever project is
+   selected by then. A pull of 310 traits awaits a network download per
+   trait, eight at a time, and the project dropdown is live throughout -
+   so switching mid-pull wrote one project's traits into another's
+   database, marked as synced and carrying the source project's rowId.
+
+   A generation rather than a captured handle, because those writes are
+   spread across four loops. Capture it, and check it with no await
+   between the check and the write - dbPut reads wsDbName() synchronously
+   before its first await, so there is no window in between. */
+let wsGen=0;
+function wsStill(g){ return g===wsGen; }
 let dbpName=null;
 let dbp=null;
 function db(){
@@ -16886,6 +16901,10 @@ async function cloudPull(opts){
      valid local copy immediately after refreshing its shared position. */
   const onServer=new Set(rows.map(shelfCore.recordKey));
   if(!rows.length){ if(!opts.quiet) toast("Nothing saved on the server yet"); return onServer; }
+  /* THE PROJECT THIS PULL IS FOR. Everything below writes to whichever
+     database activeWs names AT THE MOMENT OF THE WRITE, and there are
+     hundreds of awaits between here and the last one. */
+  const gen=wsGen;
   $("cloudpull").disabled=true;
   let existing=[];
   try{ existing=await dbAll(); }catch(_){}
@@ -16989,6 +17008,7 @@ async function cloudPull(opts){
   /* Only the ones actually missing it, so an ordinary open writes nothing. */
   let repaired=0;
   for(const rp of repair){
+    if(!wsStill(gen)) break;
     try{
       /* rowAt on the merged record as well. A trait that came back through
          a metadata merge rather than a download still has to know which
@@ -17012,6 +17032,9 @@ async function cloudPull(opts){
   let next=0;
   async function puller(){
     while(next<wanted.length){
+      /* Before the download as well as before the write: a pull nobody is
+         waiting for should stop asking the server for pictures too. */
+      if(!wsStill(gen)) return;
       const w=wanted[next++];
       try{
         const blob=await pullBlob(w.row.path,h);
@@ -17031,6 +17054,9 @@ async function cloudPull(opts){
         if(w.row.kind==="trait"){ rec.layer=w.layer; rec.status=w.status;
           if(typeof w.row.rarity==="number") rec.rarity=w.row.rarity;
           if(typeof w.row.shelf_order==="number") rec.shelfOrder=w.row.shelf_order; }
+        /* The download above is the long await, so this is re-checked
+           rather than trusted from the top of the loop. */
+        if(!wsStill(gen)) return;
         await dbPut(rec); added++;
         /* Recorded where the write is known to have happened, rather than
            where it was decided - a download that failed its three tries is
@@ -17045,6 +17071,19 @@ async function cloudPull(opts){
     }
   }
   await Promise.all(Array.from({length:Math.min(PULL_AT_ONCE,wanted.length)},puller));
+  /* AND EVERYTHING AFTER THIS POINT IN ONE CHECK - the layer list, the
+     rules, the decisions, the mailbox and the note all write or say
+     something about a project the person has left.
+
+     The button is re-enabled on the way out. It is disabled at the top of
+     this function and re-enabled three hundred lines below, so a bail that
+     just returned would leave Load from cloud dead until a reload - which
+     is the defect patch460 fixed on the push side, rebuilt here. */
+  if(!wsStill(gen)){
+    try{ $("cloudpull").disabled=false; }catch(_){}
+    try{ if(banner) banner.hidden=true; }catch(_){}
+    return null;
+  }
   let newLayers=0;
   if(Array.isArray(c.layers)){
     for(const l of c.layers) if(LAYERS.indexOf(l)<0){ LAYERS.push(l); newLayers++; }
@@ -17177,6 +17216,10 @@ async function wsList(){
    cannot be reached must leave somebody with their own work on screen
    rather than an error where the shelf should be. */
 async function groupCatchUp(){
+  /* Same reason as the pull: this deletes local records, and it runs on
+     every page load and every switch. Deleting them out of the project the
+     person moved to would be the worst version of this. */
+  const gen=wsGen;
   try{
     const onServer=await cloudPull({quiet:true, keepMine:true});
     if(onServer){
@@ -17195,6 +17238,7 @@ async function groupCatchUp(){
       } else {
         let gone=0;
         for(const it of mine){
+          if(!wsStill(gen)) break;
           if(onServer.has(shelfCore.recordKey(it))) continue;
           await dbDel(it.id); gone++;
         }
@@ -17208,6 +17252,8 @@ async function groupCatchUp(){
 async function wsSwitch(id){
   if((id||null)===(activeWs||null)) return;
   activeWs = id||null;
+  /* Anything already in flight for the old project stops here. */
+  wsGen++;
   wsSave(activeWs);
   cloudTeamId=null;              /* the cloud target moved too */
   /* And the next collection has been told nothing about any layer list. */
@@ -19421,6 +19467,16 @@ async function fixLoad(file){
       +CANVAS_SIDE+" first.");
     return false;
   }
+  /* A RUN IN FLIGHT IS FOR THE PICTURE BEING REPLACED. fixRun opens with
+     fixStop() for exactly this reason and this had nothing, so dropping a
+     second image left the first one's worker running - still burning CPU,
+     still moving the progress bar, and still about to answer.
+
+     fixDone rather than fixStop, because fixStop says "Stopped." and
+     nobody stopped anything - they opened another picture. Placed after
+     every refusal above, so a file that is too big or not an image does
+     not kill a run that is going fine. */
+  if(FIX.worker) fixDone(FIX.worker);
   FIX.src={data:sd, width:sw, height:sh};
   /* MEASURED ONCE, HERE. Both the run and the readout want the block
      size, the readout wants it on every keystroke, and measuring costs a
@@ -20010,6 +20066,19 @@ function fixRun(){
     const t0=performance.now();
     w.onmessage=ev=>{
       const m=ev.data;
+      /* THE ANSWER IS FOR THE PICTURE THAT ASKED. src was captured above
+         and nothing ever compared it back, so a result arriving after
+         another image was loaded wrote itself into FIX.out - and every
+         consumer reads FIX.name and FIX.rel LIVE. Save to project then
+         wrote the first picture's artwork into the project under the
+         second one's name, in the folder the second one came from.
+
+         Above the progress branch, not below it, because a stale progress
+         message moves the bar for a run that is not happening.
+
+         Identity, not equality: fixLoad assigns a brand new object, so
+         this is exact and costs nothing. */
+      if(FIX.src!==src){ fixDone(w); resolve(null); return; }
       if(m.progress!=null){ fixProgress(m.progress,m.label); return; }
       if(m.error){ fixSay("The fixer could not do this one: "+m.error); fixDone(w); resolve(null); return; }
       if(m.done){

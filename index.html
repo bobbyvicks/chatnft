@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
-<title>ChatNFT — pixel art editor on the true grid</title>
+<title>BuildaNFT — pixel art editor on the true grid</title>
 <meta name="description" content="A pixel art editor that works on your art's true grid. Drop in a PNG, rebuild it at its native resolution, edit cell by cell, download clean.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23121016'/><rect x='6' y='6' width='8' height='8' fill='%23f5a524'/><rect x='18' y='6' width='8' height='8' fill='%233ddc97'/><rect x='6' y='18' width='8' height='8' fill='%233ddc97'/><rect x='18' y='18' width='8' height='8' fill='%23f5a524'/></svg>">
 <meta name="build" content="e99019c56f8a3c58">
@@ -1694,7 +1694,7 @@ footer .mono{color:var(--ink);}
   <div class="card">
     <div class="brand" style="justify-content:center;margin-bottom:6px">
       <span class="logo" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-      <h1>ChatNFT</h1>
+      <h1>BuildaNFT</h1>
     </div>
     <div class="gatepane" id="gatesignin">
     <p class="sub" id="gatesub" style="text-align:center">Sign in to get back to your collection. It follows you to any device.</p>
@@ -1740,7 +1740,7 @@ footer .mono{color:var(--ink);}
 <main class="land" id="land" style="visibility:hidden">
   <div class="brand">
     <span class="logo" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-    <h1>ChatNFT</h1>
+    <h1>BuildaNFT</h1>
   </div>
   <!-- The three pages. Buttons rather than links: the router owns the hash,
        and a link would let the browser navigate before it could. -->
@@ -2951,7 +2951,7 @@ footer .mono{color:var(--ink);}
 
 <div class="app" id="app" hidden>
   <header>
-    <span class="brand"><span class="logo" aria-hidden="true"><i></i><i></i><i></i><i></i></span><h1>ChatNFT</h1></span>
+    <span class="brand"><span class="logo" aria-hidden="true"><i></i><i></i><i></i><i></i></span><h1>BuildaNFT</h1></span>
     <span class="fname mono" id="fname"></span>
     <button class="closex" id="editorclose" type="button"
       title="Close the editor (Esc)" aria-label="Close the editor">
@@ -3820,10 +3820,18 @@ function ruleId(g){ return (g||[]).join("\u0000"); }
    collections; there is no column here to PATCH, so a teammate opening the
    same collection gets whatever their own browser last saved. */
 let projectGrid=160;
-/* Deliberately still 'pixelbench' after the rename to ChatNFT: this string is
-   the key to every trait already saved in a browser. Renaming it would leave
-   that data in place but unreachable, which presents as the project emptying
-   itself. The name on screen is not worth someone's work. */
+/* STILL 'pixelbench', THROUGH TWO RENAMES NOW - pixelbench, then ChatNFT,
+   then BuildaNFT. This string is the key to every trait already saved in a
+   browser. Renaming it would leave that data in place but unreachable,
+   which presents as the project emptying itself.
+
+   The same argument covers everything else in this file still spelled
+   chatnft: the localStorage keys, the per-project database names
+   ('chatnft.ws.'+id), the login domain that IS the account at the auth
+   server, and the format strings written into every exported project and
+   collection manifest. A rename is a thing to read, not a thing to break.
+
+   The name on screen is not worth someone's work. */
 const DBN='pixelbench', STORE='items';   /* the personal store, named before teams existed */
 
 /* Whether there is a REAL session, as distinct from whether the scrim is
@@ -5612,7 +5620,7 @@ $('dlzip').onclick=async()=>{
      convention someone has to learn. */
   for(const r of refs) await put('base/', r.name, r.blob);
   const b=zip(files), u=URL.createObjectURL(b), a=document.createElement('a');
-  a.href=u; a.download='chatnft-project.zip';
+  a.href=u; a.download='buildanft-project.zip';
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(u),1500);
   /* The last moment before these files go to a mint, which is the one place
@@ -15835,7 +15843,7 @@ async function exportProject(){
     items:out};
   const b=new Blob([JSON.stringify(doc)],{type:"application/json"});
   const u=URL.createObjectURL(b), a=document.createElement("a");
-  a.href=u; a.download="chatnft-project.json";
+  a.href=u; a.download="buildanft-project.json";
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(u),1500);
   /* Report the failures too. A silent partial export is worse than none: it
@@ -15851,10 +15859,10 @@ async function importProject(file){
   /* Check the tag before touching anything. Importing whatever JSON happens to
      be dropped in would scatter junk through someone real collection. */
   if(!doc||doc.format!==PROJECT_FORMAT||!Array.isArray(doc.items)){
-    toast("That file is not a ChatNFT project"); return;
+    toast("That file is not a BuildaNFT project"); return;
   }
   if(doc.version>PROJECT_VERSION){
-    toast("That project was saved by a newer version of ChatNFT"); return;
+    toast("That project was saved by a newer version of BuildaNFT"); return;
   }
   let existing=[];
   try{ existing=await dbAll(); }catch(_){}
@@ -18405,7 +18413,7 @@ $('gatein').onclick=()=>{ if(resetMode) saveNewPassword(); else gateSignIn(); };
 $('gatereset').onclick=gateReset;
 
 /* Changing only the fragment does NOT reload the page. Someone who already
-   has ChatNFT open in a tab, and follows an invite or a reset link back to
+   has BuildaNFT open in a tab, and follows an invite or a reset link back to
    that same address, would otherwise see precisely nothing happen - a silent
    failure of the one journey these links exist for. This is the boot path
    again, run when the address changes underneath a page that is already up. */
@@ -21368,7 +21376,7 @@ $('ruleexport').onclick=async()=>{
   }
   const b=new Blob([JSON.stringify(r.rules,null,2)],{type:"application/json"});
   const u=URL.createObjectURL(b), a=document.createElement("a");
-  a.href=u; a.download="trait-rules-from-chatnft.json";
+  a.href=u; a.download="trait-rules-from-buildanft.json";
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(u),1000);
   /* What it wrote, in the terms of the thing it wrote it for. A conditions
@@ -21602,7 +21610,7 @@ async function exportCollection(){
     +"Not packaged: "+held.length+" trait(s) that are not approved.\n")});
   const b=zip(files), u=URL.createObjectURL(b), a=document.createElement("a");
   a.href=u;
-  a.download="chatnft-collection"+((REVIEW&&REVIEW.revision)?"-"+safe(REVIEW.revision):"")+".zip";
+  a.download="buildanft-collection"+((REVIEW&&REVIEW.revision)?"-"+safe(REVIEW.revision):"")+".zip";
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(u),1500);
   const bits=["Packaged "+rows.length+" approved trait"+(rows.length===1?"":"s")];
@@ -21901,7 +21909,7 @@ $('cgenzip').onclick=async()=>{
     });
     if(!r.made){ toast("Nothing saved to build from"); $("cnote").textContent=""; return; }
     const b=zip(r.files), u=URL.createObjectURL(b), a=document.createElement("a");
-    a.href=u; a.download="chatnft-collection-"+r.made+".zip";
+    a.href=u; a.download="buildanft-collection-"+r.made+".zip";
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(()=>URL.revokeObjectURL(u),4000);
     /* The same shortfall the sheet reports, for the same reason: asking for

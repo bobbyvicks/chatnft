@@ -7,6 +7,12 @@
    This is the same fix for the same complaint, so the numbers it produces are
    worth pinning.
 
+   .extract IS NO LONGER ONE OF THEM. The Trait Factory put it in the middle
+   column of a three-column page, so its width is that grid's answer rather
+   than the panel rule these share - 709 against the shelf's 1178. What it was
+   standing in for is asserted between #proj, #compose and #layers, which are
+   still sized the same way.
+
    THEY ARE PINNED BECAUSE THE FIRST VERSION OF THIS CHANGE WAS BROKEN AND THE
    COMMENT EXPLAINING IT WAS WRONG. A flat minmax(150px,1fr) needs 309px of
    content box for two columns; a 375px phone has 307, because the 1px border
@@ -60,7 +66,6 @@ const measure = async (page) => {
       return Math.round(el.getBoundingClientRect().width);
     }, sel);
   };
-  const extract = await widthOf('.extract', 'home');
   const cloud = await widthOf('#cloud', 'home');
   const layers = await widthOf('#layers', 'settings');
   await gotoPage(page, 'project');
@@ -78,7 +83,7 @@ const measure = async (page) => {
       viewport: window.innerWidth,
     };
   });
-  return Object.assign(rest, { extract: extract, cloud: cloud, layers: layers });
+  return Object.assign(rest, { cloud: cloud, layers: layers });
 };
 
 const at = async (page, width, height) => {
@@ -95,10 +100,32 @@ test.describe('the trait shelf', () => {
   });
 
   test('takes the width the page already gives a panel you judge work in', async ({ page }) => {
+    /* SUPERSEDES "the shelf matches .extract rather than inventing a width".
+
+       .extract was the other panel where a render gets judged, widened to
+       1180 for this same complaint, so matching it said the shelf was sized
+       by a shared rule rather than by a number somebody typed. The Trait
+       Factory made it the middle column of a three-column page: its width is
+       that grid's answer now, 709 where the shelf is 1178, and the assertion
+       stopped being about a shared rule and became a claim that two different
+       layouts happen to agree.
+
+       IT WAS THE ONE RED IN THE SUITE WHEN THAT PAGE SHIPPED. I ran every
+       spec that names either page; this file names neither, it names a class.
+       A panel identified by its class travels to whatever layout that class
+       ends up in, and nothing about the name says which page it is on.
+
+       WHAT THE COMPARISON WAS FOR IS ONE TEST DOWN, where #proj, #compose and
+       #layers are matched against each other - three panels still sized by
+       the same rule, with #cloud as the control that wears the same class and
+       does not share the width. What stays here is the complaint that started
+       the file, and a floor that a typed number cannot quietly satisfy: the
+       shelf takes the page it is on. */
     const r = await measure(page);
     expect(r.tiles, 'the shelf actually has traits in it').toBe(24);
-    expect(r.proj, 'the shelf matches .extract rather than inventing a width').toBe(r.extract);
-    expect(r.proj, 'and is wider than it was').toBeGreaterThan(760);
+    expect(r.proj, 'and is wider than the 760 it was').toBeGreaterThan(760);
+    expect(r.proj / r.viewport, 'and takes the page rather than a number somebody typed')
+      .toBeGreaterThan(0.85);
   });
 
   test('and Build a character and the layer list match it', async ({ page }) => {

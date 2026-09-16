@@ -9401,7 +9401,39 @@ function selectTool(t){
   paintCursor();
   { const T=TOOL_HOOKS[t]; if(T&&T.select){ try{ T.select(); }catch(_){ } } }
 }
-function toast(m){ const el=$('toast'); el.textContent=m; el.classList.add('show'); setTimeout(()=>el.classList.remove('show'),1700); }
+/* HOW LONG A MESSAGE IS ON SCREEN, from how much of it there is.
+
+   1.7 seconds regardless was the rule, and it is 1,900 words a minute for
+   the longest thing this page says. 280ms a word is about 215 a minute,
+   which is ordinary reading of plain prose, and 700ms in front of it is
+   the moment between something appearing and being looked at.
+
+   THE FLOOR IS WHAT WAS THERE. Three words or fewer - Saved, Order saved,
+   Signed out - come out at 1700 exactly. Above that it climbs: five words
+   is 2100, which is 400ms more for a message with 400ms more in it.
+
+   THE CEILING IS NOT ENOUGH FOR THE LONGEST ONES AND IS NOT MEANT TO BE.
+   A save inside a group can carry the reason it did not share, the
+   off-grid size and the border-rule count in one sentence - 54 words,
+   which wants 16 seconds, which is not a toast. Those want something that
+   stays until it is dismissed. Nine seconds is where a bar that vanishes
+   on its own stops being reasonable; the rest is a different change and is
+   written down here rather than being rounded away. */
+const TOAST_MIN_MS=1700, TOAST_MAX_MS=9000, TOAST_WORD_MS=280, TOAST_NOTICE_MS=700;
+function toastMs(m){
+  const words=String(m==null?"":m).trim().split(/\s+/).filter(Boolean).length;
+  return Math.min(TOAST_MAX_MS,
+    Math.max(TOAST_MIN_MS, TOAST_NOTICE_MS + TOAST_WORD_MS*words));
+}
+/* The timer is cleared on the way in. Two messages in quick succession
+   used to share one timer: the first one to be scheduled took the second
+   one down with it, so a long message arriving after a short one was on
+   screen for whatever was left of 1.7 seconds. That was invisible while
+   every message lasted the same time and is not now. */
+let toastTimer=null;
+function toast(m){ const el=$('toast'); el.textContent=m; el.classList.add('show');
+  if(toastTimer) clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>{ toastTimer=null; el.classList.remove('show'); },toastMs(m)); }
 
 /* ================= outline ======================================
    A crop - by hand or by a model - leaves the silhouette ragged: one-cell

@@ -2784,7 +2784,13 @@ footer .mono{color:var(--ink);}
       <select id="seshapetrait" style="flex:1; min-width:0"
         title="The trait whose shape becomes the selection - its last saved artwork"></select>
       <button class="btn ghost" id="seshapego"
-        title="Select everything that trait covers, laid out the way it is when a character is built">Use</button></div>
+        title="Select the area that trait covers, laid out the way it is when a character is built">Use</button></div>
+    <!-- ON BY DEFAULT, because it is what a line-art base needs and a solid
+         shape does not notice. Off gives the ink itself, which is the only
+         way to select a ring without its hole. -->
+    <div class="olrow"><label class="olchk" for="seshapefill"
+      title="Take the area the lines enclose rather than the lines themselves - which is what a base drawn as linework needs">
+      <input type="checkbox" id="seshapefill" checked> fill the inside</label></div>
     <div class="olrow"><label for="setol" title="How far a pixel may differ from the one you click, per channel, 0 to 255 - the wand and the colour pick use it. 0 is an exact match, which is where Pixelorama starts">Tolerance</label>
       <input type="number" id="setol" value="0" min="0" max="255" step="1" style="width:72px" title="0 is an exact match; 255 is every colour"></div>
     <p class="note" id="senote">Nothing selected.</p>
@@ -9374,6 +9380,36 @@ function fillInteriorHoles(){
   return {found:found, kept:kept, cells:wrote, tooBig:tooBig, biggest:biggest};
 }
 
+/* THE OUTSIDE IS WHAT A CORNER CAN REACH.
+
+   fillHolesB above floods from EVERY border pixel, which is right for the
+   outline tools it was written for and wrong for a character. A base whose
+   shoulders run off the bottom of the picture has a chest that touches the
+   bottom edge, so a border flood walks straight into it: measured on one,
+   the head came back filled and the whole torso came back as two lines.
+
+   Seeded from the four corners instead. The chest is cut off from every
+   corner by the shoulders, so it is inside - which is how a person reads the
+   picture. An ordinary enclosed shape gives the same answer either way,
+   because its outside reaches all four corners.
+
+   All four corners inked seeds nothing and makes everything inside, which is
+   right: a source reaching all four corners is a full-bleed one and its shape
+   is the canvas.
+
+   Its own function rather than a flag on fillHolesB, which three other
+   callers share and none of them wants this. */
+function seFillInside(m,w,hh){
+  const seen=new Uint8Array(w*hh), q=[0,w-1,(hh-1)*w,(hh-1)*w+w-1];
+  for(let i=0;i<q.length;i++){ const p=q[i];
+    if(p<0||p>=w*hh||seen[p]||m[p]) continue;
+    seen[p]=1; const x=p%w,y=(p/w)|0;
+    if(x>0)q.push(p-1); if(x<w-1)q.push(p+1); if(y>0)q.push(p-w); if(y<hh-1)q.push(p+w);
+  }
+  const out=Uint8Array.from(m);
+  for(let p=0;p<w*hh;p++) if(!m[p]&&!seen[p]) out[p]=1;
+  return out;
+}
 function fillHolesB(m,w,hh){
   const seen=new Uint8Array(w*hh), q=[];
   for(let x=0;x<w;x++){ q.push(x); q.push((hh-1)*w+x); }
@@ -24734,6 +24770,10 @@ async function seShapeFill(){
    ANY INK AT ALL. A threshold - floodFill uses 128 for "is this pixel on" -
    would leave a soft or anti-aliased edge outside the shape, so clearing
    everything outside it would shave off the edge somebody is keeping. */
+/* How close a pixel has to be to the colour in the corners to count as the
+   page rather than the art. Small: this is looking for a flat ground that was
+   filled with one colour, not for a family of similar ones. */
+const SHAPE_GROUND_TOL=6;
 async function seShapeRegion(rec){
   const W=art.width, H=art.height;
   const c=document.createElement("canvas"); c.width=W; c.height=H;
@@ -24742,12 +24782,55 @@ async function seShapeRegion(rec){
   const bm=await cBitmap(rec);
   paintTrait(g,bm,0,0,W,H);
   const d=g.getImageData(0,0,W,H).data;
-  const region=new Uint8Array(W*H);
+  let region=new Uint8Array(W*H);
   let n=0;
   for(let i=0;i<W*H;i++) if(d[i*4+3]>0){ region[i]=1; n++; }
+  /* A SOLID GROUND IS NOT PART OF THE SHAPE.
+
+     A base drawn as linework on white is opaque everywhere, so "what this
+     covers" is the whole canvas and selecting it does nothing - measured,
+     4,096 of 4,096. If the four corners are opaque and agree on a colour,
+     that colour is the page and it comes out.
+
+     ONLY IF SOMETHING IS LEFT. A background trait IS one flat colour, and
+     its shape really is the whole canvas, so a rule that emptied it would
+     be wrong about the one case it is easiest to hit.
+
+     The corners rather than the darkness test drawBase uses for showing a
+     base: that one is right for showing linework and wrong here, because it
+     would throw away every dark trait somebody asks for the shape of. */
+  const cor=[0,W-1,(H-1)*W,(H-1)*W+W-1].map(p=>p*4);
+  const flat=cor.every(q=>d[q+3]>=250)
+    && cor.every(q=>Math.abs(d[q]-d[cor[0]])<=SHAPE_GROUND_TOL
+      && Math.abs(d[q+1]-d[cor[0]+1])<=SHAPE_GROUND_TOL
+      && Math.abs(d[q+2]-d[cor[0]+2])<=SHAPE_GROUND_TOL);
+  let ground=false;
+  if(flat&&n){
+    const keep=new Uint8Array(W*H); let m=0;
+    for(let i=0;i<W*H;i++){
+      if(!region[i]) continue;
+      const q=i*4;
+      const same=d[q+3]>=250
+        && Math.abs(d[q]-d[cor[0]])<=SHAPE_GROUND_TOL
+        && Math.abs(d[q+1]-d[cor[0]+1])<=SHAPE_GROUND_TOL
+        && Math.abs(d[q+2]-d[cor[0]+2])<=SHAPE_GROUND_TOL;
+      if(!same){ keep[i]=1; m++; }
+    }
+    if(m){ region=keep; n=m; ground=true; }
+  }
+  /* AND THE AREA THE LINES ENCLOSE. seFillInside is the flood in from the
+     CORNERS: anything a corner cannot reach is inside. It is what makes a
+     line-art base give a body instead of a skeleton, and it costs a solid
+     shape nothing - a shape with no holes fills to itself. */
+  const box=$("seshapefill");
+  const inside=!box||box.checked;
+  if(inside&&n){
+    region=seFillInside(region,W,H);
+    n=0; for(let i=0;i<W*H;i++) if(region[i]) n++;
+  }
   /* Handed back rather than left at the canvas size. */
   c.width=1; c.height=1;
-  return {region,n};
+  return {region,n,ground};
 }
 async function seShapeUse(){
   if(!ctx){ toast("Open a trait first"); return false; }
@@ -24762,8 +24845,11 @@ async function seShapeUse(){
      the exact opposite of what picking a blank trait meant. */
   if(!out.n){ toast((rec.name||"That trait")+" has nothing in it to take a shape from"); return false; }
   seCombine(out.region,chipVal("semode")||"replace");
+  /* SAID, because both steps are automatic and a selection that came out
+     smaller than the picture is otherwise unexplained. */
   toast("Selected the shape of "+(rec.name||"that trait")
-    +" - "+out.n.toLocaleString()+" pixels");
+    +" - "+out.n.toLocaleString()+" pixels"
+    +(out.ground?", without the flat ground it is drawn on":""));
   return true;
 }
 function seNote(){

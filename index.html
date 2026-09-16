@@ -146,6 +146,19 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
 #finalset .fswarn{margin:10px 0 4px; padding:8px 10px; border-radius:8px;
   border:1px solid var(--line); background:var(--ground); font-size:12px;}
 #finalset .fscount{font-variant-numeric:tabular-nums;}
+/* THE PICK BAR, shaped like the shelf one it shares a selection with. */
+#finalset .fspick{display:flex; align-items:center; flex-wrap:wrap; gap:8px;
+  width:100%; margin:10px 0 2px; font-size:12px; color:var(--muted);}
+#finalset .fspick select{padding:5px 8px; border-radius:7px; background:var(--ground);
+  border:1px solid var(--line); color:var(--ink); font:inherit; font-size:12px;
+  min-height:30px;}
+/* THE TICK. In the corner the rarity box uses on a shelf tile, and inside a
+   label with padding so the thing you press is 28px rather than 18 - a
+   checkbox cannot be given a touch target any other way. */
+#finalset .item .fspicklab{position:absolute; left:2px; top:2px; padding:5px;
+  line-height:0; cursor:pointer; border-radius:6px; background:#0b0910cc;}
+#finalset .item .fspicklab input{width:18px; height:18px; margin:0; cursor:pointer;
+  accent-color:var(--accent);}
 /* THE PREVIEW. The canvas beside what it was drawn from, which is the shape
    .preview and .pvinfo already use elsewhere in the page. It wraps to one
    column when there is no room, so a phone gets the character full width
@@ -2159,6 +2172,21 @@ footer .mono{color:var(--ink);}
   <section class="proj pg-final" id="finalset" hidden>
     <h2>Final project</h2>
     <p class="sub" id="finalsub">Nothing is in the final project yet.</p>
+    <!-- PICK SEVERAL, FILE THEM AT ONCE. The case this is for is a batch
+         import: a few hundred traits in unsorted, all going to the same
+         handful of layers. One at a time is the thing the shelf pick bar was
+         built to replace, and this is that bar on the page where the mess is
+         actually looked at. -->
+    <div class="fspick" id="fspick" hidden>
+      <span id="fspickcount">Nothing picked</span>
+      <button class="mini" type="button" id="fspickall"
+        title="Pick every trait on screen, including the ones in an open fold">Pick all shown</button>
+      <label for="fspicklayer" class="sr-only">Move the picked traits to</label>
+      <select id="fspicklayer" aria-label="Move the picked traits to"></select>
+      <button class="mini go" type="button" id="fspickmove" disabled
+        title="Move every picked trait to that layer, in one go">Move</button>
+      <button class="mini" type="button" id="fspicknone" disabled>Clear</button>
+    </div>
     <div class="fswarn" id="finalwarn" hidden></div>
     <!-- WHAT THE COLLECTION LOOKS LIKE. Drawn from the stfp traits only,
          through the same randomCombo the generator uses, so the
@@ -4106,8 +4134,18 @@ async function commitShelfMove(spec){
     return false;
   }
   if(activeWs&&plan.updates.some(update=>!update.record.rowId)){
-
-    toast('Send the unsynced traits to the group before rearranging them');
+    /* NAMED, AND WITH THE BUTTON TO PRESS. This said which rule had been hit
+       and nothing about which traits or what to do, and the plan touches every
+       record in both layers - so the one holding you up is usually not the one
+       you were moving, and there was no way to find out which from here. */
+    const waiting=[...new Set(plan.updates.filter(u=>!u.record.rowId)
+      .map(u=>u.record.name).filter(Boolean))];
+    const few=waiting.slice(0,4);
+    toast(waiting.length
+      ? 'Not sent to the group yet: '+few.join(', ')
+        +(waiting.length>few.length ? ' and '+(waiting.length-few.length)+' more' : '')
+        +'. Press Save to cloud, then move them.'
+      : 'Send the unsynced traits to the group before rearranging them');
     return false;
   }
   const originals=plan.updates.map(update=>items.find(item=>shelfCore.recordKey(item)===update.oldKey))
@@ -21256,9 +21294,47 @@ async function finalSort(t,layer){
   await renderFinal();
   return ok;
 }
+/* WHAT IS PICKED, ON THE BAR AND ON THE TILES. One writer, so a tick and a
+   count cannot say different things. */
+function finalPickPaint(){
+  const n=shelfPick.size;
+  const c=$("fspickcount");
+  if(c) c.textContent = n ? n+" picked" : "Nothing picked";
+  for(const id of ["fspickmove","fspicknone"]){ const e=$(id); if(e) e.disabled=!n; }
+  for(const cb of document.querySelectorAll("#finallayers input.fspick"))
+    cb.checked=shelfPick.has(cb.dataset.key);
+  for(const el of document.querySelectorAll("#finallayers .item[data-key]"))
+    el.classList.toggle("picked",shelfPick.has(el.dataset.key));
+}
+/* Opened once, on the first visit of a session, and left alone after that.
+   The traits that need filing are by definition the ones NOT in the final
+   set, so they all live in a fold - and a fold that reopened on every render
+   would be a control fighting whoever closed it. */
+let fsFoldsSeeded=false;
 function finalTile(t,label,note,press){
   const el=document.createElement("div");
   el.className="item"; el.title=t.name;
+  /* PICKED BY RECORD KEY, which is what the move takes and what shelfPick
+     holds - so a trait picked here is the same trait picked on the shelf,
+     and there is one idea of "picked" rather than two. */
+  const key=shelfCore.recordKey(t);
+  el.dataset.key=key;
+  {
+    const lab=document.createElement("label");
+    lab.className="fspicklab";
+    lab.title="Pick "+t.name+" to file it with others";
+    const cb=document.createElement("input");
+    cb.type="checkbox"; cb.className="fspick";
+    cb.dataset.key=key;
+    cb.setAttribute("aria-label","Pick "+t.name);
+    cb.checked=shelfPick.has(key);
+    cb.onchange=()=>{
+      if(cb.checked) shelfPick.add(key); else shelfPick.delete(key);
+      finalPickPaint();
+    };
+    lab.appendChild(cb);
+    el.appendChild(lab);
+  }
   el.appendChild(shelfTile(t));
   const nm=document.createElement("b"); nm.textContent=t.name; el.appendChild(nm);
   if(note){ const s=document.createElement("b"); s.className="fsnote"; s.textContent=note;
@@ -21489,6 +21565,11 @@ async function renderFinal(){
      what that fold is for. Read before the host is emptied, applied after
      each one is rebuilt. */
   const wasOpen=new Set();
+  /* ON THE FIRST VISIT ONLY. Everything that needs sorting is a trait nobody
+     has chosen, so all of it is inside a fold - and the page opened with the
+     pile invisible behind a label reading "add from unsorted". Measured on
+     arrival with four of them: one tile on screen and one layer picker. */
+  if(!fsFoldsSeeded){ fsFoldsSeeded=true; wasOpen.add("unsorted"); }
   for(const d of host.querySelectorAll("details.fsadd"))
     if(d.open&&d.dataset.layer) wasOpen.add(d.dataset.layer);
   host.innerHTML="";
@@ -21541,6 +21622,31 @@ async function renderFinal(){
      layer change, not only on arrival. A preview of a set that has changed
      under it is a picture of something that no longer exists. */
   try{ await finalPreview(fpMode,items); }catch(_){ }
+  /* THE BAR, after the tiles it counts. Shown whenever there is anything to
+     pick; the two buttons that act on a selection are disabled until there
+     is one, which finalPickPaint owns. */
+  {
+    const bar=$("fspick");
+    if(bar) bar.hidden=!traits.length;
+    const sel=$("fspicklayer");
+    if(sel){
+      const keep=sel.value;
+      sel.innerHTML="";
+      for(const name of LAYERS){
+        const o=document.createElement("option");
+        o.value=name; o.textContent=name;
+        sel.appendChild(o);
+      }
+      if(LAYERS.indexOf(keep)>=0) sel.value=keep;
+    }
+    /* A trait that has been moved or deleted since the pick is no longer a
+       live key, and a count that included it would offer to move nothing. */
+    {
+      const live=new Set(traits.map(shelfCore.recordKey));
+      for(const k of [...shelfPick]) if(!live.has(k)) shelfPick.delete(k);
+    }
+    finalPickPaint();
+  }
   const warn=$("finalwarn");
   if(warn){
     warn.hidden=!bare.length;
@@ -22595,6 +22701,25 @@ if($('fprand')) $('fprand').onclick=async()=>{
   fpMode=1;
   let items=[]; try{ items=await dbAll(); }catch(_){ return; }
   await finalPreview(1,items);
+};
+/* THE PICK BAR. The move is bulkMoveToLayer - the one that plans every trait
+   together and writes, renders and syncs once - so forty traits are one of
+   each rather than forty. It clears the pick and renders the shelf itself;
+   this page is drawn afterwards, which is also the order that leaves its
+   tiles on a live IntersectionObserver. */
+if($('fspickmove')) $('fspickmove').onclick=async()=>{
+  const to=$('fspicklayer').value;
+  if(!to){ toast("Pick a layer to move them to"); return; }
+  await bulkMoveToLayer(to);
+  await renderFinal();
+};
+if($('fspicknone')) $('fspicknone').onclick=()=>{ shelfPick.clear(); finalPickPaint(); };
+/* SHOWN, not saved: a fold nobody opened holds tiles nobody can see, and
+   picking those would be picking blind. */
+if($('fspickall')) $('fspickall').onclick=()=>{
+  for(const el of document.querySelectorAll("#finallayers .item[data-key]"))
+    shelfPick.add(el.dataset.key);
+  finalPickPaint();
 };
 if($('fpsheet')) $('fpsheet').onclick=async()=>{
   fpMode=12;

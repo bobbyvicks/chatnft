@@ -143,7 +143,12 @@ test.describe('sorting traits into layers from the final project page', () => {
          a thing for all the traits": the control is on each of them, not only
          on the unsorted ones. */
       const c = await controls(page);
-      expect(Object.keys(c).sort()).toEqual(['bac1', 'drifter', 'loose', 'tan']);
+      /* The two waiting in unsorted are here as well, because that fold is
+         open on the first visit now - the traits that need filing are by
+         definition the ones nobody has chosen, so all of them live in a fold
+         and the page used to open with the pile invisible. */
+      expect(Object.keys(c).sort())
+        .toEqual(['bac1', 'drifter', 'loose', 'spare', 'tan', 'waiting']);
       expect(c.loose.value, 'it shows where the trait actually is').toBe('unsorted');
       expect(c.tan.value).toBe('skins');
       expect(c.loose.options, 'and offers every layer the project has')

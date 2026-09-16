@@ -2761,7 +2761,7 @@ footer .mono{color:var(--ink);}
 <div class="scrim pop" id="sescrim" hidden>
   <div class="card" role="dialog" aria-modal="true" aria-labelledby="setitle">
     <h2 id="setitle">Selection</h2>
-    <p class="sub">Pick a shape, then drag on the art with the Select tool (W). Shift adds, Ctrl takes away, both together keep the overlap. Drag inside a selection to move it.</p>
+    <p class="sub">Pick a shape, then drag on the art with the Select tool (W). Shift adds, Ctrl takes away, both together keep the overlap. Drag inside a selection to move it. Or take the shape of another trait below - then Invert and Delete to clear everything outside it.</p>
     <div class="olrow"><label>Shape</label>
       <div class="chips" id="seshape" role="group" aria-label="Selection shape">
         <button data-v="rect" aria-pressed="true" title="Drag a rectangle. Shift while dragging makes it square, Ctrl grows it from the centre, Alt slides it">Rect</button>
@@ -2775,6 +2775,16 @@ footer .mono{color:var(--ink);}
         <button data-v="add" aria-pressed="false" title="Added to the old one (Shift while pressing)">Add</button>
         <button data-v="subtract" aria-pressed="false" title="Taken away from the old one (Ctrl while pressing)">Subtract</button>
         <button data-v="intersect" aria-pressed="false" title="Only where the two overlap (Shift and Ctrl while pressing)">Intersect</button></div></div>
+    <!-- THE SHAPE OF SOMETHING ELSE. Two selects rather than one long list:
+         a project runs to hundreds of traits and "skins, then tan" is how
+         somebody already thinks about where a trait is. -->
+    <div class="olrow"><label for="seshapelayer">Shape of</label>
+      <select id="seshapelayer" style="flex:1; min-width:0"
+        title="Which layer to take a shape from"></select>
+      <select id="seshapetrait" style="flex:1; min-width:0"
+        title="The trait whose shape becomes the selection - its last saved artwork"></select>
+      <button class="btn ghost" id="seshapego"
+        title="Select everything that trait covers, laid out the way it is when a character is built">Use</button></div>
     <div class="olrow"><label for="setol" title="How far a pixel may differ from the one you click, per channel, 0 to 255 - the wand and the colour pick use it. 0 is an exact match, which is where Pixelorama starts">Tolerance</label>
       <input type="number" id="setol" value="0" min="0" max="255" step="1" style="width:72px" title="0 is an exact match; 255 is every colour"></div>
     <p class="note" id="senote">Nothing selected.</p>
@@ -24655,6 +24665,107 @@ function selFill(){
   refreshStats(); repalette(); toast('Selection filled');
   return true;
 }
+/* THE SAVED RECORDS THE SHAPE PICKER OFFERS. Read when the panel opens
+   rather than held: traits are saved, renamed and moved while the editor is
+   open, and a list gathered once goes stale silently. */
+let seShapeItems=[];
+/* Bases first under their own name, then the layers in paint order. A base
+   has no layer of its own - it is what the layers are painted onto - and it
+   is the silhouette most often wanted, so leaving it out would be strange. */
+function seShapeGroups(){
+  const by=new Map();
+  for(const r of seShapeItems){
+    if(!r) continue;
+    const g = r.kind==="ref" ? "base" : (r.kind==="trait" ? (r.layer||"unsorted") : null);
+    if(!g) continue;
+    if(!by.has(g)) by.set(g,[]);
+    by.get(g).push(r);
+  }
+  const order=[];
+  if(by.has("base")) order.push("base");
+  for(const l of LAYERS) if(by.has(l)) order.push(l);
+  /* A layer nobody declared still has traits in it, and this is the picker
+     somebody would use to find them. */
+  for(const g of by.keys()) if(order.indexOf(g)<0) order.push(g);
+  return {by,order};
+}
+function seShapeFillTraits(){
+  const ls=$("seshapelayer"), ts=$("seshapetrait");
+  if(!ls||!ts) return;
+  const {by}=seShapeGroups();
+  const keep=ts.value;
+  ts.innerHTML="";
+  const mine=(by.get(ls.value)||[]).slice()
+    .sort((a,b)=>String(a.name||"").localeCompare(String(b.name||"")));
+  for(const r of mine){
+    const o=document.createElement("option");
+    o.value=r.id; o.textContent=r.name||r.id;
+    ts.appendChild(o);
+  }
+  if(mine.some(r=>r.id===keep)) ts.value=keep;
+  ts.disabled=!mine.length;
+  const go=$("seshapego"); if(go) go.disabled=!mine.length;
+}
+/* REFRESHED ON OPEN, and the choice kept when it survives - the panel is
+   opened between strokes and losing the pick every time would make this a
+   control you fight rather than use. */
+async function seShapeFill(){
+  const ls=$("seshapelayer"); if(!ls) return;
+  try{ seShapeItems=await dbAll(); }catch(_){ seShapeItems=[]; }
+  const {by,order}=seShapeGroups();
+  const keep=ls.value;
+  ls.innerHTML="";
+  for(const g of order){
+    const o=document.createElement("option");
+    o.value=g; o.textContent=g+" ("+by.get(g).length+")";
+    ls.appendChild(o);
+  }
+  if(order.indexOf(keep)>=0) ls.value=keep;
+  ls.disabled=!order.length;
+  seShapeFillTraits();
+}
+/* THE SILHOUETTE, LAID OUT THE WAY THE CHARACTER IS BUILT.
+
+   Painted through paintTrait into a scratch canvas the size of the one being
+   edited, so a trait of another size is scaled by a whole number and centred
+   exactly as it will be in the finished character. A mask built by stretching
+   the bitmap to fit would line up with nothing.
+
+   ANY INK AT ALL. A threshold - floodFill uses 128 for "is this pixel on" -
+   would leave a soft or anti-aliased edge outside the shape, so clearing
+   everything outside it would shave off the edge somebody is keeping. */
+async function seShapeRegion(rec){
+  const W=art.width, H=art.height;
+  const c=document.createElement("canvas"); c.width=W; c.height=H;
+  const g=c.getContext("2d",{willReadFrequently:true});
+  g.imageSmoothingEnabled=false;
+  const bm=await cBitmap(rec);
+  paintTrait(g,bm,0,0,W,H);
+  const d=g.getImageData(0,0,W,H).data;
+  const region=new Uint8Array(W*H);
+  let n=0;
+  for(let i=0;i<W*H;i++) if(d[i*4+3]>0){ region[i]=1; n++; }
+  /* Handed back rather than left at the canvas size. */
+  c.width=1; c.height=1;
+  return {region,n};
+}
+async function seShapeUse(){
+  if(!ctx){ toast("Open a trait first"); return false; }
+  const ts=$("seshapetrait"); if(!ts||!ts.value){ toast("Pick a trait to take the shape from"); return false; }
+  const rec=seShapeItems.find(r=>r&&r.id===ts.value);
+  if(!rec){ toast("That trait is no longer saved"); await seShapeFill(); return false; }
+  let out=null;
+  try{ out=await seShapeRegion(rec); }
+  catch(_){ toast("That picture could not be read"); return false; }
+  /* REFUSED RATHER THAN CLEARED. selSet turns an empty mask into null, and
+     null means no selection - which every tool reads as EVERYTHING allowed,
+     the exact opposite of what picking a blank trait meant. */
+  if(!out.n){ toast((rec.name||"That trait")+" has nothing in it to take a shape from"); return false; }
+  seCombine(out.region,chipVal("semode")||"replace");
+  toast("Selected the shape of "+(rec.name||"that trait")
+    +" - "+out.n.toLocaleString()+" pixels");
+  return true;
+}
 function seNote(){
   const n=$('senote'); if(!n) return;
   const b=selMask?selBounds(selMask):null;
@@ -24765,6 +24876,11 @@ function selLoop(){
   const t=$('setol'); if(t) t.onchange=()=>{ t.value=String(seTol()); };
   const on=(id,fn)=>{ const b=$(id); if(b) b.onclick=fn; };
   on('seall',selAll); on('senone',selNone); on('seinv',selInvert); on('sedel',selDelete); on('sefill',selFill);
+  /* The trait list follows the layer, and neither does anything until the
+     press - a select that acted on change would take a shape on the way
+     past every layer a keyboard walks through. */
+  const sl=$("seshapelayer"); if(sl) sl.onchange=seShapeFillTraits;
+  const sg=$("seshapego"); if(sg) sg.onclick=()=>{ seShapeUse(); };
 })();
 
 /* ---- Pixelorama's shape tools: line, rectangle, ellipse ------------------
@@ -26032,7 +26148,9 @@ function railPanel(id,on){
      can have changed while the panel was shut. */
   if(on&&id==="tx"){ try{ textBuild(); }catch(_){ } }
   if(on&&id==="qa"){ try{ qaInvalidate(); }catch(_){ } }
-  if(on&&id==="se"){ try{ seNote(); }catch(_){ } }
+  /* AND THE SHAPE LIST, because traits are saved, renamed and moved while
+     the editor is open - a list gathered once goes stale without saying so. */
+  if(on&&id==="se"){ try{ seNote(); }catch(_){ } try{ seShapeFill(); }catch(_){ } }
   if(id==="fx"){ try{ if(on) fxRebuild(); else { clearTimeout(fxTimer); const pv=$("fxpv"); if(pv) pv.style.display="none"; } }catch(_){ } }
 }
 for(const id of RAIL_PANELS){

@@ -65,7 +65,18 @@ test.describe('the Fix pixels tab', () => {
     await page.waitForFunction(() => typeof fixLoad === 'function');
   });
 
-  test('IS A TAB AT THE TOP, and its page hides the others', async ({ page }) => {
+  test('IS PART OF THE TRAIT FACTORY, not a tab of its own', async ({ page }) => {
+    /* SUPERSEDES "IS A TAB AT THE TOP, and its page hides the others", which
+       asserted a fifth tab, data-page "fixer", and the main page hidden behind
+       it. Fix pixels is the lower half of the Trait Factory now, so there is no
+       fifth tab and the main page is not hidden - it is the page this is on.
+
+       What still has to hold, and is the half that was load-bearing: asking for
+       the old page lands somewhere real, and no OTHER page comes with it. The
+       ten rules that hid the others from the fixer page went when the page did,
+       so if the router still believed in it every section in the app would
+       render at once - measured on exactly that build, the Agent panel came
+       back display:block beside the extractor. */
     const r = await page.evaluate(() => {
       const tabs = [...document.querySelectorAll('.pgtab')].map(b => b.dataset.page);
       showPage('fixer', false);
@@ -73,15 +84,16 @@ test.describe('the Fix pixels tab', () => {
         return b.width > 0 && b.height > 0; };
       return { tabs, page: document.getElementById('land').getAttribute('data-page'),
         fixerShown: seen('fixer'),
-        agentHidden: !seen('aggrids'), homeHidden: !seen('drop'),
-        current: document.querySelector('.pgtab[data-page="fixer"]').getAttribute('aria-current') };
+        agentHidden: !seen('aggrids'), extractorShown: seen('drop'),
+        current: document.querySelector('.pgtab[data-page="home"]').getAttribute('aria-current') };
     });
-    expect(r.tabs, 'a fifth tab, after the four that were there').toEqual(['home', 'project', 'agent', 'fixer']);
-    expect(r.page).toBe('fixer');
-    expect(r.fixerShown, 'its own page is on screen').toBe(true);
-    expect(r.agentHidden, 'and the agent page is not').toBe(true);
-    expect(r.homeHidden, 'nor the main one').toBe(true);
-    expect(r.current, 'and the tab is marked as where you are').toBe('page');
+    expect(r.tabs, 'three tabs: the factory, the project, the agent')
+      .toEqual(['home', 'project', 'agent']);
+    expect(r.page, 'asking for the old page lands on the one it joined').toBe('home');
+    expect(r.fixerShown, 'the panel is on screen').toBe(true);
+    expect(r.extractorShown, 'beside the rest of the factory, not instead of it').toBe(true);
+    expect(r.agentHidden, 'and the agent page stays on the agent page').toBe(true);
+    expect(r.current, 'the factory tab is marked as where you are').toBe('page');
   });
 
   test('only offers a mode the engine answers to', async ({ page }) => {

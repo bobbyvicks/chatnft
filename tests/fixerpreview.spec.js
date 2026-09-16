@@ -67,7 +67,22 @@ test('THE TILE IS A THUMBNAIL, WHICH IS WHAT STOPS THIS BEING THE SHELF CRASH', 
   /* 1280 at the shelf cap comes down by a whole divisor: 1280/8 = 160. Five
      hundred of these is about 51 MB; five hundred of the full result would be
      3.2 GB, which is the crash this project already had once. */
-  expect(g.natural).toEqual(['160x160']);
+  /* MEASURED AS BYTES, which is what the sentence above claims. This read
+     img.width - the RENDERED box - and called it "natural", so it was really
+     asserting a layout: it came back 160 while the panel was a 2100px page and
+     347 once Fix pixels became a column, with the stored thumbnail unchanged at
+     160 either way. A test that names memory and measures CSS answers a
+     different question from the one it asks. */
+  const bytes = await page.evaluate(() =>
+    [...new Set(fixBatchFiles.map(f => f.tw + 'x' + f.th))]);
+  expect(bytes, 'the stored thumbnail is 1280/8').toEqual(['160x160']);
+  /* And it is not drawn bigger than it is - a 160px picture stretched to 347
+     is upscaled pixel art on the page that exists for pixel art. */
+  const drawn = await page.evaluate(() =>
+    Math.max(...[...document.querySelectorAll('.fixtile img')]
+      .map(i => i.getBoundingClientRect().width)));
+  expect(drawn, 'and never drawn bigger than the bytes it holds')
+    .toBeLessThanOrEqual(161);
   /* And each tile has its OWN small image, not a pointer at the 1280 bytes. */
   for (const s of g.srcs) expect(s).toMatch(/^blob:/);
   const holds = await page.evaluate(() => {
@@ -101,12 +116,19 @@ test('and the tile is square on the page, not stretched', async ({ page }) => {
   }
   /* And the grid does not push the buttons off the page. */
   const reach = await page.evaluate(() => {
-    const g = document.getElementById('fixresults').getBoundingClientRect();
+    const g0 = document.getElementById('fixresults');
+    const g = g0.getBoundingClientRect();
     const dl = document.getElementById('fixbatchdl');
     const sv = document.getElementById('fixbatchsave');
     dl.scrollIntoView({ block: 'center' });
     const d = dl.getBoundingClientRect();
-    return { belowGrid: d.top >= g.bottom - 1,
+    /* AFTER THE GRID IN THE DOCUMENT, not below it in the window. The grid is
+       a scroll container (max-height:52dvh) inside a panel that is itself a
+       scroll container now, so its bottom edge can sit past the buttons in
+       viewport coordinates while the buttons are still after it on the page.
+       Measured: d.top 0 against g.bottom 704 with the button plainly under
+       the grid on screen. */
+    return { belowGrid: !!(g0.compareDocumentPosition(dl) & Node.DOCUMENT_POSITION_FOLLOWING),
       onScreen: d.top >= 0 && d.bottom <= innerHeight,
       bothLive: !dl.disabled && !sv.disabled,
       sideways: document.documentElement.scrollWidth > innerWidth + 1 };

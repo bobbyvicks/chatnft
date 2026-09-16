@@ -15,6 +15,10 @@
    import arrives in, so the fixer's Save to project reads the layer out of
    the path and the trait lands back where it came from.
 */
+/* THE PAGE IT LANDS ON IS THE TRAIT FACTORY. Fix pixels was its own page and
+   is the lower half of that one now, so sending a trait there sets data-page
+   "home" - the panel it opens is on screen either way, which is what these
+   three were about. */
 import { test, expect } from '@playwright/test';
 
 const ready = async (page) => {
@@ -70,7 +74,7 @@ test('A TILE SENDS ONE TRAIT, CARRYING ITS LAYER', async ({ page }) => {
   });
   expect(r.withButton, 'every tile can send its trait').toBe(r.tiles);
   /* It lands you on the page it just filled. */
-  expect(r.page).toBe('fixer');
+  expect(r.page, 'the Trait Factory, where Fix pixels lives').toBe('home');
   expect(r.src, 'the picture is loaded, not a placeholder').toBe('640x640');
   /* THE HALF THAT MAKES THE ROUND TRIP WORK. Without the layer in the path,
      the fixer's save reads no category and everything comes back to
@@ -111,7 +115,7 @@ test('AND THE PICKED ONES GO AS ONE RUN', async ({ page }) => {
   /* Off until something is picked, like Move and Clear beside it. */
   expect(r.before, 'nothing picked, nothing to send').toBe(true);
   expect(r.after, 'and live once there is').toBe(false);
-  expect(r.page).toBe('fixer');
+  expect(r.page, 'the Trait Factory, where Fix pixels lives').toBe('home');
   expect(r.n, 'both of them, in one run').toBe(2);
   /* EACH ONE CARRYING ITS OWN LAYER, which is what sends them home again. */
   /* WAS without the status folders, for the reason in the test above. */
@@ -136,7 +140,7 @@ test('and the fix button does not also open the editor', async ({ page }) => {
     return { page: document.getElementById('land').getAttribute('data-page'),
       editorOpen: !document.getElementById('app').hidden };
   });
-  expect(r.page, 'the fixer, not the editor').toBe('fixer');
+  expect(r.page, 'the fixer panel, not the editor').toBe('home');
   expect(r.editorOpen, 'and the editor did not open behind it').toBe(false);
 });
 

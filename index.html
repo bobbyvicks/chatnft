@@ -74,6 +74,92 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
 .land{min-height:100dvh; display:grid; place-content:center; justify-items:center;
   gap:26px; padding:32px 20px; text-align:center;}
 .brand{display:flex; align-items:center; gap:11px;}
+/* ================= the Trait Factory =================================
+
+   One page, the whole viewport, three columns that touch.
+
+     getting a file in | PULL A TRAIT | what you last edited
+                       | FIX PIXELS   |
+
+   PLACED, NOT MOVED. Grid placement ignores document order, so the fixer
+   section stays where it has always been in the file and lands under the
+   extractor on screen. Only the file controls needed a wrapper, because one
+   named column cannot hold four children without stacking them on top of
+   each other.
+
+   THE PAGE DOES NOT SCROLL AND THE COLUMNS DO. An 892px panel and a list
+   that grows cannot share a viewport any other way, and it is the page not
+   scrolling that was asked for. minmax(0,1fr) on the rows rather than 1fr:
+   a grid row is auto-sized to its content by default and refuses to shrink
+   below it, which is what makes a nested scroll container overflow its
+   track instead of scrolling.
+
+   Only on this page. Every other one keeps the centred column it has. */
+#land[data-page="home"]{
+  height:100dvh; min-height:0; overflow:hidden;
+  grid-template-columns:minmax(200px,0.85fr) minmax(380px,2.4fr) minmax(220px,1fr);
+  grid-template-rows:auto auto minmax(0,1.15fr) minmax(0,1fr);
+  gap:0; padding:10px 12px 0; align-content:stretch; justify-items:stretch;
+  align-items:stretch;}
+#land[data-page="home"]>.brand{grid-column:1/-1; grid-row:1; justify-content:center;
+  margin-bottom:2px;}
+#land[data-page="home"]>.pagenav{grid-column:1/-1; grid-row:2; justify-self:center;
+  margin-bottom:8px;}
+/* THE BOXES TOUCH. No gap, and every panel drops the radius on the edges it
+   shares so two borders read as one line rather than two rounded corners with
+   a sliver between them. */
+#land[data-page="home"]>.fopen{grid-column:1; grid-row:3/span 2;}
+#land[data-page="home"]>.extract{grid-column:2; grid-row:3;}
+#land[data-page="home"]>#fixer{grid-column:2; grid-row:4;}
+#land[data-page="home"]>#recent{grid-column:3; grid-row:3/span 2;}
+#land[data-page="home"]>.fopen,
+#land[data-page="home"]>.extract,
+#land[data-page="home"]>#fixer,
+#land[data-page="home"]>#recent{
+  width:auto; max-width:none; min-width:0; min-height:0; margin:0;
+  border-radius:0; overflow:auto; overscroll-behavior:contain;}
+/* The four outside corners, so the page is a panel rather than a slab. */
+#land[data-page="home"]>.fopen{border-radius:12px 0 0 12px;}
+#land[data-page="home"]>.extract{border-radius:0 12px 0 0;}
+#land[data-page="home"]>#fixer{border-radius:0 0 12px 0;}
+#land[data-page="home"]>#recent{border-radius:0 12px 12px 0;}
+/* THE LEFT COLUMN. The three ways a file gets in, stacked, with the drop
+   zone taking whatever is left so the column is filled rather than a short
+   stack against a tall empty box. */
+.fopen{display:flex; flex-direction:column; gap:10px; padding:14px;
+  text-align:left; background:var(--panel); border:1px solid var(--line);}
+/* THE ORDER AND THE WIDTH ARE ALREADY SPOKEN FOR. This page used to be one
+   flex column sequenced by `order` - .drop is 3, .bulkrow is 4, .err is 5 -
+   and .bulkrow is sized for a page-wide row. Inside a box of their own, both
+   numbers are wrong: measured, Sort by inventory has no order at all so it
+   sorted to the top above the drop zone (y105 against y150), and the import
+   row came out 560px wide in a 200px column - 360px of sideways scrolling in
+   a box that should not scroll sideways at all. */
+.fopen>*{order:0; width:auto; max-width:100%; min-width:0;}
+.fopen>#drop{flex:1; min-height:120px; margin:0; width:auto;}
+.fopen>.bulkrow{margin:0;}
+.fopen .mini{width:100%;}
+/* PULL A TRAIT IS THE MAIN FEATURE, so it gets the bigger share of the
+   middle and its heading stops being a 13px label. */
+#land[data-page="home"]>.extract>h2{font-size:15px;}
+/* AND ITS DROP ZONE WAS SIZED FOR A PAGE OF ITS OWN: 44px of padding top
+   and bottom, measured at 193px for a box that says two lines. It shares a
+   column now, and that padding is 52px of the 94px the panel was short by. */
+#land[data-page="home"]>#fixer .drop{padding:18px 16px;}
+#land[data-page="home"]>#fixer>h2{font-size:13px; text-transform:uppercase;
+  letter-spacing:.1em; color:var(--muted);}
+/* Down to one column when there is no room for three. The page is allowed to
+   scroll here, because three columns of controls on a phone is not a screen
+   anybody can use without it. */
+@media (max-width:900px){
+  #land[data-page="home"]{height:auto; min-height:100dvh; overflow:visible;
+    grid-template-columns:1fr; grid-template-rows:auto; gap:12px; padding:16px 12px;}
+  #land[data-page="home"]>.fopen,
+  #land[data-page="home"]>.extract,
+  #land[data-page="home"]>#fixer,
+  #land[data-page="home"]>#recent{grid-column:1; grid-row:auto; overflow:visible;
+    border-radius:12px;}
+}
 /* THREE PAGES OUT OF ONE SCROLL.
 
    Each thing on the landing page carries the page it belongs to, and #land
@@ -97,15 +183,11 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
 #land[data-page="agent"] .pg-home,
 #land[data-page="agent"] .pg-project,
 #land[data-page="agent"] .pg-settings,
-/* The fifth page, same shape. */
-#land[data-page="home"] .pg-fixer,
-#land[data-page="project"] .pg-fixer,
-#land[data-page="settings"] .pg-fixer,
-#land[data-page="agent"] .pg-fixer,
-#land[data-page="fixer"] .pg-home,
-#land[data-page="fixer"] .pg-project,
-#land[data-page="fixer"] .pg-settings,
-#land[data-page="fixer"] .pg-agent,
+/* THE FIFTH PAGE IS PART OF THE FIRST ONE NOW. Fix pixels was its own page
+   and is a column of the Trait Factory, so .pg-fixer is .pg-home and the ten
+   rules that hid it from four pages and hid four pages from it are gone with
+   it. Superseding rather than deleting the comment they carried: the block is
+   still pairwise and still for the same reason. */
 /* The sixth page, same shape. Ten more lines because the block above says
    why it is pairwise: "the failure they prevent is a section appearing on a
    page nobody meant it to". */
@@ -113,12 +195,13 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
 #land[data-page="project"] .pg-final,
 #land[data-page="settings"] .pg-final,
 #land[data-page="agent"] .pg-final,
-#land[data-page="fixer"] .pg-final,
 #land[data-page="final"] .pg-home,
 #land[data-page="final"] .pg-project,
 #land[data-page="final"] .pg-settings,
-#land[data-page="final"] .pg-agent,
-#land[data-page="final"] .pg-fixer{display:none;}
+/* THE BRACE LIVES ON THE LAST LINE. It used to hang off a pg-fixer rule, and
+   taking that line out the obvious way would have left every selector above
+   it dangling and nothing in the app hidden on any page. */
+#land[data-page="final"] .pg-agent{display:none;}
 /* The final-set page. The tiles reuse .items and .item, which are generic
    grid and card rules, and add nothing but the row of buttons - there is no
    status chip, no drag handle and no hide button here, because getting away
@@ -181,29 +264,17 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
    the answer to a question about the extractor. */
 .panelbox{width:min(1180px,92vw); text-align:left; padding:18px;
   border-radius:13px; background:var(--panel); border:1px solid var(--line);}
-/* THE ONE PAGE THAT IS LOOKING AT PICTURES, not reading prose. 1180 is a
-   readable line length and a wasteful picture frame: on a 1920 screen it
-   left 740px empty beside two previews capped at 420px each. The other
-   four pages keep the column - a 1900px line of text is unreadable. */
-#land[data-page="fixer"] .panelbox{width:min(2100px,96vw);}
-/* AND THE HEIGHT. place-content:center floats a short page in the middle
-   of a tall window - measured at 1600x1000, the panel ran y378 to y744
-   with 378px of ground above it and 256 below. A column that starts at
-   the top, with the panel taking what is left, and no number to keep in
-   step with the height of the header. */
-#land[data-page="fixer"]{display:flex; flex-direction:column;
-  align-items:center; justify-content:flex-start;}
-/* #fixer, NOT .panelbox. The page-hiding rules are one id, one attribute
-   and one class, and so is #land[data-page=fixer] .panelbox - the same
-   specificity, written later, so a display on it BEATS their display:none
-   and the Agent panel came back on the Fix pixels page. Measured: its
-   computed display read flex and it was 493px tall in the layout, which
-   is also why the panel would not grow - a container already past its
-   min-height has no free space left to hand out. */
-#land[data-page="fixer"] #fixer{flex:1 1 auto; display:flex;
-  flex-direction:column;}
-/* So the columns take the room the panel just gained. */
-#land[data-page="fixer"] .fixcols{flex:1 1 auto;}
+/* SUPERSEDED, because the page they were written for is gone. Fix pixels is
+   a column of the Trait Factory now, and its width comes from that grid
+   rather than from a rule of its own - the measurement those rules carried
+   was that 1180 is a readable line length and a wasteful picture frame, and
+   the grid gives the middle column 2.4 of 4.25 parts for the same reason.
+
+   The two that still do work are kept, against the panel: the section is a
+   column so its own scroll area can grow, and the picture columns inside it
+   take the room that gains them. */
+#fixer{display:flex; flex-direction:column;}
+#fixer .fixcols{flex:1 1 auto;}
 /* NO COLUMN FOR A RAIL THAT IS NOT THERE. A grid track exists whether or
    not anything is placed in it, so the hidden aside was costing 300px of
    width on an empty page. */
@@ -304,7 +375,8 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
    so the grid does not jump as each image loads, and those map to real CSS
    declarations that beat aspect-ratio - measured on the page, the tile came
    out 105 wide and 160 tall, stretched. auto hands the sizing back. */
-.fixtile img{width:100%; height:auto; aspect-ratio:1; object-fit:contain;
+.fixtile img{max-width:100%; align-self:center; height:auto;
+  aspect-ratio:1; object-fit:contain;
   image-rendering:pixelated;
   background:repeating-conic-gradient(#ffffff10 0 25%,transparent 0 50%) 0 0/12px 12px;
   border:1px solid var(--line); border-radius:8px;}
@@ -1827,12 +1899,13 @@ footer .mono{color:var(--ink);}
        the project's knobs live. You get there from inside it, and back the
        same way. -->
   <nav class="pagenav" id="pagenav" aria-label="Pages">
-    <button type="button" class="pgtab" data-page="home">Main</button>
+    <button type="button" class="pgtab" data-page="home"
+      title="Pull a trait off a character, fix pixel art, and pick up what you last edited">Trait Factory</button>
     <button type="button" class="pgtab" data-page="project">Project</button>
     <button type="button" class="pgtab" data-page="agent"
       title="Questions about the whole collection at once, for you and for an agent">Agent</button>
-    <button type="button" class="pgtab" data-page="fixer"
-      title="Turn fake pixel art into real pixels at its native size">Fix pixels</button>
+    <!-- Fix pixels has no tab of its own: it is the lower half of the Trait
+         Factory now. -->
     <button type="button" class="pgjump pg-project" id="tosettings"
       data-page="settings">Project settings</button>
     <!-- The other room inside the project: only the traits that ship. -->
@@ -1877,21 +1950,15 @@ footer .mono{color:var(--ink);}
     <p class="note" id="cloudnote">Nothing uploads until you press Save to cloud.</p>
   </section>
   </div>
-  <p class="tag pg-home">Edit pixel art on the grid it was <b>actually drawn on</b>. Nothing leaves your device.</p>
   <!-- Fake pixel art in, real pixels out. The heavy work runs in a Worker
      built from the engine text below, so the page stays responsive while
      four detectors argue about the grid. -->
-<section class="panelbox pg-fixer" id="fixer">
-  <h2>Fix pixels</h2>
-  <p class="note">Turns fake pixel art - an upscale, an AI render, a blurred or off-grid
-    sprite - into real pixel art at the size it was drawn at. Four independent
-    detectors find the grid; each cell becomes one true pixel. Retro Diffusion's
-    Pixel Art Fixer, running here. Nothing leaves your device.</p>
-  <p class="note">This is their quick pass: three detectors, and the answer they agree on.
-    The thorough pass that arbitrates when those three disagree is not built yet, so a
-    hard image can come back with a grid it is unsure of - it says which.</p>
-  <!-- TWO COLUMNS. The inner indentation is left as it was: reflowing
-       sixty lines to move them two spaces would bury the change. -->
+<section class="panelbox pg-home" id="fixer">
+  <!-- THE PROSE WENT. Two paragraphs explaining what this does, on a panel
+       that has to share a screen now - and the drop zone below says the same
+       thing in its own title. The measurement that sent them: 892px of panel
+       at a 1078px viewport. -->
+  <h2 title="Turns fake pixel art - an upscale, an AI render, a blurred or off-grid sprite - into real pixel art at the size it was drawn at. Four independent detectors find the grid; each cell becomes one true pixel. the Retro Diffusion Pixel Art Fixer, running here. Nothing leaves your device.">Fix pixels</h2>
   <div class="fixcols">
   <div class="fixwork">
   <div class="drop" id="fixdrop" tabindex="0" role="button" aria-label="Choose an image to fix">
@@ -2084,6 +2151,10 @@ footer .mono{color:var(--ink);}
     <p class="err" id="exerr" role="status"></p>
   </section>
 
+  <!-- GETTING A FILE IN, in one box. A named grid column cannot hold four
+       children without stacking them on top of one another, so this is the
+       one thing the layout needed moved. -->
+  <div class="fopen pg-home">
   <div class="restore pg-home" id="restore" hidden>
     <span id="restoretext"></span>
     <span class="acts"><button class="mini go" id="restoreyes">Pick up where you left off</button>
@@ -2115,6 +2186,7 @@ footer .mono{color:var(--ink);}
   <input type="file" id="sortfile" accept="application/json,.json" hidden>
   <p class="note" id="bulknote" hidden></p>
   <p class="err" id="err" role="status"></p>
+  </div>
 
   <!-- What you were last working on, in the space the three explainer cards
        used to hold. Ordered by the record's own `at`, which every save
@@ -19852,7 +19924,7 @@ function agShow(out){
       +" used by a single trait \u00b7 rarest "
       +(out.rarest[0]?out.rarest[0].hex+" ("+out.rarest[0].pixels+" px)":"none"));
 }
-const PAGES=["home","project","settings","agent","fixer","final"];
+const PAGES=["home","project","settings","agent","final"];
 
 /* ---- the Fix pixels tab ---------------------------------------------------
 
@@ -21249,6 +21321,10 @@ PB.fix=async function(o){
 };
 function pageFromHash(){
   const h=String(location.hash||"").replace(/^#\/?/,"");
+  /* THE PAGE THAT BECAME PART OF ANOTHER ONE. Fix pixels is the lower half of
+     the Trait Factory now, and a link saved before that has to land on it
+     rather than falling through to the same place by accident. */
+  if(h==="fixer") return "home";
   return PAGES.indexOf(h)>=0 ? h : "home";
 }
 /* ONE TILE ON THE FINAL PAGE. Picture, name, what it is if that is worth
@@ -21730,6 +21806,16 @@ function showPage(p,push){
   for(const b of document.querySelectorAll(".pgtab,.pgjump"))
     b.onclick=()=>showPage(b.dataset.page,true);
   addEventListener("hashchange",()=>showPage(pageFromHash(),false));
+  /* AND THE ADDRESS BAR IS PUT RIGHT ONCE, on the way in. Without this the
+     page would be correct and the URL would still read #/fixer - and pressing
+     the tab could not clear it, because showPage returns early when the page
+     asked for is the one already shown. replaceState rather than assigning to
+     location.hash: no history entry to press Back through, and no hashchange
+     to re-enter the router with. */
+  try{
+    if(String(location.hash||"").replace(/^#\/?/,"")==="fixer")
+      history.replaceState(null,"","#/home");
+  }catch(_){ }
   showPage(pageFromHash(),false);
 })();
 $('addlayer').onclick=addLayer;

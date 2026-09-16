@@ -5698,9 +5698,49 @@ $('palsnap').onclick=()=>{
 /* The editor closes IMMEDIATELY - every DOM change here happens before the
    await - and only the restore bar waits, because it has to know what was
    actually stored before it can offer the right thing. */
+/* WHERE THE PAGE WAS WHEN THE EDITOR TOOK IT OVER.
+
+   #land is hidden with the hidden attribute, which collapses the document
+   to the viewport and takes the scroll offset with it. Measured: 60 traits,
+   scrolled to 1400 of 3846, open a trait and close it and the answer is 0 -
+   the whole shelf to scroll through again, once per trait.
+
+   THE WINDOW ONLY. The Trait Factory columns scroll inside themselves, so
+   this had a loop remembering every scrolled element in #land - and then
+   the measurement: a column goes 81, hidden, 81 again, while the window
+   goes 900, hidden, 0. The browser restores an inner scrollTop by itself;
+   only the document scroll is lost, because collapsing the document is
+   what clamps it. The loop did nothing and is not here.
+
+   THE PAGE IS RECORDED WITH THE OFFSET. A hashchange while the editor is
+   up - a Back press - can land the close on a different page, and 1400
+   belonging to the shelf is a jump to nowhere there rather than a
+   restore. */
+let landScroll=null;
+function landScrollKeep(){
+  const land=$("land");
+  /* ALREADY IN THE EDITOR, which is opening a second trait from inside it.
+     The page is hidden, so window.scrollY is 0, and writing that down
+     would throw away the real position on the way past. */
+  if(!land||land.hidden) return;
+  landScroll={page:land.getAttribute("data-page"), y:window.scrollY||0};
+}
+function landScrollBack(){
+  const s=landScroll; landScroll=null;
+  if(!s) return;
+  const land=$("land");
+  if(!land||land.getAttribute("data-page")!==s.page) return;
+  window.scrollTo(0,s.y);
+}
 async function closeEditor(){
   const flushed=autosaveNow();
   $("app").hidden=true; $("land").hidden=false;
+  /* HERE, not after renderShelf. Hiding an element with the hidden
+     attribute keeps its content, so the page is already its full height -
+     measured at 3,846px with 60 traits, the same number it had before the
+     editor opened. Behind an awaited redraw it would be a visible jump:
+     the page arrives at the top and then moves. */
+  landScrollBack();
   fileInput.value="";
   renderShelf();
   await flushed;
@@ -7408,6 +7448,7 @@ function showDraftBar(t,draft){
 }
 function startEditor(data,w,h,srcW,srcH,pal,recovered){
   if(!mayUse()) return;
+  landScrollKeep();
   $('scrim').hidden=true; $('land').hidden=true; $('app').hidden=false;
   N=w;
   art.width=w; art.height=h;

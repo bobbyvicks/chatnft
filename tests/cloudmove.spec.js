@@ -198,11 +198,27 @@ test.describe('moving a trait inside a group', () => {
   });
 
   test('the status chip does not claim a move the group never got', async ({ page }) => {
+    /* SUPERSEDES an assertion on the exact phrase "still has the old one",
+       which this message carried and no longer does. That sentence was the
+       whole of what the chip said, for every one of the six ways a save can
+       fail to reach a group - and it named no cause, so the same words were
+       shown to somebody whose connection had blinked and to somebody who was
+       signed out, who could press Save to cloud all afternoon.
+
+       WHAT SURVIVES IS WHAT THE TEST WAS FOR: the chip must say where the
+       change actually is, and must not claim the group got it. Both are
+       asserted, and the cause is asserted on top - which is stricter than
+       the phrase was, because a message that named no cause used to pass.
+
+       The uploads here fail the way a dropped connection does, so the cause
+       is the try-again one. whyitdidnotreach.spec.js is where the other five
+       are pinned. */
     await withServer(page, { group: true, uploadFails: true });
     const r = await chip(page);
     await restore(page);
     expect(r.said, 'it says where the change actually is').toContain('here only');
-    expect(r.said, 'and names what the group still has').toContain('still has the old one');
+    expect(r.said, 'and why it is only there').toContain('could not reach the group');
+    expect(r.said, 'and never reads as having reached it').not.toContain('shared it with the group');
   });
 
   test('but it says the plain thing when the move worked', async ({ page }) => {

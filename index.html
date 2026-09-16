@@ -4324,7 +4324,39 @@ async function setTraitStatus(t,next){
   /* And the unsaved work, which used to be the one id-keyed thing this did
      not carry - the line above has always carried the other. */
   await draftsFollow([{from:t.id, to:moved.id}]);
-  const shared=await cloudMoveOne(t,moved);
+  /* Filled by the upload when it fails, so the tile and the final-set
+     page can each say WHICH failure it was. */
+  const why={};
+  const shared=await cloudMoveOne(t,moved,why);
+  /* AND THE RECORD STOPS CLAIMING TO BE ON THE SERVER. `moved` above is a
+     spread of `t`, so a trait that was synced carries `synced` and `path`
+     into its NEW identity - one the server has never seen. Measured, with
+     the upload failing: synced came back true on all six kinds of failure.
+
+     The same spread one level over is what kept a rarity change out of the
+     group, and setRarity has carried this correction since; this is the
+     sibling that did not get it.
+
+     `path` goes with it rather than being left to be harmless. Save to
+     cloud skips a record whose stored path equals the one it computes, and
+     a status change moves that path only because cloudPath happens to
+     encode the status - a fact in another function, which is not a thing
+     to depend on for whether work reaches the group.
+
+     rowId STAYS. It points at the row the old copy made, and that is still
+     the row a later Save to cloud has to replace; dropping it would post a
+     second row and leave the group holding the trait twice.
+
+     Only on failure. When the upload lands, cloudSyncOne writes synced,
+     rowId and path onto the record itself, and that write is the true one. */
+  if(activeWs && !shared){
+    let stored=null; try{ stored=await dbGet(moved.id); }catch(_){}
+    if(stored && (stored.synced||stored.path)){
+      const honest=Object.assign({},stored,{synced:false});
+      delete honest.path;
+      try{ await dbPut(honest); }catch(_){}
+    }
+  }
   /* AND AGAIN, BECAUSE THE ROW ID MOVED UNDERNEATH BOTH KEYS. A move inside
      a group uploads the trait as a NEW row and writes the id the insert
      returned back onto the local record - so for a synced trait the key just
@@ -4338,7 +4370,7 @@ async function setTraitStatus(t,next){
       pickTransfer(movedKey,freshKey);
     }
   }
-  return {ok:true, moved, shared};
+  return {ok:true, moved, shared, why};
 }
 /* The order the states happen in, and the one place that says so. */
 const STATUS_CYCLE=["wip","approved","stfp","rejected"];
@@ -5074,7 +5106,7 @@ async function renderShelf(viewOnly){
         /* The result was discarded once, so a move the group never received
            still said "hat -> approved". */
         toast(activeWs && !r.shared
-          ? t.name+' -> '+next+' here only - the group still has the old one'
+          ? t.name+' -> '+next+' here only - '+cloudWhyNot(r.why)
           : t.name+' -> '+next); };
       el.appendChild(cyc);
       const dup=document.createElement('button');
@@ -5605,13 +5637,15 @@ async function saveTrait(){
          group is not a failure worth hiding - it is the difference between
          your friends seeing it and not. */
       /* A move on the server too, or the group ends up holding both. */
-      const shared = moved ? await cloudMoveOne(openWas,rec) : await cloudSyncOne(rec);
+      const why={};
+      const shared = moved ? await cloudMoveOne(openWas,rec,why)
+        : await cloudSyncOne(rec,null,why);
       /* Marked only once it is actually up there. A save that could not reach
          the group stays unmarked, and the reconcile below will not remove it -
          losing work because the network blinked would be worse than the stale
          copy it is meant to clean up. */
       toast((shared ? "Saved "+name+" and shared it with the group"
-        : "Saved "+name+" here only - could not reach the group. Press Save to cloud when you are back.")+offGrid+edged);
+        : "Saved "+name+" here only - "+cloudWhyNot(why))+offGrid+edged);
     } else {
       toast('Saved '+name+' to '+layer+'/'+status+offGrid+edged);
     }
@@ -17009,17 +17043,66 @@ const cloudPath=(team,c,it)=>team+"/"+c.id+"/"+
 
    Optional, because a single save inside a group calls this with nothing in
    hand and must keep working exactly as it did. */
-async function cloudSyncOne(rec,ctx){
+/* WHAT TO SAY WHEN IT DID NOT REACH THE GROUP.
+
+   One place, because three call sites say it and they were three copies
+   of one guess. Each answer names the cause and then the thing to do
+   about it, and only the two that Save to cloud can actually fix mention
+   Save to cloud - telling somebody to press a button that does exactly
+   what just failed is how a person ends up pressing it all afternoon.
+
+   The last line is the sentence this replaced, word for word. It is what
+   an unnamed reason gets, which is every caller that passes no object and
+   every test that stubs the upload out - so nothing that does not ask for
+   a reason reads any differently than it did. */
+function cloudWhyNot(why){
+  const r=why&&why.reason;
+  if(r==="signedout")
+    return "you are signed out on this device. Sign in, then press Save to cloud.";
+  if(r==="notallowed")
+    return "this account is not allowed to write to the group. Ask whoever set it up to add you.";
+  if(r==="refused")
+    return "the server refused it"+(why.status?" ("+why.status+")":"")+", so the group did not get it.";
+  if(r==="collection")
+    return "the collection on the server could not be opened. Try again in a moment.";
+  return "could not reach the group. Press Save to cloud when you are back.";
+}
+async function cloudSyncOne(rec,ctx,why){
   /* No guard here: the caller decides. saveTrait only calls this inside a
      group, and cloudPush calls it for everything on either kind of page. */
+  /* WHY IT DID NOT ARRIVE, for the caller that has to say something.
+
+     AN OUT-PARAMETER, not a return value, and the shape is forced. All
+     seven call sites read this answer as true-or-false, and four tests
+     replace the whole function with a stub. Returning {ok,reason} would
+     make every failure an object - always truthy - so "if(!await
+     cloudSyncOne(...))" would stop firing at four call sites at once,
+     silently. Writing the reason into an object the caller supplies
+     leaves the answer exactly as it was: a caller that passes nothing,
+     and a stub that fills nothing, both get the message they got before.
+
+     cloudRarity answers with a named outcome and setRarity acts on it.
+     The vocabulary here is the same one. */
+  const say=(reason,status)=>{
+    if(why){ why.reason=reason; why.status=(typeof status==="number"?status:null); }
+    return null;
+  };
+  /* SIGNED OUT, OR NEVER ASKED. sbUser collapses those into one null and
+     its own comment says why it is left that way: five other callers read
+     the null as "signed out". The difference is the difference between an
+     instruction that fixes this and one that cannot, and recovering it
+     costs nothing - sbToken clears the stored session ONLY on a definitive
+     400, 401 or 403, so a session still in storage after it came back
+     empty means the question never got an answer. */
+  const outOrOffline=()=>say(sbLoadSession()?"unreachable":"signedout");
   ctx=ctx||{};
-  const u=ctx.u||await sbUser(); if(!u) return null;
-  const team=ctx.team||await cloudTeam(); if(!team) return null;
-  const c=ctx.c||await cloudCollection(u); if(!c) return null;
+  const u=ctx.u||await sbUser(); if(!u) return outOrOffline();
+  const team=ctx.team||await cloudTeam(); if(!team) return outOrOffline();
+  const c=ctx.c||await cloudCollection(u); if(!c) return say("collection");
   const p=cloudPath(team,c,rec);
   try{
     const hb=ctx.hb||await sbHeaders({"Content-Type":"image/png","x-upsert":"true"});
-    if(!hb) return null;
+    if(!hb) return outOrOffline();
     /* THREE ATTEMPTS, the same as pullBlob gives a download. One dropped
        upload used to mean the trait was reported failed and was simply not on
        the server - the defect fixed on the pull this morning, which was still
@@ -17032,13 +17115,14 @@ async function cloudSyncOne(rec,ctx){
         up=await fetch(SB_URL+"/storage/v1/object/traits/"+p,
           {method:"POST",headers:hb,body:rec.blob});
         if(up.ok) break;
-        if(up.status===401||up.status===403) return null;
+        if(up.status===401||up.status===403) return say("notallowed",up.status);
       }catch(_){ up=null; }
       if(attempt<PULL_TRIES-1) await new Promise(r=>setTimeout(r,250*(attempt+1)));
     }
-    if(!up||!up.ok) return null;
+    if(!up) return say("unreachable");
+    if(!up.ok) return say(up.status<500?"refused":"unreachable",up.status);
     const h=ctx.h||await sbHeaders({"Content-Type":"application/json"});
-    if(!h) return null;
+    if(!h) return outOrOffline();
     /* Identified the same way the local store identifies it - name, layer and
        status - so saving the same trait twice replaces it rather than leaving
        two of it on the server. */
@@ -17061,12 +17145,20 @@ async function cloudSyncOne(rec,ctx){
         w:rec.w||1, h:rec.h||1, path:p}])});
     /* Marked here, where it is known to have arrived, so every route that
        uploads gets it: a save inside a group, and Save to cloud. */
+    /* A DEFINITE NO FROM THE SERVER, which is not a network problem and
+       must not be reported as one. The two lines below are both already
+       guarded by r.ok, so leaving here skips nothing they would have
+       done. 401 and 403 are the same "not allowed" the upload can give,
+       said the same way; a 409 is the unique index, which means the group
+       already holds this name on this layer at this status. */
+    if(!r.ok) return say((r.status===401||r.status===403)?"notallowed":"refused",r.status);
+    if(why) why.ok=true;
     let madeId=null;
     if(r.ok){ try{ madeId=((await r.json())[0]||{}).id||null; }catch(_){ madeId=null; } }
     if(r.ok && rec.id){ try{ await dbPut(Object.assign({},rec,
       {synced:true, rowId:madeId, path:p})); }catch(_){} }
-    return r.ok;
-  }catch(_){ return null; }
+    return true;
+  }catch(_){ return say("unreachable"); }
 }
 
 /* A shared bin where deleting only affects your own copy is not shared. The
@@ -17133,7 +17225,7 @@ async function dbDelShared(rec){
    means a failure halfway leaves the old copy rather than nothing at all.
    The pair used to be written the other way round here, and the code did what
    this sentence said instead of what it meant. */
-async function cloudMoveOne(oldRec,newRec){
+async function cloudMoveOne(oldRec,newRec,why){
   if(!activeWs) return null;
   /* THE ORDER THE COMMENT ABOVE DESCRIBES. It used to drop first and sync
      second, so "a failure halfway leaves the old copy rather than nothing at
@@ -17145,7 +17237,7 @@ async function cloudMoveOne(oldRec,newRec){
      A failure now leaves BOTH copies, which is recoverable; the previous order
      left neither, which is not. */
   const fresh=Object.assign({},newRec); delete fresh.rowId;
-  const arrived=await cloudSyncOne(fresh);
+  const arrived=await cloudSyncOne(fresh,null,why);
   if(!arrived) return null;
   /* Only now, once the new copy has landed. */
   await cloudDropOne(oldRec);
@@ -21499,10 +21591,11 @@ async function finalMove(t,next){
   await renderFinal();
   renderShelf();
   /* Said the same way the shelf says it, because it is the same event. */
-  toast(activeWs && !r.shared
-    ? t.name+(next==="stfp"?" is in the final project":" is out of the final project")
-      +" here only - the group still has the old one"
-    : t.name+(next==="stfp"?" is in the final project":" is out of the final project"));
+  const what=t.name+(next==="stfp"?" is in the final project":" is out of the final project");
+  /* r.same, because setTraitStatus returns early with shared:null when the
+     status is already the one asked for - and "here only" on a change that
+     never happened is a warning about a send nobody attempted. */
+  toast(activeWs && !r.shared && !r.same ? what+" here only - "+cloudWhyNot(r.why) : what);
 }
 /* THE FINAL PROJECT, DRAWN.
 

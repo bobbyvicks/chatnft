@@ -8559,13 +8559,6 @@ function rotateQuarter(cw){
   snapshot();
   restoreImage(new ImageData(out,nw,nh));
   refreshStats();
-  /* NO fitZoom. restoreImage refits when the canvas size changes and says
-     it is the one place every such route passes through; this was a second
-     copy of that rule which ALSO fired when the size had not changed. On a
-     square trait - which is what this collection is made of - a quarter
-     turn leaves the canvas alone, so every 90 degree turn on a 1280 trait
-     dropped the view back to fit and somebody working at 3x lost their
-     place. Measured on a 40x60 at 37 degrees: 12 to 36 to 12. */
   /* ONLY WHEN THE SIZE MOVED, and this is the half patch486 got wrong.
      restoreImage does refit on a size change - but ten lines before
      putImageData, and fitZoom fits the CONTENT, so on a canvas that has
@@ -8697,10 +8690,6 @@ function rotateFree(deg){
   }
   snapshot();
   restoreImage(new ImageData(out,ow,oh));
-  /* NO fitZoom - see rotateQuarter. With Keep size on a turn at any angle
-     comes back on the canvas it started on, so this refitted a view that
-     had not moved; and when the canvas HAS changed, restoreImage has
-     already done it. */
   /* ONLY WHEN THE SIZE MOVED - see rotateQuarter for why this is here and
      not left to restoreImage. With Keep size on, ow and oh are W and H and
      nothing is refitted, which is what keeps a zoom somebody set. With

@@ -7532,7 +7532,24 @@ function startEditor(data,w,h,srcW,srcH,pal,recovered){
   if(bp && bp.source==="render"){
     snapshot();
     const r=hideBase();
-    if(r && (r.gone+r.peeled)){
+    /* AND SOMETHING HAS TO BE LEFT. A picture made entirely of the base
+       pair is 100% covered, so it passes the 88% render test and then the
+       hide takes all of it. Measured on a 12x12 block in two flat colours:
+       painted 0 afterwards, and "Hid the base - 144 pixels" said about the
+       whole trait.
+
+       Undoable and announced, so nothing is lost - but "hide the base"
+       cannot have meant "empty the canvas", and that is the one outcome
+       this path should refuse rather than explain.
+
+       THE BUTTON IS NOT GUARDED. Somebody who presses Hide the base on a
+       picture that is all base has asked for it, and the button already
+       says what it would take. Same split as the comment above: nothing
+       here guesses, they get the button. */
+    const left=(()=>{ try{ const q=r&&r.plan&&r.plan.im&&r.plan.im.data;
+      if(!q) return 0; let k=0; for(let p=3;p<q.length;p+=4) if(q[p]) k++; return k;
+      }catch(_){ return 0; } })();
+    if(r && (r.gone+r.peeled) && left){
       ctx.putImageData(r.plan.im,0,0);
       /* RESTORED. patch266 replaced this line by accident: it captured a line
          number, then wrote at an EARLIER line in the same run, and used the

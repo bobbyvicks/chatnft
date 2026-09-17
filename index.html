@@ -8559,7 +8559,27 @@ function rotateQuarter(cw){
   snapshot();
   restoreImage(new ImageData(out,nw,nh));
   refreshStats();
-  fitZoom();
+  /* NO fitZoom. restoreImage refits when the canvas size changes and says
+     it is the one place every such route passes through; this was a second
+     copy of that rule which ALSO fired when the size had not changed. On a
+     square trait - which is what this collection is made of - a quarter
+     turn leaves the canvas alone, so every 90 degree turn on a 1280 trait
+     dropped the view back to fit and somebody working at 3x lost their
+     place. Measured on a 40x60 at 37 degrees: 12 to 36 to 12. */
+  /* ONLY WHEN THE SIZE MOVED, and this is the half patch486 got wrong.
+     restoreImage does refit on a size change - but ten lines before
+     putImageData, and fitZoom fits the CONTENT, so on a canvas that has
+     been resized and not yet painted contentBox returns null and it falls
+     back to the whole canvas. Measured on an 80x40 with the art in a
+     corner: zoom 48 before, 9 after the turn, 48 when refitted with the
+     pixels there. Here, after restoreImage has returned, the pixels are
+     on the canvas and this is the answer that fits the artwork.
+
+     Conditional, because the thing 486 was FOR is still right: a quarter
+     turn of a square trait - which is what this collection is made of -
+     changes no size, and refitting then throws away the zoom somebody set.
+     Measured: 12 to 36 to 12 on a turn that moved nothing. */
+  if(nw!==W||nh!==H) fitZoom();
   resizeBoxes();
   toast("Turned a quarter "+(cw?"right":"left")+" - now "+nw+" by "+nh);
 }
@@ -8571,13 +8591,59 @@ function rotateQuarter(cw){
    NEAREST: each destination pixel takes one whole source pixel, so no colour
    is averaged into existence. The shape of a diagonal edge changes - it has
    to, the grid moved under it - but the palette does not. */
+/* A HALF TURN. Every pixel to the opposite corner, on the same canvas.
+
+   This was two rotateQuarter calls, and each of those takes its own
+   snapshot and says its own sentence. Measured on a 40x60: the undo depth
+   went from 0 to 2, one undo came back 60 by 40 - the art at 90 degrees on
+   a canvas it never had - and the message said "Turned a quarter right"
+   twice, the first too fast to read.
+
+   Written out rather than composed, because the composition is what cost
+   the undo step.
+
+   NO fitZoom AND NO repalette. The canvas does not change, so there is
+   nothing to refit; and this is a permutation, so the set of colours out
+   is exactly the set in - the same argument rotateQuarter already makes
+   for itself. */
+function rotateHalf(){
+  if(!ctx) return;
+  const W=art.width, H=art.height;
+  const src=ctx.getImageData(0,0,W,H).data;
+  const out=new Uint8ClampedArray(W*H*4);
+  for(let y=0;y<H;y++) for(let x=0;x<W;x++){
+    const s=(y*W+x)*4, t=((H-1-y)*W+(W-1-x))*4;
+    out[t]=src[s]; out[t+1]=src[s+1]; out[t+2]=src[s+2]; out[t+3]=src[s+3];
+  }
+  snapshot();
+  restoreImage(new ImageData(out,W,H));
+  /* AND THE SELECTION COMES WITH IT. The canvas does not change size, so
+     restoreImage does not reach selReset - and before this was written out
+     as one turn it WAS two quarter turns, each of which changed the size
+     and cleared the mask on the way past. Measured after that change: a
+     400 cell selection survived a half turn intact while the artwork moved
+     to the opposite corner, so Delete or a fill inside it hit pixels
+     nobody chose.
+
+     Carried rather than cleared, through the same permutation the pixels
+     took: a selection is drawn around something, and the something moved.
+     After restoreImage, because selSet refuses a mask that is not the size
+     of the canvas and the canvas is only settled once that has run. */
+  if(selMask){
+    const sm=new Uint8Array(W*H);
+    for(let y=0;y<H;y++) for(let x=0;x<W;x++) sm[(H-1-y)*W+(W-1-x)]=selMask[y*W+x];
+    selSet(sm);
+  }
+  refreshStats(); resizeBoxes();
+  toast("Turned 180"+String.fromCharCode(176)+" - still "+W+" by "+H);
+}
 function rotateFree(deg){
   if(!ctx) return;
   const d=((deg%360)+360)%360;
   if(d<0.05||d>359.95) return;
   if(Math.abs(d-90)<0.05){ rotateQuarter(true); return true; }
   if(Math.abs(d-270)<0.05){ rotateQuarter(false); return true; }
-  if(Math.abs(d-180)<0.05){ rotateQuarter(true); rotateQuarter(true); return true; }
+  if(Math.abs(d-180)<0.05){ rotateHalf(); return true; }
   const W=art.width, H=art.height;
   const rad=d*Math.PI/180, c=Math.cos(rad), s=Math.sin(rad);
   const nw=Math.max(1,Math.ceil(Math.abs(W*c)+Math.abs(H*s)));
@@ -8624,7 +8690,15 @@ function rotateFree(deg){
   }
   snapshot();
   restoreImage(new ImageData(out,ow,oh));
-  refreshStats(); fitZoom(); resizeBoxes();
+  /* NO fitZoom - see rotateQuarter. With Keep size on a turn at any angle
+     comes back on the canvas it started on, so this refitted a view that
+     had not moved; and when the canvas HAS changed, restoreImage has
+     already done it. */
+  /* ONLY WHEN THE SIZE MOVED - see rotateQuarter for why this is here and
+     not left to restoreImage. With Keep size on, ow and oh are W and H and
+     nothing is refitted, which is what keeps a zoom somebody set. With
+     Grow the canvas really changes and this fits the art on it. */
+  refreshStats(); if(ow!==W||oh!==H) fitZoom(); resizeBoxes();
   /* No colour is averaged into existence here - the comment above says so and
      it is true - but a turn CLIPS, so a colour living only in a corner can
      leave the canvas. Included on that structural ground rather than on a

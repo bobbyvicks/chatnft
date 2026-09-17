@@ -50,7 +50,7 @@ import { test, expect } from '@playwright/test';
    group holding the trait twice, and for a long time it was reported exactly
    the same way as a move that worked. */
 const withServer = (page, opts) => page.evaluate(async (o) => {
-  const { uploadFails, dropFails, dropMatchesNothing, group } = o;
+  const { uploadFails, dropFails, dropMatchesNothing, imageDeleteThrows, group } = o;
   try { authed = true; } catch (_) {}
   gateShow(false);
   await dbClear();
@@ -76,6 +76,15 @@ const withServer = (page, opts) => page.evaluate(async (o) => {
     if (s.indexOf('/rpc/my_team') >= 0) return json('ws1');
     if (s.indexOf('/rest/v1/collections') >= 0) return json([{ id: 'c1', layers: ['skins'] }]);
     if (s.indexOf('/storage/v1/object/traits') >= 0 && m === 'DELETE') {
+      /* A REJECTION, not an error status. cloudDropOne never inspects the
+         storage result, so a 500 from here falls through and it answers
+         correctly; only a throw reaches its function-level catch. That is what
+         makes the window narrow, and why a review of the commit found it
+         rather than this file. */
+      if (imageDeleteThrows) {
+        state.log.push('image-delete-threw');
+        return Promise.reject(new TypeError('Failed to fetch'));
+      }
       state.log.push('image-delete'); return json([]);
     }
     if (s.indexOf('/storage/v1/object/traits/') >= 0) {
@@ -97,12 +106,12 @@ const withServer = (page, opts) => page.evaluate(async (o) => {
          rowId. cloudSyncOne also issues a tidy-up delete by name a moment
          earlier, and failing that one too made the retry count read 4 - a
          number about two different requests wearing the label of one. */
-      if (dropFails && /[?&]id=eq./.test(s)) { state.log.push('row-delete-failed'); return new Response('{}',
+      if (dropFails && /[?&]id=eq\./.test(s)) { state.log.push('row-delete-failed'); return new Response('{}',
         { status: 503, headers: { 'Content-Type': 'application/json' } }); }
       /* THE OTHER ANSWER. A DELETE that WORKED and matched nothing - the old
          row was already gone, which for a move means there is no second copy
          and nothing to warn about. 200 with an empty list, not an error. */
-      if (dropMatchesNothing && /[?&]id=eq./.test(s)) {
+      if (dropMatchesNothing && /[?&]id=eq\./.test(s)) {
         state.log.push('row-delete-matched-nothing');
         return new Response('[]', { status: 200,
           headers: { 'Content-Type': 'application/json' } }); }
@@ -287,6 +296,64 @@ test.describe('moving a trait inside a group', () => {
       expect(r.said, 'the move is reported plainly').toContain('hat -> approved');
       expect(r.said, 'with nothing about a copy that is not there')
         .not.toContain('old copy is still on the server');
+    });
+
+  test('AND A FAILED IMAGE DELETE IS NOT A KEPT ROW', async ({ page }) => {
+    /* cloudDropOne removes the row, then removes the PNG it pointed at. The
+       image delete sat inside the function-level try, whose catch answers
+       null - so a REJECTED fetch there made the function report failure on a
+       path where the row had already gone.
+
+       That was inert while the answer was discarded. The commit before this
+       made cloudMoveOne read it, and read null as "the old copy is still on
+       the server, so the group has it twice". The row is not there; what
+       survives is an orphaned PNG, which is a different problem and not the
+       one that sentence describes.
+
+       A rejection, not an error status: the storage result is never inspected,
+       so a 500 from it falls through and answers correctly. Only a throw
+       reached the catch, which is what makes this window narrow and is why it
+       took a review of the commit rather than this file to find it. */
+    await withServer(page, { group: true, imageDeleteThrows: true });
+    const r = await chip(page);
+    const s = await snapshot(page);
+    await restore(page);
+    expect(s.log.join(' '), 'the image delete really did throw')
+      .toContain('image-delete-threw');
+    expect(s.rows, 'and the old row really did go').toEqual(['row_new']);
+    expect(r.said, 'so the move is reported plainly').toContain('hat -> approved');
+    expect(r.said, 'with nothing about a copy that is not there')
+      .not.toContain('old copy is still on the server');
+  });
+
+  test('AND REMOVING A TRAIT STILL REPORTS WHETHER THE GROUP LOST IT',
+    async ({ page }) => {
+      /* cloudDropOne answers true when it removed rows and false when it
+         removed none, and dbDelShared turns that into two different sentences:
+         "Removed hat" against "Removed hat here, but the group still has it -
+         it will come back".
+
+         NOTHING IN THE SUITE ASSERTED THAT. Found by a mutation on the commit
+         beside this one: replacing "removed.length>0" with a constant false
+         killed no test anywhere, because every case in this file reads the
+         MESSAGE a move produces and none reads the value a removal returns.
+         So the answer this patch is careful to compute correctly had no
+         instrument on it at all.
+
+         Both directions, in one test, because a single one passes on a
+         function that always answers the same thing. */
+      await withServer(page, { group: true });
+      const r = await page.evaluate(async () => {
+        const t = (await dbAll()).find(x => x.kind === 'trait');
+        const first = await dbDelShared(t);
+        /* Now the row is gone, so a second removal of the same record removes
+           nothing - the false case, without needing a second fixture. */
+        const second = await dbDelShared(t);
+        return { first, second };
+      });
+      await restore(page);
+      expect(r.first, 'the group really lost it').toBe(true);
+      expect(r.second, 'and a removal that took nothing says so').toBe(false);
     });
 
   test('the status chip does not claim a move the group never got', async ({ page }) => {

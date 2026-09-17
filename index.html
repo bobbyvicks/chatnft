@@ -8637,6 +8637,45 @@ function rotateHalf(){
    destination pixel takes one whole source pixel, so no colour is averaged
    into existence. The shape of a diagonal edge changes - it has to, the
    grid moved under it - but the palette does not. */
+/* ONE SAMPLING, FOR THE PIXELS AND FOR THE SELECTION.
+
+   This loop was inline in rotateFree, where it had only one subject. The
+   mask has to land in exactly the places the pixels did or a selection
+   stops meaning the thing it was drawn around - so it is called twice
+   rather than copied, and there is nothing to keep in step.
+
+   The nearest arithmetic is untouched, to the character: each destination
+   pixel takes the one source pixel under it, so no colour is averaged into
+   existence. Rotxel stays the other branch, which is also why the mask goes
+   through here - it is a different map, and any mask transform written
+   against the arithmetic below would be silently wrong under it. */
+function turnRGBA(src,W,H,nw,nh,d,alg){
+  if(alg==="rotxel") return rotxelTurn(src,W,H,nw,nh,d);
+  const rad=d*Math.PI/180, c=Math.cos(rad), s=Math.sin(rad);
+  const out=new Uint8ClampedArray(nw*nh*4);
+  const ocx=W/2, ocy=H/2, ncx=nw/2, ncy=nh/2;
+  for(let y=0;y<nh;y++) for(let x=0;x<nw;x++){
+    const dx=x+0.5-ncx, dy=y+0.5-ncy;
+    const sx=Math.floor(ocx+dx*c+dy*s), sy=Math.floor(ocy-dx*s+dy*c);
+    if(sx<0||sy<0||sx>=W||sy>=H) continue;
+    const a=(sy*W+sx)*4, b=(y*nw+x)*4;
+    out[b]=src[a]; out[b+1]=src[a+1]; out[b+2]=src[a+2]; out[b+3]=src[a+3];
+  }
+  return out;
+}
+/* A MASK AS AN IMAGE, AND BACK. Alpha carries the selection because that is
+   what every step of a turn already preserves - the sampling copies it, and
+   recanvas centres on it. Nothing reads the colour channels. */
+function maskToRGBA(m,W,H){
+  const d=new Uint8ClampedArray(W*H*4);
+  for(let i=0;i<W*H;i++) if(m[i]) d[i*4+3]=255;
+  return d;
+}
+function rgbaToMask(d,W,H){
+  const m=new Uint8Array(W*H);
+  for(let i=0;i<W*H;i++) m[i]=d[i*4+3]?1:0;
+  return m;
+}
 function rotateFree(deg){
   if(!ctx) return;
   const d=((deg%360)+360)%360;
@@ -8652,19 +8691,7 @@ function rotateFree(deg){
   /* THE CHOICE. Rotxel is Pixelorama's and lives above; Nearest is the loop
      below, exactly as it always was, so nobody's turns change under them. */
   const alg=rotAlg();
-  let out;
-  if(alg==="rotxel") out=rotxelTurn(src,W,H,nw,nh,d);
-  else {
-  out=new Uint8ClampedArray(nw*nh*4);
-  const ocx=W/2, ocy=H/2, ncx=nw/2, ncy=nh/2;
-  for(let y=0;y<nh;y++) for(let x=0;x<nw;x++){
-    const dx=x+0.5-ncx, dy=y+0.5-ncy;
-    const sx=Math.floor(ocx+dx*c+dy*s), sy=Math.floor(ocy-dx*s+dy*c);
-    if(sx<0||sy<0||sx>=W||sy>=H) continue;
-    const a=(sy*W+sx)*4, b=(y*nw+x)*4;
-    out[b]=src[a]; out[b+1]=src[a+1]; out[b+2]=src[a+2]; out[b+3]=src[a+3];
-  }
-  }
+  let out=turnRGBA(src,W,H,nw,nh,d,alg);
   /* BACK ONTO THE CANVAS IT CAME FROM, when that is what was asked for.
 
      Not a different turn: the sampling above is untouched and runs at the
@@ -8688,8 +8715,30 @@ function rotateFree(deg){
     cut=Math.max(0,had-ink(out));
     ow=W; oh=H;
   }
+  /* THE SELECTION TAKES THE SAME JOURNEY, worked out before the canvas is
+     replaced because selMask is sized by the canvas it was drawn on.
+
+     Measured before this, 400 cells on a 40x60 turned 37 degrees with Keep
+     size on: the mask came back at 0,0 to 19,19, exactly where it started,
+     while the artwork under it had moved. The mask is only ever reset when
+     the canvas SIZE changes - restoreImage does that - and a turn that keeps
+     the canvas never gets there.
+
+     Through turnRGBA and recanvas, the same two calls the pixels made, so
+     the answer cannot drift from where they landed. */
+  let selNext=null;
+  if(selMask){
+    let mo=turnRGBA(maskToRGBA(selMask,W,H),W,H,nw,nh,d,alg);
+    if(keep&&(nw!==W||nh!==H)) mo=recanvas(mo,nw,nh,W,H);
+    selNext=rgbaToMask(mo,ow,oh);
+  }
   snapshot();
   restoreImage(new ImageData(out,ow,oh));
+  /* AFTER the canvas is settled: selSet refuses a mask that is not the size
+     of the canvas, and with Grow on the canvas only becomes ow by oh here.
+     A selection turned entirely off the canvas arrives empty, and selSet
+     normalises that to no selection rather than an empty one. */
+  if(selNext) selSet(selNext);
   /* ONLY WHEN THE SIZE MOVED - see rotateQuarter for why this is here and
      not left to restoreImage. With Keep size on, ow and oh are W and H and
      nothing is refitted, which is what keeps a zoom somebody set. With

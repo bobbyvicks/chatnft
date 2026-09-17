@@ -177,6 +177,95 @@ test.describe('turning a trait', () => {
       expect(r.after).toBe(r.set);
     });
 
+  /* A BLOCK OF ART ON AN OTHERWISE EMPTY CANVAS, so "which cells hold
+     artwork" has an exact answer and the selection can be checked against it
+     cell by cell rather than by where its bounding box ended up. */
+  const BLOCK = `for (let y=4;y<16;y++) for (let x=4;x<16;x++) set(x,y,[224,64,64]);`;
+
+  for (const alg of ['nearest', 'rotxel']) {
+    for (const canvas of ['keep', 'grow']) {
+      test('THE SELECTION LANDS ON THE ARTWORK IT WAS DRAWN AROUND - '
+        + alg + ', ' + canvas, async ({ page }) => {
+        /* selMask is sized by the canvas and indexed by width, so it is only
+           ever reset when the canvas SIZE changes - restoreImage does that and
+           its comment calls itself the one place every size change passes
+           through. A free-angle turn with Keep size on comes back on the canvas
+           it started on, so nothing fired and the selection stayed exactly
+           where it was drawn while everything under it moved. Measured before
+           this: 400 cells at 0,0 to 19,19 before a 37 degree turn and 0,0 to
+           19,19 after it.
+
+           THE ASSERTION IS AGREEMENT, NOT POSITION. A mask that merely moved
+           could still be in the wrong place; what has to hold is that the
+           selected cells ARE the cells holding the artwork. Both directions,
+           because either one alone passes on a mask that is empty or on one
+           that covers everything.
+
+           All four combinations, because rotxel is a different map - it
+           upscales, rotates and runs Scale3x edge rules - and a mask transform
+           written against the nearest arithmetic would be silently wrong under
+           it. The mask goes through the same function the pixels do, which is
+           what makes this pass for both. */
+        await openTrait(page, { w: 40, h: 60, draw: BLOCK });
+        const r = await page.evaluate(async (o) => {
+          setChip('rotalg', o.alg); setChip('turncan', o.canvas);
+          const W0 = art.width, H0 = art.height;
+          const d0 = ctx.getImageData(0, 0, W0, H0).data;
+          const m = new Uint8Array(W0 * H0);
+          let n0 = 0;
+          for (let i = 0; i < W0 * H0; i++) if (d0[i * 4 + 3]) { m[i] = 1; n0++; }
+          selSet(m);
+          const realToast = window.toast; window.toast = () => {};
+          rotateFree(37);
+          await new Promise(x => setTimeout(x, 350));
+          window.toast = realToast;
+          const W = art.width, H = art.height;
+          const d = ctx.getImageData(0, 0, W, H).data;
+          let painted = 0, sel = 0, selNotArt = 0, artNotSel = 0;
+          for (let i = 0; i < W * H; i++) {
+            const a = d[i * 4 + 3] > 0, t = !!(selMask && selMask[i]);
+            if (a) painted++; if (t) sel++;
+            if (t && !a) selNotArt++; if (a && !t) artNotSel++;
+          }
+          return { n0, painted, sel, selNotArt, artNotSel,
+            size: W + 'x' + H, keeps: turnKeepsCanvas() };
+        }, { alg, canvas });
+        /* The preconditions, or the two zeros below are true of nothing. */
+        expect(r.n0, 'the whole block was selected to begin with').toBe(144);
+        expect(r.painted, 'and there is artwork after the turn').toBeGreaterThan(100);
+        expect(r.sel, 'and a selection').toBeGreaterThan(100);
+        expect(r.keeps, 'the canvas rule really is the one asked for')
+          .toBe(canvas === 'keep');
+        expect(r.selNotArt, 'no cell is selected that holds no artwork').toBe(0);
+        expect(r.artNotSel, 'and no artwork is left outside the selection').toBe(0);
+      });
+    }
+  }
+
+  test('and a selection turned entirely off the canvas becomes no selection',
+    async ({ page }) => {
+      /* selSet normalises an empty mask to null rather than to an empty one,
+         so the page shows no selection instead of a selection of nothing. */
+      await openTrait(page, { w: 40, h: 60, draw: BLOCK });
+      const left = await page.evaluate(async () => {
+        setChip('turncan', 'keep');
+        const W = art.width, H = art.height;
+        const m = new Uint8Array(W * H);
+        /* A strip along the bottom edge, which a turn on a kept canvas pushes
+           past a corner. */
+        for (let x = 0; x < W; x++) m[(H - 1) * W + x] = 1;
+        selSet(m);
+        const realToast = window.toast; window.toast = () => {};
+        rotateFree(37);
+        await new Promise(x => setTimeout(x, 350));
+        window.toast = realToast;
+        return selMask ? selMask.reduce((a, b) => a + b, 0) : null;
+      });
+      /* Either it survived in part, or it is null - never an empty mask, which
+         is the state selSet exists to prevent. */
+      expect(left === null || left > 0, 'no empty-but-present selection').toBe(true);
+    });
+
   test('but a turn that DOES change the size refits - the control',
     async ({ page }) => {
       /* Otherwise "keep the zoom" is just "never refit", which leaves a grown

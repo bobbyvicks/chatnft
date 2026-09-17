@@ -17209,6 +17209,16 @@ const cloudPath=(team,c,it)=>team+"/"+c.id+"/"+
    an unnamed reason gets, which is every caller that passes no object and
    every test that stubs the upload out - so nothing that does not ask for
    a reason reads any differently than it did. */
+/* THE STATUSES THAT MEAN "NOT RIGHT NOW" RATHER THAN "NO".
+
+   408 is a timeout and 429 is the server asking to be left alone; both are
+   the definition of try again later and both were being reported as a
+   settled refusal with nothing to do about it. 425 is here for the same
+   reason and costs nothing. Everything else under 500 stays a refusal - a
+   400 on a malformed object key and a 413 over the bucket limit do not get
+   better by waiting. */
+const RETRY_LATER=[408,425,429];
+function cloudLater(st){ return !(st<500) || RETRY_LATER.indexOf(st)>=0; }
 function cloudWhyNot(why){
   const r=why&&why.reason;
   if(r==="signedout")
@@ -17264,7 +17274,28 @@ async function cloudSyncOne(rec,ctx,why){
      empty means the question never got an answer. */
   const outOrOffline=()=>say(sbLoadSession()?"unreachable":"signedout");
   ctx=ctx||{};
-  const u=ctx.u||await sbUser(); if(!u) return outOrOffline();
+  /* THREE ANSWERS, NOT TWO, and not by inference. outOrOffline separates
+     signed-out from could-not-ask by asking whether the stored session
+     survived - sound when a REFRESH was rejected, because sbToken clears
+     it then. Not sound for a token that is simply no longer accepted:
+     sbToken hands the stored token over, /auth/v1/user answers 401, and
+     sbUser returns null WITHOUT clearing it. So a revoked sign-in read as
+     "could not reach the group" and sent somebody to a button that will
+     answer 401 every time.
+
+     sbAuthState is the same one request and clears the session on a
+     definitive 401 or 403, which is what makes its "out" true. cloudPush
+     already uses it, for the reason its own comment gives.
+
+     Only when the caller has not already done it. cloudPush passes ctx.u
+     straight from sbAuthState, so a 60-trait push does not ask 60 times. */
+  let u=ctx.u;
+  if(!u){
+    const who=await sbAuthState();
+    if(who.state!=="in") return say(who.state==="out"?"signedout":"unreachable");
+    u=who.user;
+  }
+  if(!u) return outOrOffline();
   const team=ctx.team||await cloudTeam(); if(!team) return outOrOffline();
   const c=ctx.c||await cloudCollection(u); if(!c) return say("collection");
   const p=cloudPath(team,c,rec);
@@ -17283,12 +17314,16 @@ async function cloudSyncOne(rec,ctx,why){
         up=await fetch(SB_URL+"/storage/v1/object/traits/"+p,
           {method:"POST",headers:hb,body:rec.blob});
         if(up.ok) break;
-        if(up.status===401||up.status===403) return say("notallowed",up.status);
+        /* Split for the same reason as the row insert below: a 401 is a
+           sign-in problem and a 403 is a membership one, and neither is
+           retried - both are definitive. */
+        if(up.status===403) return say("notallowed",up.status);
+        if(up.status===401) return say("signedout",up.status);
       }catch(_){ up=null; }
       if(attempt<PULL_TRIES-1) await new Promise(r=>setTimeout(r,250*(attempt+1)));
     }
     if(!up) return say("unreachable");
-    if(!up.ok) return say(up.status<500?"refused":"unreachable",up.status);
+    if(!up.ok) return say(cloudLater(up.status)?"unreachable":"refused",up.status);
     const h=ctx.h||await sbHeaders({"Content-Type":"application/json"});
     if(!h) return outOrOffline();
     /* Identified the same way the local store identifies it - name, layer and
@@ -17329,8 +17364,14 @@ async function cloudSyncOne(rec,ctx,why){
        attempts, this makes one, so a single transient answer is the end
        of it - and "refused" is a word nobody presses the button again
        after. */
-    if(!r.ok) return say((r.status===401||r.status===403) ? "notallowed"
-      : (r.status<500 ? "refused" : "unreachable"), r.status);
+    /* 401 AND 403 ARE NOT THE SAME ANSWER. 403 is the policy refusing a
+       member who is not one, which is a thing to ask somebody about. 401
+       is the request carrying no identity the server accepts, which is a
+       thing to fix by signing in - and being sent to a person instead of
+       to the sign-in box is a slow way to find that out. */
+    if(!r.ok) return say(r.status===403 ? "notallowed"
+      : r.status===401 ? "signedout"
+      : cloudLater(r.status) ? "unreachable" : "refused", r.status);
     if(why) why.ok=true;
     let madeId=null;
     if(r.ok){ try{ madeId=((await r.json())[0]||{}).id||null; }catch(_){ madeId=null; } }

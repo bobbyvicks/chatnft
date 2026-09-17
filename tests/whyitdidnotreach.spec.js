@@ -75,14 +75,24 @@ const seed = (page, mode) => page.evaluate(async (m) => {
        session, and a 500 is not one - which is what keeps "could not ask"
        distinguishable from "signed out". */
     if (s.indexOf('/auth/v1/token') >= 0) return json({}, 500);
-    if (s.indexOf('/auth/v1/user') >= 0)
-      return m === 'cannotask' ? json({}, 500) : json({ id: 'u1' });
+    if (s.indexOf('/auth/v1/user') >= 0) {
+      if (m === 'cannotask') return json({}, 500);
+      /* A token the server no longer accepts. sbToken hands the stored one
+         over without asking anybody, so this is the FIRST thing that finds
+         out - and sbUser used to return null here without clearing the
+         session, which made the "is it still in storage" trick answer
+         "unreachable" for somebody who is plainly signed out. */
+      if (m === 'revoked') return json({ message: 'invalid token' }, 401);
+      return json({ id: 'u1' });
+    }
     if (s.indexOf('/rpc/my_team') >= 0) return json('ws1');
     if (s.indexOf('/rest/v1/collections') >= 0)
       return m === 'nocollection' ? json({}, 500) : json([{ id: 'c1', layers: ['skins'] }]);
     if (s.indexOf('/storage/v1/object/traits') >= 0 && meth === 'DELETE') return json([]);
     if (s.indexOf('/storage/v1/object/traits/') >= 0) {
       if (m === 'forbidden') return json({ message: 'no' }, 403);
+      if (m === 'unauthed') return json({ message: 'jwt expired' }, 401);
+      if (m === 'busy') return json({ message: 'slow down' }, 429);
       if (m === 'toobig') return json({ message: 'too large' }, 413);
       if (m === 'offline') return Promise.reject(new TypeError('Failed to fetch'));
       return json({});
@@ -149,6 +159,73 @@ test.describe('saying why a trait did not reach the group', () => {
       expect(r.said).toContain('not allowed to write to the group');
       expect(r.said, 'and does not send you round again').not.toContain('Save to cloud');
     });
+
+  test('A REVOKED SIGN-IN SAYS SIGNED OUT, not "could not reach"', async ({ page }) => {
+    /* The inference that separated signed-out from could-not-ask asked whether
+       the stored session survived the attempt, which is sound when a REFRESH
+       was rejected - sbToken clears it then. A token that is simply no longer
+       accepted never reaches a refresh: sbToken hands it over, the user lookup
+       answers 401, and sbUser returned null WITHOUT clearing the session. So
+       the session was still in storage, the inference said "unreachable", and
+       somebody whose sign-in had been revoked was told to press Save to cloud
+       when they were back - a button that will answer 401 every time. */
+    await seed(page, 'revoked');
+    const r = await addToFinal(page);
+    expect(r.said, 'it names the real cause').toContain('signed out on this device');
+    expect(r.said, 'and the thing that fixes it').toContain('Sign in');
+    expect(r.said, 'and not the one that cannot').not.toContain('could not reach the group');
+  });
+
+  test('BUT A SERVER THAT DID NOT ANSWER IS STILL NOT SIGNED OUT - the control',
+    async ({ page }) => {
+      /* The distinction has to survive in both directions, or the fix above is
+         just "call everything signed out", which would send a signed-in person
+         to sign out on a device holding local work. A 500 on the same lookup
+         is the server not answering, and sbAuthState says so. */
+      await seed(page, 'cannotask');
+      const r = await addToFinal(page);
+      expect(r.said).toContain('could not reach the group');
+      expect(r.said).not.toContain('signed out');
+    });
+
+  test('A 429 ON THE UPLOAD IS NOT A REFUSAL', async ({ page }) => {
+    /* Under-500 meant refusal, so the server asking to be left alone for a
+       moment came out as a settled no with nothing to do about it - the one
+       status where waiting is exactly the right answer. */
+    await seed(page, 'busy');
+    const r = await addToFinal(page);
+    expect(r.said).toContain('could not reach the group. Press Save to cloud when you are back.');
+    expect(r.said).not.toContain('refused');
+  });
+
+  test('but a 413 still is - the control', async ({ page }) => {
+    /* Otherwise the fix is "never say refused under 500", and a file over the
+       bucket limit would be reported as something waiting will fix. */
+    await seed(page, 'toobig');
+    const r = await addToFinal(page);
+    expect(r.said).toContain('refused it (413)');
+  });
+
+  test('A 401 ON THE UPLOAD IS A SIGN-IN PROBLEM, not a membership one',
+    async ({ page }) => {
+      /* 401 and 403 were answered together with "ask whoever set it up to add
+         you". That is right for a 403 - the policy refusing somebody who is
+         not a member. A 401 means the request carried no identity the server
+         accepts, and being sent to a person instead of to the sign-in box is a
+         slow way to find that out. */
+      await seed(page, 'unauthed');
+      const r = await addToFinal(page);
+      expect(r.said).toContain('signed out on this device');
+      expect(r.said, 'nobody to ask about this one').not.toContain('Ask whoever');
+    });
+
+  test('and a 403 still asks the owner - the control', async ({ page }) => {
+    await seed(page, 'forbidden');
+    const r = await addToFinal(page);
+    expect(r.said).toContain('not allowed to write to the group');
+    expect(r.said).toContain('Ask whoever set it up');
+    expect(r.said).not.toContain('signed out');
+  });
 
   test('a refused row names the refusal, not the network', async ({ page }) => {
     /* 409 is the unique index: the group already holds this name on this

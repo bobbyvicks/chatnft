@@ -17211,7 +17211,13 @@ function cloudWhyNot(why){
   if(r==="refused")
     return "the server refused it"+(why.status?" ("+why.status+")":"")+", so the group did not get it.";
   if(r==="collection")
-    return "the collection on the server could not be opened. Try again in a moment.";
+    /* NO "try again in a moment". cloudCollection returns null for a
+       missing token, for a GET that failed - which includes a 403 from a
+       row policy, meaning this account may not read that collection at
+       all - and for a failed POST. Promising the wait will fix it is the
+       same dead end this whole function exists to remove. It says what
+       failed and stops, because nothing here knows the rest. */
+    return "the collection on the server could not be opened.";
   return "could not reach the group. Press Save to cloud when you are back.";
 }
 async function cloudSyncOne(rec,ctx,why){
@@ -17298,7 +17304,18 @@ async function cloudSyncOne(rec,ctx,why){
        done. 401 and 403 are the same "not allowed" the upload can give,
        said the same way; a 409 is the unique index, which means the group
        already holds this name on this layer at this status. */
-    if(!r.ok) return say((r.status===401||r.status===403)?"notallowed":"refused",r.status);
+    /* THE SAME SPLIT THE UPLOAD USES, thirty lines up. This had 401/403
+       or else "refused", so a 502 from the gateway and a 409 from the
+       unique index got the same definite word - and the comment above
+       calls this branch "A DEFINITE NO FROM THE SERVER, which is not a
+       network problem", which is true of a 4xx and false of every 5xx.
+
+       It matters more here than on the upload: the upload makes three
+       attempts, this makes one, so a single transient answer is the end
+       of it - and "refused" is a word nobody presses the button again
+       after. */
+    if(!r.ok) return say((r.status===401||r.status===403) ? "notallowed"
+      : (r.status<500 ? "refused" : "unreachable"), r.status);
     if(why) why.ok=true;
     let madeId=null;
     if(r.ok){ try{ madeId=((await r.json())[0]||{}).id||null; }catch(_){ madeId=null; } }

@@ -87,8 +87,13 @@ const seed = (page, mode) => page.evaluate(async (m) => {
       if (m === 'offline') return Promise.reject(new TypeError('Failed to fetch'));
       return json({});
     }
-    if (s.indexOf('/rest/v1/traits') >= 0 && meth === 'POST')
-      return m === 'rowclash' ? json({ message: 'duplicate key' }, 409) : json([{ id: 'row_new' }]);
+    if (s.indexOf('/rest/v1/traits') >= 0 && meth === 'POST') {
+      if (m === 'rowclash') return json({ message: 'duplicate key' }, 409);
+      /* The gateway failing on the row insert while the image upload
+         succeeded - the asymmetry patch489 exists for. */
+      if (m === 'rowdown') return json({ message: 'upstream' }, 503);
+      return json([{ id: 'row_new' }]);
+    }
     if (s.indexOf('/rest/v1/traits') >= 0) return json([]);
     return real(u, io);
   };
@@ -155,6 +160,37 @@ test.describe('saying why a trait did not reach the group', () => {
     expect(r.said).not.toContain('could not reach');
   });
 
+  test('BUT A 5XX ON THE ROW INSERT IS NOT A REFUSAL', async ({ page }) => {
+    /* cloudSyncOne makes two requests and had two different rules for one
+       question. The image upload split on status - under 500 a refusal, 500
+       and up "could not reach" - and the row POST thirty lines later used
+       401/403-or-else-refused, so the same 503 produced:
+
+         upload    "could not reach the group. Press Save to cloud when you
+                    are back."
+         row POST  "the server refused it (503), so the group did not get it."
+
+       The row POST is the worse place for it: the upload makes three
+       attempts, this makes one, so a single transient answer ends it - and
+       "refused" is a word nobody presses the button again after. */
+    await seed(page, 'rowdown');
+    const r = await addToFinal(page);
+    expect(r.said, 'the try-again sentence, the same as the upload gives')
+      .toContain('could not reach the group. Press Save to cloud when you are back.');
+    expect(r.said, 'and not the definite word').not.toContain('refused');
+  });
+
+  test('and a 4xx there still IS - the control', async ({ page }) => {
+    /* Otherwise the fix is just "never say refused", which would be wrong for
+       the 409 this branch was written for: the unique index, meaning the group
+       already holds this name on this layer at this status. Waiting does not
+       fix that one. */
+    await seed(page, 'rowclash');
+    const r = await addToFinal(page);
+    expect(r.said).toContain('the server refused it (409)');
+    expect(r.said).not.toContain('could not reach');
+  });
+
   test('and a file the bucket refuses is not reported as a dropped connection',
     async ({ page }) => {
       /* The upload retries three times for everything that is not a 401 or
@@ -169,6 +205,14 @@ test.describe('saying why a trait did not reach the group', () => {
     await seed(page, 'nocollection');
     const r = await addToFinal(page);
     expect(r.said).toContain('collection on the server could not be opened');
+    /* AND PROMISES NOTHING. This said "Try again in a moment.", which is a
+       claim about a cause nobody established: cloudCollection returns null
+       for a missing token, for a GET that failed - including a 403 from a row
+       policy, meaning this account may not read that collection at all - and
+       for a failed POST. Telling somebody to wait out a permission problem is
+       the same dead end this whole file exists to remove. */
+    expect(r.said, 'it does not promise the wait will fix it')
+      .not.toContain('Try again in a moment');
   });
 
   test('COULD NOT ASK IS NOT SIGNED OUT - the distinction that costs work',

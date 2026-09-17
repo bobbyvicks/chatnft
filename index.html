@@ -10210,9 +10210,26 @@ async function draftsFollow(pairs){
       q.onsuccess=()=>{
         const got=q.result;
         if(!got) return;
-        s.put(Object.assign({},got,{id:draftKey(m.to), traitId:m.to, at:Date.now()}));
-        s.delete(draftKey(m.from));
-        n++;
+        /* PAST THE RECORD IT IS LANDING ON, not just "now".
+
+           The open path keeps a carried draft only when it is STRICTLY
+           newer than its trait, and the caller stamps the record with
+           Date.now() a few statements before this stamps the draft with
+           Date.now(). Usually they differ by a millisecond and it works.
+           In the same millisecond the draft ties, loses, and somebody
+           loses an edit with nothing said - measured by freezing the
+           clock: 20 on the canvas with it running, 90 with it stopped.
+
+           Read in this same transaction, so nothing can move underneath
+           between the question and the write. */
+        const rq=s.get(m.to);
+        rq.onsuccess=()=>{
+          const rec=rq.result;
+          const at=Math.max(Date.now(), (((rec&&rec.at)||0)+1));
+          s.put(Object.assign({},got,{id:draftKey(m.to), traitId:m.to, at:at}));
+          s.delete(draftKey(m.from));
+          n++;
+        };
       };
     }
     t.oncomplete=()=>res(n); t.onerror=()=>rej(t.error); t.onabort=()=>rej(t.error);

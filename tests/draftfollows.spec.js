@@ -155,6 +155,49 @@ test.describe('a draft follows the trait it belongs to', () => {
     expect(await openedCorner(page, 'Cap')).toBe(20);
   });
 
+  test('AND IT SURVIVES THE TWO WRITES LANDING IN ONE MILLISECOND', async ({ page }) => {
+    /* THE TEST ABOVE CAN ONLY CATCH THIS BY LUCK, and did once, in a full run
+       of 1,590 - then passed twelve times out of twelve on its own.
+
+       sortApply writes the moved record with at:Date.now(); draftsFollow
+       carries the draft over and re-stamps it with at:Date.now() a few
+       statements later. The open path keeps a carried draft only when it is
+       STRICTLY newer. Two calls a few statements apart usually differ by a
+       millisecond and everything works; in the SAME millisecond the draft
+       ties, loses, and the edit is discarded as a leftover with nothing said.
+
+       Freezing the clock IS that case, and makes it deterministic. Measured
+       before the fix: 20 on the canvas with the clock running, 90 with it
+       stopped - 90 being the saved artwork, so the unsaved work was gone.
+
+       The draft is stamped past the record it lands on now rather than merely
+       "now", so clock resolution is not part of whether somebody keeps their
+       work. */
+    const r = await page.evaluate(async () => {
+      const fixed = Date.now();
+      const realNow = Date.now;
+      Date.now = () => fixed;
+      try {
+        const items = (await dbAll()).filter(x => x.kind === 'trait');
+        await sortApply(planSort(items, [
+          { layer: 'skins', trait: 'Cap.png', previousName: 'cap.png' }]));
+      } finally { Date.now = realNow; }
+      const all = await dbAll();
+      const rec = all.find(x => x.kind === 'trait' && x.name === 'Cap');
+      const dr = all.find(x => String(x.id).indexOf('autosave.') === 0);
+      return { recAt: rec && rec.at, draftAt: dr && dr.at,
+        newer: !!(dr && rec && dr.at > rec.at) };
+    });
+    /* The precondition: the clock really was frozen, so the record and the
+       draft would have tied. Without this the test passes on a build where
+       freezing did not take and proves nothing. */
+    expect(r.newer, 'the carried draft is strictly newer than its trait').toBe(true);
+    expect(r.draftAt, 'by construction, not by the clock having moved')
+      .toBe(r.recAt + 1);
+    expect(await draftKeys(page)).toEqual(['autosave.t_Cap_skins_approved']);
+    expect(await openedCorner(page, 'Cap'), 'and the unsaved work is still there').toBe(20);
+  });
+
   test('a duplicate does NOT inherit the original unsaved work - the control',
     async ({ page }) => {
       /* Duplicate builds a new record from the SAVED blob, so the copy must

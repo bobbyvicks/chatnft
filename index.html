@@ -18962,7 +18962,13 @@ function syncPan(){
 }
 $('panbtn').addEventListener('click',()=>setTimeout(syncPan,0));
 syncPan();
-$('reset').onclick=()=>{ if(!original) return; snapshot(); restoreImage(original); refreshStats(); resizeBoxes(); toast('Reset to original'); };
+/* AND THE COLOURS. Reset was the one route that put pixels back without
+   rebuilding the list - undo and redo directly above both do, and the two
+   turn paths that skip it say why. Measured: paint a third colour, press
+   Reset, and the swatch is still offered with zero pixels of it left on
+   the canvas. Picking it paints with a colour the artwork never had, and
+   Replace matches nothing. */
+$('reset').onclick=()=>{ if(!original) return; snapshot(); restoreImage(original); refreshStats(); resizeBoxes(); repalette(); toast('Reset to original'); };
 
 
 function download(scale){

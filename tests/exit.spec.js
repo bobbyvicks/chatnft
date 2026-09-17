@@ -235,12 +235,28 @@ test.describe('there is always a way out of the editor', () => {
     });
     await expect.poll(() => editorOpen(page), { timeout: 5000 }).toBe(false);
 
-    const rec = await page.evaluate(async () => {
+    /* POLLED, NOT READ ONCE - and the reason is a measurement rather than a
+       loosening. closeEditor starts the flush, hides the editor, and only then
+       awaits it, so the editor reports closed BEFORE the record lands. Timed:
+
+         editor reported closed    1ms
+         autosave record appeared  9ms
+
+       This waited for the first of those and then read the store a single
+       time, inside an 8ms window it never meant to depend on. It passed for
+       months and failed once in a full run of 1,600, where everything is
+       slower. The app is doing the right thing: the write is already in flight
+       when the editor closes, and not blocking the close on it is the
+       behaviour that was chosen.
+
+       What the test means is its own sentence - closing immediately after a
+       stroke must still store it - and that is what polling asserts. */
+    await expect.poll(async () => page.evaluate(async () => {
       const all = await dbAll();
       const a = all.find(i => i.kind === 'autosave');
-      return a ? { name: a.name, w: a.w, h: a.h } : null;
-    });
-    expect(rec, 'the stroke was stored despite closing inside the debounce window')
-      .toEqual({ name: 'fast-close.png', w: 80, h: 80 });
+      return a ? a.name + ' ' + a.w + 'x' + a.h : null;
+    }), { timeout: 5000,
+      message: 'the stroke was stored despite closing inside the debounce window' })
+      .toBe('fast-close.png 80x80');
   });
 });

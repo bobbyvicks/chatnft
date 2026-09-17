@@ -142,8 +142,13 @@ test.describe('the ported algorithms, called directly', () => {
        Pixelorama computes in the same doubles and gets the same thing.
        A first draft of this test pinned the clean permutation and the port
        refused it; the honest claim is the routing. This editor never sends
-       a quarter down this path - rotateFree takes 90, 180 and 270 to
-       rotateQuarter, which is an exact permutation, tested below. */
+       a quarter down this path - rotateFree takes 90 and 270 to
+       rotateQuarter, which is an exact permutation, tested below, and 180 to
+       rotateHalf, which is the same kind of permutation on a canvas that does
+       not change size. This said "90, 180 and 270" until the half turn got its
+       own function; the sentence was still true of what this test MEASURES
+       (the rotxel port at arbitrary angles) so nothing here was ever going to
+       go red over it. */
     const r = await page.evaluate(() => {
       const d = new Uint8ClampedArray(16 * 4);
       for (let i = 0; i < 16; i++) d.set([i * 16, 7, 255 - i * 16, 255], i * 4);

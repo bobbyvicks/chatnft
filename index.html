@@ -8584,13 +8584,6 @@ function rotateQuarter(cw){
   toast("Turned a quarter "+(cw?"right":"left")+" - now "+nw+" by "+nh);
 }
 
-/* Rotate by any angle.
-
-   A quarter turn is exact, so those four angles go through rotateQuarter and
-   nothing is resampled. Every other angle has to sample, and this samples
-   NEAREST: each destination pixel takes one whole source pixel, so no colour
-   is averaged into existence. The shape of a diagonal edge changes - it has
-   to, the grid moved under it - but the palette does not. */
 /* A HALF TURN. Every pixel to the opposite corner, on the same canvas.
 
    This was two rotateQuarter calls, and each of those takes its own
@@ -8637,6 +8630,20 @@ function rotateHalf(){
   refreshStats(); resizeBoxes();
   toast("Turned 180"+String.fromCharCode(176)+" - still "+W+" by "+H);
 }
+/* Rotate by any angle.
+
+   NINETY AND TWO-SEVENTY are exact, so those two go through rotateQuarter
+   and nothing is resampled; a half turn goes to rotateHalf, which is the
+   same kind of exact permutation on a canvas that does not change size.
+   This sentence used to say "those four angles", which stopped being true
+   the moment 180 got its own function - and the comment was left stranded
+   above THAT function, describing arbitrary-angle sampling to a reader of
+   the one turn that does none.
+
+   Every other angle has to sample, and this samples NEAREST: each
+   destination pixel takes one whole source pixel, so no colour is averaged
+   into existence. The shape of a diagonal edge changes - it has to, the
+   grid moved under it - but the palette does not. */
 function rotateFree(deg){
   if(!ctx) return;
   const d=((deg%360)+360)%360;
@@ -17226,13 +17233,21 @@ async function cloudSyncOne(rec,ctx,why){
   /* WHY IT DID NOT ARRIVE, for the caller that has to say something.
 
      AN OUT-PARAMETER, not a return value, and the shape is forced. All
-     seven call sites read this answer as true-or-false, and four tests
+     FIVE call sites read this answer as true-or-false, and four specs
      replace the whole function with a stub. Returning {ok,reason} would
-     make every failure an object - always truthy - so "if(!await
-     cloudSyncOne(...))" would stop firing at four call sites at once,
-     silently. Writing the reason into an object the caller supplies
-     leaves the answer exactly as it was: a caller that passes nothing,
-     and a stub that fills nothing, both get the message they got before.
+     make every failure an object - always truthy - so the two call sites
+     written as if(!await cloudSyncOne(...)) would stop firing silently,
+     and the three that test the result some other way would start
+     reporting success for every failure. Writing the reason into an object
+     the caller supplies leaves the answer exactly as it was: a caller that
+     passes nothing, and a stub that fills nothing, both get the message
+     they got before.
+
+     THE NUMBERS WERE SEVEN AND FOUR WHEN THIS WAS WRITTEN, AND BOTH WERE
+     WRONG - counted from grep hits that included this comment and the ones
+     around it. The design they argue for is right and the arithmetic was
+     not, which is the shape that survives review: nobody re-counts a
+     number in a comment that reads confidently.
 
      cloudRarity answers with a named outcome and setRarity acts on it.
      The vocabulary here is the same one. */
@@ -17924,7 +17939,7 @@ async function cloudPull(opts){
   $("cloudpull").disabled=false;
   await cloudStatus(u);
   /* KEPT, not just announced. This runs on open, quietly, on a page nobody
-     is necessarily watching - a line of toast that lasts 1.7 seconds is not
+     is necessarily watching - a line of toast, which is gone in seconds, is not
      a way to learn that somebody rewrote a trait. */
   /* Filled AFTER renderShelf has already run, so the note it draws has to be
      redrawn here. Drawing it only from renderShelf meant the mailbox appeared

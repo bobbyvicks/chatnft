@@ -5105,9 +5105,9 @@ async function renderShelf(viewOnly){
         renderShelf();
         /* The result was discarded once, so a move the group never received
            still said "hat -> approved". */
-        toast(activeWs && !r.shared
+        toast((activeWs && !r.shared
           ? t.name+' -> '+next+' here only - '+cloudWhyNot(r.why)
-          : t.name+' -> '+next); };
+          : t.name+' -> '+next)+cloudAlsoOld(r.why)); };
       el.appendChild(cyc);
       const dup=document.createElement('button');
       dup.className='dup'; dup.textContent='copy';
@@ -5645,7 +5645,7 @@ async function saveTrait(){
          losing work because the network blinked would be worse than the stale
          copy it is meant to clean up. */
       toast((shared ? "Saved "+name+" and shared it with the group"
-        : "Saved "+name+" here only - "+cloudWhyNot(why))+offGrid+edged);
+        : "Saved "+name+" here only - "+cloudWhyNot(why))+cloudAlsoOld(why)+offGrid+edged);
     } else {
       toast('Saved '+name+' to '+layer+'/'+status+offGrid+edged);
     }
@@ -17274,6 +17274,20 @@ const cloudPath=(team,c,it)=>team+"/"+c.id+"/"+
    better by waiting. */
 const RETRY_LATER=[408,425,429];
 function cloudLater(st){ return !(st<500) || RETRY_LATER.indexOf(st)>=0; }
+/* AND WHAT TO ADD WHEN THE NEW COPY LANDED BUT THE OLD ONE DID NOT GO.
+
+   Appended rather than instead-of, because the move DID work as far as this
+   browser and the group are concerned - the trait is where it should be. The
+   thing worth saying is that the one it replaced is still up there as well.
+
+   NO REMEDY NAMED. Load from cloud would bring the old copy down and
+   deleting it there would remove it for everybody, which is probably the
+   answer - but "probably" is how the wrong sentences in this file got
+   written, and that path is not measured here. This says what is true. */
+function cloudAlsoOld(why){
+  return (why&&why.oldKept) ? " - and the old copy is still on the server," +
+    " so the group has it twice" : "";
+}
 function cloudWhyNot(why){
   const r=why&&why.reason;
   if(r==="signedout")
@@ -17466,8 +17480,25 @@ async function cloudDropOne(rec){
         +"&status=eq."+encodeURIComponent(rec.status||"wip"));
     /* Ask for the removed rows back. A DELETE that matches NOTHING answers
        204 and is indistinguishable from one that worked. */
-    const r=await fetch(SB_URL+"/rest/v1/traits?"+q,{method:"DELETE",
-      headers:Object.assign({Prefer:"return=representation"},h)});
+    /* THREE ATTEMPTS, the same as the upload in cloudSyncOne. A 503 from a
+       gateway is the ordinary reason this fails, and the upload survives
+       exactly that; the removal in the same operation got one attempt, so a
+       blip left the group holding the trait twice. Measured: rows came back
+       ["hat/approved","hat/stfp"] and the page said the move had worked.
+
+       401 and 403 are not retried, for the reason the upload gives - a
+       definitive answer asked twice more is a clear failure made slow. */
+    let r=null;
+    for(let attempt=0; attempt<PULL_TRIES; attempt++){
+      try{
+        r=await fetch(SB_URL+"/rest/v1/traits?"+q,{method:"DELETE",
+          headers:Object.assign({Prefer:"return=representation"},h)});
+        if(r.ok) break;
+        if(r.status===401||r.status===403) return null;
+      }catch(_){ r=null; }
+      if(attempt<PULL_TRIES-1) await new Promise(x=>setTimeout(x,250*(attempt+1)));
+    }
+    if(!r||!r.ok) return null;
     let removed=[];
     if(r.ok){ try{ removed=await r.json(); }catch(_){ removed=[]; } }
     /* Only the images belonging to rows that actually went. Deleting a path
@@ -17515,7 +17546,16 @@ async function cloudMoveOne(oldRec,newRec,why){
   const arrived=await cloudSyncOne(fresh,null,why);
   if(!arrived) return null;
   /* Only now, once the new copy has landed. */
-  await cloudDropOne(oldRec);
+  /* READ, NOT DISCARDED. The comment above calls a half-finished move
+     "recoverable", which it is - but nobody was told there was anything to
+     recover, and the message was identical to the one a clean move gets.
+
+     null and false are not the same answer here. null is "the removal could
+     not be done", which leaves the old copy on the server. false is "it was
+     done and matched nothing", which for a move means the old row had
+     already gone - no second copy, nothing to say. */
+  const dropped=await cloudDropOne(oldRec);
+  if(dropped===null&&why) why.oldKept=true;
   return arrived;
 }
 
@@ -21876,7 +21916,7 @@ async function finalMove(t,next){
   /* r.same, because setTraitStatus returns early with shared:null when the
      status is already the one asked for - and "here only" on a change that
      never happened is a warning about a send nobody attempted. */
-  toast(activeWs && !r.shared && !r.same ? what+" here only - "+cloudWhyNot(r.why) : what);
+  toast((activeWs && !r.shared && !r.same ? what+" here only - "+cloudWhyNot(r.why) : what)+cloudAlsoOld(r.why));
 }
 /* THE FINAL PROJECT, DRAWN.
 

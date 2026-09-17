@@ -43,9 +43,14 @@
 import { test, expect } from '@playwright/test';
 
 /* A fake server. `uploadFails` rejects every PNG upload the way a dropped
-   connection does - all three attempts, since cloudSyncOne retries. */
+   connection does - all three attempts, since cloudSyncOne retries.
+
+   `dropFails` is the other half: the upload lands and the removal of the OLD
+   row answers 503, which is what a gateway blip looks like. That leaves the
+   group holding the trait twice, and for a long time it was reported exactly
+   the same way as a move that worked. */
 const withServer = (page, opts) => page.evaluate(async (o) => {
-  const { uploadFails, group } = o;
+  const { uploadFails, dropFails, dropMatchesNothing, group } = o;
   try { authed = true; } catch (_) {}
   gateShow(false);
   await dbClear();
@@ -86,6 +91,21 @@ const withServer = (page, opts) => page.evaluate(async (o) => {
       return json([rec]);
     }
     if (s.indexOf('/rest/v1/traits') >= 0 && m === 'DELETE') {
+      /* A gateway answering 503 on the removal. Counted rather than short
+         circuited, so a test can see that it was RETRIED. */
+      /* Only the TARGETED delete, which is the one cloudDropOne makes with a
+         rowId. cloudSyncOne also issues a tidy-up delete by name a moment
+         earlier, and failing that one too made the retry count read 4 - a
+         number about two different requests wearing the label of one. */
+      if (dropFails && /[?&]id=eq./.test(s)) { state.log.push('row-delete-failed'); return new Response('{}',
+        { status: 503, headers: { 'Content-Type': 'application/json' } }); }
+      /* THE OTHER ANSWER. A DELETE that WORKED and matched nothing - the old
+         row was already gone, which for a move means there is no second copy
+         and nothing to warn about. 200 with an empty list, not an error. */
+      if (dropMatchesNothing && /[?&]id=eq./.test(s)) {
+        state.log.push('row-delete-matched-nothing');
+        return new Response('[]', { status: 200,
+          headers: { 'Content-Type': 'application/json' } }); }
       /* Matched on the parameter boundary. "collection_id=eq." contains
          "id=eq.", so a substring test reads a blanket delete as a targeted
          one - a mistake this suite has already made once, and it hid the
@@ -196,6 +216,78 @@ test.describe('moving a trait inside a group', () => {
     expect(s.log.join(' '), 'nothing deleted the old row').not.toContain('row-delete:row_hat');
     expect(s.log.join(' '), 'and nothing deleted its picture').not.toContain('image-delete');
   });
+
+  test('A MOVE THAT LEFT THE OLD COPY BEHIND SAYS SO', async ({ page }) => {
+    /* The order is deliberate - the new copy up first, the old one removed
+       after - so a failure halfway leaves BOTH rather than neither, and
+       cloudMoveOne's comment calls that "recoverable". Nobody was told there
+       was anything to recover: the result of the removal was discarded and the
+       message was identical to a clean move.
+
+       Measured before this, with the removal answering 503:
+
+         drop works   server rows ["hat/stfp"]
+         drop fails   server rows ["hat/approved","hat/stfp"]
+
+       and the same sentence both times. */
+    await withServer(page, { group: true, dropFails: true });
+    const r = await chip(page);
+    const s = await snapshot(page);
+    await restore(page);
+    expect(s.rows.length, 'the group really does hold it twice').toBe(2);
+    expect(r.said, 'the move itself worked and still says so').toContain('hat -> approved');
+    expect(r.said, 'and the half that did not is named')
+      .toContain('the old copy is still on the server');
+  });
+
+  test('and it tries three times before saying it - the retry', async ({ page }) => {
+    /* A 503 from a gateway is the ordinary reason this fails, and the upload
+       three lines earlier has survived exactly that with three attempts since
+       it was written. The removal in the same operation got one. */
+    await withServer(page, { group: true, dropFails: true });
+    await chip(page);
+    const s = await snapshot(page);
+    await restore(page);
+    const tries = s.log.filter(x => x === 'row-delete-failed').length;
+    expect(tries, 'three attempts, like the upload').toBe(3);
+  });
+
+  test('but a move that removed the old row says nothing extra - the control',
+    async ({ page }) => {
+      /* Otherwise the warning is on every move, which is worse than being on
+         none: it would be attached to the case that is working. */
+      await withServer(page, { group: true });
+      const r = await chip(page);
+      const s = await snapshot(page);
+      await restore(page);
+      expect(s.rows.length, 'exactly one copy up there').toBe(1);
+      expect(r.said).toContain('hat -> approved');
+      expect(r.said).not.toContain('old copy is still on the server');
+    });
+
+  test('AND A REMOVAL THAT MATCHED NOTHING IS NOT A KEPT COPY - the control',
+    async ({ page }) => {
+      /* null and false are different answers from cloudDropOne and the
+         difference decides what the person is told. null is "the removal could
+         not be done", which leaves a second copy up there. false is "it was
+         done and matched nothing" - the old row had already gone, so there is
+         no second copy and nothing to say.
+
+         WITHOUT THIS, THE DISTINCTION IS UNDEFENDED. Measured: a mutation
+         changing the check to a plain falsy test killed no test at all, because
+         every other case here either removes a row or fails outright. A trait
+         whose old row a teammate had already deleted would have been reported
+         as being up there twice. */
+      await withServer(page, { group: true, dropMatchesNothing: true });
+      const r = await chip(page);
+      const s = await snapshot(page);
+      await restore(page);
+      expect(s.log.join(' '), 'the removal really did run and match nothing')
+        .toContain('row-delete-matched-nothing');
+      expect(r.said, 'the move is reported plainly').toContain('hat -> approved');
+      expect(r.said, 'with nothing about a copy that is not there')
+        .not.toContain('old copy is still on the server');
+    });
 
   test('the status chip does not claim a move the group never got', async ({ page }) => {
     /* SUPERSEDES an assertion on the exact phrase "still has the old one",

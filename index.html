@@ -8018,6 +8018,31 @@ function dropSnapshot(redoWas,dropped){
    ImageData of the old size into a canvas of the new one - clipped if bigger,
    leaving stale pixels round the edge if smaller, and the canvas left wrong
    either way. Every route that restores a stored image goes through here. */
+/* WHAT THE TWO BUTTONS SAY, AFTER THE ARTWORK UNDER THEM CHANGED.
+
+   Clean up colours and Hide the base colour both describe the canvas, and
+   both are computed by walking it. Measured on a 1280 trait of twelve
+   colours: cleanLabel 85ms and baseLabel 34ms, against one undo costing
+   57ms in total. Calling them inside undo would make the most-pressed
+   control in the editor three times slower for two button captions.
+
+   So: next frame, once. Coalesced, so holding undo down computes them at
+   the end rather than per step - which is cheaper and is also the only
+   right answer, since what a button should say is a fact about where you
+   stopped rather than about each place you passed through.
+
+   Neither can throw usefully here - they are captions - so neither is
+   allowed to take the other down with it. */
+let labelsPending=0;
+function labelsSoon(){
+  if(labelsPending) return;
+  labelsPending=requestAnimationFrame(()=>{
+    labelsPending=0;
+    if(!ctx) return;
+    try{ cleanLabel(); }catch(_){ }
+    try{ baseLabel(); }catch(_){ }
+  });
+}
 function restoreImage(im){
   /* Undo, redo and reset do not go through snapshot, and all three replace
      the pixels a report was measured from. */
@@ -8064,6 +8089,11 @@ function restoreImage(im){
   }
   ctx.putImageData(im,0,0);
   applyZoom();
+  /* AFTER the pixels are down, because both labels read the canvas. Every
+     one of the eight routes that replaces an image comes through here, so
+     none of them has to remember - the same argument the size branch above
+     makes for selReset, drawBase and the size ladder. */
+  labelsSoon();
 }
 
 /* Scale the artwork to a new size.

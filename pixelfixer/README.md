@@ -58,6 +58,30 @@ proves the port consumes the RNG in the reference's order. `test-endtoend.js`
 forks per image for that reason; its first version did not, and reported three
 false failures.
 
+## Where it departs on purpose
+
+Measured on the collection's 311 working traits at 8px cells (2026-09-18),
+and changed in `two_stage_pack` by default; `PF.process(..., {reference: true})`
+runs the reference's own rule and is what `tools/test-endtoend.cjs` compares.
+
+- **Only visible pixels vote and colour.** The reference weights every
+  pixel; a browser canvas hands the engine `(0,0,0)` under every alpha-0
+  pixel, so half-covered edge cells came out black on 116 of 311 files
+  (chains/Cross Chain: 8 of 106 opaque cells). Alpha-0 pixels now have
+  zero weight in the label vote and the colour. The k-means sample still
+  includes them: restricting it re-rolls 83,837 cells on 196 files with no
+  directional gain.
+- **The cell colour is the weighted mode of the exact visible colours
+  carrying the winning label, not their mean.** The mean invented colours
+  on 141 of 311 files (94,926 in total; one file went from 115 colours to
+  952). The mode invents none, keeps the silhouette identical on 311 of
+  311 and leaves art already on the grid byte-identical (42 of 42).
+- **`PF.process` resets the k-means generator per image.** The reference
+  never seeds it, so in a Worker that outlives one image the result
+  depended on what ran before (8 of 9 real traits differed between two
+  folder orders). A fresh engine starts at the same state, so single runs
+  are unchanged and a batch now equals them.
+
 ## Where it is not faithful
 
 - `src/pf-05-mathshim.js` - `PF.exp` and `PF.log` are the platform's, not

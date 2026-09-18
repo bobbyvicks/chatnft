@@ -54,7 +54,11 @@ let bad = 0;
 for (const name of names) {
   const { w, h } = meta[name];
   const data = new Uint8ClampedArray(fs.readFileSync(path.join(root, 'fixtures/raw', name + '.rgba')));
-  const r = PF.process(data, w, h, {});
+  /* reference:true - the reference's own vote and mean. The default
+     departs from it on purpose (two_stage_pack says how and why); this
+     tool exists to prove parity with the Python, which only the
+     reference rule can have. */
+  const r = PF.process(data, w, h, { reference: true });
   const p = want[name];
   const sizeOk = r.cols === p.cols && r.rows === p.rows && r.consensus === p.consensus;
 

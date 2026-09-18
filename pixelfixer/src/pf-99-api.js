@@ -50,13 +50,25 @@
    * @param {Uint8ClampedArray|Uint8Array} data  interleaved RGBA, w*h*4
    * @param {number} width
    * @param {number} height
-   * @param {{mode?:string, forceStep?:number, kColors?:number,
+   * @param {{mode?:string, forceStep?:number, kColors?:number, reference?:boolean,
    *          onProgress?:function(number,string)}} [opts]
    * @returns {{cols,rows,stepX,stepY,consensus,confidence,width,height,
    *            data:Uint8ClampedArray, detectMs, reconMs}}
    */
   PF.process = function process(data, width, height, opts) {
     opts = opts || {};
+    /* ONE IMAGE PER PROCESS, BY CONSTRUCTION. The k-means draws from a
+       process-global generator the reference never seeds, so in a Worker
+       that outlives one image the answer depended on what ran before it:
+       measured in the page, 8 of 9 real traits differed between two
+       folder orders (up to 1,662 of 25,600 cells) and 7 of 9 differed
+       from their own single-image run. 0xffffffff is the state a fresh
+       engine starts in (cv::theRNG, pf-03-cv2.js), so a single run is
+       unchanged by this and a folder run now equals it. The reset is here
+       and not inside kmeans: tools/test-quantize.cjs tests the carry-over
+       between chained calls on purpose. Not fixable by more attempts or
+       iterations, measured across six settings. */
+    PF.setRNGSeed(0xffffffff);
     var mode = opts.mode || 'fast';
     var onProgress = typeof opts.onProgress === 'function' ? opts.onProgress : function () {};
     width = width | 0; height = height | 0;
@@ -84,8 +96,10 @@
          from the step the caller already knows. */
       var fs = +opts.forceStep;
       r = { step_x: fs, step_y: fs,
-        cols: Math.max(1, Math.round(width / fs)),
-        rows: Math.max(1, Math.round(height / fs)),
+        /* round(), not Math.round: api.py rounds half to even, so 324 at
+           8 is 40 cells there and was 41 here, 1254 at 12 is 104 not 105. */
+        cols: Math.max(1, PF.rint(width / fs)),
+        rows: Math.max(1, PF.rint(height / fs)),
         consensus: 'forced' };
       onProgress(0.7, 'using the pixel size you gave');
     } else {
@@ -100,7 +114,11 @@
        decide which label wins each cell, then colour that cell from the
        ORIGINAL pixels carrying the winning label - crisp edges without
        losing a rare highlight to the quantiser. */
-    var low = PF.two_stage_pack(rgba, r.cols, r.rows, opts.kColors || 0);
+    /* opts.reference: the reference's own vote and mean, for the parity
+       harness. The default is this port's measured departure - see the
+       comment in two_stage_pack. */
+    var low = PF.two_stage_pack(rgba, r.cols, r.rows, opts.kColors || 0,
+      { reference: !!opts.reference });
     var reconMs = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - t1;
     onProgress(1, 'done');
 

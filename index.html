@@ -27089,9 +27089,10 @@ try{
  *
  * FAST MODE ONLY. core.detect refuses mode:"full" - the arbitration stage
  * is not ported. Fast mode recovers the exact native size on every fixture
- * and example image measured, and the reconstruction is byte-identical to
- * the reference; tools/test-detect.js and tools/test-recon.js are where
- * that is measured rather than claimed.
+ * and example image measured. Under {reference:true} the reconstruction
+ * is byte-identical to the reference; the default departs from it in two
+ * measured ways (README, "Where it departs on purpose"). tools/test-detect
+ * and tools/test-endtoend are where that is measured rather than claimed.
  *
  * Built by tools/build.js from 14 modules. Do not edit here -
  * edit src/ and rebuild, or the parity harness stops describing this file.
@@ -34671,12 +34672,29 @@ try{
    *
    * @returns {{d, w: cols, h: rows, cn}} uint8, same channel count as the input
    */
-  PF.two_stage_pack = function (rgba, cols, rows, k_colors) {
+  PF.two_stage_pack = function (rgba, cols, rows, k_colors, opts) {
     need('kmeans_quantize', 'pf-11-quantize.js');
     var s = imgShape(rgba, 'PF.two_stage_pack'), w = s.w, h = s.h, cn = s.cn, d = s.d, N = w * h;
     cols = cols | 0; rows = rows | 0;
     if (cols <= 0 || rows <= 0) throw new Error('PF.two_stage_pack: cols and rows must be >= 1');
     if (k_colors === undefined || k_colors === null) k_colors = 0;
+    opts = opts || {};
+    /* WHERE THIS PORT DEPARTS FROM THE REFERENCE, ON PURPOSE (2026-09-18).
+       The reference lets every pixel vote for a cell and averages the
+       winning pixels into its colour. Measured on 311 real traits at 8px:
+       transparent pixels (black by the time a browser canvas has decoded
+       them) won the vote in half-covered edge cells and painted them
+       black on 116 files (chains/Cross Chain: 8 of 106 opaque cells), and
+       the mean invented colours nobody drew on 141 files (94,926 colours;
+       Club Penguin Iceberg went in with 115 colours and came out with
+       952). So by default alpha-0 pixels neither vote nor colour, and the
+       cell takes the weighted MODE of the exact visible colours carrying
+       the winning label - which invents nothing, keeps the silhouette
+       identical (311 of 311) and leaves art already on the grid
+       byte-identical (42 of 42). opts.reference restores the reference
+       rule exactly; tools/test-endtoend.cjs runs that way, so parity with
+       the Python stays a measured fact rather than a memory. */
+    var visibleOnly = !opts.reference;
     var K = k_colors > 0 ? k_colors : PF.adaptive_k(rgba);
     var lab = PF.kmeans_quantize(rgba, K).labels.d;
     var i, c, ch, x, y, b;
@@ -34703,7 +34721,7 @@ try{
       for (x = 0; x < w; x++) {
         i = y * w + x;
         cell[i] = iy[y] * cols + ix[x];
-        wgt[i] = wy[y] * wx[x] + 1e-4;
+        wgt[i] = (visibleOnly && cn === 4 && !d[i * 4 + 3]) ? 0 : (wy[y] * wx[x] + 1e-4);
       }
     }
 
@@ -34751,8 +34769,41 @@ try{
       }
     }
 
+    /* THE COLOUR THAT WAS ACTUALLY THERE. Per cell, the weighted mode of
+       the exact RGB among the visible pixels carrying the winning label
+       (weight > 0 is what "visible" means after the vote above). A tie
+       goes to whichever colour reached that weight first in pixel order,
+       so the answer is a function of the picture and nothing else. A cell
+       with no visible winning pixel - which is a cell with no visible
+       pixel at all, since the winner has positive weight - keeps the mean
+       and is transparent anyway. Kept off in reference mode. */
+    var modeKey = null;
+    if (visibleOnly) {
+      modeKey = new Int32Array(n).fill(-1);
+      var tally = new Map(), bestW, bestKey, key, cw;
+      for (c = 0; c < n; c++) {
+        tally.clear(); bestW = -1; bestKey = -1;
+        for (p = offs[c]; p < offs[c + 1]; p++) {
+          q = order[p];
+          if (lab[q] !== win[c] || !(wgt[q] > 0)) continue;
+          b = q * cn;
+          key = (d[b] << 16) | (d[b + 1] << 8) | d[b + 2];
+          cw = (tally.get(key) || 0) + wgt[q];
+          tally.set(key, cw);
+          if (cw > bestW) { bestW = cw; bestKey = key; }
+        }
+        modeKey[c] = bestKey;
+      }
+    }
+
     var low = new d.constructor(n * cn), v;
     for (c = 0; c < n; c++) {
+      if (modeKey && modeKey[c] >= 0) {
+        low[c * cn] = (modeKey[c] >> 16) & 255;
+        low[c * cn + 1] = (modeKey[c] >> 8) & 255;
+        low[c * cn + 2] = modeKey[c] & 255;
+        continue;
+      }
       for (ch = 0; ch < 3; ch++) {
         v = PF.rint(out[3 * c + ch] * 255);
         low[c * cn + ch] = PF.clipScalar(v, 0, 255);
@@ -35448,13 +35499,25 @@ try{
    * @param {Uint8ClampedArray|Uint8Array} data  interleaved RGBA, w*h*4
    * @param {number} width
    * @param {number} height
-   * @param {{mode?:string, forceStep?:number, kColors?:number,
+   * @param {{mode?:string, forceStep?:number, kColors?:number, reference?:boolean,
    *          onProgress?:function(number,string)}} [opts]
    * @returns {{cols,rows,stepX,stepY,consensus,confidence,width,height,
    *            data:Uint8ClampedArray, detectMs, reconMs}}
    */
   PF.process = function process(data, width, height, opts) {
     opts = opts || {};
+    /* ONE IMAGE PER PROCESS, BY CONSTRUCTION. The k-means draws from a
+       process-global generator the reference never seeds, so in a Worker
+       that outlives one image the answer depended on what ran before it:
+       measured in the page, 8 of 9 real traits differed between two
+       folder orders (up to 1,662 of 25,600 cells) and 7 of 9 differed
+       from their own single-image run. 0xffffffff is the state a fresh
+       engine starts in (cv::theRNG, pf-03-cv2.js), so a single run is
+       unchanged by this and a folder run now equals it. The reset is here
+       and not inside kmeans: tools/test-quantize.cjs tests the carry-over
+       between chained calls on purpose. Not fixable by more attempts or
+       iterations, measured across six settings. */
+    PF.setRNGSeed(0xffffffff);
     var mode = opts.mode || 'fast';
     var onProgress = typeof opts.onProgress === 'function' ? opts.onProgress : function () {};
     width = width | 0; height = height | 0;
@@ -35482,8 +35545,10 @@ try{
          from the step the caller already knows. */
       var fs = +opts.forceStep;
       r = { step_x: fs, step_y: fs,
-        cols: Math.max(1, Math.round(width / fs)),
-        rows: Math.max(1, Math.round(height / fs)),
+        /* round(), not Math.round: api.py rounds half to even, so 324 at
+           8 is 40 cells there and was 41 here, 1254 at 12 is 104 not 105. */
+        cols: Math.max(1, PF.rint(width / fs)),
+        rows: Math.max(1, PF.rint(height / fs)),
         consensus: 'forced' };
       onProgress(0.7, 'using the pixel size you gave');
     } else {
@@ -35498,7 +35563,11 @@ try{
        decide which label wins each cell, then colour that cell from the
        ORIGINAL pixels carrying the winning label - crisp edges without
        losing a rare highlight to the quantiser. */
-    var low = PF.two_stage_pack(rgba, r.cols, r.rows, opts.kColors || 0);
+    /* opts.reference: the reference's own vote and mean, for the parity
+       harness. The default is this port's measured departure - see the
+       comment in two_stage_pack. */
+    var low = PF.two_stage_pack(rgba, r.cols, r.rows, opts.kColors || 0,
+      { reference: !!opts.reference });
     var reconMs = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - t1;
     onProgress(1, 'done');
 

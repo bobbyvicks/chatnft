@@ -562,12 +562,29 @@
    *
    * @returns {{d, w: cols, h: rows, cn}} uint8, same channel count as the input
    */
-  PF.two_stage_pack = function (rgba, cols, rows, k_colors) {
+  PF.two_stage_pack = function (rgba, cols, rows, k_colors, opts) {
     need('kmeans_quantize', 'pf-11-quantize.js');
     var s = imgShape(rgba, 'PF.two_stage_pack'), w = s.w, h = s.h, cn = s.cn, d = s.d, N = w * h;
     cols = cols | 0; rows = rows | 0;
     if (cols <= 0 || rows <= 0) throw new Error('PF.two_stage_pack: cols and rows must be >= 1');
     if (k_colors === undefined || k_colors === null) k_colors = 0;
+    opts = opts || {};
+    /* WHERE THIS PORT DEPARTS FROM THE REFERENCE, ON PURPOSE (2026-09-18).
+       The reference lets every pixel vote for a cell and averages the
+       winning pixels into its colour. Measured on 311 real traits at 8px:
+       transparent pixels (black by the time a browser canvas has decoded
+       them) won the vote in half-covered edge cells and painted them
+       black on 116 files (chains/Cross Chain: 8 of 106 opaque cells), and
+       the mean invented colours nobody drew on 141 files (94,926 colours;
+       Club Penguin Iceberg went in with 115 colours and came out with
+       952). So by default alpha-0 pixels neither vote nor colour, and the
+       cell takes the weighted MODE of the exact visible colours carrying
+       the winning label - which invents nothing, keeps the silhouette
+       identical (311 of 311) and leaves art already on the grid
+       byte-identical (42 of 42). opts.reference restores the reference
+       rule exactly; tools/test-endtoend.cjs runs that way, so parity with
+       the Python stays a measured fact rather than a memory. */
+    var visibleOnly = !opts.reference;
     var K = k_colors > 0 ? k_colors : PF.adaptive_k(rgba);
     var lab = PF.kmeans_quantize(rgba, K).labels.d;
     var i, c, ch, x, y, b;
@@ -594,7 +611,7 @@
       for (x = 0; x < w; x++) {
         i = y * w + x;
         cell[i] = iy[y] * cols + ix[x];
-        wgt[i] = wy[y] * wx[x] + 1e-4;
+        wgt[i] = (visibleOnly && cn === 4 && !d[i * 4 + 3]) ? 0 : (wy[y] * wx[x] + 1e-4);
       }
     }
 
@@ -642,8 +659,41 @@
       }
     }
 
+    /* THE COLOUR THAT WAS ACTUALLY THERE. Per cell, the weighted mode of
+       the exact RGB among the visible pixels carrying the winning label
+       (weight > 0 is what "visible" means after the vote above). A tie
+       goes to whichever colour reached that weight first in pixel order,
+       so the answer is a function of the picture and nothing else. A cell
+       with no visible winning pixel - which is a cell with no visible
+       pixel at all, since the winner has positive weight - keeps the mean
+       and is transparent anyway. Kept off in reference mode. */
+    var modeKey = null;
+    if (visibleOnly) {
+      modeKey = new Int32Array(n).fill(-1);
+      var tally = new Map(), bestW, bestKey, key, cw;
+      for (c = 0; c < n; c++) {
+        tally.clear(); bestW = -1; bestKey = -1;
+        for (p = offs[c]; p < offs[c + 1]; p++) {
+          q = order[p];
+          if (lab[q] !== win[c] || !(wgt[q] > 0)) continue;
+          b = q * cn;
+          key = (d[b] << 16) | (d[b + 1] << 8) | d[b + 2];
+          cw = (tally.get(key) || 0) + wgt[q];
+          tally.set(key, cw);
+          if (cw > bestW) { bestW = cw; bestKey = key; }
+        }
+        modeKey[c] = bestKey;
+      }
+    }
+
     var low = new d.constructor(n * cn), v;
     for (c = 0; c < n; c++) {
+      if (modeKey && modeKey[c] >= 0) {
+        low[c * cn] = (modeKey[c] >> 16) & 255;
+        low[c * cn + 1] = (modeKey[c] >> 8) & 255;
+        low[c * cn + 2] = modeKey[c] & 255;
+        continue;
+      }
       for (ch = 0; ch < 3; ch++) {
         v = PF.rint(out[3 * c + ch] * 255);
         low[c * cn + ch] = PF.clipScalar(v, 0, 255);

@@ -20621,7 +20621,7 @@ function fixTryThese(){
     const s=near(want);
     if(seen.indexOf(s)>=0) continue;
     seen.push(s);
-    out.push(s+" gives "+Math.max(1,Math.round(W/s))+"\u00d7"+Math.max(1,Math.round(H/s)));
+    out.push(s+" gives "+Math.max(1,fixRint(W/s))+"\u00d7"+Math.max(1,fixRint(H/s)));
   }
   return "Try "+out.join(", ")+".";
 }
@@ -20640,7 +20640,7 @@ function fixEvenSizes(nat){
      to offer changed 25.7%, 46.2% and 66.3% of its pixels, while the
      readout called them "divide evenly". */
   if(nat>1){
-    const own=Math.round(FIX.src.width/nat);
+    const own=fixRint(FIX.src.width/nat);
     return CANVAS_SIDE%own===0
       ? ". Type "+nat+" to keep its "+nat+"px blocks ("+own+" cells)."
       : ". No size lands its "+nat+"px blocks on "+CANVAS_SIDE+" without resampling.";
@@ -21018,6 +21018,18 @@ function fixSnapStep(w){
   if(w<g.cells) return 0;
   return w/g.cells;
 }
+/* ROUND HALF TO EVEN - the engine's rule for turning a step into a cell
+   count (PF.rint, numpy's np.rint: cols = rint(width / step), pf-99-api.js).
+   Math.round takes 40.5 to 41 where the engine takes it to 40, so a 324px
+   picture at 8 with Save at 1280 off read "41x41" and came out 40 across
+   (measured 2026-09-18). Every count the page predicts goes through this,
+   so the readout cannot disagree with the answer. halfeven.spec.js checks
+   it against the engine's own function. */
+function fixRint(x){
+  if(!isFinite(x)) return x;
+  const f=Math.floor(x), d=x-f;
+  return d<0.5 ? f : d>0.5 ? f+1 : (f%2===0 ? f : f+1);
+}
 /* THE CELL COUNTS THAT CAN LAND ON THE COLLECTION CANVAS.
 
    A count only gives square pixels at CANVAS_SIDE if it divides it, so
@@ -21063,7 +21075,7 @@ function fixCanvasCounts(){
 const WHOLE_STEP_NEAR=0.25;
 function fixWholeStep(w,step){
   if(!(w>0)||!(step>0)) return null;
-  const want=Math.max(1,Math.round(w/step));
+  const want=Math.max(1,fixRint(w/step));
   if(CANVAS_SIDE%want===0) return null;
   let best=null;
   for(const n of fixCanvasCounts()){
@@ -21130,7 +21142,7 @@ function fixStepFor(w,data,h){
        the size did not ask for IS re-cut (the 14 at 1024 drawn at 8px:
        mean 4.08% of their pixels), which is what strict 8 costs art
        drawn at 128 cells; the readout names it. */
-    const want=Math.max(1,Math.round(CANVAS_SIDE/asked));
+    const want=Math.max(1,fixRint(CANVAS_SIDE/asked));
     let cells=0;
     if(CANVAS_SIDE%want===0) cells=want;
     else{
@@ -21152,7 +21164,7 @@ function fixStepFor(w,data,h){
       const nat=px?fixNativeBlockFor(px,w,ph):0;
       const keep=nat>1?nat:1;
       fixMoved=null;
-      fixUnhonoured={asked:asked, cells:cells, w:w, step:keep, cols:Math.max(1,Math.round(w/keep))};
+      fixUnhonoured={asked:asked, cells:cells, w:w, step:keep, cols:Math.max(1,fixRint(w/keep))};
       return keep;
     }
     return w/cells;
@@ -21179,7 +21191,7 @@ function fixStepFor(w,data,h){
       /* A BLOCK THE CANVAS CANNOT HOLD: 1024 drawn at 2px is 512 cells and
          1280/512 is not whole. The grid re-cuts it, as it always did, and
          now says so. */
-      fixBlockUnfit={block:nat, cells:Math.round(w/nat)};
+      fixBlockUnfit={block:nat, cells:fixRint(w/nat)};
     }else{
       /* NO BLOCK STRUCTURE. Letting the detectors answer here was tried
          and is worse: their counts are things like 510 and 127, which do
@@ -21278,8 +21290,8 @@ function fixSizeHint(){
   const decided=scale?0:fixStepFor(W,FIX.src.data,H);
   const moved=fixMoved, unhon=fixUnhonoured, unfit=fixBlockUnfit, meas=fixMeasuredBlock;
   const gridOn=$("fixgrid")&&$("fixgrid").checked;
-  const cols=scale?W:(decided>0?Math.max(1,Math.round(W/decided)):g.cells);
-  const rows=scale?H:(decided>0?Math.max(1,Math.round(H/decided)):g.cells);
+  const cols=scale?W:(decided>0?Math.max(1,fixRint(W/decided)):g.cells);
+  const rows=scale?H:(decided>0?Math.max(1,fixRint(H/decided)):g.cells);
   /* AND WHETHER IT LANDS ON THE COLLECTION GRID. 1280/128 is 10 and every
      pixel comes out identical; 1280/85 is 15.06 and they differ by one.
      That is the difference between a trait that sits on the grid and one
@@ -21313,7 +21325,7 @@ function fixSizeHint(){
      10px art on 8px cells is a resample, and no rule avoids it. */
   let recut="";
   if(!scale&&typed>0&&gridOn&&nat>1&&decided>0&&Math.abs(decided-nat)>1e-9&&!unhon)
-    recut=" \u00b7 "+nat+"px blocks ("+Math.round(W/nat)+" cells) become "
+    recut=" \u00b7 "+nat+"px blocks ("+fixRint(W/nat)+" cells) become "
       +(Math.round(cols/(W/nat)*100)/100)+" cells each";
   let snapNote="";
   if(narrow&&typed<=0){

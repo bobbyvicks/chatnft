@@ -31798,9 +31798,16 @@ try{
     }
 
     // criteria = (EPS + MAX_ITER, 12, 0.5); 2 attempts; KMEANS_PP_CENTERS.
-    // 12 iterations at eps 0.5 is far from converged on purpose: it is a
-    // pre-processing palette, and the grid detector only needs the steps to
-    // land on cell boundaries, not the centres to be optimal.
+    // SUPERSEDED (2026-09-18): this used to say "12 iterations at eps 0.5
+    // is far from converged on purpose: it is a pre-processing palette".
+    // Measured on 13 real traits with each attempt reporting where it
+    // stopped: 24 of 26 stopped by eps within 2 to 11 iterations, one file
+    // in 26 hit the cap. At this budget the k-means IS converged on real
+    // traits. The budget stays for the reason that is true: raising
+    // attempts or iterations leaves the seed sensitivity in the same band
+    // (176 to 198 post-palette cells per file and seed across six settings,
+    // 195 at 2x12) and moves the shipped result on 2 to 12 of 20 files for
+    // nothing; and it is the reference's own budget (quantize.py).
     var km = PF.kmeans({ d: sample, w: 3, h: sampleN }, k_eff, { maxCount: 12, epsilon: 0.5 }, 2);
     var C = km.centers.d;                              // float32, k_eff x 3
 

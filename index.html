@@ -20482,7 +20482,7 @@ async function fixLoad(file){
   /* MEASURED ONCE, HERE. Both the run and the readout want the block
      size, the readout wants it on every keystroke, and measuring costs a
      median 39ms and 664ms on the worst file in the collection. */
-  FIX.native=fixNativeBlock(sd,sw,sh);
+  FIX.native=fixNativeBlock(sd,sw,sh); FIX.nativeNoisy=fixNativeNoisy;
   FIX.name=String(file.name||"image").replace(/\.[^.]+$/,"");
   /* THE FOLDERS IT CAME IN WITH. A File chosen through the folder picker
      carries them and one chosen through the ordinary picker does not, so
@@ -20659,6 +20659,16 @@ let fixBlockUnfit=null;
 /* THE FOLDER RUN'S TALLIES, kept per file inside the loop because only
    the cell count survives it, and a count cannot say why. */
 let fixMovedLast=null, fixMovedCount=0, fixUnhonouredAt=[], fixNativeKept=0, fixOwnBlocks=0, fixUnfitAt=[];
+/* WHAT THE GRIDLESS SEARCH FOUND for the last decision: whether a count
+   passed the 95% rule or was the best of a failed lot, and what it kept. */
+let fixGridlessPassed=false, fixGridlessKept=0;
+/* THE NOISY BLOCKS behind the last measured block: 0 when the measurement
+   was exact, else how many blocks held one stray pixel. */
+let fixNativeNoisy=0;
+/* MARKS SMALLER THAN A CELL, measured once per picture and cached on the
+   very array, the way the block is. */
+let fixMarksCache=null;
+let fixGridlessFellAt=[], fixGridlessFellKept=1, fixMarksDroppedTotal=0, fixMarksDroppedFiles=0, fixNoisyFiles=0;
 /* THE STEP FOR ONE PICTURE. Snapped, it is the width over the cell count -
    so any source size lands on exactly that many cells and the size
    difference is normalised rather than depended on. Not snapped, it is
@@ -20712,6 +20722,7 @@ function fixShrinkToFit(data,W,H){
   return {data:out, width:w, height:h, factor:k};
 }
 function fixNativeBlock(data,W,H){
+  fixNativeNoisy=0;
   if(!data||!(W>0)||!(H>0)) return 0;
   const flat=(N)=>{
     for(let by=0;by+N<=H;by+=N) for(let bx=0;bx+N<=W;bx+=N){
@@ -20725,6 +20736,43 @@ function fixNativeBlock(data,W,H){
     return true;
   };
   for(let N=Math.min(64,W);N>=2;N--){ if(W%N||H%N) continue; if(flat(N)) return N; }
+  /* ONE STRAY PIXEL A BLOCK. Exact equality read Beige MM Hoodie - 98.9%
+     flat at 8px, 61 blocks holding one pixel a channel off, encoder
+     noise - as no grid at all, and would turn a 10px trait with one
+     hand-edited pixel into a 256-cell pick. So when nothing is exactly
+     flat, a block may hold one pixel unlike the rest; two or more (a
+     drawn line across a boundary) still refuse. Measured against the
+     first pixel, and against the second when the first is the odd one.
+     The count of such blocks is kept, so the answer is labelled. */
+  const same=(i,j)=>data[i]===data[j]&&data[i+1]===data[j+1]&&data[i+2]===data[j+2]&&data[i+3]===data[j+3];
+  const nearly=(N)=>{
+    let noisy=0;
+    for(let by=0;by+N<=H;by+=N) for(let bx=0;bx+N<=W;bx+=N){
+      const i0=((by*W)+bx)*4;
+      let off=0, odd=-1;
+      for(let y=by;y<by+N;y++) for(let x=bx;x<bx+N;x++){
+        const i=((y*W)+x)*4;
+        if(!same(i,i0)){ off++; if(off===1) odd=i; else if(off>1) break; }
+      }
+      if(off===0) continue;
+      if(off===1){ noisy++; continue; }
+      /* the first pixel may be the odd one: then all the others match
+         each other and not it */
+      let alike=true;
+      for(let y=by;y<by+N&&alike;y++) for(let x=bx;x<bx+N;x++){
+        const i=((y*W)+x)*4;
+        if(i!==i0&&!same(i,odd)){ alike=false; break; }
+      }
+      if(!alike) return 0;
+      noisy++;
+    }
+    return noisy;
+  };
+  for(let N=Math.min(64,W);N>=2;N--){
+    if(W%N||H%N) continue;
+    const noisy=nearly(N);
+    if(noisy>0){ fixNativeNoisy=noisy; return N; }
+  }
   return 0;
 }
 /* THE GRID FOR A PICTURE THAT HAS NONE.
@@ -20748,7 +20796,75 @@ function fixNativeBlock(data,W,H){
    blocks on a 1280 canvas is about as fine as reduction still means
    anything. Returns 0 if the declared grid cannot be used at all. */
 const FIX_GRIDLESS_KEEP=0.95;
+/* MARKS SMALLER THAN A CELL: the 4-connected components of the paint
+   (alpha over 8) with fewer pixels than one cell of the declared grid
+   holds. Measured across the working traits, 215 of 221 such marks touch
+   the art - chain links, fold detail, dots in a visor - and 5 are strays;
+   the conversion drops many of both without a word. They are left out
+   of the gridless shape decision (one 2x2 speck 600px from a pendant
+   used to decide its grid) and counted so the run can say what it
+   dropped. Cached on the very array, like the block. Returns
+   {count, px, starts, big}: the marks' pixel indices, where each mark
+   starts in px, and a mask of the pixels that belong to bigger
+   components (null when there are no marks, so nothing is masked). */
+function fixSmallMarks(data,W,H){
+  if(fixMarksCache&&fixMarksCache.data===data&&fixMarksCache.W===W&&fixMarksCache.H===H) return fixMarksCache.result;
+  const g=fixGridCells();
+  const limit=Math.max(4,Math.floor((W/g.cells)*(H/g.cells)));
+  const lab=new Int32Array(W*H), stack=new Int32Array(W*H), sizes=[0];
+  let next=1;
+  for(let s=0;s<W*H;s++){
+    if(data[s*4+3]<=8||lab[s]) continue;
+    let sp=0, n=0; stack[sp++]=s; lab[s]=next;
+    while(sp){
+      const i=stack[--sp]; n++;
+      const x=i%W, y=(i-x)/W;
+      if(x>0&&!lab[i-1]&&data[(i-1)*4+3]>8){ lab[i-1]=next; stack[sp++]=i-1; }
+      if(x+1<W&&!lab[i+1]&&data[(i+1)*4+3]>8){ lab[i+1]=next; stack[sp++]=i+1; }
+      if(y>0&&!lab[i-W]&&data[(i-W)*4+3]>8){ lab[i-W]=next; stack[sp++]=i-W; }
+      if(y+1<H&&!lab[i+W]&&data[(i+W)*4+3]>8){ lab[i+W]=next; stack[sp++]=i+W; }
+    }
+    sizes.push(n); next++;
+  }
+  const small=new Uint8Array(sizes.length);
+  let count=0, total=0;
+  for(let l=1;l<sizes.length;l++) if(sizes[l]<limit){ small[l]=1; count++; total+=sizes[l]; }
+  let result;
+  if(!count) result={count:0, px:null, starts:null, big:null};
+  else{
+    const big=new Uint8Array(W*H), px=new Int32Array(total), starts=new Int32Array(count+1);
+    const at=new Int32Array(sizes.length); let k=0;
+    for(let l=1;l<sizes.length;l++) if(small[l]){ at[l]=k; starts[k]=0; k++; }
+    /* offsets: each mark's pixels stored together */
+    const offs=new Int32Array(count+1);
+    k=0; for(let l=1;l<sizes.length;l++) if(small[l]){ offs[k+1]=offs[k]+sizes[l]; k++; }
+    const fill=new Int32Array(count);
+    for(let i=0;i<W*H;i++){ const l=lab[i]; if(!l) continue; if(!small[l]){ big[i]=1; continue; } const m=at[l]; px[offs[m]+fill[m]++]=i; }
+    result={count:count, px:px, starts:offs, big:big};
+  }
+  fixMarksCache={data:data, W:W, H:H, result:result};
+  return result;
+}
+/* HOW MANY OF THOSE MARKS THE RESULT DROPPED: a mark with no pixel under an
+   opaque output cell. The cell a pixel lands in is the engine's own rule,
+   floor(x*cols/w). */
+function fixMarksDropped(marks,out,w,h){
+  if(!marks||!marks.count||!out||!out.data) return 0;
+  const cols=out.width, rows=out.height;
+  let dropped=0;
+  for(let m=0;m<marks.count;m++){
+    let kept=false;
+    for(let p=marks.starts[m];p<marks.starts[m+1]&&!kept;p++){
+      const i=marks.px[p], x=i%w, y=(i-x)/w;
+      const c=Math.floor(y*rows/h)*cols+Math.floor(x*cols/w);
+      if(out.data[c*4+3]>0) kept=true;
+    }
+    if(!kept) dropped++;
+  }
+  return dropped;
+}
 function fixGridlessCells(data,W,H){
+  fixGridlessPassed=false; fixGridlessKept=0;
   const g=fixGridCells();
   if(!g.exact) return 0;
   const cand=[];
@@ -20758,24 +20874,35 @@ function fixGridlessCells(data,W,H){
   }
   if(!cand.length) return 0;
   cand.sort((a,b)=>a-b);
-  /* The source shape, once. */
+  /* THE SOURCE SHAPE, WITHOUT THE STRAYS. The bounding box of every
+     painted pixel let one 2x2 speck 600px from a pendant fail every
+     candidate, so components smaller than a cell are left out of it.
+     They still count as paint. */
+  const marks=fixSmallMarks(data,W,H);
   let sx0=W,sy0=H,sx1=-1,sy1=-1,srcN=0;
   for(let y=0;y<H;y++) for(let x=0;x<W;x++){
     if(data[((y*W)+x)*4+3]<=8) continue;
     srcN++;
+    if(marks.big&&!marks.big[y*W+x]) continue;
     if(x<sx0) sx0=x; if(x>sx1) sx1=x;
     if(y<sy0) sy0=y; if(y>sy1) sy1=y;
   }
   if(sx1<0) return cand[0];
-  let last=cand[0];
+  let best={cells:cand[0], kept:-1};
   for(const cells of cand){
-    last=cells;
     const sw=W/cells, sh=H/cells;
     let x0=cells,y0=cells,x1=-1,y1=-1,kept=0;
     for(let cy=0;cy<cells;cy++) for(let cx=0;cx<cells;cx++){
       let op=0,tot=0;
-      const yA=Math.floor(cy*sh), yB=Math.min(H,Math.ceil((cy+1)*sh));
-      const xA=Math.floor(cx*sw), xB=Math.min(W,Math.ceil((cx+1)*sw));
+      /* THE ENGINE'S OWN CELLS. It maps a pixel to floor(x*cols/w); the
+         bounds below are that rule inverted, in whole numbers, so a
+         pixel is counted in exactly one cell. The old bounds,
+         floor(c*s) to ceil((c+1)*s), overlapped by a row and a column
+         whenever s was fractional and counted the overlap twice: on
+         1254 sources kept/total came to 1.27 and the 95% rule could
+         not fail. */
+      const yA=Math.floor((cy*H+cells-1)/cells), yB=Math.min(H,Math.floor(((cy+1)*H+cells-1)/cells));
+      const xA=Math.floor((cx*W+cells-1)/cells), xB=Math.min(W,Math.floor(((cx+1)*W+cells-1)/cells));
       for(let y=yA;y<yB;y++) for(let x=xA;x<xB;x++){
         tot++; if(data[((y*W)+x)*4+3]>8) op++;
       }
@@ -20789,9 +20916,14 @@ function fixGridlessCells(data,W,H){
     /* Within one cell on every side, and most of the paint still there. */
     const near=Math.abs(x0*sw-sx0)<=sw && Math.abs(y0*sh-sy0)<=sh
       && Math.abs((x1+1)*sw-(sx1+1))<=sw && Math.abs((y1+1)*sh-(sy1+1))<=sh;
-    if(near && kept>=srcN*FIX_GRIDLESS_KEEP) return cells;
+    if(near && kept>=srcN*FIX_GRIDLESS_KEEP){ fixGridlessPassed=true; fixGridlessKept=kept/srcN; return cells; }
+    if(kept>best.kept) best={cells:cells, kept:kept};
   }
-  return last;
+  /* NOTHING PASSED: the count that kept the most, coarser on a tie. This
+     returned the finest tried - 2px pixels - and on 10 of the 15 working
+     traits that fell through a coarser count had kept more. */
+  fixGridlessKept=best.kept>0?best.kept/srcN:0;
+  return best.cells;
 }
 function fixSnapStep(w){
   if(!w||w<=0) return 0;
@@ -20867,8 +20999,10 @@ function fixWholeStep(w,step){
    1280 file in a folder run the block size of whatever was loaded in the
    other tab. */
 function fixNativeBlockFor(data,w,h){
-  if(data&&FIX.src&&data===FIX.src.data&&typeof FIX.native==="number")
+  if(data&&FIX.src&&data===FIX.src.data&&typeof FIX.native==="number"){
+    fixNativeNoisy=FIX.nativeNoisy||0;
     return FIX.native;
+  }
   return fixNativeBlock(data,w,h);
 }
 function fixStepFor(w,data,h){
@@ -21125,6 +21259,8 @@ function fixRun(){
     FIX.src?FIX.src.data:null, FIX.src?FIX.src.height:0);
   /* WITH the decision, not read again when the worker answers. */
   const measured=fixMeasuredBlock;
+  const noisy=fixNativeNoisy;
+  const gridless={pick:fixGridlessPick, passed:fixGridlessPassed, kept:fixGridlessKept};
   const src=FIX.src;
   /* NOTHING TO ASK. The picture is already one pixel per cell, so there is
      no worker, no detector and no quantiser between it and the save - the
@@ -21210,12 +21346,26 @@ function fixRun(){
            piece exists and this must not call it wrong. */
         const big = Math.max(r.width,r.height) > FIX_NATIVE_MAX;
         const unsure = r.confidence!=="high" && r.consensus!=="forced";
-        fixSay((r.consensus==="measured"
+        /* WHAT THE RUN DID, in the words of the decision it took: a
+           measurement, with its stray blocks; a gridless pick, with what
+           it kept and whether that passed; or the detectors' confidence.
+           A gridless pick measured the offered sizes as worse, so the
+           "try 8" advice is not given on top of it. */
+        const marks=fixSmallMarks(src.data,src.width,src.height);
+        const dropped=marks.count?fixMarksDropped(marks,r,src.width,src.height):0;
+        const how = r.consensus==="measured"
           ? (r.measuredBlock===1
             ? "kept at one pixel per cell - the picture is already at its native size"
-            : "measured "+r.measuredBlock+"px blocks off the picture")
-          : (r.confidence||"")+" confidence ("+(r.consensus||"?")+")")+" \u00b7 "+secs+"s"
-          +((big||unsure) ? " \u2014 if the edges still look soft, the pixel size it used ("
+            : "measured "+r.measuredBlock+"px blocks off the picture"
+              +(noisy?" ("+noisy+" block"+(noisy===1?" had":"s had")+" one stray pixel)":""))
+          : gridless.pick
+            ? "no pixel grid found; put on "+gridless.pick+" cells, "
+              +(gridless.passed ? "which kept "+Math.round(gridless.kept*100)+"% of the paint"
+                : "the count that kept the most ("+Math.round(gridless.kept*100)+"%) - none kept 95%")
+            : (r.confidence||"")+" confidence ("+(r.consensus||"?")+")";
+        fixSay(how+" \u00b7 "+secs+"s"
+          +(dropped ? " \u00b7 "+dropped+" mark"+(dropped===1?"":"s")+" smaller than a cell "+(dropped===1?"was":"were")+" dropped" : "")
+          +((big||unsure)&&!gridless.pick ? " \u2014 if the edges still look soft, the pixel size it used ("
             +(+r.stepX).toFixed(2)+" px) was too small. "+fixTryThese() : ""));
         $("fixacts").hidden=false;
         fixDone(w); resolve(r);
@@ -21367,6 +21517,7 @@ async function fixBatchRun(files){
   /* BEFORE the list is replaced: it is what holds the urls to revoke. */
   fixMoved=null; fixNoGrid=0; fixGridlessAt=[];
   fixMovedLast=null; fixMovedCount=0; fixUnhonouredAt=[]; fixNativeKept=0; fixOwnBlocks=0; fixUnfitAt=[];
+  fixGridlessFellAt=[]; fixGridlessFellKept=1; fixMarksDroppedTotal=0; fixMarksDroppedFiles=0; fixNoisyFiles=0;
   fixPalMoved=0; fixPalPixels=0; fixPalFiles=0;
   /* Pictures reduced by a whole factor to get under the engine limit. */
   const shrunk=[];
@@ -21436,7 +21587,9 @@ async function fixBatchRun(files){
     const r=scale ? {ok:{data:px, width:sw, height:sh, stepX:1, stepY:1}}
       : await fixAsk(w,{data:new Uint8ClampedArray(px), width:sw, height:sh,
         mode:mode, forceStep:(()=>{ const s=fixStepFor(sw,px,sh);
-          if(fixGridlessPick) fixGridlessAt.push(fixGridlessPick);
+          if(fixGridlessPick){ fixGridlessAt.push(fixGridlessPick);
+            if(!fixGridlessPassed){ fixGridlessFellAt.push(fixGridlessPick); fixGridlessFellKept=Math.min(fixGridlessFellKept,fixGridlessKept); } }
+          if(fixMeasuredBlock>1&&fixNativeNoisy>0) fixNoisyFiles++;
           /* THE DECISION, RECORDED PER FILE. Only the cell count survives
              the loop, and a count cannot say why; and one variable for
              "the move" was every moved file overwriting the last. */
@@ -21448,6 +21601,12 @@ async function fixBatchRun(files){
           return s>0?s:null; })()});
     if(!r||r.error){ failed.push(name+" ("+((r&&r.error)||"no answer")+")"); continue; }
     const out=r.ok;
+    /* MARKS SMALLER THAN A CELL THAT THIS RESULT DROPPED, counted here
+       because this is the one moment the source and the result are both
+       in hand. */
+    { const mk=fixSmallMarks(px,sw,sh);
+      const dr=mk.count?fixMarksDropped(mk,out,sw,sh):0;
+      if(dr){ fixMarksDroppedTotal+=dr; fixMarksDroppedFiles++; } }
     /* Before the canvas is made from it, so the file and the tile agree. */
     fixPalApply(out);
     /* The same canvas the single save uses, so the switch means one thing. */
@@ -21560,13 +21719,26 @@ async function fixBatchRun(files){
     ? " \u00b7 "+shrunk.length+" were larger than the engine takes and were reduced"
       +" by a whole factor first: "+shrunk.join(", ")
     : "";
+  /* WHICH PASSED AND WHICH FELL THROUGH. One sentence used to cover both,
+     and "kept its shape" was false for the ones where no grid did. */
+  const fell=fixGridlessFellAt.length, passed=fixNoGrid-fell;
+  const cellsOf=(arr)=>[...new Set(arr)].sort((a,b)=>a-b).join(", ")+" cells";
+  const passedCells=(()=>{ const left=fixGridlessAt.slice(); for(const c of fixGridlessFellAt){ const i=left.indexOf(c); if(i>=0) left.splice(i,1); } return left; })();
   const noGridNote = fixNoGrid
-    ? " \u00b7 "+fixNoGrid+" are not drawn on any pixel grid, so each was put on the"
-      +" coarsest grid that kept its shape ("
-      +[...new Set(fixGridlessAt)].sort((a,b)=>a-b).join(", ")+" cells)"
-      +" and lost detail it had between cells"
+    ? " \u00b7 "+fixNoGrid+" are not drawn on any pixel grid: "
+      +(passed ? passed+" put on the coarsest grid that kept its shape and 95% of its paint ("+cellsOf(passedCells)+")" : "")
+      +(passed&&fell ? ", " : "")
+      +(fell ? fell+" kept no more than "+Math.round(fixGridlessFellKept*100)+"% at any grid and were put on the count that kept the most ("+cellsOf(fixGridlessFellAt)+")" : "")
+      +", and lost detail they had between cells"
     : "";
-  fixBatchSay(fixBatchFiles.length+" of "+list.length+" done in "+secs+"s"+movedNote+unhonNote+raggedNote+smallNote+noGridNote+unfitNote+offNote+shrunkNote+palNote
+  const marksNote = fixMarksDroppedTotal
+    ? " \u00b7 "+fixMarksDroppedTotal+" mark"+(fixMarksDroppedTotal===1?"":"s")+" smaller than a cell "
+      +(fixMarksDroppedTotal===1?"was":"were")+" dropped on "+fixMarksDroppedFiles+" picture"+(fixMarksDroppedFiles===1?"":"s")
+    : "";
+  const noisyNote = fixNoisyFiles
+    ? " \u00b7 "+fixNoisyFiles+" measured with one stray pixel in some blocks and kept on their blocks"
+    : "";
+  fixBatchSay(fixBatchFiles.length+" of "+list.length+" done in "+secs+"s"+movedNote+unhonNote+raggedNote+smallNote+noGridNote+marksNote+noisyNote+unfitNote+offNote+shrunkNote+palNote
     +(fixBatchStop?" (stopped - what is done is kept)":"")
     +(over?" \u00b7 "+over+" past the limit of "+FIX_BATCH_MAX+" were left out":"")
     +(failed.length?" \u00b7 could not do: "+failed.slice(0,6).join(", ")
@@ -21918,7 +22090,7 @@ PB.fix=async function(o){
        place - fixLoad, on the line after it sets FIX.src. Setting the
        picture without it left a scripted run holding the block size of
        whatever file was last opened by hand. */
-    FIX.native=fixNativeBlock(FIX.src.data,o.width,o.height);
+    FIX.native=fixNativeBlock(FIX.src.data,o.width,o.height); FIX.nativeNoisy=fixNativeNoisy;
     const b=$("fixbefore"); b.width=o.width; b.height=o.height;
     const im=b.getContext("2d").createImageData(o.width,o.height); im.data.set(FIX.src.data); b.getContext("2d").putImageData(im,0,0);
     $("fixpair").hidden=false; $("fixrun").disabled=false;

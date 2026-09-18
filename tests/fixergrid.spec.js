@@ -137,42 +137,47 @@ test('the readout says which of the two sizes you are about to get', async ({ pa
     return document.getElementById('fixsize').textContent;
   }, { w, step, on });
 
-  /* 1024 at 8 gives 128 across, and 1280/128 is 10. */
+  /* WAS "1024 at 8 gives 128 across, and 1280/128 is 10". That read the
+     typed 8 as source pixels per cell, which put every 1024 source on 10px
+     blocks and every 1254 source on 157 uneven cells - the library's
+     "Hyperliquid 1254 mistake". With Save at 1280 on, 8 means the block on
+     the 1280 canvas: 160 cells, 6.4 source pixels each, and the readout
+     says both. */
   const even = await hint(1024, 8, true);
-  expect(even).toContain('128×128 pixels');
-  expect(even).toContain('×10 to 1280');
+  expect(even).toContain('160×160 pixels');
+  expect(even).toContain('×8 to 1280');
+  expect(even).toContain('6.4 source pixels per cell');
   expect(even).not.toContain('uneven');
 
-  /* 1020 at 12 gives 85, and 1280/85 is 15.06. */
+  /* WAS "1020 at 12 gives 85, and 1280/85 is 15.06", with an offer of sizes
+     that divide 1020. On the canvas 12 means 106.67 cells, which is moved to
+     the nearest count that divides 1280 - 128 - and the run says it moved,
+     with a number: this line printed "pixel size NaN, not 12" before,
+     because it read a field the record never had. */
   const odd = await hint(1020, 12, true);
-  expect(odd).toContain('85×85 pixels');
-  expect(odd).toContain('uneven');
-
-  /* AND THE SIZES IT OFFERS INSTEAD HAVE TO ACTUALLY WORK. The offer is
-     computed from the image in hand, so every number in it must divide the
-     image AND land on a count that divides 1280 - a rule of thumb here would
-     name sizes that do not exist for this picture. */
-  const offered = [...odd.matchAll(/(\d+) gives (\d+)×\d+/g)].map(m => [+m[1], +m[2]]);
-  expect(offered.length).toBeGreaterThan(0);
-  for (const [s, cols] of offered) {
-    expect({ size: s, divides1020: 1020 % s === 0, count: 1020 / s, onGrid: 1280 % cols === 0 })
-      .toEqual({ size: s, divides1020: true, count: cols, onGrid: true });
-  }
+  expect(odd).toContain('128×128 pixels');
+  expect(odd).toContain('pixel size 10, not 12: 107 cells does not divide 1280');
+  expect(odd).not.toContain('NaN');
+  expect(odd).not.toContain('uneven');
 
   /* With the switch off it says the size and nothing about the grid, because
-     nothing about the grid is true then. */
+     nothing about the grid is true then - and the typed number keeps its old
+     meaning there: 12 source pixels per cell, 85 across. */
   const off = await hint(1020, 12, false);
   expect(off).toContain('85×85 pixels');
   expect(off).not.toContain('1280');
 });
 
-test('an image that cannot land on the grid is told so, not given a number', async ({ page }) => {
+test('an image no whole size divides still lands on the grid, and is told the fraction', async ({ page }) => {
   await ready(page);
-  /* 1021 is prime, so no whole pixel size divides it onto a count that
-     divides 1280. Naming one anyway would be worse than saying nothing. */
+  /* WAS "an image that cannot land on the grid is told so, not given a
+     number": 1021 is prime, so no whole source size divides it onto a
+     count that divides 1280, and the readout said "Nothing divides this
+     image onto that grid". A count on the canvas does not need the source
+     to divide: 12 means 128 cells, 7.98 source pixels each, and the engine
+     takes a fractional step exactly (every cell holds 7 or 8 whole pixels).
+     Refusing was the mistake. */
   const said = await page.evaluate(() => {
-    /* Snap off for the same reason as above: this asks what a TYPED size is
-       told, and snapping does not take one. */
     document.getElementById('fixsnap').checked = false;
     FIX.src = { width: 1021, height: 1021 };
     document.getElementById('fixgrid').checked = true;
@@ -182,7 +187,9 @@ test('an image that cannot land on the grid is told so, not given a number', asy
     fixSizeHint();
     return document.getElementById('fixsize').textContent;
   });
-  expect(said).toContain('Nothing divides this image onto that grid');
+  expect(said).toContain('128×128 pixels');
+  expect(said).toContain('7.98 source pixels per cell');
+  expect(said).not.toContain('Nothing divides');
   expect(said).not.toMatch(/\d+ gives/);
 });
 

@@ -5,7 +5,9 @@
    files: 151 are drawn at 10px blocks, 34 at 8px (every skin), 42 have no
    block structure at all. 4 and 8 do not divide 10, so moving those 151 onto
    an 8 grid rescales 128 blocks across to 160 and each drawn pixel becomes one
-   and a quarter pixels.
+   and a quarter pixels. (That census is the set of 2026-09-09; the working set
+   of 2026-09-18 measures 89 at 10px, 42 at 8px, 167 with no grid, and 11 of
+   its 32 skins at 8px rather than all of them. The arithmetic is unchanged.)
 
    What IS needed, and what these tests pin, is the repair: 31 of the 317 sit
    between 90% and 98% flat at their own block size - drawn on a grid, with

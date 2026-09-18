@@ -2,6 +2,16 @@
 
    "troubleshoot the fixer so it works 100% of the time"
 
+   THE NUMBERS BELOW ARE THE 323-FILE SET OF 2026-09-10. On the working set
+   of 2026-09-18 (311 files, 167 of them with no grid) the search's own
+   figures are: forcing 160 loses a tenth or more on 11 of the gridless
+   ones, the search on 3; worst loss 39.4% forced against 11.9% searched;
+   Sleepy Neutral Eyes still 29.4% moved -> 0.2%, 11.6% lost -> 3.4%. The
+   search itself was then found to count pixels twice on sources whose
+   width a candidate does not divide, to return the finest count when
+   nothing passes, and to let a stray decide the shape; gridlesssearch
+   .spec.js pins the corrections.
+
    68 of the 323 approved traits have no measurable block structure - photos,
    gradients, soft edges - and those fell to the declared 160 cells. Measured
    on all 68, reduced and compared with the source:

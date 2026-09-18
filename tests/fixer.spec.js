@@ -2,9 +2,11 @@
 
    Retro Diffusion's Pixel Art Fixer, ported to JavaScript and running in the
    page. The engine's own agreement with the Python it came from is measured
-   outside the browser, image by image, in pixelfixer-js/tools/test-detect.js
-   and test-endtoend.js - that is where "does it find the right grid" is
-   answered, and repeating it here would only test a slower copy of it.
+   outside the browser, image by image, in pixelfixer/tools/test-detect.cjs
+   and test-endtoend.cjs (the path this named before, pixelfixer-js/, was
+   the scratchpad the port was built in and is not in the repo) - that is
+   where "does it find the right grid" is answered, and repeating it here
+   would only test a slower copy of it.
 
    What this file is for is everything between the engine and a person: that
    the tab exists and hides the other pages, that an image can be handed to
@@ -291,7 +293,12 @@ test.describe('the Fix pixels tab', () => {
     expect(r.detect, 'with 0 it says why the snap is not deciding')
       .toContain('cannot be snapped to 160 cells');
     expect(r.four, 'four pixels to one gives a 24 square').toContain('24×24');
-    expect(r.twelve, 'and twelve gives an 8').toContain('8×8');
+    /* WAS "and twelve gives an 8". With Save at 1280 on, a typed size is the
+       block on the 1280 canvas: 12 means 107 cells, moved to 128, and a
+       picture 96 across cannot give 128 cells without inventing pixels. It
+       keeps its own 4px blocks - 24 across - and the readout says why. */
+    expect(r.twelve, 'and twelve, which 96 pixels cannot honour, keeps the 24').toContain('24×24');
+    expect(r.twelve).toContain('keeps its own 4px blocks');
   });
 
   test('and a result it is not sure of says what to do about it', async ({ page }) => {
@@ -365,10 +372,18 @@ test.describe('the Fix pixels tab', () => {
          test exists to reach is unreachable. */
       const s = document.getElementById('fixsnap');
       s.checked = false; s.dispatchEvent(new Event('change', { bubbles: true }));
+      /* AND SAVE AT 1280 OFF. With it on, a typed size is the block on the
+         1280 canvas, so 1 means 1280 cells - which a 512 picture cannot give,
+         and it keeps its own blocks instead of reaching the 512-across state
+         this test exists to reach. With the switch off the number is what it
+         always was here: one picture pixel per pixel. */
+      const gr = document.getElementById('fixgrid');
+      gr.checked = false; gr.dispatchEvent(new Event('change', { bubbles: true }));
       const ff = document.getElementById('fixforce');
       ff.disabled = false; ff.value = '1';
       const r = await fixRun();
       ff.value = '0';
+      gr.checked = true;
       return { long: r && Math.max(r.width, r.height),
         out: document.getElementById('fixout').textContent };
     });

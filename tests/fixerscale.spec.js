@@ -155,7 +155,12 @@ test('the fixing mode still offers other sizes, so the silence above means somet
     document.getElementById('fixsnap').checked = false;
     FIX.src = { width: 1020, height: 1020 };
     const f = document.getElementById('fixforce');
-    f.disabled = false; f.value = '12';
+    /* WAS 12. On the canvas 12 means 128 cells, which lands, so nothing is
+       uneven and nothing is offered. 3 means 427 cells, and no count within
+       a quarter of that divides 1280, so it keeps the old meaning - 340
+       across, 3.76px on the canvas - which is the uneven case this control
+       exists to show an offer on. */
+    f.disabled = false; f.value = '3';
     document.getElementById('fixgrid').checked = true;
     fixSizeHint();
     return document.getElementById('fixsize').textContent;
@@ -211,9 +216,11 @@ test('the pixel size steps in whole numbers and only whole numbers', async ({ pa
 
 test('the fractions that are OUTPUTS keep their decimals', async ({ page }) => {
   await ready(page);
-  /* The change is about what is typed. 1280/85 really is 15.06 and the
+  /* The change is about what is typed. 1280/340 really is 3.76 and the
      readout exists to say so - rounding that away would hide the warning
-     this whole feature turns on. */
+     this whole feature turns on. WAS 12 on 1020 and 15.06: on the canvas
+     12 means 128 cells and lands; 3 means 427 and keeps the old meaning,
+     340 across. */
   const said = await page.evaluate(() => {
     /* SNAP OFF: this asks what a TYPED pixel size is told. Snapping is on
        by default and answers a different question - the grid decides the
@@ -222,10 +229,10 @@ test('the fractions that are OUTPUTS keep their decimals', async ({ page }) => {
     FIX.src = { width: 1020, height: 1020 };
     document.getElementById('fixgrid').checked = true;
     const f = document.getElementById('fixforce');
-    f.value = '12';
+    f.value = '3';
     fixSizeHint();
     return document.getElementById('fixsize').textContent;
   });
-  expect(said).toContain('15.06');
+  expect(said).toContain('3.76');
   expect(said).toContain('uneven');
 });

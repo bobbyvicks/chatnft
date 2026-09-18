@@ -136,10 +136,12 @@ test('SNAPPED, EVERY BLOCK OF THE GRID THE PICTURE IS ON IS ONE COLOUR', async (
   /* WAS 160x160, measured with 8 written into the test. That number was the
      bug: this fixture is drawn in 5px blocks on 1280, which is 256 cells,
      and 8px cells cut straight through 5px blocks. Measured across the 319
-     approved traits, forcing 160 cost 202 of them a percent or more of their
-     pixels and 24 of them a tenth; following the picture, 26 and 4 - and
-     those 26 are the ones with no grid at all, where there is nothing to
-     follow. */
+     approved traits of 2026-09-10, forcing 160 cost 202 of them a percent
+     or more of their pixels and 24 of them a tenth; following the picture,
+     26 and 4 - and those 26 are the ones with no grid at all, where there is
+     nothing to follow. (On the 311-file working set of 2026-09-18, with its
+     167 gridless renders, the same two figures are 165 and 18 against 75
+     and 3.) */
   expect(r.cells, 'the picture own grid, not the declared one').toBe('256x256');
   expect(r.N, 'which is 5px blocks on the collection canvas').toBe(5);
   expect(r.saved).toBe('1280x1280');

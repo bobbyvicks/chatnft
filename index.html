@@ -1980,7 +1980,7 @@ footer .mono{color:var(--ink);}
     <label for="fixforce">Pixel size</label>
     <input type="number" id="fixforce" min="0" step="1" value="0" style="width:84px"
       inputmode="numeric"
-      title="How many pixels of the picture make one pixel of the artwork, in whole numbers. 0 works it out. If the result still looks soft, the guess was too small - try 8, 12 or 16.">
+      title="The pixel size of the result, in whole numbers. With Save at 1280 on that is the block on the 1280 canvas - 8 means 160 cells whatever size the picture is; with it off, how many picture pixels make one pixel. 0 works it out. If the result still looks soft, the guess was too small - try 8, 12 or 16.">
     <!-- WAS margin-left:auto, from when the readout shared this row and
          the row was crowded. With the readout on its own line that put a
          thousand pixels of nothing in the middle of five controls. -->
@@ -20532,6 +20532,9 @@ const FIX_NATIVE_MAX=256;
 function fixTryThese(){
   if(!FIX.src) return "";
   const W=FIX.src.width, H=FIX.src.height, long=Math.max(W,H);
+  /* A PICTURE NO BIGGER THAN THE GRID is already at its own size; the one
+     size worth trying is 1, which the divisor search below never names. */
+  if(W<=fixGridCells().cells&&H<=fixGridCells().cells) return "Try 1, which keeps it as it is ("+W+"\u00d7"+H+").";
   const divisors=[];
   for(let n=2;n<=long/8;n++) if(long%n===0) divisors.push(n);
   const near=(want)=>{
@@ -20555,8 +20558,20 @@ function fixTryThese(){
    image's width that also divide CANVAS_SIDE, nearest the one being asked
    about. If nothing does - a 1023px image has no such size - it says so
    instead of naming a number that would not work. */
-function fixEvenSizes(){
+function fixEvenSizes(nat){
   if(!FIX.src) return "";
+  /* A PICTURE DRAWN IN BLOCKS has exactly one count that keeps them whole,
+     its own, so the only size worth offering is that one, when it lands;
+     when it does not, there is no size to offer that is not a resample.
+     Measured on the 96px fixture drawn at 4px: the 3, 6 and 12 this used
+     to offer changed 25.7%, 46.2% and 66.3% of its pixels, while the
+     readout called them "divide evenly". */
+  if(nat>1){
+    const own=Math.round(FIX.src.width/nat);
+    return CANVAS_SIDE%own===0
+      ? ". Type "+nat+" to keep its "+nat+"px blocks ("+own+" cells)."
+      : ". No size lands its "+nat+"px blocks on "+CANVAS_SIDE+" without resampling.";
+  }
   const W=FIX.src.width, H=FIX.src.height;
   const out=[];
   for(let s=2;s<=W/8;s++){
@@ -20633,6 +20648,17 @@ let fixMeasuredBlock=0;
    Read by the run that follows, so a picture put on a grid nobody asked
    for is not put there quietly. */
 let fixGridlessPick=0;
+/* A TYPED SIZE THAT COULD NOT BE HONOURED, because the picture is narrower
+   than the cells it means on the canvas, and what was kept instead: one
+   pixel per cell, or the block the picture is drawn in. Set per decision
+   by fixStepFor; read by the readout and the folder note. */
+let fixUnhonoured=null;
+/* A MEASURED BLOCK WHOSE COUNT CANNOT LAND ON THE CANVAS (1024 drawn at
+   2px is 512 cells), so the grid re-cut it. Said rather than silent. */
+let fixBlockUnfit=null;
+/* THE FOLDER RUN'S TALLIES, kept per file inside the loop because only
+   the cell count survives it, and a count cannot say why. */
+let fixMovedLast=null, fixMovedCount=0, fixUnhonouredAt=[], fixNativeKept=0, fixOwnBlocks=0, fixUnfitAt=[];
 /* THE STEP FOR ONE PICTURE. Snapped, it is the width over the cell count -
    so any source size lands on exactly that many cells and the size
    difference is normalised rather than depended on. Not snapped, it is
@@ -20810,6 +20836,14 @@ function fixCanvasCounts(){
 
    Returns null when nothing needs doing or nothing sensible is available,
    so a caller can tell "fine" from "moved" without comparing floats. */
+/* SUPERSEDED IN PART (2026-09-18). The rule above is still what decides
+   whether a count within a quarter of the one asked for divides 1280,
+   and fixStepFor now asks it about the CANVAS (fixWholeStep(1280, size))
+   rather than the source, so the source-divisor requirement below no
+   longer refuses 1254. The 96px picture drawn in 4px blocks is handled
+   before this is reached: narrower than the cells its size means, it
+   keeps its own blocks. The requirement stays for the switch-off path,
+   where the output is its own size and a whole step is the whole point. */
 const WHOLE_STEP_NEAR=0.25;
 function fixWholeStep(w,step){
   if(!(w>0)||!(step>0)) return null;
@@ -20838,10 +20872,15 @@ function fixNativeBlockFor(data,w,h){
   return fixNativeBlock(data,w,h);
 }
 function fixStepFor(w,data,h){
-  /* THIS DECISION, NOT THE LAST ONE. The flag says the step about to be
-     returned was measured off the picture; left over from a previous run it
-     puts that label on an answer that was typed. */
-  fixMeasuredBlock=0; fixGridlessPick=0;
+  /* THIS DECISION, NOT THE LAST ONE. Every flag below describes the step
+     about to be returned; left over from a previous call, any of them
+     puts that label on a different answer. */
+  fixMeasuredBlock=0; fixGridlessPick=0; fixMoved=null; fixUnhonoured=null; fixBlockUnfit=null;
+  const asked=+$("fixforce").value||0;
+  const onGrid=$("fixgrid")&&$("fixgrid").checked;
+  const px=data||(FIX.src&&FIX.src.data);
+  const ph=h||(FIX.src&&FIX.src.height)||0;
+  const g=fixGridCells();
   /* A NUMBER IN THE BOX IS AN INSTRUCTION, AND IT WINS.
 
      This used to sit below the snap, so while the snap was on the
@@ -20851,56 +20890,98 @@ function fixStepFor(w,data,h){
      picture; it has no business beating a size somebody typed for it.
 
      0 still means work it out, which is what the box has always said. */
-  const asked=+$("fixforce").value||0;
-  const onGrid=$("fixgrid")&&$("fixgrid").checked;
   if(asked>0){
-    /* Moved to a size that can give square pixels, if it cannot - the
-       same rule and the same note as the unsnapped path below. */
-    if(onGrid){
-      const fix=fixWholeStep(w,asked);
-      if(fix){ fixMoved={from:asked, to:fix.step, cols:fix.cols, was:fix.was};
-        return fix.step; }
+    /* WITH THE SWITCH OFF it is what it always was: how many picture
+       pixels make one pixel, and the output is its own size. */
+    if(!onGrid) return asked;
+    /* ON THE 1280 CANVAS THE TYPED SIZE IS THE BLOCK SIZE THERE. It used
+       to be source pixels per cell here too, so 8 on a 1254 source gave
+       157 cells and uneven pixels (86 of the 297 raw sources - the
+       library's "Hyperliquid 1254 mistake"), 128 cells on 1024 and
+       2048 sources (10px blocks, 55 files) and 16 cells on the ten 128px
+       ones, which destroyed them. The count is worked out on the canvas
+       now - 1280 over the size, moved to the nearest count that divides
+       1280 within a quarter, the same band fixWholeStep always used but
+       applied to the canvas rather than the source, whose divisors are
+       what refused 1254 - and the step is whatever the source width
+       makes of that count. 1254 over 160 is 7.8375, and the engine takes
+       it exactly: it maps pixels by floor(x*cols/w), so every cell holds
+       seven or eight whole source pixels and nothing is sliced.
+       Measured over all 297: 287 land on 160 cells, none uneven, the
+       141 at 1280 byte-identical to before. A source drawn in blocks
+       the size did not ask for IS re-cut (the 14 at 1024 drawn at 8px:
+       mean 4.08% of their pixels), which is what strict 8 costs art
+       drawn at 128 cells; the readout names it. */
+    const want=Math.max(1,Math.round(CANVAS_SIDE/asked));
+    let cells=0;
+    if(CANVAS_SIDE%want===0) cells=want;
+    else{
+      const fix=fixWholeStep(CANVAS_SIDE,asked);
+      if(fix){ cells=fix.cols; fixMoved={from:asked, to:fix.step, cols:fix.cols, was:fix.was}; }
     }
-    return asked;
+    /* Nothing within a quarter of what was asked - 3 means 427 cells and
+       the nearest that lands is 320 - so it keeps the old meaning and
+       the readout says the pixels come out uneven. */
+    if(!cells) return asked;
+    if(w<cells||ph<cells){
+      /* NEVER UPSAMPLE. A picture narrower than the cells its size means
+         cannot answer them without inventing pixels: a 0.8px step on a
+         128px source leaves 32 empty columns and rows, measured as a
+         lattice of transparent gaps through the eyes. It keeps its own
+         pixels - one per cell, or the block it is drawn in - and the run
+         says the size could not be honoured. A move to a count the
+         picture cannot hold is not a move, so that note is cleared. */
+      const nat=px?fixNativeBlockFor(px,w,ph):0;
+      const keep=nat>1?nat:1;
+      fixMoved=null;
+      fixUnhonoured={asked:asked, cells:cells, w:w, step:keep, cols:Math.max(1,Math.round(w/keep))};
+      return keep;
+    }
+    return w/cells;
   }
   if(fixSnapping()){
     /* THE PICTURE FIRST, THE SETTING SECOND. projectGrid says 160 and the
        art is mostly drawn at 128 cells; forcing the setting cut 8px cells
        through 10px blocks and deleted up to 23% of a trait. A measured
        block is exact, so reducing on its boundaries loses nothing. */
-    const px=data||(FIX.src&&FIX.src.data);
-    const ph=h||(FIX.src&&FIX.src.height)||0;
     const nat=px?fixNativeBlockFor(px,w,ph):0;
     if(nat>1&&w>0&&CANVAS_SIDE%(w/nat)===0){ fixMeasuredBlock=nat; return nat; }
-    /* NO BLOCK STRUCTURE. Letting the detectors answer here was tried
-       and is worse: their counts are things like 510 and 127, which do
-       not divide the canvas, so the blocks come out ragged - 48 traits
-       of 319 against 3. A picture with no grid loses detail under any
-       reduction, so the declared grid at least keeps the pixels square,
-       and fixNoGrid below is how the run says which ones these were. */
-    if(!nat){
-      fixNoGrid++;
+    /* AT OR BELOW THE GRID, THE PICTURE IS ALREADY AT ITS OWN SIZE. With
+       no block it is one pixel per cell - measured the identity, byte for
+       byte, on all twelve such sources - and with a block it keeps that
+       block even when its count cannot land on 1280 (a 96px picture
+       drawn at 4px is 24 cells, uneven on the canvas, nothing invented).
+       Both used to fall through to the fast detector, which on the ten
+       128px sources answered 5 to 39 cells and emptied two of them. */
+    if(g.exact&&w>0&&ph>0&&w<=g.cells&&ph<=g.cells){
+      fixMeasuredBlock=nat>1?nat:1;
+      return fixMeasuredBlock;
+    }
+    if(nat>1){
+      /* A BLOCK THE CANVAS CANNOT HOLD: 1024 drawn at 2px is 512 cells and
+         1280/512 is not whole. The grid re-cuts it, as it always did, and
+         now says so. */
+      fixBlockUnfit={block:nat, cells:Math.round(w/nat)};
+    }else{
+      /* NO BLOCK STRUCTURE. Letting the detectors answer here was tried
+         and is worse: their counts are things like 510 and 127, which do
+         not divide the canvas, so the blocks come out ragged - 48 traits
+         of 319 against 3. A picture with no grid loses detail under any
+         reduction, so the declared grid at least keeps the pixels square,
+         and fixNoGrid is how the run says which ones these were - counted
+         only when a gridless count is actually used, so a picture the
+         search could not place is not reported as placed. */
       /* NO GRID TO KEEP, so keep the shape instead. Forcing the declared
          count on these moved two traits by a fifth of the canvas and cost
          one of them 27.5% of its pixels. */
       const cells=px?fixGridlessCells(px,w,ph||w):0;
-      if(cells>0&&w>0){ fixGridlessPick=cells; return w/cells; }
+      if(cells>0&&w>0){ fixNoGrid++; fixGridlessPick=cells; return w/cells; }
     }
     const s=fixSnapStep(w);
     if(s>0) return s;
-    /* Too small for the grid: fall through to what was typed, which is
-       usually 0 and means the detectors answer it. */
   }
-  const typed=+$("fixforce").value||0;
-  /* A TYPED SIZE THAT CANNOT LAND IS MOVED, and only while the result is
-     going onto the collection canvas - with the switch off the output is
-     its own size and every step is whole already. See patch412. */
-  const grid=$("fixgrid")&&$("fixgrid").checked;
-  if(grid&&typed>0){
-    const fix=fixWholeStep(w,typed);
-    if(fix){ fixMoved={from:typed, to:fix.step, cols:fix.cols, was:fix.was}; return fix.step; }
-  }
-  return typed;
+  /* Nothing decided it: 0, which means the detectors answer. */
+  return asked;
 }
 function fixMode(){
   const v=$("fixmode")?$("fixmode").value:"fast";
@@ -20932,7 +21013,9 @@ function fixModeUI(){
         +" are left alone and nothing transparent is touched."; }
   const f=$("fixforce"); if(f){ f.disabled=scale; f.title=scale
     ? "Not used in scale only - the picture is already one pixel per cell."
-    : "How many pixels of the picture make one pixel of the artwork."
+    : "The pixel size of the result. With Save at 1280 on that is the block on the "+CANVAS_SIDE
+      +" canvas - 8 means "+(CANVAS_SIDE/8)+" cells whatever size the picture is; with it off, how many"
+      +" picture pixels make one pixel."
       +" A number here decides, even with Snap on. 0 works it out:"
       +" the grid the picture is actually drawn on, or the "+g.cells
       +" cell grid when it is not drawn on one."; }
@@ -20943,78 +21026,55 @@ function fixSizeHint(){
      readout works without the field and says the same thing about the
      grid that it says for a fixed result. */
   const scale=fixMode()==="scale";
-  /* THE READOUT FOLLOWS THE SAME RULE AS THE RUN. Saying 160 while the run
-     falls through to the detectors - because the picture is too small to
-     carry the grid - would describe a different answer than the one about
-     to be produced. */
   const wantSnap=fixSnapping();
-  const snap=wantSnap&&fixSnapStep(FIX.src?FIX.src.width:0)>0;
   const g=fixGridCells();
-  /* BEFORE THE BAIL-OUT BELOW, and that is the whole reason it sits here.
-     An impossible grid produces no step, so the "nothing to say" line
-     further down returns an empty readout and the warning never runs -
-     silence in exactly the case that most needs a sentence. */
-  /* ASKED FOR AND NOT POSSIBLE ON THIS PICTURE. Falling through to the
-     detectors while the box says "Snap to the 160 cell grid" is worse
-     than refusing - a run that ignored the setting looked exactly like a
-     run that honoured it.
-
-     A NOTE, NOT A REPLACEMENT. A first version returned here and wrote
-     only this sentence, which hid the one thing the readout is for: what
-     the size actually in force is about to give. The snap not applying
-     does not stop a typed size working - it IS what works then. */
-  const snapBlocked = !!(FIX.src&&wantSnap&&g.exact&&FIX.src.width<g.cells);
-  const snapNote = snapBlocked
-    ? " \u00b7 "+FIX.src.width+" across cannot be snapped to "+g.cells
-      +" cells without inventing detail, so the pixel size is used instead"
-    : "";
-  /* WITH NOTHING TYPED THERE IS NO SIZE TO DESCRIBE, and the line below
-     would return an empty readout - which is the silence this whole patch
-     is about. So the note stands on its own there.
-
-     The field is read here rather than through `step`, which is declared
-     further down: reaching it from above is a ReferenceError that takes
-     the whole readout with it, and took thirteen tests with it once. */
-  if(snapBlocked&&!scale&&(+$("fixforce").value||0)<=0){
-    el.textContent="\u2192 "+FIX.src.width+" across cannot be snapped to "+g.cells
-      +" cells without inventing detail - the pixel size is being worked out instead";
-    return;
-  }
+  const typed=+$("fixforce").value||0;
+  /* BEFORE THE BAIL-OUT BELOW. An impossible grid produces no step, so the
+     "nothing to say" line further down would return an empty readout and
+     the warning never runs - silence in exactly the case that most needs
+     a sentence. */
   if(FIX.src&&wantSnap&&!g.exact){
     el.textContent="\u2192 the "+g.cells+" cell grid does not divide "+CANVAS_SIDE
       +" evenly, so blocks would come out uneven - turn Snap off, or set a grid that divides it";
     return;
   }
-  const step=+$("fixforce").value||0;
-  if(!FIX.src||(!scale&&!snap&&step<=0)){ el.textContent=""; return; }
-  /* SNAPPED, THE COUNT IS THE GRID, whatever the source measures - that is
-     the whole point of it. g is declared above, with the check that has to
-     run before the bail-out. */
-  /* THE COUNT THE RUN WILL ACTUALLY USE, moved size and all - a readout
-     that describes the request rather than the answer is worse than none. */
+  const snap=wantSnap&&fixSnapStep(FIX.src?FIX.src.width:0)>0;
+  /* NARROWER THAN THE GRID. The snap cannot apply, and what happens
+     instead - kept at its own pixels, or the typed size - is said below
+     as part of the answer rather than instead of it. A first version
+     returned here with only the refusal, which hid the one thing the
+     readout is for: what is about to be produced. */
+  const narrow=!!(FIX.src&&wantSnap&&g.exact&&FIX.src.width<g.cells);
+  if(!FIX.src||(!scale&&!snap&&!narrow&&typed<=0)){ el.textContent=""; return; }
+  /* THE COUNT THE RUN WILL ACTUALLY USE, moved size and all. This used to
+     decide for itself that a snapped run lands on the declared grid
+     "whatever the source measures", and then the run started measuring
+     the source - so the line said 160 on a picture about to come out at
+     256. A readout that describes a different answer than the one about
+     to be produced is worse than no readout, and the only way it can be
+     right for good is to stop being a second opinion: fixStepFor decides,
+     and leaves its notes in the module flags read here. */
+  const W=FIX.src.width, H=FIX.src.height;
+  const nat=FIX.src.data?fixNativeBlockFor(FIX.src.data,W,H):0;
+  const decided=scale?0:fixStepFor(W,FIX.src.data,H);
+  const moved=fixMoved, unhon=fixUnhonoured, unfit=fixBlockUnfit, meas=fixMeasuredBlock;
   const gridOn=$("fixgrid")&&$("fixgrid").checked;
-  /* ASKED, NOT WORKED OUT AGAIN. This used to decide for itself that a
-     snapped run lands on the declared grid "whatever the source
-     measures", and then the run started measuring the source - so the
-     line said 160 on a picture about to come out at 256. A readout that
-     describes a different answer than the one about to be produced is
-     worse than no readout, and the only way it can be right for good is
-     to stop being a second opinion. fixStepFor sets fixMoved as a side
-     effect, which is where the moved-size note below comes from. */
-  fixMoved=null;
-  const decided=scale?0:fixStepFor(FIX.src.width,FIX.src.data,FIX.src.height);
-  const moved=fixMoved;
-  const cols=scale?FIX.src.width
-    :(decided>0?Math.max(1,Math.round(FIX.src.width/decided)):g.cells);
-  const rows=scale?FIX.src.height
-    :(decided>0?Math.max(1,Math.round(FIX.src.height/decided)):g.cells);
+  const cols=scale?W:(decided>0?Math.max(1,Math.round(W/decided)):g.cells);
+  const rows=scale?H:(decided>0?Math.max(1,Math.round(H/decided)):g.cells);
   /* AND WHETHER IT LANDS ON THE COLLECTION GRID. 1280/128 is 10 and every
      pixel comes out identical; 1280/85 is 15.06 and they differ by one.
      That is the difference between a trait that sits on the grid and one
      that does not, and it is worth knowing before 320 of them rather than
      after. Only said when the switch is on, because it is only true then. */
+  /* TWO LINES, MEASURED. The readout reserves two lines so nothing below
+     it moves when the sentence changes (fixerlayout.spec.js pins that),
+     and the narrowest column holds about 166 characters of this font.
+     Every sentence built here fits that; the first draft ran to 262 and
+     took a third line, which is why each clause is as short as it is
+     and why the offer of other sizes is left out when a size could not
+     be honoured - the sentence that says why already covers it. */
   let note="";
-  if($("fixgrid")&&$("fixgrid").checked){
+  if(gridOn){
     const k=CANVAS_SIDE/cols;
     note = (cols===rows && Number.isInteger(k))
       ? " \u00b7 \u00d7"+k+" to "+CANVAS_SIDE
@@ -21022,10 +21082,38 @@ function fixSizeHint(){
         /* NOT IN SCALE MODE: there is no other size to pick, because
            nothing is being detected. Offering one would read as advice
            to go and re-fix a finished picture. */
-        +", so pixels come out uneven"+(scale?"":fixEvenSizes());
+        +", so pixels come out uneven"+((scale||unhon||narrow)?"":fixEvenSizes(nat));
   }
-  el.textContent="\u2192 "+cols+"\u00d7"+rows+" pixels"+note+snapNote
-    +(moved?" \u00b7 pixel size "+(Math.round(moved.step*100)/100)+", not "+step
+  /* HOW MANY PICTURE PIXELS MAKE ONE CELL, whenever that is not the plain
+     answer: a 1254 picture on 160 cells is 7.84 source pixels per cell,
+     and "x8 to 1280" alone would read as if 8 had not been honoured. */
+  let per="";
+  if(!scale&&gridOn&&decided>0&&W!==CANVAS_SIDE&&!unhon)
+    per=" \u00b7 "+(Math.round(decided*100)/100)+" source pixel"+(decided===1?"":"s")+" per cell";
+  /* AND WHAT THAT DOES TO ART DRAWN IN BLOCKS the size did not ask for:
+     10px art on 8px cells is a resample, and no rule avoids it. */
+  let recut="";
+  if(!scale&&typed>0&&gridOn&&nat>1&&decided>0&&Math.abs(decided-nat)>1e-9&&!unhon)
+    recut=" \u00b7 "+nat+"px blocks ("+Math.round(W/nat)+" cells) become "
+      +(Math.round(cols/(W/nat)*100)/100)+" cells each";
+  let snapNote="";
+  if(narrow&&typed<=0){
+    snapNote=" \u00b7 "+W+" across cannot be snapped to "+g.cells+" cells, so it "
+      +(meas===1?"is kept at one pixel per cell":meas>1?"keeps its own "+meas+"px blocks":"is being worked out instead");
+  }else if(narrow&&typed>0&&!gridOn){
+    snapNote=" \u00b7 "+W+" across cannot be snapped to "+g.cells+" cells, so the pixel size is used instead";
+  }
+  const unhonNote = unhon
+    ? " \u00b7 "+typed+" means "+unhon.cells+" cells on "+CANVAS_SIDE+"; "+W+" across cannot give that, so it keeps "
+      +(unhon.step===1?"one pixel per cell":"its own "+unhon.step+"px blocks")
+    : "";
+  const unfitNote = unfit
+    ? " \u00b7 "+unfit.block+"px blocks ("+unfit.cells+" cells) cannot land on "+CANVAS_SIDE+"; the "+g.cells+" cell grid re-cuts them"
+    : "";
+  /* `to`, the field the record has. This read `.step`, which it never had,
+     and printed "pixel size NaN, not 12" on every moved size. */
+  el.textContent="\u2192 "+cols+"\u00d7"+rows+" pixels"+note+per+recut+snapNote+unhonNote+unfitNote
+    +(moved?" \u00b7 pixel size "+(Math.round(moved.to*100)/100)+", not "+typed
       +": "+moved.was+" cells does not divide "+CANVAS_SIDE:"");
 }
 function fixRun(){
@@ -21094,7 +21182,11 @@ function fixRun(){
           +" colour"+(pal.colours===1?"":"s")+" moved to the palette");
         fixRecentFromRun(r);
         const secs=((performance.now()-t0)/1000).toFixed(1);
-        $("fixaftercap").textContent=r.width+"\u00d7"+r.height+" real pixels \u00b7 pixel size "+(+r.stepX).toFixed(2)+(Math.abs(r.stepX-r.stepY)>0.01?"\u00d7"+(+r.stepY).toFixed(2):"")+" px";
+        /* AND THE BLOCK ON THE CANVAS, when there is one: "pixel size 7.84 px"
+           on a 1254 source reads as if 8 had not been honoured. */
+        const onCanvas=(()=>{ const on=$("fixgrid")&&$("fixgrid").checked; const k=CANVAS_SIDE/r.width;
+          return (on&&r.width===r.height&&Number.isInteger(k)) ? " \u00b7 "+k+" px on the "+CANVAS_SIDE+" canvas" : ""; })();
+        $("fixaftercap").textContent=r.width+"\u00d7"+r.height+" real pixels \u00b7 pixel size "+(+r.stepX).toFixed(2)+(Math.abs(r.stepX-r.stepY)>0.01?"\u00d7"+(+r.stepY).toFixed(2):"")+" px"+onCanvas;
         /* A SOFT RESULT SAYS WHAT TO DO ABOUT IT. An image whose edges were
            soft to begin with makes the detectors find a small step, and a
            small step keeps the softness faithfully - which is the tool
@@ -21119,7 +21211,9 @@ function fixRun(){
         const big = Math.max(r.width,r.height) > FIX_NATIVE_MAX;
         const unsure = r.confidence!=="high" && r.consensus!=="forced";
         fixSay((r.consensus==="measured"
-          ? "measured "+r.measuredBlock+"px blocks off the picture"
+          ? (r.measuredBlock===1
+            ? "kept at one pixel per cell - the picture is already at its native size"
+            : "measured "+r.measuredBlock+"px blocks off the picture")
           : (r.confidence||"")+" confidence ("+(r.consensus||"?")+")")+" \u00b7 "+secs+"s"
           +((big||unsure) ? " \u2014 if the edges still look soft, the pixel size it used ("
             +(+r.stepX).toFixed(2)+" px) was too small. "+fixTryThese() : ""));
@@ -21190,7 +21284,11 @@ function fixStop(){ if(FIX.worker){ fixDone(FIX.worker); fixSay("Stopped."); } }
 function fixBlockFor(cells,side){
   if(!(cells>0)||!(side>0)) return 1;
   const b=side/cells;
-  return b>=1.5 ? Math.round(b) : 1;
+  /* WHOLE, OR ONE. This rounded, so a 157-cell result opened with
+     gridBlock 8 while 24 of its cells were 9px wide and only 19 of 157
+     cell edges sat on the 8 grid: the brush straddled cells. A result
+     that does not divide the canvas has no block the brush can use. */
+  return (b>=1.5&&Number.isInteger(b)) ? b : 1;
 }
 function fixOpen(){
   const r=FIX.out; if(!r){ fixSay("Nothing fixed yet."); return; }
@@ -21212,7 +21310,7 @@ function fixOpen(){
      to say what the art is drawn in. Without this a 1280 canvas gets a
      one-pixel brush and no snapping - an eighth of a collection pixel per
      stroke. See patch415. */
-  adoptBlock(fixBlockFor(r.width,W));
+  adoptBlock(r.width===r.height ? fixBlockFor(r.width,W) : 1);
 }
 /* HOW MANY IMAGES ONE GO MAY HOLD.
 
@@ -21268,6 +21366,7 @@ async function fixBatchRun(files){
   const over=all.length-list.length;
   /* BEFORE the list is replaced: it is what holds the urls to revoke. */
   fixMoved=null; fixNoGrid=0; fixGridlessAt=[];
+  fixMovedLast=null; fixMovedCount=0; fixUnhonouredAt=[]; fixNativeKept=0; fixOwnBlocks=0; fixUnfitAt=[];
   fixPalMoved=0; fixPalPixels=0; fixPalFiles=0;
   /* Pictures reduced by a whole factor to get under the engine limit. */
   const shrunk=[];
@@ -21338,6 +21437,14 @@ async function fixBatchRun(files){
       : await fixAsk(w,{data:new Uint8ClampedArray(px), width:sw, height:sh,
         mode:mode, forceStep:(()=>{ const s=fixStepFor(sw,px,sh);
           if(fixGridlessPick) fixGridlessAt.push(fixGridlessPick);
+          /* THE DECISION, RECORDED PER FILE. Only the cell count survives
+             the loop, and a count cannot say why; and one variable for
+             "the move" was every moved file overwriting the last. */
+          if(fixMoved){ fixMovedCount++; fixMovedLast=fixMoved; }
+          if(fixUnhonoured) fixUnhonouredAt.push(fixUnhonoured);
+          if(fixMeasuredBlock===1) fixNativeKept++;
+          else if(fixMeasuredBlock>1&&(sw<fixGridCells().cells||sh<fixGridCells().cells)) fixOwnBlocks++;
+          if(fixBlockUnfit) fixUnfitAt.push(fixBlockUnfit.block);
           return s>0?s:null; })()});
     if(!r||r.error){ failed.push(name+" ("+((r&&r.error)||"no answer")+")"); continue; }
     const out=r.ok;
@@ -21403,17 +21510,46 @@ async function fixBatchRun(files){
   const smallNote = tooSmall
     ? " \u00b7 "+tooSmall+" narrower than the "+fixGridCells().cells
       +" cell grid, so the snap could not be used on them"
+      +((fixNativeKept||fixOwnBlocks) ? ": "+[fixNativeKept?fixNativeKept+" kept at one pixel per cell":"",
+        fixOwnBlocks?fixOwnBlocks+" kept on their own blocks":""].filter(Boolean).join(", ") : "")
     : "";
   const gridOn=$("fixgrid")&&$("fixgrid").checked;
   const ragged = gridOn ? fixBatchFiles.filter(f=>f.cells&&CANVAS_SIDE%f.cells!==0).length : 0;
   const raggedNote = ragged
     ? " \u00b7 "+ragged+" came back on a pixel count that does not divide "
-      +CANVAS_SIDE+", so their pixels are uneven - turn Snap on, or type a size"
+      +CANVAS_SIDE+", so their pixels are uneven"
+      /* THE CAUSE IT COUNTED. This said "turn Snap on, or type a size" on
+         runs where both were on - advice already followed. */
+      +((+$("fixforce").value||0)>0 ? " - "+(+$("fixforce").value)+" cannot land on "+CANVAS_SIDE+" for them"
+        : wantedSnap ? " - they are drawn in blocks the grid cannot hold"
+        : " - turn Snap on, or type a size")
     : "";
-  const movedNote = fixMoved
-    ? " \u00b7 pixel size "+(Math.round(fixMoved.to*100)/100)+" was used, not "
-      +fixMoved.from+": "+fixMoved.was+" cells does not divide "+CANVAS_SIDE
-      +", and "+fixMoved.cols+" does"
+  const movedNote = fixMovedLast
+    ? " \u00b7 pixel size "+(Math.round(fixMovedLast.to*100)/100)+" was used, not "
+      +fixMovedLast.from+(fixMovedCount>1?", on "+fixMovedCount+" files":"")+": "+fixMovedLast.was
+      +" cells does not divide "+CANVAS_SIDE+", and "+fixMovedLast.cols+" does"
+    : "";
+  /* A TYPED SIZE THE PICTURE COULD NOT HOLD, and what it kept instead. */
+  const unhonNote = fixUnhonouredAt.length
+    ? " \u00b7 "+fixUnhonouredAt.length+" narrower than the "+fixUnhonouredAt[0].cells+" cells that "
+      +fixUnhonouredAt[0].asked+" means on "+CANVAS_SIDE+" and kept their own pixels instead"
+    : "";
+  /* A MEASURED BLOCK THE GRID RE-CUT, because its count cannot land. */
+  const unfitNote = fixUnfitAt.length
+    ? " \u00b7 "+fixUnfitAt.length+" drawn in blocks the grid cannot hold ("
+      +[...new Set(fixUnfitAt)].sort((a,b)=>a-b).map(b=>b+"px").join(", ")+") and re-cut on the "
+      +fixGridCells().cells+" cell grid"
+    : "";
+  /* HOW MANY ARE NOT ON THE COLLECTION GRID, by the block they came out
+     at. With nothing typed the tab follows the picture's own grid, which
+     is a stated design; whether the collection wants that as its default
+     is a decision, and this count is what the decision is about. */
+  const offGrid = gridOn ? fixBatchFiles.filter(f=>f.cells&&f.cells!==fixGridCells().cells) : [];
+  const offNote = offGrid.length
+    ? (()=>{ const by=new Map(); for(const f of offGrid){ const k=Math.round(CANVAS_SIDE/f.cells*100)/100; by.set(k,(by.get(k)||0)+1); }
+        return " \u00b7 "+offGrid.length+" not on the "+fixGridCells().cells+" cell grid ("
+          +[...by.entries()].sort((a,b)=>b[1]-a[1]).map(([k,n])=>n+" at "+k+"px").join(", ")+")"
+          +((+$("fixforce").value||0)>0 ? "" : " - type "+(CANVAS_SIDE/fixGridCells().cells)+" to force it, which re-cuts art drawn at another size"); })()
     : "";
   const palNote = fixPalFiles
     ? " \u00b7 "+fixPalFiles+" put on the palette, "+fixPalMoved
@@ -21430,7 +21566,7 @@ async function fixBatchRun(files){
       +[...new Set(fixGridlessAt)].sort((a,b)=>a-b).join(", ")+" cells)"
       +" and lost detail it had between cells"
     : "";
-  fixBatchSay(fixBatchFiles.length+" of "+list.length+" done in "+secs+"s"+movedNote+raggedNote+smallNote+noGridNote+shrunkNote+palNote
+  fixBatchSay(fixBatchFiles.length+" of "+list.length+" done in "+secs+"s"+movedNote+unhonNote+raggedNote+smallNote+noGridNote+unfitNote+offNote+shrunkNote+palNote
     +(fixBatchStop?" (stopped - what is done is kept)":"")
     +(over?" \u00b7 "+over+" past the limit of "+FIX_BATCH_MAX+" were left out":"")
     +(failed.length?" \u00b7 could not do: "+failed.slice(0,6).join(", ")

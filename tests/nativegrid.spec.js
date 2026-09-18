@@ -2,6 +2,14 @@
 
    "troubleshoot the fixer so it works 100% of the time"
 
+   THE NUMBERS BELOW ARE THE 319-FILE SET OF 2026-09-10, kept as the record
+   of what this was measured on. The working set of 2026-09-18 (311 files,
+   many of them the raw renders kept as "-source" selections) measures
+   differently: 89 at 10px, 42 at 8px, 12 at 5px, 1 at 2px, 167 with no
+   block structure; and "that is all 33 skins" is no longer true - 11 of
+   32 skins measure 8px and 21 have no grid. The rule these tests pin is
+   the same; the census is not.
+
    Measured on all 319 approved traits - the largest N dividing 1280 for which
    every NxN square of the source is one colour:
 

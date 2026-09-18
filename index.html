@@ -20606,9 +20606,39 @@ const FIX_NATIVE_MAX=256;
 function fixTryThese(){
   if(!FIX.src) return "";
   const W=FIX.src.width, H=FIX.src.height, long=Math.max(W,H);
+  const g=fixGridCells();
   /* A PICTURE NO BIGGER THAN THE GRID is already at its own size; the one
      size worth trying is 1, which the divisor search below never names. */
-  if(W<=fixGridCells().cells&&H<=fixGridCells().cells) return "Try 1, which keeps it as it is ("+W+"\u00d7"+H+").";
+  if(W<=g.cells&&H<=g.cells) return "Try 1, which keeps it as it is ("+W+"\u00d7"+H+").";
+  /* MEASURED, NOT GUESSED: what each size would keep of the paint, by the
+     cell rule the gridless search chooses with. The sizes this offered
+     used to be the very resamples the review measured as destroying a
+     picture with no grid, and nothing said so. */
+  const px=FIX.src.data;
+  const keeps=(cells)=>{
+    if(!px||!(cells>0)) return "";
+    const k=fixCellsKept(px,W,H,cells);
+    return k.srcN ? " (keeps "+Math.round(k.kept/k.srcN*100)+"% of the paint)" : "";
+  };
+  const seen=[], out=[];
+  if($("fixgrid")&&$("fixgrid").checked){
+    /* ON THE CANVAS the typed number is the block there, so 8 means 160
+       cells whatever the picture is - the run's own arithmetic
+       (fixCanvasCells), not "picture width over 8", which said
+       "8 gives 157x157" on a 1254 picture. A size that moves is named
+       by where it lands, and one the picture cannot hold is left out. */
+    for(const s of [8,12,16]){
+      const c=fixCanvasCells(s);
+      if(!c.cells||seen.indexOf(c.cells)>=0||W<c.cells||H<c.cells) continue;
+      seen.push(c.cells);
+      out.push((c.moved?c.moved.to:s)+" ("+c.cells+" cells"+keeps(c.cells).replace(" (keeps",", keeps").replace(/\)$/,"")+")");
+    }
+    return out.length ? "Try "+out.join(", ")+"." : "";
+  }
+  /* WITH THE SWITCH OFF the number is picture pixels per cell: the
+     divisors of the long edge nearest 8, 12 and 16, so every suggestion
+     divides evenly, or the three plain numbers when nothing does, which
+     is the honest answer for a width like 1023. */
   const divisors=[];
   for(let n=2;n<=long/8;n++) if(long%n===0) divisors.push(n);
   const near=(want)=>{
@@ -20617,12 +20647,12 @@ function fixTryThese(){
     for(const d of divisors) if(Math.abs(d-want)<Math.abs(best-want)) best=d;
     return best;
   };
-  const seen=[], out=[];
   for(const want of [8,12,16]){
     const s=near(want);
     if(seen.indexOf(s)>=0) continue;
     seen.push(s);
-    out.push(s+" gives "+Math.max(1,fixRint(W/s))+"\u00d7"+Math.max(1,fixRint(H/s)));
+    const cols=Math.max(1,fixRint(W/s));
+    out.push(s+" gives "+cols+"\u00d7"+Math.max(1,fixRint(H/s))+keeps(cols));
   }
   return "Try "+out.join(", ")+".";
 }
@@ -20965,6 +20995,37 @@ function fixMarksDropped(marks,out,w,h){
   }
   return dropped;
 }
+/* WHAT A CELL COUNT KEEPS OF A PICTURE, by the engine's own cells: a cell
+   is opaque when more than half its source pixels are painted, `kept` is
+   the paint under opaque cells, `srcN` all the paint, and x0..y1 the box
+   of opaque cells. The gridless search chooses a count with this and the
+   advice after a run reports it for each size it offers, so the two
+   cannot disagree. Hoisted from fixGridlessCells, arithmetic unchanged. */
+function fixCellsKept(data,W,H,cells){
+  let x0=cells,y0=cells,x1=-1,y1=-1,kept=0,srcN=0;
+  for(let cy=0;cy<cells;cy++) for(let cx=0;cx<cells;cx++){
+    let op=0,tot=0;
+    /* THE ENGINE'S OWN CELLS. It maps a pixel to floor(x*cols/w); the
+       bounds below are that rule inverted, in whole numbers, so a
+       pixel is counted in exactly one cell. The old bounds,
+       floor(c*s) to ceil((c+1)*s), overlapped by a row and a column
+       whenever s was fractional and counted the overlap twice: on
+       1254 sources kept/total came to 1.27 and the 95% rule could
+       not fail. */
+    const yA=Math.floor((cy*H+cells-1)/cells), yB=Math.min(H,Math.floor(((cy+1)*H+cells-1)/cells));
+    const xA=Math.floor((cx*W+cells-1)/cells), xB=Math.min(W,Math.floor(((cx+1)*W+cells-1)/cells));
+    for(let y=yA;y<yB;y++) for(let x=xA;x<xB;x++){
+      tot++; if(data[((y*W)+x)*4+3]>8) op++;
+    }
+      srcN+=op;
+    if(op*2>tot){
+      kept+=op;
+      if(cx<x0) x0=cx; if(cx>x1) x1=cx;
+      if(cy<y0) y0=cy; if(cy>y1) y1=cy;
+    }
+  }
+  return {kept:kept, srcN:srcN, x0:x0, y0:y0, x1:x1, y1:y1};
+}
 function fixGridlessCells(data,W,H){
   fixGridlessPassed=false; fixGridlessKept=0;
   const g=fixGridCells();
@@ -20993,27 +21054,8 @@ function fixGridlessCells(data,W,H){
   let best={cells:cand[0], kept:-1};
   for(const cells of cand){
     const sw=W/cells, sh=H/cells;
-    let x0=cells,y0=cells,x1=-1,y1=-1,kept=0;
-    for(let cy=0;cy<cells;cy++) for(let cx=0;cx<cells;cx++){
-      let op=0,tot=0;
-      /* THE ENGINE'S OWN CELLS. It maps a pixel to floor(x*cols/w); the
-         bounds below are that rule inverted, in whole numbers, so a
-         pixel is counted in exactly one cell. The old bounds,
-         floor(c*s) to ceil((c+1)*s), overlapped by a row and a column
-         whenever s was fractional and counted the overlap twice: on
-         1254 sources kept/total came to 1.27 and the 95% rule could
-         not fail. */
-      const yA=Math.floor((cy*H+cells-1)/cells), yB=Math.min(H,Math.floor(((cy+1)*H+cells-1)/cells));
-      const xA=Math.floor((cx*W+cells-1)/cells), xB=Math.min(W,Math.floor(((cx+1)*W+cells-1)/cells));
-      for(let y=yA;y<yB;y++) for(let x=xA;x<xB;x++){
-        tot++; if(data[((y*W)+x)*4+3]>8) op++;
-      }
-      if(op*2>tot){
-        kept+=op;
-        if(cx<x0) x0=cx; if(cx>x1) x1=cx;
-        if(cy<y0) y0=cy; if(cy>y1) y1=cy;
-      }
-    }
+    const k=fixCellsKept(data,W,H,cells);
+    const x0=k.x0,y0=k.y0,x1=k.x1,y1=k.y1,kept=k.kept;
     if(x1<0) continue;
     /* Within one cell on every side, and most of the paint still there. */
     const near=Math.abs(x0*sw-sx0)<=sw && Math.abs(y0*sh-sy0)<=sh
@@ -21119,6 +21161,20 @@ function fixNativeBlockFor(data,w,h){
   }
   return fixNativeBlock(data,w,h);
 }
+/* THE COUNT A TYPED SIZE MEANS ON THE CANVAS: CANVAS_SIDE over the size,
+   moved to the nearest count that divides it within a quarter
+   (fixWholeStep), or 0 when nothing in that band lands. One function,
+   because the run (fixStepFor) and the advice after it (fixTryThese) both
+   answer "what would 8 give" - and the advice used to answer in picture
+   pixels per cell, "8 gives 157x157" on a 1254 picture whose 8 gives 160
+   (measured 2026-09-18). */
+function fixCanvasCells(asked){
+  const want=Math.max(1,fixRint(CANVAS_SIDE/asked));
+  if(CANVAS_SIDE%want===0) return {cells:want, moved:null};
+  const fix=fixWholeStep(CANVAS_SIDE,asked);
+  if(fix) return {cells:fix.cols, moved:{from:asked, to:fix.step, cols:fix.cols, was:fix.was}};
+  return {cells:0, moved:null};
+}
 function fixStepFor(w,data,h){
   /* THIS DECISION, NOT THE LAST ONE. Every flag below describes the step
      about to be returned; left over from a previous call, any of them
@@ -21160,13 +21216,9 @@ function fixStepFor(w,data,h){
        the size did not ask for IS re-cut (the 14 at 1024 drawn at 8px:
        mean 4.08% of their pixels), which is what strict 8 costs art
        drawn at 128 cells; the readout names it. */
-    const want=Math.max(1,fixRint(CANVAS_SIDE/asked));
-    let cells=0;
-    if(CANVAS_SIDE%want===0) cells=want;
-    else{
-      const fix=fixWholeStep(CANVAS_SIDE,asked);
-      if(fix){ cells=fix.cols; fixMoved={from:asked, to:fix.step, cols:fix.cols, was:fix.was}; }
-    }
+    const on=fixCanvasCells(asked);
+    const cells=on.cells;
+    if(on.moved) fixMoved=on.moved;
     /* Nothing within a quarter of what was asked - 3 means 427 cells and
        the nearest that lands is 320 - so it keeps the old meaning and
        the readout says the pixels come out uneven. */

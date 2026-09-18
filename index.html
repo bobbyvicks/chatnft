@@ -20552,6 +20552,7 @@ async function fixLoad(file){
   if(fixBatchRunning){ fixSay(FIX_BATCH_BUSY); return false; }
   if(FIX.worker) fixDone(FIX.worker);
   FIX.src={data:sd, width:sw, height:sh};
+  FIX.translucent=fixTranslucent(sd,sw*sh);
   /* MEASURED ONCE, HERE. Both the run and the readout want the block
      size, the readout wants it on every keystroke, and measuring costs a
      median 39ms and 664ms on the worst file in the collection. */
@@ -20752,7 +20753,7 @@ let fixNativeNoisy=0;
 /* MARKS SMALLER THAN A CELL, measured once per picture and cached on the
    very array, the way the block is. */
 let fixMarksCache=null;
-let fixGridlessFellAt=[], fixGridlessFellKept=1, fixMarksDroppedTotal=0, fixMarksDroppedFiles=0, fixNoisyFiles=0;
+let fixGridlessFellAt=[], fixGridlessFellKept=1, fixMarksDroppedTotal=0, fixMarksDroppedFiles=0, fixNoisyFiles=0, fixAlphaFiles=0, fixAlphaPixels=0;
 /* THE STEP FOR ONE PICTURE. Snapped, it is the width over the cell count -
    so any source size lands on exactly that many cells and the size
    difference is normalised rather than depended on. Not snapped, it is
@@ -20928,6 +20929,23 @@ function fixSmallMarks(data,W,H){
   }
   fixMarksCache={data:data, W:W, H:H, result:result};
   return result;
+}
+/* THE TRANSLUCENT PIXELS IN A PICTURE, and how the engine will treat them.
+   The collection has no translucency and the engine gives it none: a
+   pixel counts as paint in the cell vote when its alpha is over half
+   (alpha > 127, pf-40-reconstruct.js) and as clear otherwise, and every
+   result cell is solid or empty. That was done in silence: skins/Solana
+   Hue Skin, a near-opaque overlay (569,572 of its pixels between alpha 1
+   and 254), came out a solid skin and the run said nothing (measured
+   2026-09-18). Counted once per picture, and said. */
+function fixTranslucent(data,n){
+  let count=0, solid=0;
+  for(let i=0;i<n;i++){
+    const a=data[i*4+3];
+    if(a===0||a===255) continue;
+    count++; if(a>127) solid++;
+  }
+  return {count:count, solid:solid, clear:count-solid};
 }
 /* HOW MANY OF THOSE MARKS THE RESULT DROPPED: a mark with no pixel under an
    opaque output cell. The cell a pixel lands in is the engine's own rule,
@@ -21375,7 +21393,16 @@ function fixRun(){
        here rather than quietly doing nothing. */
     fixShow(r);
     $("fixaftercap").textContent=r.width+"\u00d7"+r.height+" real pixels \u00b7 taken as it is";
-    fixSay("Nothing was detected or recoloured. "+fixSaveSize(r));
+    /* AND THE TRANSLUCENT PIXELS ARE KEPT, with the one caveat that is true:
+       the browser premultiplies alpha on the way in, so a translucent
+       pixel's colour can come back rounded by a step (the review measured
+       4,230 of Solana Hue Skin's 569,572 in headless Chromium). The bytes
+       that came in are the bytes that go out for every opaque pixel, and
+       only nearly for these; said rather than promised. */
+    const tl=FIX.translucent||{count:0};
+    fixSay("Nothing was detected or recoloured. "+fixSaveSize(r)
+      +(tl.count ? " \u00b7 "+tl.count.toLocaleString()+" translucent pixel"+(tl.count===1?" is":"s are")
+        +" kept translucent; the browser rounds their colour on the way in, so those are not byte-exact" : ""));
     $("fixacts").hidden=false; $("fixpair").hidden=false;
     return Promise.resolve(r);
   }
@@ -21455,6 +21482,16 @@ function fixRun(){
            "try 8" advice is not given on top of it. */
         const marks=fixSmallMarks(src.data,src.width,src.height);
         const dropped=marks.count?fixMarksDropped(marks,r,src.width,src.height):0;
+        /* TRANSLUCENT PIXELS, SAID. The engine counts a pixel as paint when
+           its alpha is over half and as clear otherwise, and writes cells
+           that are solid or empty, so a near-opaque overlay comes out a
+           solid skin. Right by design - the collection has no translucency
+           - and said, so it is not a surprise at the shelf. */
+        const tl=FIX.translucent||{count:0,solid:0,clear:0};
+        const alphaNote = tl.count
+          ? " \u00b7 "+tl.count.toLocaleString()+" translucent pixel"+(tl.count===1?"":"s")+": "
+            +tl.solid.toLocaleString()+" counted as paint, "+tl.clear.toLocaleString()+" as clear - the result has none"
+          : "";
         const how = r.consensus==="measured"
           ? (r.measuredBlock===1
             ? "kept at one pixel per cell - the picture is already at its native size"
@@ -21468,6 +21505,7 @@ function fixRun(){
         fixSay(how+" \u00b7 "+secs+"s"
           +(dropped ? " \u00b7 "+dropped+" mark"+(dropped===1?"":"s")+" smaller than a cell "+(dropped===1?"was":"were")+" dropped" : "")
           +palNote
+          +alphaNote
           +((big||unsure)&&!gridless.pick ? " \u2014 if the edges still look soft, the pixel size it used ("
             +(+r.stepX).toFixed(2)+" px) was too small. "+fixTryThese() : ""));
         $("fixacts").hidden=false;
@@ -21620,7 +21658,7 @@ async function fixBatchRun(files){
   /* BEFORE the list is replaced: it is what holds the urls to revoke. */
   fixMoved=null; fixNoGrid=0; fixGridlessAt=[];
   fixMovedLast=null; fixMovedCount=0; fixUnhonouredAt=[]; fixNativeKept=0; fixOwnBlocks=0; fixUnfitAt=[];
-  fixGridlessFellAt=[]; fixGridlessFellKept=1; fixMarksDroppedTotal=0; fixMarksDroppedFiles=0; fixNoisyFiles=0;
+  fixGridlessFellAt=[]; fixGridlessFellKept=1; fixMarksDroppedTotal=0; fixMarksDroppedFiles=0; fixNoisyFiles=0; fixAlphaFiles=0; fixAlphaPixels=0;
   fixPalMoved=0; fixPalPixels=0; fixPalFiles=0; fixPalWorst=0; fixPalMerged=0; fixPalExcluded=0;
   /* Pictures reduced by a whole factor to get under the engine limit. */
   const shrunk=[];
@@ -21686,6 +21724,8 @@ async function fixBatchRun(files){
         +(FIX_MAX_PIXELS/1e6)+" megapixels - resize it to "+CANVAS_SIDE+" first)");
       continue;
     }
+    /* TRANSLUCENT PIXELS, COUNTED PER PICTURE for the note. */
+    { const tl=fixTranslucent(px,sw*sh); if(tl.count){ fixAlphaFiles++; fixAlphaPixels+=tl.count; } }
     /* The same bytes, untouched, when there is nothing to ask. */
     const r=scale ? {ok:{data:px, width:sw, height:sh, stepX:1, stepY:1}}
       : await fixAsk(w,{data:new Uint8ClampedArray(px), width:sw, height:sh,
@@ -21820,6 +21860,14 @@ async function fixBatchRun(files){
       +(fixPalMerged?", "+fixPalMerged+" shade"+(fixPalMerged===1?"":"s")+" merged into a neighbour":"")
       +(fixPalExcluded?" - including "+fixPalExcluded+" from layers the agent rules leave out of cleanup (skins, backgrounds)":"")
     : "";
+  /* TRANSLUCENT PIXELS. Counted as paint or clear by the engine and every
+     result cell solid or empty; in scale mode kept, with the browser's
+     rounding of their colour. Said, because a near-opaque overlay coming
+     out as a solid skin is a surprise otherwise. */
+  const alphaNote = fixAlphaFiles
+    ? " \u00b7 "+fixAlphaFiles+" had translucent pixels ("+fixAlphaPixels.toLocaleString()+" in all), "
+      +(scale ? "kept translucent - the browser rounds their colour on the way in" : "counted as paint or clear - the results have none")
+    : "";
   const shrunkNote = shrunk.length
     ? " \u00b7 "+shrunk.length+" were larger than the engine takes and were reduced"
       +" by a whole factor first: "+shrunk.join(", ")
@@ -21843,7 +21891,7 @@ async function fixBatchRun(files){
   const noisyNote = fixNoisyFiles
     ? " \u00b7 "+fixNoisyFiles+" measured with one stray pixel in some blocks and kept on their blocks"
     : "";
-  fixBatchSay(fixBatchFiles.length+" of "+list.length+" done in "+secs+"s"+movedNote+unhonNote+raggedNote+smallNote+noGridNote+marksNote+noisyNote+unfitNote+offNote+shrunkNote+palNote
+  fixBatchSay(fixBatchFiles.length+" of "+list.length+" done in "+secs+"s"+movedNote+unhonNote+raggedNote+smallNote+noGridNote+marksNote+noisyNote+unfitNote+offNote+alphaNote+shrunkNote+palNote
     +(fixBatchStop?" (stopped - what is done is kept)":"")
     +(over?" \u00b7 "+over+" past the limit of "+FIX_BATCH_MAX+" were left out":"")
     +(failed.length?" \u00b7 could not do: "+failed.slice(0,6).join(", ")
@@ -22189,7 +22237,7 @@ PB.fix=async function(o){
   showPage("fixer",false);
   if(o.file) await fixLoad(o.file);
   else if(o.data&&o.width&&o.height){
-    FIX.src={data:new Uint8ClampedArray(o.data), width:o.width, height:o.height}; FIX.name=o.name||"image"; FIX.out=null;
+    FIX.src={data:new Uint8ClampedArray(o.data), width:o.width, height:o.height}; FIX.name=o.name||"image"; FIX.out=null; FIX.translucent=fixTranslucent(FIX.src.data,o.width*o.height);
     /* AND ITS OWN MEASUREMENT. fixNativeBlockFor caches on data identity
        against FIX.src.data, and FIX.native is written in exactly one other
        place - fixLoad, on the line after it sets FIX.src. Setting the

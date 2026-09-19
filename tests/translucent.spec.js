@@ -100,7 +100,10 @@ test.describe('translucent pixels', () => {
     const r = await single(page, fixture(false), 'scale');
     expect(r.width).toBe(64);
     expect(r.alpha, 'alpha comes through the canvas exactly').toEqual({ paint: 200, half: 127, faint: 60, solid: 255, empty: 0 });
-    expect(r.said).toMatch(/2,?048 translucent pixels are kept translucent; the browser rounds their colour on the way in, so those are not byte-exact/);
+    /* WAS "kept translucent; the browser rounds their colour on the way in,
+       so those are not byte-exact" - true while the browser's canvas decoded
+       the file. The page reads PNG bytes itself now (pngbytes.spec.js). */
+    expect(r.said).toMatch(/2,?048 translucent pixels are kept exactly, byte for byte/);
     const o = await single(page, fixture(true), 'scale');
     expect(o.said).not.toContain('translucent');
   });
@@ -109,7 +112,7 @@ test.describe('translucent pixels', () => {
     const fixed = await batch(page, [fixture(false), fixture(true)], 'fast');
     expect(fixed).toMatch(/1 had translucent pixels \(2,?048 in all\), counted as paint or clear - the results have none/);
     const scaled = await batch(page, [fixture(false), fixture(true)], 'scale');
-    expect(scaled).toMatch(/1 had translucent pixels \(2,?048 in all\), kept translucent - the browser rounds their colour on the way in/);
+    expect(scaled).toMatch(/1 had translucent pixels \(2,?048 in all\), kept exactly, byte for byte/);
     const none = await batch(page, [fixture(true), fixture(true)], 'fast');
     expect(none).not.toContain('translucent');
   });

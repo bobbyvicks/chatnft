@@ -246,7 +246,15 @@ test('THE FIXER CAN DO IT TO A WHOLE FOLDER', async ({ page }) => {
   expect(r.defaultOn, 'it does it unless told not to').toBe(true);
   expect(r.offRun.off, 'turned off, the colours are the picture own')
     .toBeGreaterThan(1000);
-  expect(r.offRun.said, 'and nothing is claimed').not.toContain('palette');
+  /* WAS `not.toContain('palette')`. That said "the run must not claim to have
+     done palette work when the switch was off", and forbade the word to say
+     it. The run now ends with whether the file is ready for the collection,
+     and being off the palette is one of the reasons it is not - a fact about
+     the file, not a claim about the run. So the assertion says what it meant:
+     no claim of having moved anything. */
+  expect(r.offRun.said, 'and no palette work is claimed').not.toMatch(/put on the palette|moved to the palette|colours moved across/);
+  expect(r.offRun.said, 'while the gate still reports what the file is')
+    .toMatch(/ready for the collection \(.*because it has colours off the palette/);
   /* ON: the written file is entirely on the palette, and the run says so. */
   expect(r.onRun.off, 'every pixel of the file is a palette colour').toBe(0);
   expect(r.onRun.said).toContain('put on the palette');

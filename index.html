@@ -20951,7 +20951,7 @@ let fixNativeNoisy=0;
 /* MARKS SMALLER THAN A CELL, measured once per picture and cached on the
    very array, the way the block is. */
 let fixMarksCache=null;
-let fixGridlessFellAt=[], fixGridlessFellKept=1, fixMarksDroppedTotal=0, fixMarksDroppedFiles=0, fixNoisyFiles=0, fixAlphaFiles=0, fixAlphaPixels=0, fixBrowserRead=[];
+let fixGridlessFellAt=[], fixGridlessFellKept=1, fixMarksDroppedTotal=0, fixMarksDroppedFiles=0, fixNoisyFiles=0, fixAlphaFiles=0, fixAlphaPixels=0, fixBrowserRead=[], fixGateReady=0, fixGateWhy=null;
 /* THE STEP FOR ONE PICTURE. Snapped, it is the width over the cell count -
    so any source size lands on exactly that many cells and the size
    difference is normalised rather than depended on. Not snapped, it is
@@ -21127,6 +21127,69 @@ function fixSmallMarks(data,W,H){
   }
   fixMarksCache={data:data, W:W, H:H, result:result};
   return result;
+}
+/* IS THIS RESULT READY FOR THE COLLECTION? The library states the gate:
+   1280 square, "ZERO mixed8px cells, ZERO off-palette pixels, ZERO
+   partial-alpha pixels" (CURRENT-REWORK-BRIEF.md).
+
+   THE BLOCK QUESTION IS ASKED OF THE SAVED PICTURE. The saved canvas is
+   made from the result by the same nearest-neighbour rule fixGridCanvas
+   uses - each destination pixel takes the source pixel under its centre -
+   so the pixels feeding one 8px block are a rectangle of the result, and
+   the block is flat when that rectangle is one colour. Asking instead
+   whether the result is 160 cells would be the same question only for the
+   engine's own path: a finished 1280 trait through scale only is saved
+   unchanged, is whole 8px blocks, and has 1280 one-pixel cells.
+
+   The palette set is paletteRGB's own - the membership snapToPalette uses
+   to leave a colour alone - so this cannot disagree with the palette
+   clause beside it.
+
+   A REASON COMES IN TWO FORMS. One run says "4 colours off the palette";
+   a folder counts the files each reason held back, and a count in front
+   of a reason that carries its own count reads as "1 4 colours off the
+   palette" - measured, in this patch's first draft. So each reason has a
+   `kind` that never carries a number, for counting, and a `text` that
+   does, for the one file. */
+function fixGateOf(r){
+  const on=$("fixgrid")&&$("fixgrid").checked;
+  const why=[];
+  const no=(kind,text)=>why.push({kind:kind, text:text||kind});
+  if(!on) no("it is not saved at "+CANVAS_SIDE);
+  else if(r.width!==r.height) no("it is not square");
+  else{
+    const S=CANVAS_SIDE, w=r.width, at=new Int32Array(S);
+    for(let x=0;x<S;x++) at[x]=Math.min(w-1,Math.floor((x+0.5)*w/S));
+    let mixed=0;
+    for(let by=0;by<S&&!mixed;by+=8) for(let bx=0;bx<S;bx+=8){
+      const y0=at[by], y1=at[by+7], x0=at[bx], x1=at[bx+7];
+      const i0=(y0*w+x0)*4;
+      let flat=true;
+      for(let y=y0;y<=y1&&flat;y++) for(let x=x0;x<=x1;x++){
+        const i=(y*w+x)*4;
+        if(r.data[i]!==r.data[i0]||r.data[i+1]!==r.data[i0+1]||r.data[i+2]!==r.data[i0+2]||r.data[i+3]!==r.data[i0+3]){ flat=false; break; }
+      }
+      if(!flat){ mixed++; break; }
+    }
+    if(mixed) no("its 8px blocks are not one colour");
+  }
+  const n=r.width*r.height;
+  const tl=fixTranslucent(r.data,n);
+  if(tl.count) no("it has part-transparent pixels",tl.count.toLocaleString()+" part-transparent pixel"+(tl.count===1?"":"s"));
+  /* the colours, once, against the palette's exact set */
+  const pal=paletteRGB(), exact=new Set(pal.map(p=>p.h));
+  const seen=new Set();
+  let off=0;
+  for(let i=0;i<n;i++){
+    const o=i*4;
+    if(r.data[o+3]===0) continue;
+    const key=(r.data[o]<<16)|(r.data[o+1]<<8)|r.data[o+2];
+    if(seen.has(key)) continue;
+    seen.add(key);
+    if(!exact.has("#"+((key>>>0)&0xffffff).toString(16).padStart(6,"0"))) off++;
+  }
+  if(off) no("it has colours off the palette",off+" colour"+(off===1?"":"s")+" off the palette");
+  return {ready:why.length===0, why:why, colours:seen.size, offPalette:off, partial:tl.count};
 }
 /* THE TRANSLUCENT PIXELS IN A PICTURE, and how the engine will treat them.
    The collection has no translucency and the engine gives it none: a
@@ -21622,7 +21685,7 @@ function fixRun(){
     const tl=FIX.translucent||{count:0};
     fixSay("Nothing was detected or recoloured. "+fixSaveSize(r)
       +(tl.count ? " \u00b7 "+tl.count.toLocaleString()+" translucent pixel"+(tl.count===1?" is":"s are")
-        +(FIX.decode==="png" ? " kept exactly, byte for byte" : " kept translucent; this file was read by the browser ("+FIX.decodeWhy+"), which rounds their colour") : ""));
+        +(FIX.decode==="png" ? " kept exactly, byte for byte" : " kept translucent; this file was read by the browser ("+FIX.decodeWhy+"), which rounds their colour") : "")+fixGateNote(r));
     $("fixacts").hidden=false; $("fixpair").hidden=false;
     return Promise.resolve(r);
   }
@@ -21725,6 +21788,7 @@ function fixRun(){
         fixSay(how+" \u00b7 "+secs+"s"
           +(dropped ? " \u00b7 "+dropped+" mark"+(dropped===1?"":"s")+" smaller than a cell "+(dropped===1?"was":"were")+" dropped" : "")
           +palNote
+          +fixGateNote(r)
           +alphaNote
           +((big||unsure)&&!gridless.pick ? " \u2014 if the edges still look soft, the pixel size it used ("
             +(+r.stepX).toFixed(2)+" px) was too small. "+fixTryThese() : ""));
@@ -21739,6 +21803,13 @@ function fixRun(){
     const copy=new Uint8ClampedArray(src.data);
     w.postMessage({data:copy, width:src.width, height:src.height, mode, forceStep:forced>0?forced:null},[copy.buffer]);
   });
+}
+/* READY, OR THE REASON IT IS NOT, as a clause. Both the engine path and
+   scale only end with it, because the question does not depend on which
+   one produced the picture. */
+function fixGateNote(r){
+  const gate=fixGateOf(r);
+  return " \u00b7 "+(gate.ready ? "ready for the collection" : "not ready for the collection: "+gate.why.map(w=>w.text).join(", "));
 }
 /* THE RESULT, ON SCREEN. Both the detected answer and the scaled-only one
    land here, so there is one place that decides what a result looks like
@@ -21878,7 +21949,7 @@ async function fixBatchRun(files){
   /* BEFORE the list is replaced: it is what holds the urls to revoke. */
   fixMoved=null; fixNoGrid=0; fixGridlessAt=[];
   fixMovedLast=null; fixMovedCount=0; fixUnhonouredAt=[]; fixNativeKept=0; fixOwnBlocks=0; fixUnfitAt=[];
-  fixGridlessFellAt=[]; fixGridlessFellKept=1; fixMarksDroppedTotal=0; fixMarksDroppedFiles=0; fixNoisyFiles=0; fixAlphaFiles=0; fixAlphaPixels=0; fixBrowserRead=[];
+  fixGridlessFellAt=[]; fixGridlessFellKept=1; fixMarksDroppedTotal=0; fixMarksDroppedFiles=0; fixNoisyFiles=0; fixAlphaFiles=0; fixAlphaPixels=0; fixBrowserRead=[]; fixGateReady=0; fixGateWhy=new Map();
   fixPalMoved=0; fixPalPixels=0; fixPalFiles=0; fixPalWorst=0; fixPalMerged=0; fixPalExcluded=0;
   /* Pictures reduced by a whole factor to get under the engine limit. */
   const shrunk=[];
@@ -21966,6 +22037,12 @@ async function fixBatchRun(files){
       if(dr){ fixMarksDroppedTotal+=dr; fixMarksDroppedFiles++; } }
     /* Before the canvas is made from it, so the file and the tile agree. */
     fixPalApply(out,rel);
+    /* READY FOR THE COLLECTION, counted here: after the palette, which is
+       what decides the colour question, and before the canvas, which
+       cannot change any of the four facts. */
+    { const gt=fixGateOf(out);
+      if(gt.ready) fixGateReady++;
+      else for(const w of gt.why) fixGateWhy.set(w.kind,(fixGateWhy.get(w.kind)||0)+1); }
     /* The same canvas the single save uses, so the switch means one thing. */
     const oc=fixGridCanvas(out);
     const blob=scale ? null : await new Promise(res=>oc.toBlob(res,"image/png"));
@@ -22088,6 +22165,13 @@ async function fixBatchRun(files){
     ? " \u00b7 "+fixBrowserRead.length+" read by the browser, not the page's PNG reader: "+fixBrowserRead.slice(0,3).join(", ")
       +(fixBrowserRead.length>3?" and "+(fixBrowserRead.length-3)+" more":"")
     : "";
+  /* THE ANSWER THE TAB IS OPENED FOR. Every clause above says what the run
+     did; this says what the files ARE. The reasons are counted rather than
+     listed per file, in the order that holds the most back. */
+  const gateNote = fixBatchFiles.length
+    ? " \u00b7 "+fixGateReady+" of "+fixBatchFiles.length+" ready for the collection"
+      +(fixGateWhy.size ? " ("+[...fixGateWhy.entries()].sort((a,b)=>b[1]-a[1]).map(([w,n])=>n+" because "+w).join(", ")+")" : "")
+    : "";
   const shrunkNote = shrunk.length
     ? " \u00b7 "+shrunk.length+" were larger than the engine takes and were reduced"
       +" by a whole factor first: "+shrunk.join(", ")
@@ -22111,7 +22195,7 @@ async function fixBatchRun(files){
   const noisyNote = fixNoisyFiles
     ? " \u00b7 "+fixNoisyFiles+" measured with one stray pixel in some blocks and kept on their blocks"
     : "";
-  fixBatchSay(fixBatchFiles.length+" of "+list.length+" done in "+secs+"s"+movedNote+unhonNote+raggedNote+smallNote+noGridNote+marksNote+noisyNote+unfitNote+offNote+alphaNote+readNote+shrunkNote+palNote
+  fixBatchSay(fixBatchFiles.length+" of "+list.length+" done in "+secs+"s"+movedNote+unhonNote+raggedNote+smallNote+noGridNote+marksNote+noisyNote+unfitNote+offNote+alphaNote+readNote+shrunkNote+palNote+gateNote
     +(fixBatchStop?" (stopped - what is done is kept)":"")
     +(over?" \u00b7 "+over+" past the limit of "+FIX_BATCH_MAX+" were left out":"")
     +(failed.length?" \u00b7 could not do: "+failed.slice(0,6).join(", ")

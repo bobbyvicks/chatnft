@@ -54,11 +54,18 @@ const run = (page, src, name) => page.evaluate(async ({ s, name }) => {
 test('A 2048 TRAIT GOES THROUGH INSTEAD OF BOUNCING', async ({ page }) => {
   await ready(page);
   const r = await run(page, art(2048, 16), 'big.png');
-  /* 2048 halves to 1024, which the engine takes; 16px blocks become 8px
-     blocks with nothing moved, so the art is still 128 pixels across. */
+  /* 2048 halves to 1024, which the engine takes; its 16px blocks become 8px
+     blocks in the reduced picture with nothing moved, so its own count is 128.
+     On the 1280 canvas those 128 cells are 10px blocks, which the collection
+     cannot hold, so since 2026-09-21 Pixel size 0 re-cuts them onto the 160
+     grid. WAS 128, "its own resolution, unchanged by the reduction" - the
+     reduction still changes nothing, and the collection's grid is applied
+     after it, as it is to any other picture. What this test is about is that
+     an oversize trait goes through at all rather than bouncing. See
+     defaultgrid.spec.js for the rule. */
   expect(r.saved, 'and it saves at the collection size like everything else')
     .toBe('1280x1280');
-  expect(r.cells, 'its own resolution, unchanged by the reduction').toBe(128);
+  expect(r.cells, 'on the collection grid, like any other picture').toBe(160);
   expect(r.said, 'and it is not silent about a step nobody asked for')
     .toContain('reduced');
   expect(r.said).not.toContain('outside what this can take');

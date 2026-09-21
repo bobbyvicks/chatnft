@@ -73,8 +73,13 @@ test('A NUDGED BRUSH DOES NOT FOLLOW YOU TO THE NEXT TRAIT', async ({ page }) =>
     return { first, nudged, second: snap() };
   }, { five: art(640, 5, 'one.png'), eight: art(640, 8, 'two.png') });
 
-  /* 640 at 5px blocks is 128 cells on the 1280 canvas, so 10 pixels a cell. */
-  expect(r.first.brush, 'the first trait sets the brush to its pixel size').toBe('10 × 10');
+  /* 640 at 5px blocks is 128 cells, which is 10 pixels a cell on the 1280
+     canvas - coarser than the collection's 8px cell and not a multiple of it,
+     so since 2026-09-21 Pixel size 0 re-cuts it onto the 160 grid and the
+     brush follows the result at 8. WAS '10 × 10', the picture's own count.
+     What this test is about is the line below: the nudge does not follow you
+     to the next trait. See defaultgrid.spec.js for the rule. */
+  expect(r.first.brush, 'the first trait sets the brush to its pixel size').toBe('8 × 8');
   /* THE NUDGE STILL WORKS on the trait being worked on - that is what the
      switch is for and it is not being taken away. */
   expect(r.nudged.brush).toBe('3 × 3');

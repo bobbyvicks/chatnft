@@ -13869,8 +13869,11 @@ function agentSpec(){
   const layer=$("tlayer")?$("tlayer").value:"";
   const im=ctx.getImageData(0,0,art.width,art.height);
   const r=specCheck(im.data,art.width,art.height,layer);
-  const bits=[r.colours+" colours"+(r.budget?" of "+r.budget+" allowed":"")];
-  if(r.overBudget) bits.push(r.overBudget+" over");
+  /* The same sentence the run prints, from the same function. r.budget is
+     already ruleColourBudget for this layer, and r.overBudget stays in the
+     returned data for anything that wants the difference as a number - it
+     is 0 now for a caller with no category, which is the fix. */
+  const bits=[colourCountNote(r.colours,r.budget)];
   bits.push(r.offPaletteColours
     ? r.offPaletteColours+" off palette ("+r.offPalettePixels+" px)"
     : "all on palette");
@@ -19744,8 +19747,55 @@ function snapToPalette(d,n){
 }
 /* The standing decisions, as the defaults a project starts from. */
 const AGRULES_ID="settings.agentrules";
-/* The Creator Kit brief: "at most 16 palette colours (8 for clothing),
-   including black #000000 outlines". */
+/* THE COLOUR GUIDELINE. REPORTED, NEVER ENFORCED.
+
+   SUPERSEDES: 'The Creator Kit brief: "at most 16 palette colours (8 for
+   clothing), including black #000000 outlines".' That sentence is true and
+   the quote is exact - the kit is at OneDrive/Documents/ChatGPT/pixel art_/
+   brank kit/Mrkt Mkrs - NFT Creator Kit and GEMINI PROMPT.txt line 15 reads
+   "Choose at most 16 palette colours (8 for clothing), including black
+   #000000 outlines." What it left out is WHICH PIECE OF WORK the kit is
+   talking about, and that is the whole question.
+
+   THE KIT SAYS IT ABOUT A DRAFT. guides/EXPORT CHECK.txt files the rule
+   under the heading "GENERATION DRAFT - 1024 x 1024 PNG": "New artwork uses
+   only the current palette (16 colours max; clothing 8)". The section below
+   it, "FINAL COLLECTION LAYER - INTEGRATOR", is the one that governs what
+   fixGateOf judges - "Current collection exports are 1280 x 1280" - and it
+   states geometry, alpha and extraction rules and NO colour cap. START
+   HERE.md says the same: "Work at 1024 x 1024 and keep the full frame...
+   It still needs extraction and a fit check before collection approval."
+
+   AND THE LIBRARY LIFTS IT, BY NAME, FOR FINISHED TRAITS. A dozen trait
+   records say so: new-traits/BALLOONSVILLE-RUGGER-20260904-REVIEW.md:9 "27
+   colours from the fixed Vivid128 project palette; no arbitrary 8/16-colour
+   cap."; I Am A N Shirt Project Shading v4-review.md:9 "The eight-colour
+   count cap was removed (maxOpaqueColors 128)."; and Coinbase Blue Jacket
+   Uncapped v2-review.md:3 records the owner approving the uncapped revision
+   on 2026-09-03. CURRENT-REWORK-BRIEF.md:44 states it standing: "Preserve
+   material colour families and readable shading; no arbitrary colour-count
+   caps, averaging or blur. Palette membership alone is not artistic
+   correctness."
+
+   SO IT IS NOT A FIFTH GATE FACT. Enforcing it would refuse 121 of the 311
+   working traits - 38.9% - forever by configuration, and per layer
+   (clothing 8, everything else 16), which is the layer exemption the gate
+   does not have; 852cd6d refused exactly that shape two commits ago at a
+   cost of 79. There is no way out of it for the artist either: keeping the
+   guideline-many biggest colours and moving the rest to the nearest kept
+   colour forces a move of at least dE 5.3 on every one of the 121.
+
+   AND IT IS NOT DELETED. patch344 already decided who judges it - "a trait
+   over budget may be exactly right and the budget may be what is wrong, and
+   that is the owner's call, not a tool's" - and the count is the one thing
+   this page can say about a file the gate passes. What was wrong was the
+   wording, and a panel nobody but an agent can open: #agbtn is hidden in the
+   markup and un-hidden only by agentMode.
+
+   THE KEYS STAY colourBudget AND colourBudgetBy. They are the field names of
+   a stored settings.agentrules record - applyAgentRules below reads them off
+   it - so renaming them would silently drop a project's saved number. The
+   words change; the keys do not. Decided 2026-09-21. */
 const AGRULES_DEFAULT={version:1, bodyGrid:8, detailGrid:4,
   gridExempt:["chains","eyes"], cleanupExcluded:["skins","backgrounds"],
   colourBudget:16, colourBudgetBy:{clothing:8},
@@ -19906,11 +19956,46 @@ function placementCheck(d,W,H,layer){
   }
   return out;
 }
-/* How many colours this category is allowed. */
+/* HOW MANY COLOURS THE PROJECT'S GUIDELINE ASKS OF THIS CATEGORY, or 0 for
+   "the rules do not say" - the same answer ruleGridFor gives, for the same
+   reason.
+
+   NO CATEGORY IS NOT A CATEGORY. #tlayer is the Save-to-project select,
+   buildLayerSelect leaves it on "unsorted" and fixOpen never writes it, so a
+   clothing trait straight out of the fixer was reported "of 16 allowed" -
+   not its guideline, and not anybody's decision. Where the rules are silent
+   the count on its own is the honest answer.
+
+   0 is not a refusal and not a quiet 16: every caller prints the count
+   either way and adds the guideline only when there is one. */
 function ruleColourBudget(layer){
+  const l=String(layer||"");
+  if(!l||l==="unsorted") return 0;
   const by=AGENT_RULES.colourBudgetBy||{};
-  const own=by[String(layer||"")];
+  const own=by[l];
   return Number.isInteger(own)&&own>=1 ? own : (AGENT_RULES.colourBudget||0);
+}
+/* THE COLOUR COUNT, SAID - WITH THE GUIDELINE WHEN THE RULES HAVE ONE.
+
+   ONE WORDING, ONE PLACE. The gate line and the agent panel are the two
+   sentences this page prints about how many colours a trait holds, and they
+   disagreed about what the number MEANS - one never mentioned it, the other
+   called it an allowance and counted how far "over". Two functions wording
+   one measurement differently is how a page comes to hold two verdicts.
+
+   "past" and "within", never "over" or "allowed": nothing here refuses
+   anything, and a sentence that sounds like a limit reads as one.
+
+   toLocaleString because this number is not always small. Scale only does
+   not apply the palette, so the count is the source's own: measured on
+   backgrounds/center.png it is 1,014,063, and the clause beside it already
+   groups its digits. */
+function colourCountNote(colours,budget){
+  const s=colours.toLocaleString()+" colour"+(colours===1?"":"s");
+  if(!budget) return s;
+  return colours<=budget
+    ? s+", within the project's colour guideline of "+budget
+    : s+", "+(colours-budget).toLocaleString()+" past the project's colour guideline of "+budget;
 }
 /* THE SPEC, MEASURED. Colours used, colours outside the fixed palette, and
    partial alpha - the three things the Creator Kit brief is explicit about
@@ -20451,7 +20536,14 @@ function agRules(){
   el.textContent=PALETTE_SOURCE.name+" ("+p.length+" colours)"
     +"  \u00b7  bodies "+AGENT_RULES.bodyGrid+"px, detail "+AGENT_RULES.detailGrid+"px"
     +"  \u00b7  not forced onto a grid: "+((AGENT_RULES.gridExempt||[]).join(", ")||"none")
-    +"  \u00b7  left out of cleanup: "+((AGENT_RULES.cleanupExcluded||[]).join(", ")||"none");
+    +"  \u00b7  left out of cleanup: "+((AGENT_RULES.cleanupExcluded||[]).join(", ")||"none")
+    /* THE ONE RULE THIS PANEL LEFT OUT, and it has an opinion about every
+       file in the collection. Said with what it is: a guideline the page
+       reports, not a gate it enforces. */
+    +"  \u00b7  colour guideline: "+(AGENT_RULES.colourBudget||"none")
+      +Object.keys(AGENT_RULES.colourBudgetBy||{}).map(function(k){
+        return ", "+k+" "+AGENT_RULES.colourBudgetBy[k]; }).join("")
+      +" - reported, never enforced";
   const box=$("agswatches"); if(!box) return;
   if(box.childElementCount===p.length) return;
   box.replaceChildren();
@@ -20971,7 +21063,7 @@ let fixNativeNoisy=0;
 /* MARKS SMALLER THAN A CELL, measured once per picture and cached on the
    very array, the way the block is. */
 let fixMarksCache=null;
-let fixGridlessFellAt=[], fixGridlessFellKept=1, fixMarksDroppedTotal=0, fixMarksDroppedFiles=0, fixNoisyFiles=0, fixAlphaFiles=0, fixAlphaPixels=0, fixBrowserRead=[], fixGateReady=0, fixGateWhy=null, fixRecutAt=[];
+let fixGridlessFellAt=[], fixGridlessFellKept=1, fixMarksDroppedTotal=0, fixMarksDroppedFiles=0, fixNoisyFiles=0, fixAlphaFiles=0, fixAlphaPixels=0, fixBrowserRead=[], fixGateReady=0, fixGateWhy=null, fixRecutAt=[], fixGatePast=0, fixGatePastMost=0;
 /* THE STEP FOR ONE PICTURE. Snapped, it is the width over the cell count -
    so any source size lands on exactly that many cells and the size
    difference is normalised rather than depended on. Not snapped, it is
@@ -21750,7 +21842,7 @@ function fixRun(){
     const tl=FIX.translucent||{count:0};
     fixSay("Nothing was detected or recoloured. "+fixSaveSize(r)
       +(tl.count ? " \u00b7 "+tl.count.toLocaleString()+" translucent pixel"+(tl.count===1?" is":"s are")
-        +(FIX.decode==="png" ? " kept exactly, byte for byte" : " kept translucent; this file was read by the browser ("+FIX.decodeWhy+"), which rounds their colour") : "")+fixGateNote(r));
+        +(FIX.decode==="png" ? " kept exactly, byte for byte" : " kept translucent; this file was read by the browser ("+FIX.decodeWhy+"), which rounds their colour") : "")+fixGateNote(r,FIX.rel));
     $("fixacts").hidden=false; $("fixpair").hidden=false;
     return Promise.resolve(r);
   }
@@ -21861,7 +21953,7 @@ function fixRun(){
         fixSay(how+" \u00b7 "+secs+"s"
           +(dropped ? " \u00b7 "+dropped+" mark"+(dropped===1?"":"s")+" smaller than a cell "+(dropped===1?"was":"were")+" dropped" : "")
           +palNote
-          +fixGateNote(r)
+          +fixGateNote(r,FIX.rel)
           +alphaNote
           +((big||unsure)&&!gridless.pick ? " \u2014 if the edges still look soft, the pixel size it used ("
             +(+r.stepX).toFixed(2)+" px) was too small. "+fixTryThese() : ""));
@@ -21880,9 +21972,30 @@ function fixRun(){
 /* READY, OR THE REASON IT IS NOT, as a clause. Both the engine path and
    scale only end with it, because the question does not depend on which
    one produced the picture. */
-function fixGateNote(r){
+/* THE CATEGORY A RUN'S FILE IS IN, for the rules that have one - and only
+   from readPath's `layer`, which can name a layer this project actually has
+   and nothing else.
+
+   NOT `folder`. readPath returns both and says which is which: "`layer`
+   above can only ever name a layer the project already has", and of the
+   folder, "The caller decides whether to adopt it - readPath only reads."
+   Adopting it here would answer the project's default 16 for any folder at
+   all - Downloads, or a dated export folder - which is the same number
+   nobody decided that this patch just removed from #tlayer, arriving by a
+   different door. A file whose folder is not a layer of this project gets
+   the count on its own, which is a real answer and not a missing one. */
+function fixLayerOf(rel){
+  return readPath(String(rel||"")).layer||"";
+}
+function fixGateNote(r,rel){
   const gate=fixGateOf(r);
-  return " \u00b7 "+(gate.ready ? "ready for the collection" : "not ready for the collection: "+gate.why.map(w=>w.text).join(", "));
+  /* THE COUNT THE GATE ALREADY HAD. fixGateOf has returned `colours` since
+     ab044bc and nothing has ever read it: the one number this page computes
+     about a finished trait and never says. It is NOT a fifth fact - `ready`
+     is untouched and this clause sits after it - it is the measurement the
+     guideline is about, printed where the person actually is. */
+  return " \u00b7 "+(gate.ready ? "ready for the collection" : "not ready for the collection: "+gate.why.map(w=>w.text).join(", "))
+    +" \u00b7 "+colourCountNote(gate.colours,ruleColourBudget(fixLayerOf(rel)));
 }
 /* THE RESULT, ON SCREEN. Both the detected answer and the scaled-only one
    land here, so there is one place that decides what a result looks like
@@ -22022,7 +22135,7 @@ async function fixBatchRun(files){
   /* BEFORE the list is replaced: it is what holds the urls to revoke. */
   fixMoved=null; fixNoGrid=0; fixGridlessAt=[];
   fixMovedLast=null; fixMovedCount=0; fixUnhonouredAt=[]; fixNativeKept=0; fixOwnBlocks=0; fixUnfitAt=[];
-  fixGridlessFellAt=[]; fixGridlessFellKept=1; fixMarksDroppedTotal=0; fixMarksDroppedFiles=0; fixNoisyFiles=0; fixAlphaFiles=0; fixAlphaPixels=0; fixBrowserRead=[]; fixGateReady=0; fixGateWhy=new Map(); fixRecutAt=[];
+  fixGridlessFellAt=[]; fixGridlessFellKept=1; fixMarksDroppedTotal=0; fixMarksDroppedFiles=0; fixNoisyFiles=0; fixAlphaFiles=0; fixAlphaPixels=0; fixBrowserRead=[]; fixGateReady=0; fixGateWhy=new Map(); fixRecutAt=[]; fixGatePast=0; fixGatePastMost=0;
   fixPalMoved=0; fixPalPixels=0; fixPalFiles=0; fixPalWorst=0; fixPalMerged=0; fixPalWorstFile="";
   /* Pictures reduced by a whole factor to get under the engine limit. */
   const shrunk=[];
@@ -22116,7 +22229,14 @@ async function fixBatchRun(files){
        cannot change any of the four facts. */
     { const gt=fixGateOf(out);
       if(gt.ready) fixGateReady++;
-      else for(const w of gt.why) fixGateWhy.set(w.kind,(fixGateWhy.get(w.kind)||0)+1); }
+      else for(const w of gt.why) fixGateWhy.set(w.kind,(fixGateWhy.get(w.kind)||0)+1);
+      /* AND THE COLOUR COUNT, WHICH THE GATE DOES NOT JUDGE. Counted here
+         because `rel` is in scope and the layer is the only thing that gives
+         the guideline a number - a file in a folder this project has no
+         layer for has none, and then there is nothing to count. */
+      const bd=ruleColourBudget(fixLayerOf(rel));
+      if(bd&&gt.colours>bd){ fixGatePast++;
+        if(gt.colours>fixGatePastMost) fixGatePastMost=gt.colours; } }
     /* The same canvas the single save uses, so the switch means one thing. */
     const oc=fixGridCanvas(out);
     const blob=scale ? null : await new Promise(res=>oc.toBlob(res,"image/png"));
@@ -22255,6 +22375,13 @@ async function fixBatchRun(files){
     ? " \u00b7 "+fixGateReady+" of "+fixBatchFiles.length+" ready for the collection"
       +(fixGateWhy.size ? " ("+[...fixGateWhy.entries()].sort((a,b)=>b[1]-a[1]).map(([w,n])=>n+" because "+w).join(", ")+")" : "")
     : "";
+  /* THE COUNT BESIDE THE VERDICT, NOT INSIDE IT. The gate passed all of
+     these; this is the other thing the page knows about them. No
+     parentheses: the clause before this one uses them for the reasons a file
+     was held back, and a second bracket reads as more of those. */
+  const pastNote = fixGatePast
+    ? " \u00b7 "+fixGatePast+(fixGatePast===1?" holds":" hold")+" more colours than the project's guideline for their layer, the most "+fixGatePastMost.toLocaleString()
+    : "";
   const shrunkNote = shrunk.length
     ? " \u00b7 "+shrunk.length+" were larger than the engine takes and were reduced"
       +" by a whole factor first: "+shrunk.join(", ")
@@ -22278,7 +22405,7 @@ async function fixBatchRun(files){
   const noisyNote = fixNoisyFiles
     ? " \u00b7 "+fixNoisyFiles+" measured with one stray pixel in some blocks and kept on their blocks"
     : "";
-  fixBatchSay(fixBatchFiles.length+" of "+list.length+" done in "+secs+"s"+movedNote+unhonNote+raggedNote+smallNote+noGridNote+marksNote+noisyNote+recutNote+unfitNote+offNote+alphaNote+readNote+shrunkNote+palNote+gateNote
+  fixBatchSay(fixBatchFiles.length+" of "+list.length+" done in "+secs+"s"+movedNote+unhonNote+raggedNote+smallNote+noGridNote+marksNote+noisyNote+recutNote+unfitNote+offNote+alphaNote+readNote+shrunkNote+palNote+gateNote+pastNote
     +(fixBatchStop?" (stopped - what is done is kept)":"")
     +(over?" \u00b7 "+over+" past the limit of "+FIX_BATCH_MAX+" were left out":"")
     +(failed.length?" \u00b7 could not do: "+failed.slice(0,6).join(", ")

@@ -21077,6 +21077,12 @@ let fixMoved=null;
    by fixStepFor, read by the readout and by the run's own sentence, and
    cleared with its neighbours so it cannot describe the decision before. */
 let fixBlockRecut=null;
+/* AND THE SAME FACT ON THE TYPED PATH: what the picture is drawn at, when
+   that is not what the typed size is about to cut it to. fixBlockRecut is
+   the default path's version of this and carries an instruction with it
+   ("type 10 to keep them"); this one carries none, because a size was
+   typed on purpose and the answer is not that it was wrong. */
+let fixTypedRecut=null;
 /* How many pictures in this run had no block structure for the snap to
    use. They fall back to the declared grid, which keeps the pixels square
    and cannot keep detail the picture never had on a grid - so the run
@@ -21103,7 +21109,7 @@ let fixUnhonoured=null;
 let fixBlockUnfit=null;
 /* THE FOLDER RUN'S TALLIES, kept per file inside the loop because only
    the cell count survives it, and a count cannot say why. */
-let fixMovedLast=null, fixMovedCount=0, fixUnhonouredAt=[], fixNativeKept=0, fixOwnBlocks=0, fixUnfitAt=[];
+let fixMovedLast=null, fixMovedCount=0, fixUnhonouredAt=[], fixNativeKept=0, fixOwnBlocks=0, fixUnfitAt=[], fixTypedRecutAt=[];
 /* WHAT THE GRIDLESS SEARCH FOUND for the last decision: whether a count
    passed the 95% rule or was the best of a failed lot, and what it kept. */
 let fixGridlessPassed=false, fixGridlessKept=0;
@@ -21572,7 +21578,7 @@ function fixStepFor(w,data,h){
   /* THIS DECISION, NOT THE LAST ONE. Every flag below describes the step
      about to be returned; left over from a previous call, any of them
      puts that label on a different answer. */
-  fixMeasuredBlock=0; fixGridlessPick=0; fixMoved=null; fixUnhonoured=null; fixBlockUnfit=null; fixBlockRecut=null;
+  fixMeasuredBlock=0; fixGridlessPick=0; fixMoved=null; fixUnhonoured=null; fixBlockUnfit=null; fixBlockRecut=null; fixTypedRecut=null;
   const asked=+$("fixforce").value||0;
   const onGrid=$("fixgrid")&&$("fixgrid").checked;
   const px=data||(FIX.src&&FIX.src.data);
@@ -21630,7 +21636,28 @@ function fixStepFor(w,data,h){
       fixUnhonoured={asked:asked, cells:cells, w:w, step:keep, cols:Math.max(1,fixRint(w/keep))};
       return keep;
     }
-    return w/cells;
+    /* WHAT IT WAS DRAWN AT, AGAINST WHAT IT IS ABOUT TO BE CUT TO. The
+       typed size wins - that decision is above and it stands - but the run
+       was saying nothing at all about a picture whose blocks it was about
+       to slice. 102 of the 311 working traits are in this case.
+
+       ONLY WHEN NEITHER DIVIDES THE OTHER. 8px art typed at 4 is two
+       whole cells per block and loses nothing; 2px art typed at 8 is four
+       whole blocks a cell, which is a merge the marks-dropped clause
+       already covers. What breaks lettering is 10px or 5px art on 8px
+       cells, where every boundary lands inside a block - 101 of the 311,
+       against one clean merge and 43 already at 8.
+
+       Measured here rather than at the call sites because this is where
+       the step is known; recorded in a flag rather than returned because
+       every caller of this function wants the step and one of them wants
+       the reason. */
+    const step=w/cells;
+    const drawn=px?fixNativeBlockFor(px,w,ph):0;
+    const whole=x=>Math.abs(x-Math.round(x))<1e-9;
+    if(drawn>1&&step>0&&!whole(drawn/step)&&!whole(step/drawn))
+      fixTypedRecut={block:drawn, cells:Math.max(1,fixRint(w/drawn)), to:step};
+    return step;
   }
   if(fixSnapping()){
     /* THE PICTURE FIRST, UNLESS THE PICTURE IS COARSER THAN THE COLLECTION.
@@ -21987,9 +22014,17 @@ function fixRun(){
            for the step it was given, so without this the sentence would
            call a decision the tab took a confidence level. */
         const recutBy=fixBlockRecut;
+        /* AND THE TYPED PATH'S VERSION. Without this a forced run falls
+           through to "medium confidence (forced)", which is the engine
+           describing the instruction it was given - not a word about the
+           picture it was given it for. */
+        const typedBy=fixTypedRecut;
         const how = recutBy
           ? "measured "+recutBy.canvasBlock+"px blocks off the picture and re-cut them on the "
             +fixGridCells().cells+" cell grid - type "+recutBy.canvasBlock+" to keep them"
+          : typedBy
+          ? "drawn at "+typedBy.block+"px blocks ("+typedBy.cells+" cells), which the "
+            +fixGridCells().cells+" cell grid cuts across"
           : r.consensus==="measured"
           ? (r.measuredBlock===1
             ? "kept at one pixel per cell - the picture is already at its native size"
@@ -22184,7 +22219,7 @@ async function fixBatchRun(files){
   const over=all.length-list.length;
   /* BEFORE the list is replaced: it is what holds the urls to revoke. */
   fixMoved=null; fixNoGrid=0; fixGridlessAt=[];
-  fixMovedLast=null; fixMovedCount=0; fixUnhonouredAt=[]; fixNativeKept=0; fixOwnBlocks=0; fixUnfitAt=[];
+  fixMovedLast=null; fixMovedCount=0; fixUnhonouredAt=[]; fixNativeKept=0; fixOwnBlocks=0; fixUnfitAt=[]; fixTypedRecutAt=[];
   fixGridlessFellAt=[]; fixGridlessFellKept=1; fixMarksDroppedTotal=0; fixMarksDroppedFiles=0; fixNoisyFiles=0; fixAlphaFiles=0; fixAlphaPixels=0; fixBrowserRead=[]; fixGateReady=0; fixGateWhy=new Map(); fixRecutAt=[]; fixGatePast=0; fixGatePastMost=0;
   fixPalMoved=0; fixPalPixels=0; fixPalFiles=0; fixPalWorst=0; fixPalMerged=0; fixPalWorstFile="";
   /* Pictures reduced by a whole factor to get under the engine limit. */
@@ -22263,6 +22298,7 @@ async function fixBatchRun(files){
           else if(fixMeasuredBlock>1&&(sw<fixGridCells().cells||sh<fixGridCells().cells)) fixOwnBlocks++;
           if(fixBlockUnfit) fixUnfitAt.push(fixBlockUnfit.block);
           if(fixBlockRecut) fixRecutAt.push(fixBlockRecut.canvasBlock);
+          if(fixTypedRecut) fixTypedRecutAt.push(fixTypedRecut.block);
           return s>0?s:null; })()});
     if(!r||r.error){ failed.push(name+" ("+((r&&r.error)||"no answer")+")"); continue; }
     const out=r.ok;
@@ -22381,6 +22417,16 @@ async function fixBatchRun(files){
       +[...new Set(fixRecutAt)].sort((a,b)=>a-b).map(b=>b+"px").join(", ")+") and re-cut on the "
       +fixGridCells().cells+" cell grid - type "+[...new Set(fixRecutAt)].sort((a,b)=>a-b)[0]+" to keep them"
     : "";
+  /* THE SAME FACT ON THE TYPED PATH, where nothing said it. No advice
+     attached: the size was typed on purpose, the collection wants 8, and
+     "type 10 to keep them" would be telling somebody to leave the grid the
+     gate is about. It is here so that a folder of traits whose lettering
+     comes out broken says which files to go and look at. */
+  const typedRecutNote = fixTypedRecutAt.length
+    ? " \u00b7 "+fixTypedRecutAt.length+" were drawn at a block size the "
+      +fixGridCells().cells+" cell grid cuts across ("
+      +[...new Set(fixTypedRecutAt)].sort((a,b)=>a-b).map(b=>b+"px").join(", ")+")"
+    : "";
   const unfitNote = fixUnfitAt.length
     ? " \u00b7 "+fixUnfitAt.length+" drawn in blocks the grid cannot hold ("
       +[...new Set(fixUnfitAt)].sort((a,b)=>a-b).map(b=>b+"px").join(", ")+") and re-cut on the "
@@ -22455,7 +22501,7 @@ async function fixBatchRun(files){
   const noisyNote = fixNoisyFiles
     ? " \u00b7 "+fixNoisyFiles+" measured with one stray pixel in some blocks and kept on their blocks"
     : "";
-  fixBatchSay(fixBatchFiles.length+" of "+list.length+" done in "+secs+"s"+movedNote+unhonNote+raggedNote+smallNote+noGridNote+marksNote+noisyNote+recutNote+unfitNote+offNote+alphaNote+readNote+shrunkNote+palNote+gateNote+pastNote
+  fixBatchSay(fixBatchFiles.length+" of "+list.length+" done in "+secs+"s"+movedNote+unhonNote+raggedNote+smallNote+noGridNote+marksNote+noisyNote+recutNote+typedRecutNote+unfitNote+offNote+alphaNote+readNote+shrunkNote+palNote+gateNote+pastNote
     +(fixBatchStop?" (stopped - what is done is kept)":"")
     +(over?" \u00b7 "+over+" past the limit of "+FIX_BATCH_MAX+" were left out":"")
     +(failed.length?" \u00b7 could not do: "+failed.slice(0,6).join(", ")

@@ -19646,9 +19646,15 @@ function snapToPalette(d,n){
   const palLab=pal.map(p=>labOf(p.r,p.g,p.b));
   /* THE DISTINCT COLOURS, AND HOW MANY PIXELS EACH HAS. */
   const count=new Map();
+  /* THE OPAQUE PIXELS, so the run can say how much of the picture moved.
+     `worst` is a maximum over DISTINCT colours and knows nothing about
+     area: a colour on four cells can set it while a skin whose whole face
+     moved sets nothing. */
+  let opaque=0;
   for(let i=0;i<n;i++){
     const o=i*4;
     if(d[o+3]===0) continue;
+    opaque++;
     const key=(d[o]<<16)|(d[o+1]<<8)|d[o+2];
     count.set(key,(count.get(key)||0)+1);
   }
@@ -19734,7 +19740,7 @@ function snapToPalette(d,n){
     d[o]=t.r; d[o+1]=t.g; d[o+2]=t.b;
     pixels++;
   }
-  return {colours:moved, pixels:pixels, worst:worst, seen:count.size, groups:groups.length, merged:merged, mergedWorst:mergedWorst};
+  return {colours:moved, pixels:pixels, worst:worst, seen:count.size, groups:groups.length, merged:merged, mergedWorst:mergedWorst, opaque:opaque, share:opaque?pixels/opaque:0};
 }
 /* The standing decisions, as the defaults a project starts from. */
 const AGRULES_ID="settings.agentrules";
@@ -20877,17 +20883,26 @@ let fixPalMoved=0, fixPalPixels=0, fixPalFiles=0;
    how many of the recoloured files come from layers the agent rules
    leave out of cleanup - the rules and this switch disagree, and until
    that is decided the run at least says so. */
-let fixPalWorst=0, fixPalMerged=0, fixPalExcluded=0;
+/* THE PICTURE THAT MOVED FURTHEST, BY NAME. Replaces a count of files
+   "from layers the agent rules leave out of cleanup (skins, backgrounds)",
+   which read a note about the agent's own cleanup pass as a prohibition on
+   the palette. ruleCleanupAllowed had exactly one caller - that counter -
+   so it had never gated any pixel operation; the collection's gate has no
+   layer exemption; and obeying it would have shipped 79 traits the gate
+   line calls not ready, forever, by configuration. Decided 2026-09-21.
+
+   What the sentence was reaching for is here instead: the run prints the
+   furthest any colour moved, and now says in WHICH picture, which is the
+   one thing anybody would act on. */
+let fixPalWorst=0, fixPalMerged=0, fixPalWorstFile="";
 function fixPalWanted(){ const b=$("fixpal"); return !!(b&&b.checked); }
 function fixPalApply(out,rel){
   if(!out||!out.data||!fixPalWanted()) return null;
   const r=snapToPalette(out.data,out.width*out.height);
   if(r.colours){
     fixPalMoved+=r.colours; fixPalPixels+=r.pixels; fixPalFiles++;
-    if(r.worst>fixPalWorst) fixPalWorst=r.worst;
+    if(r.worst>fixPalWorst){ fixPalWorst=r.worst; fixPalWorstFile=String(rel||""); }
     fixPalMerged+=r.merged||0;
-    const layer=rel?readPath(String(rel)).layer:null;
-    if(layer&&!ruleCleanupAllowed(layer)) fixPalExcluded++;
   }
   return r;
 }
@@ -21774,7 +21789,8 @@ function fixRun(){
            at all (measured 2026-09-18: two colours moved, readout "medium
            confidence (forced) \u00b7 0.0s"). */
         const palNote = pal&&pal.colours
-          ? " \u00b7 "+pal.colours+" colour"+(pal.colours===1?"":"s")+" moved to the palette - the furthest by "
+          ? " \u00b7 "+pal.colours+" colour"+(pal.colours===1?"":"s")+" moved to the palette, "
+            +Math.round(pal.share*100)+"% of the picture - the furthest by "
             +Math.round(pal.worst)+" ("+deltaWord(pal.worst)+")"
             +(pal.merged?", "+pal.merged+" shade"+(pal.merged===1?"":"s")+" merged into a neighbour":"")
           : "";
@@ -22007,7 +22023,7 @@ async function fixBatchRun(files){
   fixMoved=null; fixNoGrid=0; fixGridlessAt=[];
   fixMovedLast=null; fixMovedCount=0; fixUnhonouredAt=[]; fixNativeKept=0; fixOwnBlocks=0; fixUnfitAt=[];
   fixGridlessFellAt=[]; fixGridlessFellKept=1; fixMarksDroppedTotal=0; fixMarksDroppedFiles=0; fixNoisyFiles=0; fixAlphaFiles=0; fixAlphaPixels=0; fixBrowserRead=[]; fixGateReady=0; fixGateWhy=new Map(); fixRecutAt=[];
-  fixPalMoved=0; fixPalPixels=0; fixPalFiles=0; fixPalWorst=0; fixPalMerged=0; fixPalExcluded=0;
+  fixPalMoved=0; fixPalPixels=0; fixPalFiles=0; fixPalWorst=0; fixPalMerged=0; fixPalWorstFile="";
   /* Pictures reduced by a whole factor to get under the engine limit. */
   const shrunk=[];
   fixTilesClear();
@@ -22216,7 +22232,7 @@ async function fixBatchRun(files){
       +" colour"+(fixPalMoved===1?"":"s")+" moved across "
       +fixPalPixels.toLocaleString()+" pixels - the furthest by "+Math.round(fixPalWorst)+" ("+deltaWord(fixPalWorst)+")"
       +(fixPalMerged?", "+fixPalMerged+" shade"+(fixPalMerged===1?"":"s")+" merged into a neighbour":"")
-      +(fixPalExcluded?" - including "+fixPalExcluded+" from layers the agent rules leave out of cleanup (skins, backgrounds)":"")
+      +(fixPalFiles>1&&fixPalWorstFile?"; furthest in "+fixPalWorstFile:"")
     : "";
   /* TRANSLUCENT PIXELS. Counted as paint or clear by the engine and every
      result cell solid or empty; in scale mode kept, with the browser's

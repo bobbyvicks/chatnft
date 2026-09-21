@@ -111,6 +111,28 @@ test.describe('the palette snap', () => {
       document.getElementById('fixpal').checked = true;
       const f = document.getElementById('fixforce'); f.disabled = false; f.value = '8';
       const realToast = window.toast; window.toast = () => {};
+      /* A KNOWN SHARE: of 64 cells, 16 are transparent, 24 hold a palette
+         colour and 24 hold an off-palette one, so exactly half of the opaque
+         picture moves. A fixture where everything moves cannot tell "the share
+         of the picture" from "1 whenever anything moved", and a mutation that
+         made it exactly that survived the first draft of this test. */
+      const mixed = async (name) => {
+        const c = document.createElement('canvas'); c.width = 64; c.height = 64;
+        const g = c.getContext('2d');
+        const pal = paletteRGB();
+        let n = 0;
+        for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++, n++) {
+          if (n < 16) continue;                                  /* left transparent */
+          g.fillStyle = n < 40 ? pal[3].h : '#66402d';           /* 24 on, 24 off */
+          g.fillRect(x * 8, y * 8, 8, 8);
+        }
+        const blob = await new Promise(res => c.toBlob(res, 'image/png'));
+        c.width = 1; c.height = 1;
+        return new File([blob], name, { type: 'image/png' });
+      };
+      await fixLoad(await mixed('half.png'));
+      await fixRun();
+      const halfSaid = document.getElementById('fixout').textContent;
       await fixLoad(await make(['#66402d', '#2a7de1'], 'off.png'));
       await fixRun();
       const offSaid = document.getElementById('fixout').textContent;
@@ -120,19 +142,53 @@ test.describe('the palette snap', () => {
       const onSaid = document.getElementById('fixout').textContent;
       /* the folder: one file from a skins path, one from hats */
       const bytesOf = async (file) => new Uint8Array(await file.arrayBuffer());
-      const off = await make(['#66402d', '#2a7de1'], 'x.png');
-      await fixBatch([fileWithPath(await bytesOf(off), 'skins/x.png'), fileWithPath(await bytesOf(off), 'hats/y.png')]);
+      /* TWO PICTURES THAT MOVE DIFFERENT DISTANCES, so naming the furthest
+         one is a claim that can be wrong. A batch of two identical files
+         cannot tell the right name from the last name, and a mutation that
+         kept the last name survived the first draft. `far` holds the brown
+         the palette moves 11 dE; `near` holds a colour a hair off a palette
+         entry, which moves under 1. */
+      const pal2 = paletteRGB();
+      /* a colour four steps off a palette entry: off the palette, so it moves,
+         but only a little - derived by SUBTRACTING so it cannot overflow */
+      const nearHex = '#' + [Math.max(0, pal2[9].r - 4), pal2[9].g, pal2[9].b]
+        .map(v => v.toString(16).padStart(2, '0')).join('');
+      const far = await make(['#66402d', '#2a7de1'], 'far.png');
+      const near = await make([nearHex, pal2[3].h], 'near.png');
+      await fixBatch([fileWithPath(await bytesOf(near), 'hats/near.png'), fileWithPath(await bytesOf(far), 'skins/far.png')]);
       const note = document.getElementById('fixbatchout').textContent;
+      /* and the other order, so the answer is not "whichever came last" */
+      await fixBatch([fileWithPath(await bytesOf(far), 'skins/far.png'), fileWithPath(await bytesOf(near), 'hats/near.png')]);
+      const noteReversed = document.getElementById('fixbatchout').textContent;
       window.toast = realToast;
-      return { offSaid, onSaid, note, allowed: ruleCleanupAllowed('skins') };
+      return { halfSaid, offSaid, onSaid, note, noteReversed };
     });
     /* IN THE FINAL SENTENCE, after the run's own words and its time - not
        appended to the readout and then replaced by them. */
-    expect(r.offSaid).toMatch(/\(forced\) \u00b7 \d+\.\ds \u00b7 2 colours moved to the palette - the furthest by \d+ \([a-z ]+\)/);
+    expect(r.offSaid).toMatch(/\(forced\) \u00b7 \d+\.\ds \u00b7 2 colours moved to the palette, \d+% of the picture - the furthest by \d+ \([a-z ]+\)/);
     expect(r.onSaid, 'nothing moved, nothing claimed').not.toContain('furthest');
     expect(r.note).toMatch(/colours moved across [\d,]+ pixels - the furthest by \d+ \(/);
-    expect(r.allowed, 'the page rules leave skins out of cleanup').toBe(false);
-    expect(r.note, 'and the note says one of the two came from such a layer').toContain('including 1 from layers the agent rules leave out of cleanup');
+    /* WAS: assert ruleCleanupAllowed('skins') is false and that the note says
+       how many recoloured files came from layers the agent rules leave out of
+       cleanup. That sentence retired on 2026-09-21. The exclusion is a note
+       about the agent's own cleanup pass - ruleCleanupAllowed had exactly one
+       caller in the page, that counter - while the collection's gate has no
+       layer exemption, so obeying it would have kept 79 traits (all 32 skins,
+       45 of 47 backgrounds) out of the collection forever by configuration.
+       The snap runs on every layer, and the note names the picture that moved
+       furthest instead, which is the thing to go and look at. */
+    expect(r.note).not.toContain('leave out of cleanup');
+    /* THE FIXTURE IS DOING WHAT IT CLAIMS: both files moved, so naming one of
+       them is a choice. Without this the test passes when only the far file
+       moves and the name could not have been wrong. */
+    expect(r.note, 'both pictures were put on the palette').toContain('2 put on the palette');
+    expect(r.note, 'the furthest move is attributed to the picture that made it')
+      .toContain('furthest in skins/far.png');
+    expect(r.noteReversed, 'and not to whichever file came last')
+      .toContain('furthest in skins/far.png');
+    /* THE SHARE IS OF THE PICTURE, and a transparent pixel is not picture:
+       24 of 48 opaque cells move, so half, not 37% (24 of 64) and not 100%. */
+    expect(r.halfSaid).toContain('1 colour moved to the palette, 50% of the picture');
   });
 
   test('the switch no longer promises a green stays a green', async ({ page }) => {

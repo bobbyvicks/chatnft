@@ -195,9 +195,13 @@ test('and a trait with its own grid never reaches the search', async ({ page }) 
     c.width = 1; c.height = 1;
     return { nat: fixNativeBlock(d, W, W), step: fixStepFor(W, d, W), pick: fixGridlessPick };
   });
-  /* 10px art is exact, so the step is measured and the search - which is a
-     choice between imperfect answers - is never consulted. */
+  /* 10px art is exact, so the search - which is a choice between imperfect
+     answers - is never consulted for it. WAS `expect(r.step).toBe(10)`: since
+     2026-09-21 a block coarser than the collection's cell and not a multiple
+     of it is re-cut on the 160 grid, so the step is 8 (see nativegrid.spec.js
+     for why, and defaultgrid.spec.js for the rule). What this test is about
+     is unchanged and is the line below: the search was not consulted. */
   expect(r.nat).toBe(10);
-  expect(r.step).toBe(10);
+  expect(r.step, '1280/160, the collection grid').toBe(8);
   expect(r.pick, 'and nothing pretends a grid was chosen for it').toBe(0);
 });

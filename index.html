@@ -20915,6 +20915,11 @@ function fixSnapping(){
    fixStepFor and read by whoever reports; cleared at the start of a run so
    it cannot describe the one before. */
 let fixMoved=null;
+/* THE BLOCK THIS RUN RE-CUT, because it was coarser than the collection's
+   cell and could not be a multiple of it: {block, cells, canvasBlock}. Set
+   by fixStepFor, read by the readout and by the run's own sentence, and
+   cleared with its neighbours so it cannot describe the decision before. */
+let fixBlockRecut=null;
 /* How many pictures in this run had no block structure for the snap to
    use. They fall back to the declared grid, which keeps the pixels square
    and cannot keep detail the picture never had on a grid - so the run
@@ -20951,7 +20956,7 @@ let fixNativeNoisy=0;
 /* MARKS SMALLER THAN A CELL, measured once per picture and cached on the
    very array, the way the block is. */
 let fixMarksCache=null;
-let fixGridlessFellAt=[], fixGridlessFellKept=1, fixMarksDroppedTotal=0, fixMarksDroppedFiles=0, fixNoisyFiles=0, fixAlphaFiles=0, fixAlphaPixels=0, fixBrowserRead=[], fixGateReady=0, fixGateWhy=null;
+let fixGridlessFellAt=[], fixGridlessFellKept=1, fixMarksDroppedTotal=0, fixMarksDroppedFiles=0, fixNoisyFiles=0, fixAlphaFiles=0, fixAlphaPixels=0, fixBrowserRead=[], fixGateReady=0, fixGateWhy=null, fixRecutAt=[];
 /* THE STEP FOR ONE PICTURE. Snapped, it is the width over the cell count -
    so any source size lands on exactly that many cells and the size
    difference is normalised rather than depended on. Not snapped, it is
@@ -21410,7 +21415,7 @@ function fixStepFor(w,data,h){
   /* THIS DECISION, NOT THE LAST ONE. Every flag below describes the step
      about to be returned; left over from a previous call, any of them
      puts that label on a different answer. */
-  fixMeasuredBlock=0; fixGridlessPick=0; fixMoved=null; fixUnhonoured=null; fixBlockUnfit=null;
+  fixMeasuredBlock=0; fixGridlessPick=0; fixMoved=null; fixUnhonoured=null; fixBlockUnfit=null; fixBlockRecut=null;
   const asked=+$("fixforce").value||0;
   const onGrid=$("fixgrid")&&$("fixgrid").checked;
   const px=data||(FIX.src&&FIX.src.data);
@@ -21471,12 +21476,46 @@ function fixStepFor(w,data,h){
     return w/cells;
   }
   if(fixSnapping()){
-    /* THE PICTURE FIRST, THE SETTING SECOND. projectGrid says 160 and the
-       art is mostly drawn at 128 cells; forcing the setting cut 8px cells
-       through 10px blocks and deleted up to 23% of a trait. A measured
-       block is exact, so reducing on its boundaries loses nothing. */
+    /* THE PICTURE FIRST, UNLESS THE PICTURE IS COARSER THAN THE COLLECTION.
+
+       SUPERSEDES "the picture first, the setting second ... a measured
+       block is exact, so reducing on its boundaries loses nothing". That
+       was written when the alternative was forcing a declared grid nobody
+       had measured against the gate, and it is still true of the reducing:
+       what it misses is that keeping a 10px block means the file cannot go
+       in the collection at all, which is not a smaller loss than re-cutting
+       it - it is the whole file.
+
+       THE LINE IS THE COLLECTION'S CELL, and which side a picture falls on
+       decides which operation this is. A saved 1280 file has flat 8px
+       blocks exactly when its canvas block is a whole multiple of 8, so the
+       only canvas blocks a picture's own grid can have that are neither
+       legal nor finer than a cell are 10 and 20. COARSER than the cell,
+       moving onto it raises the cell count and a feature one source cell
+       across still covers 1.25 output cells - it is redrawn. FINER than the
+       cell, every legal target is coarser and a feature one cell across
+       covers 0.6 of a cell, loses the vote and disappears.
+
+       The pictures decided it, because no number here can. Measured
+       2026-09-21: glasses/Steve Jobs Round Glasses (10px) is the worst
+       re-cut in the set at 32.49% of its pixels "lost" and at 8px it is the
+       same drawing; hats/Make Solana Great Again Hat (5px) loses 0.97% with
+       iou 0.9801 and at 8px its lettering is unreadable. Twelve coarser
+       files picked to break the rule: none damaged. All three damaged files
+       are finer than the cell.
+
+       Over the 311 working traits this takes gate-ready from 178 to 267
+       with no file that is ready today becoming unready; 89 files change,
+       and typing 10 hands any of them its own blocks back. */
     const nat=px?fixNativeBlockFor(px,w,ph):0;
-    if(nat>1&&w>0&&CANVAS_SIDE%(w/nat)===0){ fixMeasuredBlock=nat; return nat; }
+    let recut=null;
+    if(nat>1&&w>0&&CANVAS_SIDE%(w/nat)===0){
+      /* the block this picture would occupy ON THE CANVAS, which is the
+         only thing the collection's gate can see */
+      const cb=CANVAS_SIDE/(w/nat);
+      if(cb%8===0||cb<g.per) { fixMeasuredBlock=nat; return nat; }
+      recut={block:nat, cells:w/nat, canvasBlock:cb};
+    }
     /* AT OR BELOW THE GRID, THE PICTURE IS ALREADY AT ITS OWN SIZE. With
        no block it is one pixel per cell - measured the identity, byte for
        byte, on all twelve such sources - and with a block it keeps that
@@ -21488,7 +21527,12 @@ function fixStepFor(w,data,h){
       fixMeasuredBlock=nat>1?nat:1;
       return fixMeasuredBlock;
     }
-    if(nat>1){
+    if(recut){
+      /* COARSER THAN THE COLLECTION'S CELL, and its own count is legal -
+         so this is a choice the run has to own, not a picture the canvas
+         cannot hold. The readout names the size that gives its blocks back. */
+      fixBlockRecut=recut;
+    }else if(nat>1){
       /* A BLOCK THE CANVAS CANNOT HOLD: 1024 drawn at 2px is 512 cells and
          1280/512 is not whole. The grid re-cuts it, as it always did, and
          now says so. */
@@ -21589,7 +21633,7 @@ function fixSizeHint(){
   const W=FIX.src.width, H=FIX.src.height;
   const nat=FIX.src.data?fixNativeBlockFor(FIX.src.data,W,H):0;
   const decided=scale?0:fixStepFor(W,FIX.src.data,H);
-  const moved=fixMoved, unhon=fixUnhonoured, unfit=fixBlockUnfit, meas=fixMeasuredBlock;
+  const moved=fixMoved, unhon=fixUnhonoured, unfit=fixBlockUnfit, meas=fixMeasuredBlock, recut=fixBlockRecut;
   const gridOn=$("fixgrid")&&$("fixgrid").checked;
   const cols=scale?W:(decided>0?Math.max(1,fixRint(W/decided)):g.cells);
   const rows=scale?H:(decided>0?Math.max(1,fixRint(H/decided)):g.cells);
@@ -21624,9 +21668,9 @@ function fixSizeHint(){
     per=" \u00b7 "+(Math.round(decided*100)/100)+" source pixel"+(decided===1?"":"s")+" per cell";
   /* AND WHAT THAT DOES TO ART DRAWN IN BLOCKS the size did not ask for:
      10px art on 8px cells is a resample, and no rule avoids it. */
-  let recut="";
+  let recutBlocks="";
   if(!scale&&typed>0&&gridOn&&nat>1&&decided>0&&Math.abs(decided-nat)>1e-9&&!unhon)
-    recut=" \u00b7 "+nat+"px blocks ("+fixRint(W/nat)+" cells) become "
+    recutBlocks=" \u00b7 "+nat+"px blocks ("+fixRint(W/nat)+" cells) become "
       +(Math.round(cols/(W/nat)*100)/100)+" cells each";
   let snapNote="";
   if(narrow&&typed<=0){
@@ -21639,12 +21683,18 @@ function fixSizeHint(){
     ? " \u00b7 "+typed+" means "+unhon.cells+" cells on "+CANVAS_SIDE+"; "+W+" across cannot give that, so it keeps "
       +(unhon.step===1?"one pixel per cell":"its own "+unhon.step+"px blocks")
     : "";
+  /* COARSER THAN THE CELL, AND RE-CUT, with the size that keeps its own
+     blocks - the whole rule is one keystroke from its opposite. */
+  const recutNote = recut
+    ? " \u00b7 "+recut.canvasBlock+"px blocks re-cut on the "+g.cells+" cell grid - type "
+      +recut.canvasBlock+" to keep them"
+    : "";
   const unfitNote = unfit
     ? " \u00b7 "+unfit.block+"px blocks ("+unfit.cells+" cells) cannot land on "+CANVAS_SIDE+"; the "+g.cells+" cell grid re-cuts them"
     : "";
   /* `to`, the field the record has. This read `.step`, which it never had,
      and printed "pixel size NaN, not 12" on every moved size. */
-  el.textContent="\u2192 "+cols+"\u00d7"+rows+" pixels"+note+per+recut+snapNote+unhonNote+unfitNote
+  el.textContent="\u2192 "+cols+"\u00d7"+rows+" pixels"+note+per+recutBlocks+snapNote+unhonNote+unfitNote+recutNote
     +(moved?" \u00b7 pixel size "+(Math.round(moved.to*100)/100)+", not "+typed
       +": "+moved.was+" cells does not divide "+CANVAS_SIDE:"");
 }
@@ -21775,7 +21825,14 @@ function fixRun(){
           ? " \u00b7 "+tl.count.toLocaleString()+" translucent pixel"+(tl.count===1?"":"s")+": "
             +tl.solid.toLocaleString()+" counted as paint, "+tl.clear.toLocaleString()+" as clear - the result has none"
           : "";
-        const how = r.consensus==="measured"
+        /* RE-CUT, SAID IN THE RUN'S OWN WORDS. The engine reports "forced"
+           for the step it was given, so without this the sentence would
+           call a decision the tab took a confidence level. */
+        const recutBy=fixBlockRecut;
+        const how = recutBy
+          ? "measured "+recutBy.canvasBlock+"px blocks off the picture and re-cut them on the "
+            +fixGridCells().cells+" cell grid - type "+recutBy.canvasBlock+" to keep them"
+          : r.consensus==="measured"
           ? (r.measuredBlock===1
             ? "kept at one pixel per cell - the picture is already at its native size"
             : "measured "+r.measuredBlock+"px blocks off the picture"
@@ -21949,7 +22006,7 @@ async function fixBatchRun(files){
   /* BEFORE the list is replaced: it is what holds the urls to revoke. */
   fixMoved=null; fixNoGrid=0; fixGridlessAt=[];
   fixMovedLast=null; fixMovedCount=0; fixUnhonouredAt=[]; fixNativeKept=0; fixOwnBlocks=0; fixUnfitAt=[];
-  fixGridlessFellAt=[]; fixGridlessFellKept=1; fixMarksDroppedTotal=0; fixMarksDroppedFiles=0; fixNoisyFiles=0; fixAlphaFiles=0; fixAlphaPixels=0; fixBrowserRead=[]; fixGateReady=0; fixGateWhy=new Map();
+  fixGridlessFellAt=[]; fixGridlessFellKept=1; fixMarksDroppedTotal=0; fixMarksDroppedFiles=0; fixNoisyFiles=0; fixAlphaFiles=0; fixAlphaPixels=0; fixBrowserRead=[]; fixGateReady=0; fixGateWhy=new Map(); fixRecutAt=[];
   fixPalMoved=0; fixPalPixels=0; fixPalFiles=0; fixPalWorst=0; fixPalMerged=0; fixPalExcluded=0;
   /* Pictures reduced by a whole factor to get under the engine limit. */
   const shrunk=[];
@@ -22026,6 +22083,7 @@ async function fixBatchRun(files){
           if(fixMeasuredBlock===1) fixNativeKept++;
           else if(fixMeasuredBlock>1&&(sw<fixGridCells().cells||sh<fixGridCells().cells)) fixOwnBlocks++;
           if(fixBlockUnfit) fixUnfitAt.push(fixBlockUnfit.block);
+          if(fixBlockRecut) fixRecutAt.push(fixBlockRecut.canvasBlock);
           return s>0?s:null; })()});
     if(!r||r.error){ failed.push(name+" ("+((r&&r.error)||"no answer")+")"); continue; }
     const out=r.ok;
@@ -22128,6 +22186,15 @@ async function fixBatchRun(files){
       +fixUnhonouredAt[0].asked+" means on "+CANVAS_SIDE+" and kept their own pixels instead"
     : "";
   /* A MEASURED BLOCK THE GRID RE-CUT, because its count cannot land. */
+  /* COARSER THAN THE COLLECTION CELL AND RE-CUT ONTO IT. A sibling of the
+     clause below, not the same thing: those are blocks the canvas cannot
+     hold at all, these are blocks it could hold and the collection will
+     not, so this one names the size that keeps them. */
+  const recutNote = fixRecutAt.length
+    ? " \u00b7 "+fixRecutAt.length+" drawn in blocks coarser than the collection cell ("
+      +[...new Set(fixRecutAt)].sort((a,b)=>a-b).map(b=>b+"px").join(", ")+") and re-cut on the "
+      +fixGridCells().cells+" cell grid - type "+[...new Set(fixRecutAt)].sort((a,b)=>a-b)[0]+" to keep them"
+    : "";
   const unfitNote = fixUnfitAt.length
     ? " \u00b7 "+fixUnfitAt.length+" drawn in blocks the grid cannot hold ("
       +[...new Set(fixUnfitAt)].sort((a,b)=>a-b).map(b=>b+"px").join(", ")+") and re-cut on the "
@@ -22195,7 +22262,7 @@ async function fixBatchRun(files){
   const noisyNote = fixNoisyFiles
     ? " \u00b7 "+fixNoisyFiles+" measured with one stray pixel in some blocks and kept on their blocks"
     : "";
-  fixBatchSay(fixBatchFiles.length+" of "+list.length+" done in "+secs+"s"+movedNote+unhonNote+raggedNote+smallNote+noGridNote+marksNote+noisyNote+unfitNote+offNote+alphaNote+readNote+shrunkNote+palNote+gateNote
+  fixBatchSay(fixBatchFiles.length+" of "+list.length+" done in "+secs+"s"+movedNote+unhonNote+raggedNote+smallNote+noGridNote+marksNote+noisyNote+recutNote+unfitNote+offNote+alphaNote+readNote+shrunkNote+palNote+gateNote
     +(fixBatchStop?" (stopped - what is done is kept)":"")
     +(over?" \u00b7 "+over+" past the limit of "+FIX_BATCH_MAX+" were left out":"")
     +(failed.length?" \u00b7 could not do: "+failed.slice(0,6).join(", ")

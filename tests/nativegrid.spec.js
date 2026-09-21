@@ -28,7 +28,24 @@
 
    The 26 that remain are the ones with no grid, where any reduction is a real
    loss - and the run says how many those were rather than averaging somebody's
-   artwork in silence. */
+   artwork in silence.
+
+   SUPERSEDED IN PART, 2026-09-21, for art drawn COARSER than the collection's
+   cell. Everything above is still the record of what forcing 160 on everything
+   cost, and it is still why 5px art is left alone. What it could not weigh is
+   the thing the tab only learned to say later: a 10px trait keeps its pixels
+   and CANNOT GO IN THE COLLECTION, whose gate is 8px blocks on a 1280 canvas.
+   Keeping it is not the smaller loss; it is the whole file.
+
+   So Pixel size 0 now re-cuts a picture whose canvas block is coarser than a
+   cell and not a multiple of one - which is exactly 10px and 20px - onto the
+   160 grid, and still keeps everything at or below the cell. Measured on the
+   311 working traits: gate-ready 178 -> 267, no file that was ready stops
+   being ready, 89 change. And the pictures, which are why the line sits where
+   it does: glasses/Steve Jobs Round Glasses (10px) is the worst re-cut in the
+   set at 32.49% "lost" and is the same drawing at 8px, while hats/Make Solana
+   Great Again Hat (5px) loses 0.97% and comes out unreadable. Typing 10 still
+   hands 10px art its own 128 cells back, and defaultgrid.spec.js pins that. */
 import { test, expect } from '@playwright/test';
 
 const ready = async (page) => {
@@ -62,7 +79,7 @@ const noise = `
   g.putImageData(im, 0, 0);
 `;
 
-const run = (page, src) => page.evaluate(async (s) => {
+const run = (page, src, typed) => page.evaluate(async ({ s, typed }) => {
   // eslint-disable-next-line no-new-func
   const c = new Function(s + '\nreturn c;')();
   const before = c.getContext('2d').getImageData(0, 0, c.width, c.height).data.slice();
@@ -73,7 +90,7 @@ const run = (page, src) => page.evaluate(async (s) => {
   document.getElementById('fixsnap').dispatchEvent(new Event('change', { bubbles: true }));
   document.getElementById('fixgrid').checked = true;
   const ff = document.getElementById('fixforce');
-  ff.disabled = false; ff.value = '0';
+  ff.disabled = false; ff.value = String(typed || 0);
   await fixBatch([new File([b], 'trait.png', { type: 'image/png' })]);
   const got = fixBatchFiles[0];
 
@@ -110,7 +127,7 @@ const run = (page, src) => page.evaluate(async (s) => {
   return { cells: got.cells, saved: got.w + 'x' + got.h, per,
     lostPct: srcN ? Math.round(lost / srcN * 1000) / 10 : 0, ragged,
     said: document.getElementById('fixbatchout').textContent };
-}, src);
+}, { s: src, typed });
 
 test('THE BLOCK SIZE IS MEASURED, AND IT IS EXACT', async ({ page }) => {
   await ready(page);
@@ -134,17 +151,30 @@ test('THE BLOCK SIZE IS MEASURED, AND IT IS EXACT', async ({ page }) => {
   expect(r.rough).toBe(0);
 });
 
-test('A 10px TRAIT KEEPS ITS 10px PIXELS AND LOSES NOTHING', async ({ page }) => {
-  await ready(page);
-  const r = await run(page, art(10));
-  /* This is the case that was losing up to 23%: 192 of the 319 approved
-     traits are drawn at 10px and were being forced onto 8. */
-  expect(r.cells, 'the trait own count, not the declared 160').toBe(128);
-  expect(r.per).toBe(10);
-  expect(r.lostPct, 'nothing is lost').toBe(0);
-  expect(r.ragged, 'and the pixels are square').toBe(0);
-  expect(r.saved).toBe('1280x1280');
-});
+test('A 10px TRAIT IS RE-CUT ONTO THE COLLECTION GRID, AND TYPING 10 GIVES ITS PIXELS BACK',
+  async ({ page }) => {
+    await ready(page);
+    /* WAS "A 10px TRAIT KEEPS ITS 10px PIXELS AND LOSES NOTHING", asserting
+       128 cells at Pixel size 0. That was right while the only alternative was
+       forcing a grid nobody had measured against the collection's gate. The
+       gate is in the tab now: 10px blocks on the 1280 canvas fail it, so
+       keeping them costs the whole file rather than 4% of its pixels. The
+       header of this file records the measurement both ways. */
+    const r = await run(page, art(10));
+    expect(r.cells, 'the collection grid, not its own 128').toBe(160);
+    expect(r.per).toBe(8);
+    expect(r.ragged, 'and the pixels are square').toBe(0);
+    expect(r.saved).toBe('1280x1280');
+    /* `run` drives a FOLDER run, so this is the folder note, which counts
+       them rather than describing one file. */
+    expect(r.said).toContain('1 drawn in blocks coarser than the collection cell (10px) and re-cut on the 160 cell grid - type 10 to keep them');
+    /* AND THE KEYSTROKE IT NAMES REALLY WORKS - without this the rule is a
+       trap, and the old promise above is what it hands back. */
+    const kept = await run(page, art(10), 10);
+    expect(kept.cells, 'its own count').toBe(128);
+    expect(kept.per).toBe(10);
+    expect(kept.lostPct, 'and nothing is lost that way').toBe(0);
+  });
 
 test('and an 8px trait still gets 8 - the skins are all 8', async ({ page }) => {
   await ready(page);
@@ -215,9 +245,12 @@ test('the batch hands its own pixels over, which is what makes any of this work'
       await fixBatch([await mk(ten, 'ten.png'), await mk(five, 'five.png')]);
       return fixBatchFiles.map(f => f.name + ':' + f.cells);
     }, { ten: art(10), five: art(5) });
-    /* Two pictures, two grids, one run. A step read once for the batch gives
-       both files the same count and this comes back [128, 128]. */
-    expect(r).toEqual(['ten-fixed.png:128', 'five-fixed.png:256']);
+    /* Two pictures, two answers, one run. A step read once for the batch gives
+       both files the same count. WAS ['ten:128','five:256'] - the 10px file is
+       re-cut on the collection's grid now (see this file's header) and the 5px
+       one is still left alone, so the two still differ and the test still
+       discriminates. */
+    expect(r).toEqual(['ten-fixed.png:160', 'five-fixed.png:256']);
   });
 
 test('A MEASUREMENT DOES NOT OUTLIVE THE RUN THAT MADE IT', async ({ page }) => {
@@ -245,13 +278,17 @@ test('A MEASUREMENT DOES NOT OUTLIVE THE RUN THAT MADE IT', async ({ page }) => 
     const second = await fixRun();
     return { measured, typed: { cons: second && second.consensus, block: fixMeasuredBlock },
       said: document.getElementById('fixout').textContent };
-  }, { src: art(10) });
+  }, { src: art(8) });
   /* THE POSITIVE CONTROL: the first run really did measure, so the second
      one is not passing because nothing ever sets the flag. */
+  /* THE FIXTURE IS 8px ART, not the 10px it used to be: at Pixel size 0 a 10px
+     picture is now re-cut on the collection's grid rather than measured, so it
+     no longer sets the flag this test is about and the positive control below
+     would pass for the wrong reason. 8px art is still measured. */
   expect(r.measured.cons, 'the first run measured').toBe('measured');
-  expect(r.measured.block, 'and says which block').toBe(10);
+  expect(r.measured.block, 'and says which block').toBe(8);
   expect(r.typed.block, 'and the typed run measured nothing').toBe(0);
   expect(r.typed.cons, 'so it is not reported as measured').not.toBe('measured');
   expect(r.said, 'nor does the readout quote the last picture blocks')
-    .not.toContain('10px blocks');
+    .not.toContain('8px blocks');
 });

@@ -4164,7 +4164,17 @@ function db(){
   });
   return dbp;
 }
-async function dbPut(rec){ const d=await db(); return new Promise((res,rej)=>{
+/* WHAT THIS DEVICE TOUCHED, AND IN WHAT ORDER. Every local write of a
+   record notes its id against a rising sequence, so a pull - which plans
+   from a snapshot and writes hundreds of awaits later - can tell a record
+   it may write from one the person has changed since. Session-only; the
+   pull's own writes count too, harmlessly, because it writes each id once
+   and asks before it does. */
+let touchSeq=0;
+const touchedAt=new Map();
+function touch(id){ if(id!=null) touchedAt.set(String(id),++touchSeq); }
+function touchedSince(id,seq){ return id!=null && (touchedAt.get(String(id))||0)>seq; }
+async function dbPut(rec){ touch(rec&&rec.id); const d=await db(); return new Promise((res,rej)=>{
   const t=d.transaction(STORE,'readwrite'); t.objectStore(STORE).put(rec);
   t.oncomplete=()=>res(); t.onerror=()=>rej(t.error); }); }
 /* ONE RECORD, BY KEY. dbAll reads every row in the project including every
@@ -4177,7 +4187,7 @@ async function dbGet(id){ const d=await db(); return new Promise((res,rej)=>{
 async function dbAll(){ const d=await db(); return new Promise((res,rej)=>{
   const t=d.transaction(STORE,'readonly'), q=t.objectStore(STORE).getAll();
   q.onsuccess=()=>res(q.result||[]); q.onerror=()=>rej(q.error); }); }
-async function dbDel(id){ const d=await db(); return new Promise((res,rej)=>{
+async function dbDel(id){ touch(id); const d=await db(); return new Promise((res,rej)=>{
   const t=d.transaction(STORE,'readwrite'); t.objectStore(STORE).delete(id);
   t.oncomplete=()=>res(); t.onerror=()=>rej(t.error); }); }
 async function dbClear(){ const d=await db(); return new Promise((res,rej)=>{
@@ -4214,6 +4224,8 @@ function syncShelfVisibilityControls(){
    changes the local id, so all old identities are removed before the updated
    records are put back. Either the whole shelf changes or none of it does. */
 async function dbApplyShelfRecords(deleteIds,records){
+  for(const id of deleteIds) touch(id);
+  for(const r of records) touch(r&&r.id);
   const d=await db();
   return new Promise((res,rej)=>{
     const t=d.transaction(STORE,'readwrite'), s=t.objectStore(STORE);
@@ -18078,6 +18090,9 @@ async function cloudPull(opts){
   if(!c){ toast("Nothing on the server yet"); return; }
   const h=await sbHeaders();
   if(!h) return;
+  /* THE MOMENT THE SNAPSHOT ANSWERS FOR. Anything touched here after this
+     is newer than what the server is about to say. */
+  const seqAt=touchSeq;
   const got=await cloudRows(c,h);
   if(!got.ok){ toast("Could not read your collection"); return; }
   const rows=got.rows;
@@ -18096,7 +18111,7 @@ async function cloudPull(opts){
   let existing=[];
   try{ existing=await dbAll(); }catch(_){}
   const taken=new Set(existing.map(i=>i.id));
-  let added=0, renamed=0, failed=0, done=0;
+  let added=0, renamed=0, failed=0, done=0, skipped=0;
 
   /* Two passes, because the two halves want opposite things.
 
@@ -18171,7 +18186,7 @@ async function cloudPull(opts){
            downloaded over this copy. replaces carries the local id so the
            puller overwrites rather than adding a second one. */
         taken.add(baseId);
-        wanted.push({row:row, id:cur.id, name:cur.name, layer:layer, status:status,
+        wanted.push({row:row, id:cur.id, name:cur.name, layer:layer, status:status, base:baseId,
           replaces:cur.id, incoming:true});
         continue;
       }
@@ -18192,7 +18207,7 @@ async function cloudPull(opts){
       id=row.kind==="ref"?("ref_"+name):("t_"+name+"_"+layer+"_"+status); k++; }
     if(name!==row.name) renamed++;
     taken.add(id);
-    wanted.push({row:row, id:id, name:name, layer:layer, status:status});
+    wanted.push({row:row, id:id, name:name, layer:layer, status:status, base:baseId});
   }
 
   /* Say what is happening while it happens. Silence is what made this look
@@ -18209,6 +18224,11 @@ async function cloudPull(opts){
   let repaired=0;
   for(const rp of repair){
     if(!wsStill(gen)) break;
+    /* At write time, not plan time: the plan is minutes old by the end of
+       a cold pull, and the person may have changed this record between
+       two of these writes. Measured: a weight changed while the catch-up
+       was loading was put back by the repair. */
+    if(touchedSince(rp.oldId,seqAt)){ skipped++; continue; }
     try{
       /* rowAt on the merged record as well. A trait that came back through
          a metadata merge rather than a download still has to know which
@@ -18262,6 +18282,15 @@ async function cloudPull(opts){
         /* The download above is the long await, so this is re-checked
            rather than trusted from the top of the loop. */
         if(!wsStill(gen)) return;
+        /* The download was the long await; the person may have moved the
+           trait while the picture was on its way. And a row with no local
+           match whose id here was touched since the snapshot is not a
+           teammate's new trait: it is the row this device moved away from
+           while the snapshot was in flight. Measured - the old copy came
+           back as a download and the new one was then "removed by someone
+           else". Asked here rather than at plan time, because the plan is
+           minutes old by the end of a cold pull and this covers both. */
+        if(touchedSince(w.id,seqAt)||touchedSince(w.base,seqAt)){ skipped++; done++; say(); continue; }
         await dbPut(rec); added++;
         /* Recorded where the write is known to have happened, rather than
            where it was decided - a download that failed its three tries is
@@ -18403,6 +18432,7 @@ async function cloudPull(opts){
   if(tookOrder) bits.push("the group's paint order ("+tookOrder+" layer"+(tookOrder===1?"":"s")+")");
   else if(newLayers) bits.push(newLayers+" new layer"+(newLayers===1?"":"s"));
   if(failed) bits.push(failed+" could not be read");
+  if(skipped) bits.push(skipped+" changed here while loading, kept as changed");
   /* Only reachable on a collection past half a million rows, and said out
      loud rather than left to look like a complete answer - which is exactly
      what the unpaginated version did at 1,000. */
@@ -18463,6 +18493,11 @@ async function groupCatchUp(){
      person moved to would be the worst version of this. */
   const gen=wsGen;
   try{
+    /* READ BEFORE THE PULL. This is the set the server snapshot answers
+       for; a record that appears while the pull runs - a move made by the
+       person - is synced with a row the snapshot never saw, and read
+       afterwards it was deleted as "removed by someone else". Measured. */
+    const mine=(await dbAll()).filter(i=>(i.kind==="trait"||i.kind==="ref")&&i.synced);
     const onServer=await cloudPull({quiet:true, keepMine:true});
     if(onServer){
       /* NOT WHEN THE SERVER SAYS NOTHING AT ALL. Anything this device holds
@@ -18473,7 +18508,6 @@ async function groupCatchUp(){
          often than it is a collection somebody emptied - and now that this
          runs on every page load rather than only on a switch, that would be
          a standing offer to erase the lot. */
-      const mine=(await dbAll()).filter(i=>(i.kind==="trait"||i.kind==="ref")&&i.synced);
       if(!onServer.size && mine.length){
         toast("The group came back empty, so nothing was removed here."
           +" Press Load from cloud if it really is empty.");

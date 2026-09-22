@@ -15427,6 +15427,28 @@ async function cloudRarity(rec){
     return "unreachable";
   }catch(_){ return "unreachable"; }
 }
+/* SEND A WEIGHT AND AN ORDER WITHOUT THE PICTURE, for Save to cloud. The
+   record is unsent but its row and path still stand, so the row is
+   patched by id - what cloudRarity does live in a group - and the record
+   is marked synced on the row that answered. false when no row answered:
+   the row is gone, and the caller uploads as it would have. */
+async function cloudPatchOne(rec,ctx){
+  if(!rec||!rec.rowId) return false;
+  try{
+    const h=(ctx&&ctx.h)||await sbHeaders({"Content-Type":"application/json"});
+    if(!h) return false;
+    const r=await fetch(SB_URL+"/rest/v1/traits?id=eq."+encodeURIComponent(rec.rowId),
+      {method:"PATCH", headers:Object.assign({Prefer:"return=representation"},h),
+       body:JSON.stringify({rarity:(typeof rec.rarity==="number"?rec.rarity:1),
+         shelf_order:(typeof rec.shelfOrder==="number"?rec.shelfOrder:null)})});
+    if(!r.ok) return false;
+    let rows=[]; try{ rows=await r.json(); }catch(_){ rows=[]; }
+    if(!Array.isArray(rows)||rows.length!==1) return false;
+    const up=Object.assign({},rec,{synced:true, rowAt:rows[0].updated_at||rec.rowAt||null}); delete up.unsent;
+    try{ await dbPut(up); }catch(_){}
+    return true;
+  }catch(_){ return false; }
+}
 
 /* Write one weight, locally and to the group.
 
@@ -15463,7 +15485,7 @@ async function setRarity(rec,w){
      server - and Load from cloud took its weight back over this one
      (measured 2026-09-22). A record with no rowId was never up there and
      synced is already false on it. "refused" stays as it is. */
-  if((sent==="unreachable"||sent==="nogroup") && next.rowId && next.synced) await dbPut({...next, synced:false});
+  if((sent==="unreachable"||sent==="nogroup") && next.rowId && next.synced) await dbPut({...next, synced:false, unsent:"meta"});
   return true;
 }
 
@@ -17452,9 +17474,12 @@ async function cloudStatus(u){
   $("cloudnote").textContent=localN+" file"+(localN===1?"":"s")+" here, "+(remoteFloor?"at least ":"")+remoteN+" on the server"+ago+advice;
 }
 
-const cloudPath=(team,c,it)=>team+"/"+c.id+"/"+
-  (it.kind==="ref"?"ref":"trait")+"-"+String(it.name).replace(/[^a-z0-9._-]+/gi,"-")+
+/* THE FILE NAME A RECORD HAS ON THE SERVER, from the three things that
+   identify it. Kept apart from the folder so a record can be asked whether
+   its stored path still describes it. */
+const cloudTail=(it)=>(it.kind==="ref"?"ref":"trait")+"-"+String(it.name).replace(/[^a-z0-9._-]+/gi,"-")+
   "-"+(it.layer||"none")+"-"+(it.status||"none")+".png";
+const cloudPath=(team,c,it)=>team+"/"+c.id+"/"+cloudTail(it);
 
 /* A group project is shared storage. Saving into one that only ever wrote to
    this browser is not a group project, it is a private folder with other
@@ -17673,8 +17698,10 @@ async function cloudSyncOne(rec,ctx,why){
     let madeId=null, madeAt=null;
     if(r.ok){ try{ const made=(await r.json())[0]||{}; madeId=made.id||null; madeAt=made.updated_at||null; }
       catch(_){ madeId=null; madeAt=null; } }
-    if(r.ok && rec.id){ try{ await dbPut(Object.assign({},rec,
-      {synced:true, rowId:madeId, path:p, rowAt:madeAt})); }catch(_){} }
+    /* Whatever the record was unsent for, it is sent now. */
+    if(r.ok && rec.id){ const up=Object.assign({},rec,
+      {synced:true, rowId:madeId, path:p, rowAt:madeAt}); delete up.unsent;
+      try{ await dbPut(up); }catch(_){} }
     return true;
   }catch(_){ return say("unreachable"); }
 }
@@ -17786,7 +17813,18 @@ async function markUnsent(rec){
   let stored=null; try{ stored=await dbGet(rec.id); }catch(_){ stored=null; }
   if(!stored || !(stored.synced||stored.path)) return;
   const honest=Object.assign({},stored,{synced:false});
-  delete honest.path;
+  /* THE PATH STAYS WHEN IT STILL DESCRIBES THE RECORD - a reweight or a
+     reorder leaves name, layer and status alone, and the picture is still
+     at that path. Dropped when the identity moved, because then the path
+     names the server's old object. And the record SAYS which kind of
+     change it holds: unsent:"meta" means only weight or order moved and
+     the picture at the path is the server's. A record unsent for any
+     other reason - a picture that could not be uploaded - carries no
+     such word, and Save to cloud uploads it. The word is the only thing
+     that lets a row be patched instead; a kept path alone is not enough,
+     because an older pull put paths on unsent records too. */
+  if(stored.path && String(stored.path).slice(-cloudTail(stored).length)===cloudTail(stored)) honest.unsent="meta";
+  else { delete honest.path; delete honest.unsent; }
   try{ await dbPut(honest); }catch(_){}
 }
 async function cloudMoveOne(oldRec,newRec,why){
@@ -17897,7 +17935,7 @@ async function cloudPush(){
      stop being there - but doing it first means a push that dies half way
      has destroyed the server copy and not yet rebuilt it. Stale rows are
      removed at the end now, by comparison, once their replacements exist. */
-  let saved=0, failed=0, done=0;
+  let saved=0, failed=0, done=0, patched=0;
   const rows=[];
   /* Everything that cannot change while this runs, worked out once. */
   const ctx={u:u, team:team, c:c, h:h,
@@ -17928,13 +17966,21 @@ async function cloudPush(){
   for(const it of items){
     const p=cloudPath(team,c,it);
     if(it.synced && it.rowId && it.path===p){ unchangedSkipped++; rows.push({path:p}); }
-    else fresh.push(it);
+    /* UNSENT, BUT THE ROW AND THE PICTURE STILL STAND: only the weight or
+       the order changed, so the row is patched rather than the picture
+       re-uploaded. A reorder of a layer used to queue every picture in it. */
+    else if(!it.synced && it.unsent==="meta" && it.rowId && it.path===p && it.kind==="trait") fresh.push({light:true, it:it});
+    else fresh.push({light:false, it:it});
   }
   async function pusher(){
     while(next<fresh.length){
-      const it=fresh[next++];
-      const okd=await cloudSyncOne(it,ctx);
-      if(okd){ saved++; rows.push({path:cloudPath(team,c,it)}); }
+      const job=fresh[next++], it=job.it;
+      /* The patch first for a light one; a row that is gone falls through
+         to the upload it would have had. */
+      let okd=false;
+      if(job.light && await cloudPatchOne(it,ctx)){ okd=true; patched++; }
+      else if(await cloudSyncOne(it,ctx)){ okd=true; saved++; }
+      if(okd) rows.push({path:cloudPath(team,c,it)});
       else failed++;
       done++;
       if(done%10===0||done===fresh.length) say();
@@ -18002,6 +18048,7 @@ async function cloudPush(){
   const bits=[];
   if(saved) bits.push("Saved "+saved+" to the cloud");
   if(unchangedSkipped) bits.push(unchangedSkipped+" already up to date");
+  if(patched) bits.push(patched+" updated without re-uploading the picture");
   if(failed) bits.push(failed+" failed");
   if(stale) bits.push("removed "+stale+" no longer here");
   if(swept) bits.push("removed "+swept+" old image"+(swept===1?"":"s"));

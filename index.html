@@ -221,6 +221,13 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
 #finalset .item select.fslayer:hover{border-color:var(--accent); color:var(--ink);}
 #finalset .item select.fslayer:disabled{opacity:.5; cursor:default;}
 #finalset .fsnote{font-size:10px; color:var(--muted); opacity:.8;}
+/* WHEN IT WAS LAST EDITED: a strip over the bottom of the picture, in the
+   dark the pick tick uses, taking no clicks - the tile is the control. */
+#finalset .item .fsart{position:relative;}
+#finalset .item .fswhen{position:absolute; left:0; right:0; bottom:0; padding:3px 4px;
+  font-size:10px; line-height:1.2; color:var(--ink); background:#0b0910cc;
+  border-radius:0 0 5px 5px; pointer-events:none; white-space:nowrap;
+  overflow:hidden; text-overflow:ellipsis; text-align:center;}
 #finalset .fsadd{margin-top:9px;}
 #finalset .fsadd>summary{cursor:pointer; font-size:11px; color:var(--muted);
   padding:5px 2px; list-style:revert;}
@@ -18174,7 +18181,12 @@ async function cloudPull(opts){
            it every pull would read as an incoming edit, or none would. */
         const rec={id:w.id, rowId:w.row.id, path:w.row.path, rowAt:w.row.updated_at||null,
           kind:w.row.kind, name:w.name, w:w.row.w, h:w.row.h,
-          blob:blob, at:Date.now(), synced:true};
+          /* `at` IS WHEN IT WAS LAST SAVED, BY ANYONE - the row's updated_at,
+             which a database trigger maintains - and not the moment it was
+             downloaded here. The Last edited list and the final page's
+             "edited ..." strip read it as the former; a download is not an
+             edit. The download time only for a row without a stamp. */
+          blob:blob, at:(Date.parse(w.row.updated_at||"")||Date.now()), synced:true};
         if(w.row.kind==="trait"){ rec.layer=w.layer; rec.status=w.status;
           if(typeof w.row.rarity==="number") rec.rarity=w.row.rarity;
           if(typeof w.row.shelf_order==="number") rec.shelfOrder=w.row.shelf_order; }
@@ -23188,7 +23200,21 @@ function finalTile(t,label,note,press){
     lab.appendChild(cb);
     el.appendChild(lab);
   }
-  el.appendChild(shelfTile(t,finalWatch));
+  {
+    /* WHEN IT WAS LAST EDITED, over the bottom of the picture. The record's
+       `at`, in the words the Last edited list uses, so the page has one
+       idea of it. Nothing at all for a record with no `at` - not 1970. */
+    const art=document.createElement("div"); art.className="fsart";
+    art.appendChild(shelfTile(t,finalWatch));
+    const when=agoWords(t.at);
+    if(when){
+      const s=document.createElement("span"); s.className="fswhen";
+      s.textContent="edited "+when;
+      s.title="Last edited "+new Date(t.at).toLocaleString();
+      art.appendChild(s);
+    }
+    el.appendChild(art);
+  }
   const nm=document.createElement("b"); nm.textContent=t.name; el.appendChild(nm);
   if(note){ const s=document.createElement("b"); s.className="fsnote"; s.textContent=note;
     el.appendChild(s); }

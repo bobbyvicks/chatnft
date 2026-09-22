@@ -17605,10 +17605,15 @@ async function cloudSyncOne(rec,ctx,why){
       : r.status===401 ? "signedout"
       : cloudLater(r.status) ? "unreachable" : "refused", r.status);
     if(why) why.ok=true;
-    let madeId=null;
-    if(r.ok){ try{ madeId=((await r.json())[0]||{}).id||null; }catch(_){ madeId=null; } }
+    /* AND WHICH VERSION OF IT. rowAt is what the next pull measures "has
+       the server moved on" against; left as the record carried it, a
+       status change kept the OLD row's stamp and every upload read as a
+       newer row. The insert answers with the row it made. */
+    let madeId=null, madeAt=null;
+    if(r.ok){ try{ const made=(await r.json())[0]||{}; madeId=made.id||null; madeAt=made.updated_at||null; }
+      catch(_){ madeId=null; madeAt=null; } }
     if(r.ok && rec.id){ try{ await dbPut(Object.assign({},rec,
-      {synced:true, rowId:madeId, path:p})); }catch(_){} }
+      {synced:true, rowId:madeId, path:p, rowAt:madeAt})); }catch(_){} }
     return true;
   }catch(_){ return say("unreachable"); }
 }
@@ -18050,6 +18055,19 @@ async function cloudPull(opts){
        "hat" - and that is what is left below. */
     if(held.has(row.id)){
       const cur=held.get(row.id);
+      /* UNSENT WORK IS KEPT. A row with this id can only differ from the
+         record through an in-place change on the server - a saved edit
+         always arrives as a new row, through the branch below. So a record
+         with unsent work is left alone here, and if the row is newer than
+         the version this device last saw, somebody changed it in place
+         underneath that work: a clash, kept and counted like the ones
+         below. Measured before this: a status change whose upload failed
+         was reverted by the next page load, silently. */
+      if(!cur.synced){
+        const theirs=row.updated_at||null, ours=cur.rowAt||null;
+        if(!!theirs && (!ours || theirs>ours)) clashed.push(cur.name);
+        continue;
+      }
       const refreshed=shelfCore.mergeRemoteShelfRecord(cur,row,taken);
       repair.push({oldId:cur.id,record:refreshed,rowAt:row.updated_at||null});
       taken.delete(cur.id); taken.add(refreshed.id);

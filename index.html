@@ -18570,6 +18570,15 @@ async function groupCatchUp(){
        for; a record that appears while the pull runs - a move made by the
        person - is synced with a row the snapshot never saw, and read
        afterwards it was deleted as "removed by someone else". Measured. */
+    /* AND NOTHING THE PULL ITSELF WROTE. A teammate's save arrives as a new
+       row, and the pull downloads it over the same local id with the new
+       rowId - so the snapshot's copy still names the old row, which the
+       server no longer has. Judged on that, the record the pull had just
+       written was deleted as "removed by someone else" (measured, a
+       regression from ec67915). Anything touched after this point - by
+       the pull, which only writes rows the server holds, or by the
+       person - is left alone. */
+    const seq0=touchSeq;
     const mine=(await dbAll()).filter(i=>(i.kind==="trait"||i.kind==="ref")&&i.synced);
     const onServer=await cloudPull({quiet:true, keepMine:true});
     if(onServer){
@@ -18588,6 +18597,7 @@ async function groupCatchUp(){
         let gone=0;
         for(const it of mine){
           if(!wsStill(gen)) break;
+          if(touchedSince(it.id,seq0)) continue;
           if(onServer.has(shelfCore.recordKey(it))) continue;
           await dbDel(it.id); gone++;
         }

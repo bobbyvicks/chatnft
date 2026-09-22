@@ -19,9 +19,13 @@ import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 
+/* THE SAME FOURTEEN AS index.html's DEFAULT_LAYERS, and it has to be: this is
+   a z.enum, so a name missing here is a layer the model can never answer,
+   and a retired name present here is a layer the save path would adopt
+   back. patch516. */
 const LAYERS = [
-  "backgrounds", "skins", "clothing", "costumes", "chains", "accessories",
-  "extras", "ears", "mouth", "eyes", "hair-headwear", "masks", "unsorted",
+  "backgrounds", "skins", "mouth", "eyes", "glasses", "clothing", "chains",
+  "hair", "hats", "ears", "costumes", "masks", "extras", "unsorted",
 ] as const;
 
 const Identified = z.object({

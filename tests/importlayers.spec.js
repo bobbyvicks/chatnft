@@ -7,12 +7,22 @@
    named after a layer the project does not have matched nothing and every file
    in it fell through to unsorted.
 
-   MEASURED on the collection this came up for: thirteen folders, and hats,
-   hair and glasses are not in DEFAULT_LAYERS - they are one merged
-   "hair-headwear" there. So 63 of 233 files, every hat and hairstyle and pair
-   of glasses, would import onto one layer. And unsorted is not neutral: it
-   sits last in the draw order by convention, so those 63 would also paint on
-   top of everything.
+   MEASURED on the collection this came up for, when the default list still
+   lacked them: thirteen folders, and hats, hair and glasses were not in
+   DEFAULT_LAYERS - they were one merged "hair-headwear" there. So 63 of 233
+   files, every hat and hairstyle and pair of glasses, would import onto one
+   layer. And unsorted is not neutral: it sits last in the draw order by
+   convention, so those 63 would also paint on top of everything.
+
+   SUPERSEDED IN PART BY patch516. hats, hair and glasses ARE default layers
+   now - the default list is the collection's own thirteen - so they can no
+   longer be the fixture for "a folder the project has no layer for". The
+   adoption mechanism is still what makes the default list a starting point
+   rather than a cage, and it is exercised here on three names that are
+   genuinely not layers under the new list and are real folders in the library
+   today: accessories, hair-headwear and back-extras. The thirteen-folder test
+   at the end now asserts the OTHER thing: that on the real collection nothing
+   needs adopting at all.
 
    It matters twice over here, because a rule names a trait as layer/name. A
    collection whose hats all landed in unsorted cannot have a rule about hats,
@@ -58,43 +68,50 @@ const start = async ({ page }) => {
   });
 };
 
+/* Three folder names that are not layers under the collection's list. WAS
+   hats, hair and glasses, which are default layers since patch516 - a fixture
+   the page already knows cannot show that adoption works. */
+const NEW = ['accessories', 'hair-headwear', 'back-extras'];
+
 test.describe('importing a folder whose layers are new', () => {
   test.beforeEach(start);
 
   test('the default layer list really is missing these three', async ({ page }) => {
-    /* THE PRECONDITION, asserted rather than assumed. If hats were already a
-       default layer the tests below would pass without the fix. */
+    /* THE PRECONDITION, asserted rather than assumed. If accessories were
+       already a default layer the tests below would pass without adoption. */
     const d = await page.evaluate(() => DEFAULT_LAYERS.slice());
-    for (const l of ['hats', 'hair', 'glasses'])
+    for (const l of NEW)
       expect(d, l + ' is not a default layer').not.toContain(l);
-    expect(d, 'they are one merged layer instead').toContain('hair-headwear');
+    expect(d, 'the collection uses hats, hair and glasses instead').toContain('hats');
+    expect(d).toContain('hair');
+    expect(d).toContain('glasses');
   });
 
   test('a folder named after a layer becomes that layer', async ({ page }) => {
     const r = await files(page, [
-      'UPLOAD/hats/BTC Cap.png',
-      'UPLOAD/hair/Unc Hair.png',
-      'UPLOAD/glasses/Pit Vipers.png',
+      'UPLOAD/accessories/Gold Chain.png',
+      'UPLOAD/hair-headwear/Unc Hair.png',
+      'UPLOAD/back-extras/Wings.png',
     ]);
     expect(r.placed, 'each on the layer its folder named').toEqual([
-      'glasses/Pit Vipers', 'hair/Unc Hair', 'hats/BTC Cap',
+      'accessories/Gold Chain', 'back-extras/Wings', 'hair-headwear/Unc Hair',
     ]);
-    for (const l of ['hats', 'hair', 'glasses'])
+    for (const l of NEW)
       expect(r.layers, l + ' is a layer now').toContain(l);
   });
 
   test('and unsorted stays last, so nothing new paints on top of everything', async ({ page }) => {
-    const r = await files(page, ['UPLOAD/hats/BTC Cap.png']);
+    const r = await files(page, ['UPLOAD/accessories/Gold Chain.png']);
     /* ASSERTED FIRST, and a mutation run is why. Without this line the test
        passed when adoption was removed altogether: indexOf returns -1 for a
        layer that does not exist, and -1 is less than any real index, so
        "the new layer sits before unsorted" was true of a layer that was never
        created. An ordering assertion is satisfied by absence unless something
        proves the thing is there. */
-    expect(r.layers, 'the layer was actually created').toContain('hats');
+    expect(r.layers, 'the layer was actually created').toContain('accessories');
     expect(r.layers[r.layers.length - 1], 'unsorted is still the catch-all at the end')
       .toBe('unsorted');
-    expect(r.layers.indexOf('hats'), 'and the new layer sits before it')
+    expect(r.layers.indexOf('accessories'), 'and the new layer sits before it')
       .toBeLessThan(r.layers.indexOf('unsorted'));
   });
 
@@ -102,9 +119,9 @@ test.describe('importing a folder whose layers are new', () => {
     /* Adding a layer changes the draw order of the whole collection. It
        arrives alphabetically, which has nothing to do with what should paint
        over what, so the report has to say so. */
-    const r = await files(page, ['UPLOAD/hats/BTC Cap.png', 'UPLOAD/hair/Unc Hair.png']);
+    const r = await files(page, ['UPLOAD/accessories/Gold Chain.png', 'UPLOAD/hair-headwear/Unc Hair.png']);
     expect(r.note, 'it says it made them').toContain('new layers');
-    expect(r.note, 'and which').toContain('hats');
+    expect(r.note, 'and which').toContain('accessories');
     expect(r.note, 'and to go and look').toContain('draw order');
   });
 
@@ -159,8 +176,11 @@ test.describe('importing a folder whose layers are new', () => {
     expect(r.placed, 'and it still imported').toEqual(['hats/BTC Cap']);
   });
 
-  test('and the whole thirteen-folder collection lands where it should', async ({ page }) => {
-    /* The real shape of the job, in miniature: one file per folder. */
+  test('AND THE WHOLE THIRTEEN-FOLDER COLLECTION LANDS WITHOUT INVENTING A LAYER', async ({ page }) => {
+    /* The real shape of the job, in miniature: one file per folder. Every one
+       of these is a default layer now, so nothing falls through to unsorted
+       AND nothing needs adopting - the second assertion is the one patch516
+       added, and it goes red if any of the thirteen leaves the default list. */
     const folders = ['backgrounds', 'chains', 'clothing', 'costumes', 'ears', 'extras',
       'eyes', 'glasses', 'hair', 'hats', 'masks', 'mouth', 'skins'];
     const r = await files(page, folders.map(f => 'UPLOAD/' + f + '/thing.png'));
@@ -168,6 +188,8 @@ test.describe('importing a folder whose layers are new', () => {
     expect(unsorted, 'nothing fell through to unsorted').toEqual([]);
     for (const f of folders)
       expect(r.placed.some(p => p.indexOf(f + '/') === 0), f + ' got its own layer').toBe(true);
+    expect(r.note, 'and invented nothing').not.toContain('new layer');
+    expect(r.layers, 'the list is still the fourteen it started with').toHaveLength(14);
   });
 
   test('and a project carrying layers the collection does not use is told which ones it left empty', async ({ page }) => {

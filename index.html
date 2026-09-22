@@ -3707,7 +3707,9 @@ function measuredBlock(d,W,H){
        and the snap were reported broken together. */
     const exact=fixNativeBlock(d,W,H);
     if(exact>1) return exact;
-    /* No exact grid - 167 of the 311 measured. The detector is what has
+    /* No exact grid - 166 of the 311 in the TRAIT MASTER LIBRARY copy, 167
+       in the OneDrive/Desktop copy that replaces 32 skins as unapproved
+       rework input (measured 2026-09-21, both). The detector is what has
        anything to say about those, so it stays. */
     const t=transitions(d,W,H);
     /* The second axis only when the first has nothing to say. Measured on a
@@ -3947,8 +3949,36 @@ function load(file){
 const EMPTY_DEFAULT=0.35;
 let emptyChance=EMPTY_DEFAULT;
 const ALWAYS_PRESENT=["skins"];
-const DEFAULT_LAYERS=['backgrounds','skins','clothing','costumes','chains','accessories',
-  'extras','ears','mouth','eyes','hair-headwear','masks','unsorted'];
+/* THE COLLECTION'S OWN THIRTEEN FOLDERS, in its last recorded back-to-front
+   order, then the catch-all.
+
+   SUPERSEDES ['backgrounds','skins','clothing','costumes','chains','accessories',
+   'extras','ears','mouth','eyes','hair-headwear','masks','unsorted'], which held
+   two names the collection never had and lacked glasses, hair and hats, which
+   it has had since 2026-09-06. PLACEMENT_REF below is keyed by exactly these
+   thirteen, so the page held one vocabulary in one table and contradicted it
+   in this one. Measured on a fresh page over the 311 working traits
+   (2026-09-21): 84 printed a colour count with no guideline, 3 of 13
+   categories had no placement reference reachable from the layer select, 13
+   of the 26 rule edges in a shipped rules file were dropped for naming a
+   layer the page had not got, and applying EITHER recorded order file left
+   accessories and hair-headwear painted in front of all 311 traits.
+
+   THE SEQUENCE IS THE PAINT ORDER, index 0 at the back, and it is the order
+   LAYER-ORDER-v14-311-traits.txt states (2026-09-10; byte-identical to v12
+   and v13; filed under "Approved decisions" the same day). The set is
+   settled. The sequence is the last one recorded, not one shown to be
+   right: the 2026-09-06 record puts eyes and glasses above hair and this one
+   puts hair above both, and measured over the real collection that is 46 of
+   464 hair/glasses pairs burying 40% or more of the glasses under a fringe,
+   against 0 the other way. With the set right, reversing that is one drop
+   of a LAYER-ORDER file; with the old set it was not possible at all.
+
+   A project with a stored settings.layers is untouched - applyLayers
+   replaces this wholesale - and the migration onto these names is Sort by
+   inventory, which already names the layers it leaves empty. */
+const DEFAULT_LAYERS=['backgrounds','skins','mouth','eyes','glasses','clothing','chains',
+  'hair','hats','ears','costumes','masks','extras','unsorted'];
 let LAYERS=DEFAULT_LAYERS.slice();
 const LAYERS_ID='settings.layers';
 /* THE ORDER LAYERS ARE DECIDED IN, which is not the order they are painted
@@ -11363,6 +11393,14 @@ function readPath(rel){
      thing its title says it does. Measured: a thirteen-folder collection
      with hats, hair and glasses in it put 63 of its 233 files in unsorted,
      because those three are not in DEFAULT_LAYERS.
+
+     THAT WAS TRUE WHEN IT WAS WRITTEN AND IS NOT NOW, twice over: the block
+     at the top of bulkImport adopts an unknown folder before anything is
+     written, and DEFAULT_LAYERS is the collection's own thirteen since
+     patch516. Measured 2026-09-21 over the 311 live files: 0 land in
+     unsorted and 0 folders are adopted, because every one of them is
+     already a layer. `folder` stays for the collection that is not this
+     one - a fourteenth folder nobody predicted still has to be readable.
 
      Same last-match-wins rule as the status, minus the segments that mean
      something else: a status folder is not a layer, and neither is a base
@@ -24316,7 +24354,8 @@ async function importRuleFile(f){
     plan=planRuleImport(doc, items.filter(i=>i.kind==="trait"));
   }catch(err){
     /* NOT JSON MIGHT STILL BE THE ORDER. The v12 upload file carries no
-       order at all; it ships beside LAYER-ORDER-v12-318-traits.txt. */
+       order at all; it ships beside LAYER-ORDER-v14-311-traits.txt (v12 and
+       v13 state the same order, byte for byte). */
     const order=parseLayerOrderText(raw);
     if(order){
       let painted=null;

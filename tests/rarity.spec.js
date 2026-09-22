@@ -48,7 +48,7 @@ const read = (page) => page.evaluate(() => {
 });
 const num = (s) => parseFloat(String(s).replace('%', ''));
 
-const HATS = 'hair-headwear';   /* a real layer - an unknown one never renders */
+const HATS = 'hats';   /* a real layer - an unknown one never renders. WAS 'hair-headwear', a name the collection never had; patch516 retired it */
 
 test.describe('what a rarity weight comes to', () => {
   test('a layer sums to its own chance of appearing', async ({ page }) => {
@@ -301,13 +301,13 @@ test.describe('the prediction agrees with the generator', () => {
   const SET = [
     { name: 'tan', layer: 'skins', rarity: 1, status: A },
     { name: 'pale', layer: 'skins', rarity: 3, status: A },
-    { name: 'crown', layer: 'hair-headwear', rarity: 5, status: A },
-    { name: 'cap', layer: 'hair-headwear', rarity: 1, status: A },
-    { name: 'wig', layer: 'hair-headwear', rarity: 1, status: A },
+    { name: 'crown', layer: 'hats', rarity: 5, status: A },
+    { name: 'cap', layer: 'hats', rarity: 1, status: A },
+    { name: 'wig', layer: 'hats', rarity: 1, status: A },
     { name: 'mask', layer: 'masks', rarity: 2, status: A },
     { name: 'veil', layer: 'masks', rarity: 1, status: A },
   ];
-  const CROWN = 'hair-headwear/crown', MASK = 'masks/mask', VEIL = 'masks/veil';
+  const CROWN = 'hats/crown', MASK = 'masks/mask', VEIL = 'masks/veil';
 
   /* Predicted share against the share the generator actually produces. */
   const compare = (page, draws) => page.evaluate(async (n) => {
@@ -423,7 +423,9 @@ test.describe('the prediction agrees with the generator', () => {
     const before = await compare(page, 2000);
 
     await page.evaluate(async () => {
-      const i = LAYERS.indexOf('masks'), j = LAYERS.indexOf('hair-headwear');
+      /* 'hats' spelled out: this runs in the page, where the file's HATS
+         constant does not exist. WAS 'hair-headwear' - see HATS above. */
+      const i = LAYERS.indexOf('masks'), j = LAYERS.indexOf('hats');
       LAYERS.splice(i, 1); LAYERS.splice(j, 0, 'masks');   // masks now drawn first
       await renderShelf();
     });

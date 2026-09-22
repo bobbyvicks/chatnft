@@ -169,4 +169,31 @@ test.describe('importing a folder whose layers are new', () => {
     for (const f of folders)
       expect(r.placed.some(p => p.indexOf(f + '/') === 0), f + ' got its own layer').toBe(true);
   });
+
+  test('and a project carrying layers the collection does not use is told which ones it left empty', async ({ page }) => {
+    /* The other half of a vocabulary change, at the door somebody actually
+       uses. The real case is a project carrying accessories and hair-headwear
+       from before patch516, importing the collection: those two then hold
+       nothing and the note says so, with where to remove them. The fixture
+       uses two names that are not defaults under EITHER vocabulary, so this
+       test means the same thing on the commit before the list changed and
+       the commit after. The default layers that are empty are NOT named - a
+       fresh project's are empty by design. */
+    await page.evaluate(async () => {
+      LAYERS = ['backgrounds', 'visors', 'capes', 'unsorted'];
+      await saveLayers();
+      await renderShelf();
+    });
+    const r = await files(page, ['UPLOAD/hats/BTC Cap.png', 'UPLOAD/backgrounds/Sky.png']);
+    expect(r.placed).toEqual(['backgrounds/Sky', 'hats/BTC Cap']);
+    expect(r.note).toContain('2 layers now hold nothing (visors, capes) and can be removed in Layers');
+  });
+
+  test('and a fresh project is not nagged about its own empty defaults', async ({ page }) => {
+    /* The control: eleven default layers hold nothing after this import, and
+       none of them is named. */
+    const r = await files(page, ['UPLOAD/hats/BTC Cap.png', 'UPLOAD/backgrounds/Sky.png']);
+    expect(r.placed).toEqual(['backgrounds/Sky', 'hats/BTC Cap']);
+    expect(r.note).not.toContain('hold nothing');
+  });
 });

@@ -21235,7 +21235,7 @@ let fixUnhonoured=null;
 let fixBlockUnfit=null;
 /* THE FOLDER RUN'S TALLIES, kept per file inside the loop because only
    the cell count survives it, and a count cannot say why. */
-let fixMovedLast=null, fixMovedCount=0, fixUnhonouredAt=[], fixNativeKept=0, fixOwnBlocks=0, fixUnfitAt=[], fixTypedRecutAt=[];
+let fixMovedLast=null, fixMovedCount=0, fixUnhonouredAt=[], fixNativeKept=0, fixOwnBlocks=0, fixUnfitAt=[], fixTypedRecutAt=[], fixTypedStrokesAt=[];
 /* WHAT THE GRIDLESS SEARCH FOUND for the last decision: whether a count
    passed the 95% rule or was the best of a failed lot, and what it kept. */
 let fixGridlessPassed=false, fixGridlessKept=0;
@@ -21351,6 +21351,39 @@ function fixNativeBlock(data,W,H){
     if(noisy>0){ fixNativeNoisy=noisy; return N; }
   }
   return 0;
+}
+/* HOW MANY BLOCKS OF THIS PICTURE ARE A STROKE ONE BLOCK WIDE - the thing
+   an 8px cell cannot hold when the block is 5px or 10px.
+
+   On the picture's own block grid: one sample per block, at its centre,
+   which is exact for art whose block fixNativeBlock measured (every NxN
+   square is one colour) and is only ever asked of that art. A stroke is a
+   block whose two neighbours along the stroke are its own colour and whose
+   two neighbours across it are one other colour - so a letter stem counts,
+   a checkerboard does not (the block above differs), a gradient does not
+   (the two sides differ from each other), and a bar four blocks wide does
+   not. The first measure tried, "a run of one block", fired on 101 of 101
+   cut-across traits because dither is a run of one; this one separates
+   Backrooms Hallway (615) from Ruins Selfie (75) and counts the hat's
+   lettering at 243. */
+function fixThinStrokes(data,W,H,block){
+  block=block|0; if(block<2||!data) return 0;
+  const w=Math.floor(W/block), h=Math.floor(H/block), half=Math.floor(block/2);
+  if(w<3||h<3) return 0;
+  const a=new Int32Array(w*h);
+  for(let by=0;by<h;by++) for(let bx=0;bx<w;bx++){
+    const i=((by*block+half)*W+bx*block+half)*4;
+    a[by*w+bx]=data[i+3]===0 ? -1 : ((data[i]<<16)|(data[i+1]<<8)|data[i+2]);
+  }
+  const atb=(x,y)=>(x<0||y<0||x>=w||y>=h) ? -2 : a[y*w+x];
+  let n=0;
+  for(let y=0;y<h;y++) for(let x=0;x<w;x++){
+    const me=a[y*w+x]; if(me===-1) continue;
+    const Lf=atb(x-1,y), Rt=atb(x+1,y), Up=atb(x,y-1), Dn=atb(x,y+1);
+    if(Up===me&&Dn===me&&Lf===Rt&&Lf!==me) n++;
+    if(Lf===me&&Rt===me&&Up===Dn&&Up!==me) n++;
+  }
+  return n;
 }
 /* THE GRID FOR A PICTURE THAT HAS NONE.
 
@@ -21782,7 +21815,8 @@ function fixStepFor(w,data,h){
     const drawn=px?fixNativeBlockFor(px,w,ph):0;
     const whole=x=>Math.abs(x-Math.round(x))<1e-9;
     if(drawn>1&&step>0&&!whole(drawn/step)&&!whole(step/drawn))
-      fixTypedRecut={block:drawn, cells:Math.max(1,fixRint(w/drawn)), to:step};
+      fixTypedRecut={block:drawn, cells:Math.max(1,fixRint(w/drawn)), to:step,
+        strokes:fixThinStrokes(px,w,ph,drawn)};
     return step;
   }
   if(fixSnapping()){
@@ -22151,6 +22185,11 @@ function fixRun(){
           : typedBy
           ? "drawn at "+typedBy.block+"px blocks ("+typedBy.cells+" cells), which the "
             +fixGridCells().cells+" cell grid cuts across"
+            /* Only when there is some: a picture of flat shapes re-cuts with
+               nothing lost, and a clause on every cut-across run would be
+               noise where the count is the finding. */
+            +(typedBy.strokes ? " - "+typedBy.strokes.toLocaleString()+" stroke"
+              +(typedBy.strokes===1?"":"s")+" one block wide will not survive it" : "")
           : r.consensus==="measured"
           ? (r.measuredBlock===1
             ? "kept at one pixel per cell - the picture is already at its native size"
@@ -22345,7 +22384,7 @@ async function fixBatchRun(files){
   const over=all.length-list.length;
   /* BEFORE the list is replaced: it is what holds the urls to revoke. */
   fixMoved=null; fixNoGrid=0; fixGridlessAt=[];
-  fixMovedLast=null; fixMovedCount=0; fixUnhonouredAt=[]; fixNativeKept=0; fixOwnBlocks=0; fixUnfitAt=[]; fixTypedRecutAt=[];
+  fixMovedLast=null; fixMovedCount=0; fixUnhonouredAt=[]; fixNativeKept=0; fixOwnBlocks=0; fixUnfitAt=[]; fixTypedRecutAt=[]; fixTypedStrokesAt=[];
   fixGridlessFellAt=[]; fixGridlessFellKept=1; fixMarksDroppedTotal=0; fixMarksDroppedFiles=0; fixNoisyFiles=0; fixAlphaFiles=0; fixAlphaPixels=0; fixBrowserRead=[]; fixGateReady=0; fixGateWhy=new Map(); fixRecutAt=[]; fixGatePast=0; fixGatePastMost=0;
   fixPalMoved=0; fixPalPixels=0; fixPalFiles=0; fixPalWorst=0; fixPalMerged=0; fixPalWorstFile="";
   /* Pictures reduced by a whole factor to get under the engine limit. */
@@ -22424,7 +22463,8 @@ async function fixBatchRun(files){
           else if(fixMeasuredBlock>1&&(sw<fixGridCells().cells||sh<fixGridCells().cells)) fixOwnBlocks++;
           if(fixBlockUnfit) fixUnfitAt.push(fixBlockUnfit.block);
           if(fixBlockRecut) fixRecutAt.push(fixBlockRecut.canvasBlock);
-          if(fixTypedRecut) fixTypedRecutAt.push(fixTypedRecut.block);
+          if(fixTypedRecut){ fixTypedRecutAt.push(fixTypedRecut.block);
+            if(fixTypedRecut.strokes) fixTypedStrokesAt.push({name:name, strokes:fixTypedRecut.strokes}); }
           return s>0?s:null; })()});
     if(!r||r.error){ failed.push(name+" ("+((r&&r.error)||"no answer")+")"); continue; }
     const out=r.ok;
@@ -22552,6 +22592,12 @@ async function fixBatchRun(files){
     ? " \u00b7 "+fixTypedRecutAt.length+" were drawn at a block size the "
       +fixGridCells().cells+" cell grid cuts across ("
       +[...new Set(fixTypedRecutAt)].sort((a,b)=>a-b).map(b=>b+"px").join(", ")+")"
+      /* AND HOW MANY OF THOSE WILL LOSE SOMETHING, with the worst named so
+         a folder of 311 says which three to open first. */
+      +(fixTypedStrokesAt.length
+        ? ", "+fixTypedStrokesAt.length+" of them holding detail one block wide (most in "
+          +fixTypedStrokesAt.slice().sort((a,b)=>b.strokes-a.strokes).slice(0,3).map(s=>s.name).join(", ")+")"
+        : "")
     : "";
   const unfitNote = fixUnfitAt.length
     ? " \u00b7 "+fixUnfitAt.length+" drawn in blocks the grid cannot hold ("

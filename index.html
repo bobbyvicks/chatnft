@@ -13583,6 +13583,7 @@ function planRuleImport(docIn, traits){
       out.decisions.push({a:d.a,b:d.b,ok:true,src:"file",at:now});
   }
   out.order=decideOrderFor(out.edges);
+  out.clashes=out.order.length ? {pairs:[],stuck:[]} : decideOrderClashes(out.edges);
   return out;
 }
 /* A decide order satisfying every condition-before-target edge, disturbing
@@ -13615,6 +13616,37 @@ function decideOrderFor(edges){
     for(const m of next.get(l)) indeg.set(m,indeg.get(m)-1);
   }
   return order;
+}
+/* WHY THERE WAS NO ORDER, in layer names. Only asked when decideOrderFor
+   returned nothing, and it answers two ways: the pairs of layers whose
+   rules run both ways (the usual case, and each is one rule to look at),
+   and, if a cycle has no direct pair - A before B before C before A - the
+   layers the same walk could not place. The walk is decideOrderFor's,
+   repeated rather than shared, so the refusal above stays one function
+   that returns one thing. */
+function decideOrderClashes(edges){
+  const have=new Set(LAYERS);
+  const dir=new Set();
+  for(const [a,b] of edges) if(have.has(a)&&have.has(b)&&a!==b) dir.add(a+"\u0000"+b);
+  const pairs=[];
+  for(const s of dir){
+    const [a,b]=s.split("\u0000");
+    if(dir.has(b+"\u0000"+a)&&LAYERS.indexOf(a)<LAYERS.indexOf(b)) pairs.push([a,b]);
+  }
+  /* In paint order, not in the order the file happened to list its rules,
+     so the same disagreement reads the same however the file is sorted. */
+  pairs.sort((p,q)=>(LAYERS.indexOf(p[0])-LAYERS.indexOf(q[0]))||(LAYERS.indexOf(p[1])-LAYERS.indexOf(q[1])));
+  const indeg=new Map(LAYERS.map(l=>[l,0]));
+  const next=new Map(LAYERS.map(l=>[l,[]]));
+  for(const s of dir){ const [a,b]=s.split("\u0000"); next.get(a).push(b); indeg.set(b,indeg.get(b)+1); }
+  const left=LAYERS.slice();
+  for(;;){
+    const i=left.findIndex(l=>indeg.get(l)===0);
+    if(i<0) break;
+    const l=left.splice(i,1)[0];
+    for(const m of next.get(l)) indeg.set(m,indeg.get(m)-1);
+  }
+  return {pairs:pairs, stuck:left};
 }
 /* Newest answer per pair. Order-independent, so it does not matter which
    side is called "mine" - which is what makes it safe to run on a pull and
@@ -24561,7 +24593,15 @@ async function importRuleFile(f){
   if(plan.restrictNothing) bits.push(plan.restrictNothing+" allowed everything and needed no rule");
   if(ordered) bits.push("layers now decide in the order "+DECIDE_ORDER.filter(l=>
     plan.edges.some(e=>e[0]===l||e[1]===l)).join(", "));
-  else bits.push("the rules disagree about which layer decides first, so the decide order was left alone");
+  else {
+    /* WHICH LAYERS, because a clause with no names sends somebody through
+       181 rules by hand. The pairs are one rule each to look at; the
+       fallback names what could not be placed when no pair is direct. */
+    const c=plan.clashes||{pairs:[],stuck:[]};
+    const which = c.pairs.length ? " ("+c.pairs.map(p=>p[0]+" and "+p[1]).join(", ")+")"
+      : c.stuck.length ? " (among "+c.stuck.join(", ")+")" : "";
+    bits.push("the rules disagree about which layer decides first"+which+", so the decide order was left alone");
+  }
   /* SAID, because it changes what every character looks like. A layer the
      file did not mention is now painted over the ones it did. One sentence,
      built once above, so the two messages cannot describe it differently. */

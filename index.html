@@ -17443,7 +17443,7 @@ async function cloudStatus(u){
   /* Worked out from the SETS when both are known, and not claimed at all when
      they are not. The old version subtracted two counts and named the result
      as though it were a number of files. */
-  let onlyHere=null, onlyThere=null;
+  let onlyHere=null, onlyThere=null, unsent=0;
   if(localPaths && remotePaths){
     try{
       const team=await cloudTeam();
@@ -17452,23 +17452,35 @@ async function cloudStatus(u){
         const here=new Set(localPaths.map(i=>cloudPath(team,c,i)));
         onlyHere=[...here].filter(p=>!remotePaths.has(p)).length;
         onlyThere=[...remotePaths].filter(p=>!here.has(p)).length;
+        /* CHANGED HERE AND NOT SENT, with its file on the server under the
+           same path - the case the two sets cannot see. Since patch525 a
+           reweight or a reorder leaves exactly this behind; so does an
+           older failed picture upload a pull once put a path on. Keyed on
+           the flag, because Save to cloud sends both. */
+        unsent=localPaths.filter(i=>!i.synced && i.rowId && remotePaths.has(cloudPath(team,c,i))).length;
       }
     }catch(_){ onlyHere=null; onlyThere=null; }
   }
   let advice;
+  const pend = unsent ? unsent+" changed here and not yet sent" : "";
+  const sends = unsent===1 ? "it" : "them";
   if(onlyHere===null||onlyThere===null){
     /* Honest about the counts, silent about the difference. */
     advice="";
   } else if(!onlyHere && !onlyThere){
-    advice=". They match.";
+    /* "They match" is the sentence that stops somebody looking, so it is
+       not said of a copy that still has something to send. */
+    advice = unsent ? ". Files match, but "+pend+" - Save to cloud sends "+sends+"." : ". They match.";
   } else if(onlyHere && !onlyThere){
-    advice=". Save to cloud to upload the "+onlyHere+" that "+(onlyHere===1?"is":"are")+" only here.";
+    advice=". Save to cloud to upload the "+onlyHere+" that "+(onlyHere===1?"is":"are")+" only here"
+      +(unsent ? " and send the "+pend : "")+".";
   } else if(onlyThere && !onlyHere){
-    advice=". Load from cloud to fetch the "+onlyThere+" that "+(onlyThere===1?"is":"are")+" only there.";
+    advice=". Load from cloud to fetch the "+onlyThere+" that "+(onlyThere===1?"is":"are")+" only there"
+      +(unsent ? "; "+pend+" - Save to cloud sends "+sends : "")+".";
   } else {
     /* The case the subtraction could never express, and the one where
        pressing the wrong button first is most costly. */
-    advice=". "+onlyHere+" only here and "+onlyThere+" only there"
+    advice=". "+onlyHere+" only here"+(unsent ? ", "+pend : "")+" and "+onlyThere+" only there"
       +" - Save to cloud sends yours up, Load from cloud brings the rest down.";
   }
   $("cloudnote").textContent=localN+" file"+(localN===1?"":"s")+" here, "+(remoteFloor?"at least ":"")+remoteN+" on the server"+ago+advice;

@@ -4395,14 +4395,10 @@ async function setTraitStatus(t,next){
 
      Only on failure. When the upload lands, cloudSyncOne writes synced,
      rowId and path onto the record itself, and that write is the true one. */
-  if(activeWs && !shared){
-    let stored=null; try{ stored=await dbGet(moved.id); }catch(_){}
-    if(stored && (stored.synced||stored.path)){
-      const honest=Object.assign({},stored,{synced:false});
-      delete honest.path;
-      try{ await dbPut(honest); }catch(_){}
-    }
-  }
+  /* SUPERSEDED (patch525): cloudMoveOne does this itself, on both of its
+     null paths, for every caller - and for a personal page, which the
+     guard on activeWs here left out. Measured: a status change on a
+     personal page kept synced:true and Load from cloud put it back. */
   /* AND AGAIN, BECAUSE THE ROW ID MOVED UNDERNEATH BOTH KEYS. A move inside
      a group uploads the trait as a NEW row and writes the id the insert
      returned back onto the local record - so for a synced trait the key just
@@ -15450,7 +15446,12 @@ async function setRarity(rec,w){
      refused traits unsynced would queue about a gigabyte to re-send numbers
      the server is going to reject a second time. "nogroup" clears nothing
      either: there was never anything to be behind. */
-  if(sent==="unreachable" && next.rowId && next.synced) await dbPut({...next, synced:false});
+  /* AND "nogroup" TOO, superseding the sentence above: on a personal page
+     there IS something to be behind - the personal collection on the
+     server - and Load from cloud took its weight back over this one
+     (measured 2026-09-22). A record with no rowId was never up there and
+     synced is already false on it. "refused" stays as it is. */
+  if((sent==="unreachable"||sent==="nogroup") && next.rowId && next.synced) await dbPut({...next, synced:false});
   return true;
 }
 
@@ -17763,8 +17764,23 @@ async function dbDelShared(rec){
    means a failure halfway leaves the old copy rather than nothing at all.
    The pair used to be written the other way round here, and the code did what
    this sentence said instead of what it meant. */
+/* A RECORD THAT CLAIMS TO BE ON THE SERVER AND IS NOT. Changed here and
+   not sent - no group, or the send failed - it drops the claim, and the
+   stored path with it, because that path describes the server's old
+   object. The pull then leaves it alone (patch522) and Save to cloud
+   sends it. Nothing to do for a record that never claimed. */
+async function markUnsent(rec){
+  if(!rec||!rec.id) return;
+  let stored=null; try{ stored=await dbGet(rec.id); }catch(_){ stored=null; }
+  if(!stored || !(stored.synced||stored.path)) return;
+  const honest=Object.assign({},stored,{synced:false});
+  delete honest.path;
+  try{ await dbPut(honest); }catch(_){}
+}
 async function cloudMoveOne(oldRec,newRec,why){
-  if(!activeWs) return null;
+  /* No group means nothing was sent, and on a personal page the record
+     still describes a row the personal collection holds the old way. */
+  if(!activeWs){ await markUnsent(newRec); return null; }
   /* THE ORDER THE COMMENT ABOVE DESCRIBES. It used to drop first and sync
      second, so "a failure halfway leaves the old copy rather than nothing at
      all" was exactly backwards - measured, a failed upload left the group with
@@ -17776,7 +17792,7 @@ async function cloudMoveOne(oldRec,newRec,why){
      left neither, which is not. */
   const fresh=Object.assign({},newRec); delete fresh.rowId;
   const arrived=await cloudSyncOne(fresh,null,why);
-  if(!arrived) return null;
+  if(!arrived){ await markUnsent(newRec); return null; }
   /* Only now, once the new copy has landed. */
   /* READ, NOT DISCARDED. The comment above calls a half-finished move
      "recoverable", which it is - but nobody was told there was anything to
@@ -17793,7 +17809,7 @@ async function cloudMoveOne(oldRec,newRec,why){
 
 /* Shelf reordering is metadata-only. The PNG path deliberately does not
    appear in this payload, so moving a card can never rewrite the artwork. */
-async function cloudSaveShelfPlan(updates){
+async function cloudSendShelfPlan(updates){
   if(!activeWs) return {ok:true};
   const u=await sbUser();
   if(!u) return {ok:false,reason:"auth"};
@@ -17813,6 +17829,18 @@ async function cloudSaveShelfPlan(updates){
     let detail={}; try{ detail=await r.json(); }catch(_){}
     return {ok:false,reason:(r.status===409||detail.code==="23505")?"duplicate":"server"};
   }catch(_){ return {ok:false,reason:"network"}; }
+}
+/* THE SEND, AND THEN THE TRUTH ABOUT IT. On a personal page the send is
+   skipped and answers ok - nothing was meant to go - but the records now
+   describe an order the personal collection on the server does not have,
+   and Load from cloud took the server's back over them (measured
+   2026-09-22). Marked unsent then, and on a failed send. commitShelfMove
+   rolls its records back to the originals on failure, which overwrites
+   the mark with the truth; bulkMoveToLayer keeps them, marked. */
+async function cloudSaveShelfPlan(updates){
+  const r=await cloudSendShelfPlan(updates);
+  if(!activeWs || !(r&&r.ok)) for(const u of (updates||[])) await markUnsent(u&&u.record);
+  return r;
 }
 
 async function cloudPush(){

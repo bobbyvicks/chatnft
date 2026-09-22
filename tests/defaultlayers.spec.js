@@ -19,8 +19,12 @@
    neither can drift on its own - that is what turns a decision into a guard. */
 import { test, expect } from '@playwright/test';
 
-const COLLECTION = ['backgrounds', 'skins', 'mouth', 'eyes', 'glasses', 'clothing', 'chains',
-  'hair', 'hats', 'ears', 'costumes', 'masks', 'extras'];
+/* The collection's thirteen in the v14 file's order, with one pair the other
+   way round: glasses over hair, decided 2026-09-22 by the owner (patch524).
+   The last test pins that pair on its own, so a future re-ordering that
+   keeps the set cannot quietly put hair back on top. */
+const COLLECTION = ['backgrounds', 'skins', 'mouth', 'eyes', 'clothing', 'chains', 'hair',
+  'glasses', 'hats', 'ears', 'costumes', 'masks', 'extras'];
 
 test.describe('the default vocabulary is the collection\'s', () => {
   test.beforeEach(async ({ page }) => {
@@ -73,5 +77,16 @@ test.describe('the default vocabulary is the collection\'s', () => {
       return out;
     });
     for (const k of Object.keys(r)) expect(r[k], k).toEqual([]);
+  });
+
+  test('GLASSES PAINT OVER HAIR, UNDER HATS - decided 2026-09-22', async ({ page }) => {
+    /* Asked with the measurement in hand: with hair on top, 46 of 464
+       hair/glasses pairs in the collection bury 40% or more of the glasses
+       under a fringe, none the other way. Answered yes. Pinned as a pair
+       rather than by index, because the whole-list test above would also
+       pass a list that moved glasses somewhere else entirely. */
+    const d = await page.evaluate(() => DEFAULT_LAYERS.slice());
+    expect(d.indexOf('glasses'), 'glasses right after hair').toBe(d.indexOf('hair') + 1);
+    expect(d.indexOf('hats'), 'and hats right after glasses').toBe(d.indexOf('glasses') + 1);
   });
 });

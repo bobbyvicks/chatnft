@@ -24,8 +24,8 @@ import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
    and a retired name present here is a layer the save path would adopt
    back. patch516. */
 const LAYERS = [
-  "backgrounds", "skins", "mouth", "eyes", "glasses", "clothing", "chains",
-  "hair", "hats", "ears", "costumes", "masks", "extras", "unsorted",
+  "backgrounds", "skins", "mouth", "eyes", "clothing", "chains", "hair",
+  "glasses", "hats", "ears", "costumes", "masks", "extras", "unsorted",
 ] as const;
 
 const Identified = z.object({

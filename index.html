@@ -3984,8 +3984,17 @@ const ALWAYS_PRESENT=["skins"];
    A project with a stored settings.layers is untouched - applyLayers
    replaces this wholesale - and the migration onto these names is Sort by
    inventory, which already names the layers it leaves empty. */
-const DEFAULT_LAYERS=['backgrounds','skins','mouth','eyes','glasses','clothing','chains',
-  'hair','hats','ears','costumes','masks','extras','unsorted'];
+/* GLASSES OVER HAIR. Decided 2026-09-22 by the owner, shown one character
+   both ways, with the measurement above as the question: 46 of 464
+   hair/glasses pairs bury 40% or more of the glasses under a fringe with
+   hair on top, none the other way. Glasses sit between hair and hats now -
+   over the fringe, under a hat - which is where the 2026-09-06 record had
+   them. This is the one pair on which the default differs from
+   LAYER-ORDER-v14-311-traits.txt; importing that file puts hair back on
+   top, and the file is the owner's to change. A project with a stored
+   settings.layers is untouched, as above. */
+const DEFAULT_LAYERS=['backgrounds','skins','mouth','eyes','clothing','chains','hair',
+  'glasses','hats','ears','costumes','masks','extras','unsorted'];
 let LAYERS=DEFAULT_LAYERS.slice();
 const LAYERS_ID='settings.layers';
 /* THE ORDER LAYERS ARE DECIDED IN, which is not the order they are painted

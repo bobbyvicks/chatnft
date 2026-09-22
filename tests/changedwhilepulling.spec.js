@@ -166,15 +166,20 @@ test.describe('a pull writes nothing over a record that changed while it ran', (
 
   test('AND A CHANGE MADE BETWEEN TWO OF THE REPAIRS THEMSELVES is not put back either',
     async ({ page }) => {
-      /* The plan is checked once when it is made and again at each write.
-         Between the two, on a real project, are hundreds of store writes -
-         here made slow, so a weight changed while the first repair is being
-         written meets the second repair's write-time check and nothing
-         else. Without that check the plan-time check has already passed and
-         the repair writes the snapshot's weight over the new one. */
-      const r = await run(page, { rows: [ROW1, ROW9], extra: true, slowPut: 300, after: 100, during: 'rarity', which: 'hat' });
+      /* Between the plan and each write, on a real project, are hundreds of
+         store writes - here made slow. The server has changed both rows in
+         place (a repair with nothing to write is skipped since patch527, so
+         a first repair that writes needs a change to write): cap's weight,
+         and hat's order. The person changes hat's weight while cap's repair
+         is being written, so hat's repair meets the write-time check and
+         nothing else. Without that check the repair writes the server's
+         order together with the snapshot's weight over the new one. */
+      const r = await run(page, { rows: [Object.assign({}, ROW1, { rarity: 2, updated_at: '2026-02-02T00:00:00Z' }),
+        Object.assign({}, ROW9, { shelf_order: 5, updated_at: '2026-02-02T00:00:00Z' })],
+        extra: true, slowPut: 300, after: 100, during: 'rarity', which: 'hat' });
       expect(r.moved).toBe(true);
-      expect(r.recs.map(x => x.id + ':' + x.rarity)).toEqual(['t_cap_skins_approved:1', 't_hat_hats_approved:3']);
+      expect(r.recs.map(x => x.id + ':' + x.rarity + ':' + x.order), 'cap took the server\'s weight; hat kept its own and its old order')
+        .toEqual(['t_cap_skins_approved:2:10', 't_hat_hats_approved:3:11']);
       expect(r.note).toContain('1 changed here while loading, kept as changed');
     });
 });

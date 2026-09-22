@@ -18077,6 +18077,14 @@ async function cloudRows(c,h,select){
   }
   return {rows:out, ok:true, truncated:truncated};
 }
+/* THE SAME RECORD, on every field a merge from the server can change. The
+   picture is not compared: a repair never carries one. */
+function sameRepair(a,b){
+  const v=(r,k)=>(r&&r[k]!==undefined?r[k]:null);
+  for(const k of ["id","rowId","path","kind","name","layer","status","rarity","shelfOrder","synced","rowAt"])
+    if(v(a,k)!==v(b,k)) return false;
+  return true;
+}
 async function cloudPull(opts){
   opts=opts||{};
   /* THREE answers, not two. "Could not ask" is not "you are signed out", and
@@ -18160,7 +18168,7 @@ async function cloudPull(opts){
         continue;
       }
       const refreshed=shelfCore.mergeRemoteShelfRecord(cur,row,taken);
-      repair.push({oldId:cur.id,record:refreshed,rowAt:row.updated_at||null});
+      repair.push({oldId:cur.id,record:refreshed,rowAt:row.updated_at||null,was:cur});
       taken.delete(cur.id); taken.add(refreshed.id);
       continue;
     }
@@ -18197,7 +18205,7 @@ async function cloudPull(opts){
            named instead of being decided quietly. */
         clashed.push(cur.name);
       }
-      repair.push({oldId:cur.id,record:shelfCore.mergeRemoteShelfRecord(cur,row,taken),
+      repair.push({oldId:cur.id,record:shelfCore.mergeRemoteShelfRecord(cur,row,taken),was:cur,
         rowAt:(newer&&!cur.synced)?ours:theirs});
       continue;
     }
@@ -18220,7 +18228,9 @@ async function cloudPull(opts){
   };
   say();
 
-  /* Only the ones actually missing it, so an ordinary open writes nothing. */
+  /* ONLY THE ONES THAT DIFFER, so an ordinary open writes nothing. This
+     sentence used to stand above a loop that wrote every matched row back;
+     measured, 311 record writes per open on 311 unchanged traits. */
   let repaired=0;
   for(const rp of repair){
     if(!wsStill(gen)) break;
@@ -18235,6 +18245,7 @@ async function cloudPull(opts){
          version of the row it is, or the next pull cannot tell whether the
          server has moved on. */
       if(rp.rowAt!==undefined) rp.record.rowAt=rp.rowAt;
+      if(rp.was && sameRepair(rp.was,rp.record)) continue;
       /* The server can name a trait something this browser filed
          differently, and the repair re-ids the local record to match. The
          draft goes with it, or a pull silently costs somebody their
@@ -18427,6 +18438,9 @@ async function cloudPull(opts){
   if(incoming.length||clashed.length){ await mailAdd(incoming, clashed); mailShow(); }
   const bits=["Loaded "+added+" item"+(added===1?"":"s")];
   if(incoming.length) bits.push(incoming.length+" updated by the group");
+  /* A move to another layer, a reorder or a reweight by a teammate arrives
+     through the repair, not a download, and used to arrive in silence. */
+  if(repaired) bits.push(repaired+" changed in place by the group");
   if(clashed.length) bits.push(clashed.length+" you have unsaved changes to, kept");
   if(renamed) bits.push(renamed+" renamed so nothing here was replaced");
   if(tookOrder) bits.push("the group's paint order ("+tookOrder+" layer"+(tookOrder===1?"":"s")+")");

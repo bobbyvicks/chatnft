@@ -4822,10 +4822,12 @@ function thumbCanvas(rec){
    after. With no IntersectionObserver at all the tile paints immediately,
    which is what every browser did before this. */
 let shelfWatch=null;
-function shelfWatchReset(){
-  if(shelfWatch){ shelfWatch.disconnect(); shelfWatch=null; }
-  if(typeof IntersectionObserver!=="function") return;
-  shelfWatch=new IntersectionObserver(function(entries,obs){
+/* THE OBSERVER, built in one place for the two pages that paint tiles
+   lazily. Each page holds its own and resets it when it empties its own
+   host - see finalWatchReset for why they must not share one. */
+function tileWatch(){
+  if(typeof IntersectionObserver!=="function") return null;
+  return new IntersectionObserver(function(entries,obs){
     for(const e of entries){
       if(!e.isIntersecting) continue;
       obs.unobserve(e.target);
@@ -4834,9 +4836,30 @@ function shelfWatchReset(){
     }
   },{rootMargin:"400px 0px"});
 }
-function shelfTile(rec){
+function shelfWatchReset(){
+  if(shelfWatch){ shelfWatch.disconnect(); shelfWatch=null; }
+  shelfWatch=tileWatch();
+}
+/* THE FINAL PROJECT PAGE'S OWN. Its tiles used to register on shelfWatch,
+   and a canvas whose observer is disconnected before it has reported is
+   never painted by anything - so every shelf redraw was a race against the
+   frame clock for every tile on that page still waiting, which on a
+   project of three hundred traits is most of them. finalMove lost it:
+   this page redrawn, the shelf redrawn a few milliseconds later, and
+   "i couldnt see any previews of the other traits". Measured with the
+   preview made instant: four tiles waiting at the reset, four blank after.
+   Reset by renderFinal when it empties its host, and by nothing else. */
+let finalWatch=null;
+function finalWatchReset(){
+  if(finalWatch){ finalWatch.disconnect(); finalWatch=null; }
+  finalWatch=tileWatch();
+}
+/* watch is the observer this tile belongs on. Left out, it is the shelf's;
+   the final project passes its own. null paints at once. */
+function shelfTile(rec,watch){
   const cv=thumbCanvas(rec);
-  if(shelfWatch){ cv.pbPaint=function(){ thumbPaint(cv,rec&&rec.blob); }; shelfWatch.observe(cv); }
+  const w=(arguments.length>1)?watch:shelfWatch;
+  if(w){ cv.pbPaint=function(){ thumbPaint(cv,rec&&rec.blob); }; w.observe(cv); }
   else thumbPaint(cv,rec&&rec.blob);
   return cv;
 }
@@ -23098,10 +23121,11 @@ async function finalSort(t,layer){
      the record: a refused move leaves it naming a layer the trait is not in,
      under a heading that says otherwise, and only a redraw takes that back.
 
-     After commitShelfMove rather than before, because it ends with
-     renderShelf and renderShelf resets the IntersectionObserver every tile
-     canvas here is registered on. Drawn again afterwards, the tiles on
-     tiles go on the new one. */
+     After commitShelfMove rather than before. This used to be what kept
+     the pictures on the page: the shelf redraw at the end of the move
+     reset the IntersectionObserver these tiles were registered on. Since
+     patch521 this page has an observer of its own and the order is only
+     the natural one - the move first, then the page that shows it. */
   await renderFinal();
   return ok;
 }
@@ -23146,7 +23170,7 @@ function finalTile(t,label,note,press){
     lab.appendChild(cb);
     el.appendChild(lab);
   }
-  el.appendChild(shelfTile(t));
+  el.appendChild(shelfTile(t,finalWatch));
   const nm=document.createElement("b"); nm.textContent=t.name; el.appendChild(nm);
   if(note){ const s=document.createElement("b"); s.className="fsnote"; s.textContent=note;
     el.appendChild(s); }
@@ -23385,6 +23409,9 @@ async function renderFinal(){
   for(const d of host.querySelectorAll("details.fsadd"))
     if(d.open&&d.dataset.layer) wasOpen.add(d.dataset.layer);
   host.innerHTML="";
+  /* With the DOM the old observer was watching - this page's, not the
+     shelf's. See finalWatchReset. */
+  finalWatchReset();
   for(const layer of order){
     const mine=traits.filter(t=>(t.layer||"unsorted")===layer);
     if(!mine.length) continue;
@@ -24518,8 +24545,9 @@ if($('fprand')) $('fprand').onclick=async()=>{
 /* THE PICK BAR. The move is bulkMoveToLayer - the one that plans every trait
    together and writes, renders and syncs once - so forty traits are one of
    each rather than forty. It clears the pick and renders the shelf itself;
-   this page is drawn afterwards, which is also the order that leaves its
-   tiles on a live IntersectionObserver. */
+   this page is drawn afterwards. That order used to be what kept its tiles
+   on a live IntersectionObserver; since patch521 the page has its own and
+   the order is only the natural one. */
 if($('fspickmove')) $('fspickmove').onclick=async()=>{
   const to=$('fspicklayer').value;
   if(!to){ toast("Pick a layer to move them to"); return; }

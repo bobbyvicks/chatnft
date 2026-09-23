@@ -22265,6 +22265,24 @@ async function pngEncode(rgba,W,H){
    against the browser wherever the browser is exact - every alpha, and
    the colour of every pixel at alpha 255 - or the browser's bytes and a
    reason. `how` says which, and the run repeats it where it matters. */
+/* A PNG THE BROWSER READS EXACTLY, where it has no translucent pixel: 8-bit,
+   not interlaced, and no colour-management chunk before the pixels. A
+   16-bit, interlaced or colour-managed file is one where the browser and
+   the page's reader can disagree, and that disagreement is disclosed, so
+   those are still read both ways. */
+function pngPlain(bytes){
+  if(!bytes||bytes.length<33||!pngIs(bytes)) return false;
+  if(bytes[24]!==8 || bytes[28]!==0) return false;
+  let p=8;
+  while(p+8<=bytes.length){
+    const len=((bytes[p]<<24)|(bytes[p+1]<<16)|(bytes[p+2]<<8)|bytes[p+3])>>>0;
+    const type=String.fromCharCode(bytes[p+4],bytes[p+5],bytes[p+6],bytes[p+7]);
+    if(type==="IDAT") return true;
+    if(type==="gAMA"||type==="iCCP"||type==="sRGB"||type==="cHRM") return false;
+    p+=12+len;
+  }
+  return false;
+}
 async function fixDecodeFile(file){
   let bm;
   try{ bm=await createImageBitmap(file); }catch(_){ return null; }
@@ -22278,6 +22296,16 @@ async function fixDecodeFile(file){
   let bytes=null;
   try{ bytes=new Uint8Array(await file.arrayBuffer()); }catch(_){ bytes=null; }
   if(!bytes||!pngIs(bytes)) return via("not a PNG");
+  /* READ ONCE when reading twice could change nothing: a plain PNG whose
+     browser decode has no translucent pixel. See pngPlain. */
+  if(pngPlain(bytes)){
+    let part=false;
+    for(let o=3;o<browser.length;o+=4){ const a=browser[o]; if(a>0&&a<255){ part=true; break; } }
+    if(!part){
+      for(let o=0;o<browser.length;o+=4) if(!browser[o+3]){ browser[o]=0; browser[o+1]=0; browser[o+2]=0; }
+      return {data:browser, width:W, height:H, how:"png", why:""};
+    }
+  }
   let d;
   try{ d=await pngDecode(bytes); }catch(e){ return via(String((e&&e.message)||e)); }
   if(d.width!==W||d.height!==H) return via("size "+d.width+"\u00d7"+d.height+" against the browser's "+W+"\u00d7"+H);

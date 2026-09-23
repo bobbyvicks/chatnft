@@ -718,7 +718,7 @@ button.planhead:focus-visible{outline:2px solid var(--accent); outline-offset:2p
    them to match. Their reason is better than mine was: three panels on one
    page at two different widths is a ragged edge, and the one that is narrower
    reads as unfinished rather than as considered. */
-#proj,#compose,#layers{width:min(1180px,92vw);}
+#proj,#compose,#layers,#review{width:min(1180px,92vw);}
 .projhead{display:flex; align-items:center; gap:12px; margin-bottom:12px; flex-wrap:wrap;}
 .projhead h2{font-size:13px; text-transform:uppercase; letter-spacing:.1em; color:var(--accent);}
 /* The heading is the control. Inherit rather than restate: the h2 above
@@ -730,6 +730,9 @@ button.planhead:focus-visible{outline:2px solid var(--accent); outline-offset:2p
 .projfold:focus-visible{outline:2px solid var(--accent); outline-offset:3px; border-radius:4px;}
 .projfold .fold{font-size:13px; line-height:1; color:var(--dim); transition:transform .15s;}
 #proj.folded .projfold .fold{transform:rotate(-90deg);}
+#compose.folded .projfold .fold{transform:rotate(-90deg);}
+/* The preview and the dropdowns; the buttons and the note stay. */
+#compose.folded .cwrap{display:none;}
 /* ONLY the tiles. The count, the notes and the buttons stay - a folded shelf
    has to say how much is in it, or it reads as an empty project. */
 #proj.folded #projbody{display:none;}
@@ -2219,7 +2222,8 @@ footer .mono{color:var(--ink);}
        scrolling past all of them to reach the thing that judges them. -->
   <section class="proj pg-project" id="compose" hidden>
     <div class="projhead">
-      <h2>Build a character</h2>
+      <h2><button class="projfold" id="composefold" type="button" aria-controls="composebody"
+        aria-expanded="false" title="Show the preview">Build a character<span class="fold" aria-hidden="true">▾</span></button></h2>
       <span class="count" id="ccount"></span>
       <div class="acts">
         <label class="olchk" style="margin-right:4px"><input type="checkbox" id="cwip"> include wip</label>
@@ -2238,7 +2242,7 @@ footer .mono{color:var(--ink);}
         <button class="mini go" id="cdl">Download</button>
       </div>
     </div>
-    <div class="cwrap">
+    <div class="cwrap" id="composebody">
       <canvas id="ccanvas" width="160" height="160"></canvas>
       <div class="crows" id="crows"></div>
     </div>
@@ -21074,6 +21078,28 @@ function projFold(on,remember){
 })();
 /* The same fold, for the plan. Its own storage key, because "I closed the
    traits" and "I closed the plan" are two different choices. */
+/* THE SAME FOLD, FOR BUILD A CHARACTER. First on the page by request, with a
+   preview 900 px wide by request, it was the whole first screen and the
+   traits began about 1,700 px down. Folded it is a heading and a row of
+   buttons. It starts folded - no stored choice means folded - and keeps
+   whichever the person picks. */
+const COMPOSE_KEY="chatnft.composefold";
+function composeFold(on,remember){
+  const sec=$("compose"), h=$("composefold");
+  if(!sec) return;
+  sec.classList.toggle("folded",!!on);
+  if(h){
+    h.setAttribute("aria-expanded", on?"false":"true");
+    h.title = on ? "Show the preview" : "Hide the preview";
+  }
+  if(remember!==false){ try{ localStorage.setItem(COMPOSE_KEY, on?"1":"0"); }catch(_){} }
+}
+(function(){
+  const h=$("composefold"); if(!h) return;
+  h.onclick=()=>composeFold(!$("compose").classList.contains("folded"));
+  let open=false; try{ open=localStorage.getItem(COMPOSE_KEY)==="0"; }catch(_){}
+  composeFold(!open,false);
+})();
 const PLAN_KEY="chatnft.planfold";
 function planFold(on,remember){
   const sec=$("plan"), h=$("planfold");
@@ -25554,7 +25580,7 @@ $('rsh').addEventListener('input',()=>{
 $('rsw').addEventListener('input',resizePreview);
 $('rsh').addEventListener('input',resizePreview);
 $('rsgrid').addEventListener('input',resizePreview);
-$('crand').onclick=composeRandom;
+$('crand').onclick=()=>{ composeFold(false,false); return composeRandom(); };
 $('ruleadd').onclick=async()=>{
   const a=$("rulea").value, b=$("ruleb").value;
   if(!a||!b){ toast("Pick two traits"); return; }
@@ -26202,7 +26228,7 @@ async function importRuleFile(f){
   toast("Added "+added+" rule"+(added===1?"":"s"));
   return true;
 }
-$('csheet').onclick=()=>drawSheet(12);
+$('csheet').onclick=()=>{ composeFold(false,false); return drawSheet(12); };
 /* THE SAME TWO PRESSES ON THE FINAL PAGE, against the final set. They set
    the mode as well as drawing, so the next render - an add, a removal, a
    layer change - comes back as whichever of the two you were looking at. */

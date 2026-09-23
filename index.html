@@ -17625,11 +17625,27 @@ function sbSaveSession(s){
    failure would work too, but only for requests that are safe to repeat, and
    a half-finished upload is not. */
 let sbRenewing=null;
+/* THE SERVER HAS REFUSED THIS SIGN-IN, so the page stops claiming it. Called
+   only where a definitive refusal clears the stored session - never for a
+   failed or unanswered request. The session was cleared and nothing was
+   drawn, so the panel kept the name and Sign out while every action said
+   "sign in" with no way to. Local work stays on the device. */
+function sessionEnded(){
+  if(!authed) return;
+  try{ autosaveNow(); }catch(_){}
+  authed=false;
+  const who=$("cloudwho"); if(who) who.textContent="not signed in";
+  for(const id of ["cloudpush","cloudpull","cloudout","cloudclear","teaminvite","setpass","setname"]){
+    const e=$(id); if(e) e.hidden=true;
+  }
+  gateShow(true);
+  toast("You are signed out on this device - sign in again to carry on. Your work here is kept.");
+}
 async function sbToken(){
   let s=sbLoadSession();
   if(!s||!s.access_token) return null;
   if(s.expires_at && Date.now() < (s.expires_at*1000 - 60000)) return s.access_token;
-  if(!s.refresh_token){ sbSaveSession(null); return null; }
+  if(!s.refresh_token){ sbSaveSession(null); sessionEnded(); return null; }
   /* ONE RENEWAL AT A TIME. Every request reads its headers now (a run that
      outlived its token used to carry the dead one to the end), so six
      uploads reaching expiry together would each send the same refresh
@@ -17645,7 +17661,7 @@ async function sbToken(){
          "you are signed out" is exactly what makes someone need a fresh email
          after every hiccup. */
       if(!r.ok){
-        if(r.status===400||r.status===401||r.status===403) sbSaveSession(null);
+        if(r.status===400||r.status===401||r.status===403){ sbSaveSession(null); sessionEnded(); }
         return null;
       }
       const j=await r.json();
@@ -17703,7 +17719,7 @@ async function sbAuthState(){
   try{
     const r=await fetch(SB_URL+"/auth/v1/user",{headers:{apikey:SB_KEY,Authorization:"Bearer "+t}});
     /* The server saying no is the only thing that signs anyone out here. */
-    if(r.status===401||r.status===403){ sbSaveSession(null); return {state:"out"}; }
+    if(r.status===401||r.status===403){ sbSaveSession(null); sessionEnded(); return {state:"out"}; }
     /* A 500, a 429, a gateway page: the server did not answer the question. */
     if(!r.ok) return {state:"unknown"};
     const u=await r.json();

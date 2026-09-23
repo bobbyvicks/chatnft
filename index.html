@@ -12485,7 +12485,14 @@ let distCache=null, distKey="";
    moment before they have been built. */
 function poolsForDistribution(items,wipIncluded){
   const fromRows=cPools();
-  for(const k in fromRows) if(fromRows[k]&&fromRows[k].length) return fromRows;
+  /* ONLY WHEN THEY ARE THE SET ASKED ABOUT. The rows hold every approved
+     trait, and the final set was estimated over them and the answer kept
+     under the final set's key. A row trait that is not among the records
+     means the question is about another set. */
+  const asked=new Set((items||[]).map(i=>i&&i.id));
+  let rows=0, outside=0;
+  for(const k in fromRows) for(const r of (fromRows[k]||[])){ rows++; if(!asked.has(r.id)) outside++; }
+  if(rows && !outside) return fromRows;
   /* Same shape cPools returns: one array per layer, keyed by layer name, and
      __base for the references. Built straight from the records. */
   const out={};

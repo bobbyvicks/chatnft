@@ -4172,7 +4172,29 @@ function db(){
    and asks before it does. */
 let touchSeq=0;
 const touchedAt=new Map();
-function touch(id){ if(id!=null) touchedAt.set(String(id),++touchSeq); }
+function touch(id){ if(id!=null) touchedAt.set(String(id),++touchSeq); tabsTell(); }
+/* THE OTHER TABS OF THIS PROJECT, told that the store changed. Nothing
+   listened: a second tab showed a trait as wip after the first had moved
+   it twice, and a press on that stale card wrote the trait a second time
+   (measured). Every store write passes through touch, so this is told
+   once per quiet moment rather than once per write - a pull is hundreds of
+   writes. A tab told so redraws what it is showing. */
+const tabChan=(typeof BroadcastChannel==="function") ? new BroadcastChannel("pixelbench") : null;
+let tabTellTimer=null;
+function tabsTell(){
+  if(!tabChan||tabTellTimer) return;
+  tabTellTimer=setTimeout(()=>{ tabTellTimer=null; try{ tabChan.postMessage({db:wsDbName()}); }catch(_){ } },150);
+}
+let tabRedrawTimer=null;
+if(tabChan) tabChan.onmessage=(e)=>{
+  if(!e||!e.data||e.data.db!==wsDbName()) return;
+  if(tabRedrawTimer) return;
+  tabRedrawTimer=setTimeout(async()=>{
+    tabRedrawTimer=null;
+    try{ await renderShelf(); }catch(_){ }
+    try{ const land=$("land"); if(land&&land.getAttribute("data-page")==="final") await renderFinal(); }catch(_){ }
+  },100);
+};
 function touchedSince(id,seq){ return id!=null && (touchedAt.get(String(id))||0)>seq; }
 /* SETTLED ON ABORT TOO. A write over the storage quota aborts at commit
    with QuotaExceededError and fires no error event, so a promise waiting
@@ -4372,6 +4394,15 @@ let shelfPick=new Set();
 async function setTraitStatus(t,next){
   if(!t||!next) return {ok:false};
   if(String(t.status||"wip")===String(next)) return {ok:true, moved:t, shared:null, same:true};
+  /* THE RECORD AS IT IS, NOT AS THE CARD WAS DRAWN. Another tab may have
+     moved it since: a press on the stale card deleted an id that was
+     already gone and wrote the trait a second time (measured - the store
+     held cap approved and cap stfp, and Save to cloud uploaded both). */
+  {
+    let now=null; try{ now=await dbGet(t.id); }catch(_){ now=null; }
+    if(!now || String(now.status||"wip")!==String(t.status||"wip") || (now.layer||"")!==(t.layer||"")
+       || now.name!==t.name) return {ok:false, stale:true};
+  }
   const moved={...t, id:"t_"+t.name+"_"+t.layer+"_"+next, status:next};
   /* REFUSE, do not overwrite. This used to dbDel the old record and dbPut
      over whatever held the new id, destroying its artwork and rarity and
@@ -5181,6 +5212,7 @@ async function renderShelf(viewOnly){
            function because the final-set page calls it too, and two copies
            of that list would drift on the next thing added to it. */
         const r=await setTraitStatus(t,next);
+        if(r.stale){ toast(t.name+" changed in another tab - the shelf has been redrawn"); renderShelf(); return; }
         if(r.clash){
           toast("There is already "+article(next)+" "+t.name+" in "+(t.layer||"unsorted")
             +" - rename one of them first");
@@ -23754,6 +23786,7 @@ async function finalMove(t,next){
       +" - rename one of them first");
     return;
   }
+  if(r.stale){ toast(t.name+" changed in another tab - the page has been redrawn"); await renderFinal(); renderShelf(); return; }
   if(!r.ok) return;
   await renderFinal();
   renderShelf();

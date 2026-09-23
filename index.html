@@ -5402,9 +5402,12 @@ async function renderShelf(viewOnly){
      harmless but pointless, and the render that replaced it has its own
      pass queued. */
   if(pctLater.length){
-    const finish=()=>{
-      let dist=null;
-      try{ dist=distributionOf(items,wipOn); }catch(_){ return; }
+    /* In slices, and superseded by the next render that asks about
+       different inputs - see distributionLater. An estimate already
+       worked out for these inputs, this visit or a saved one, resolves at
+       once and is painted before the browser draws a frame. */
+    distributionLater(items,wipOn).then(dist=>{
+      if(!dist) return;
       for(const e of pctLater){
         if(!e.el.isConnected) continue;
         let ch=null;
@@ -5412,9 +5415,7 @@ async function renderShelf(viewOnly){
         if(!ch||ch.pct===null) continue;
         paintPct(e.el,ch,e.rec);
       }
-    };
-    if(typeof requestIdleCallback==="function") requestIdleCallback(finish,{timeout:1200});
-    else setTimeout(finish,0);
+    });
   }
 }
 /* Asking Claude what a trait is. The call goes through /api/identify so the
@@ -12219,14 +12220,81 @@ function poolsForDistribution(items,wipIncluded){
   }
   return out;
 }
-function distributionOf(items,wipIncluded){
+/* THE KEY: everything that can change the answer. Split out so the shelf,
+   the synchronous estimate and the sliced one cannot disagree about it.
+   decideOrder() is in it because buildCombo walks that order and a rule
+   bites whichever of its pair is decided later - it was missing, so an
+   import that reordered decisions left the old order's figures up. */
+function distKeyOf(items,wipIncluded){
   const elig=(items||[]).filter(t=>traitEligible(t,wipIncluded)&&!HIDDEN_LAYERS.has(t.layer||"unsorted"))
     .map(t=>traitKey(t)+":"+traitWeight(t)).sort();
   /* HIDDEN_LAYERS is named in the key as well as filtered out of elig. The
      filter alone would be exact, but the key's whole contract is that every
      input which changes the answer appears in it. */
-  const key=JSON.stringify([elig,RULES,emptyChance,!!wipIncluded,LAYERS,[...HIDDEN_LAYERS].sort()]);
+  return JSON.stringify([elig,RULES,emptyChance,!!wipIncluded,LAYERS,[...HIDDEN_LAYERS].sort(),decideOrder()]);
+}
+/* REMEMBERED ESTIMATES. Four in memory, because the shelf, the include-wip
+   tick and Generate set's final set are different inputs and one slot made
+   them evict each other. The same four saved on this device under a hash
+   of the key - the key itself runs to tens of kilobytes with the rules in
+   it - so an unchanged collection opens without drawing anything.
+   distCache and distKey still name the last one answered. */
+const DIST_KEEP=4;
+const distMemo=new Map();
+function distStoreKey(){ return "pb.dist."+wsDbName(); }
+/* 53 bits, and the key's length is kept beside it: two keys that collide
+   on both are not a thing this page will meet. */
+function distHash(s){
+  let h1=0xdeadbeef, h2=0x41c6ce57;
+  for(let i=0;i<s.length;i++){
+    const c=s.charCodeAt(i);
+    h1=Math.imul(h1^c,2654435761); h2=Math.imul(h2^c,1597334677);
+  }
+  h1=Math.imul(h1^(h1>>>16),2246822507)^Math.imul(h2^(h2>>>13),3266489909);
+  h2=Math.imul(h2^(h2>>>16),2246822507)^Math.imul(h1^(h1>>>13),3266489909);
+  return (4294967296*(2097151&h2)+(h1>>>0)).toString(36);
+}
+function distSaved(){
+  try{ const s=JSON.parse(localStorage.getItem(distStoreKey())||"[]"); return Array.isArray(s)?s:[]; }
+  catch(_){ return []; }
+}
+function distRecall(key){
   if(distCache && distKey===key) return distCache;
+  let c=distMemo.get(key);
+  if(!c){
+    const h=distHash(key);
+    const e=distSaved().find(x=>x&&x.h===h&&x.len===key.length&&x.n===DIST_DRAWS);
+    if(e&&Array.isArray(e.c)&&e.c.length){
+      try{ c=new Map(e.c); }catch(_){ c=null; }
+    }
+    if(!c) return null;
+  }
+  distKeep(key,c,false);
+  return c;
+}
+function distKeep(key,count,save){
+  distMemo.delete(key); distMemo.set(key,count);
+  while(distMemo.size>DIST_KEEP) distMemo.delete(distMemo.keys().next().value);
+  distCache=count; distKey=key;
+  if(!save) return;
+  try{
+    const h=distHash(key);
+    const keep=distSaved().filter(x=>x&&x.h!==h);
+    keep.unshift({h:h, len:key.length, n:DIST_DRAWS, c:[...count]});
+    localStorage.setItem(distStoreKey(),JSON.stringify(keep.slice(0,DIST_KEEP)));
+  }catch(_){}
+}
+/* One character drawn and counted. The only place the estimate draws, so
+   the synchronous and sliced runs cannot count differently. */
+function distDraw(pools,count){
+  for(const r of randomCombo(pools)){
+    const k=traitKey(r); count.set(k,(count.get(k)||0)+1);
+  }
+}
+function distributionOf(items,wipIncluded){
+  const key=distKeyOf(items,wipIncluded);
+  const had=distRecall(key);
+  if(had) return had;
   const pools=poolsForDistribution(items,wipIncluded);
   const count=new Map();
   /* The estimator's own draws are not the collection's failures. randomCombo
@@ -12241,18 +12309,77 @@ function distributionOf(items,wipIncluded){
      between generating a collection and reading the number off it. */
   const misses=ruleMisses;
   withSeed(DIST_SEED,()=>{
-    for(let i=0;i<DIST_DRAWS;i++)
-      for(const r of randomCombo(pools)){
-        const k=traitKey(r); count.set(k,(count.get(k)||0)+1);
-      }
+    for(let i=0;i<DIST_DRAWS;i++) distDraw(pools,count);
   });
   ruleMisses=misses;
   /* An empty distribution is not an answer, and caching one is what turned a
      single mis-ordered render into a permanent 0.00% on every tile. Left
      uncached, any later call recomputes and repairs itself. */
   if(!count.size) return count;
-  distCache=count; distKey=key;
+  distKeep(key,count,true);
   return count;
+}
+/* THE SAME ESTIMATE WITHOUT STOPPING THE PAGE. 20,000 draws in one task was
+   2.0-2.9 s on the real collection and about ten seconds on a phone, on
+   every open and after every edit that changed an input.
+
+   The draws are made in slices of a few milliseconds when the page is idle.
+   Each slice swaps in this run's own generator and puts the page's back,
+   so the run draws exactly the sequence one uninterrupted withSeed would,
+   and anything drawing between slices draws from its own source. ruleMisses
+   is put back after every slice, for the reason distributionOf gives.
+
+   ONE RUN PER CALLER. A request for different inputs stops the caller's
+   older run - five quick weight edits used to cost five full estimates -
+   and a request for the same inputs joins it. The pools are read at the
+   first slice, not at the request, because the shelf asks before the
+   compose rows that cPools reads are built. The key is taken again at the
+   end, and a run whose inputs moved underneath it is not remembered.
+
+   Resolves to the Map, or to null when stopped or when nothing was drawn. */
+const DIST_SLICE_MS=12;
+const distRuns=new Map();
+function distributionLater(items,wipIncluded,lane){
+  const key=distKeyOf(items,wipIncluded);
+  const had=distRecall(key);
+  if(had) return Promise.resolve(had);
+  const who=lane||"shelf";
+  const was=distRuns.get(who);
+  if(was&&was.key===key) return was.promise;
+  if(was) was.stop=true;
+  const run={key:key, stop:false, promise:null};
+  run.promise=new Promise(resolve=>{
+    const gen=mulberry32(DIST_SEED>>>0);
+    const count=new Map();
+    let pools=null, drawn=0;
+    const end=v=>{ if(distRuns.get(who)===run) distRuns.delete(who); resolve(v); };
+    const later=f=>{
+      if(typeof requestIdleCallback==="function") requestIdleCallback(f,{timeout:250});
+      else setTimeout(f,0);
+    };
+    const slice=()=>{
+      if(run.stop){ end(null); return; }
+      /* Answered meanwhile by someone who could not wait. */
+      const done=distRecall(key);
+      if(done){ end(done); return; }
+      const until=performance.now()+DIST_SLICE_MS;
+      const src=rngSource, misses=ruleMisses;
+      rngSource=gen;
+      try{
+        if(!pools) pools=poolsForDistribution(items,wipIncluded);
+        do{ distDraw(pools,count); drawn++; }
+        while(drawn<DIST_DRAWS && ((drawn&15)!==0 || performance.now()<until));
+      }catch(_){ rngSource=src; ruleMisses=misses; end(null); return; }
+      rngSource=src; ruleMisses=misses;
+      if(drawn<DIST_DRAWS){ later(slice); return; }
+      if(!count.size || distKeyOf(items,wipIncluded)!==key){ end(null); return; }
+      distKeep(key,count,true);
+      end(count);
+    };
+    later(slice);
+  });
+  distRuns.set(who,run);
+  return run.promise;
 }
 /* How often a layer is drawn at all: every character for skins, and
    1 - emptyChance for anything that can be left empty. Named because three
@@ -12938,8 +13065,13 @@ function cPools(){
    what to do about it. */
 function buildCombo(pools){
   const out=[]; let violated=false;
+  /* The keys of what is on the character, kept beside it. Filtering a layer
+     rebuilt every one of these for every candidate - 3.7 million traitKey
+     calls per estimate on the real rules. Same question, asked of keys. */
+  const outKeys=[];
+  const take=r=>{ out.push(r); outKeys.push(traitKey(r)); };
   const base=pools.__base;
-  if(base&&base.length) out.push(weightedPick(base));
+  if(base&&base.length) take(weightedPick(base));
   for(const layer of decideOrder()){
     const p=pools[layer];
     if(!p||!p.length) continue;
@@ -12947,17 +13079,17 @@ function buildCombo(pools){
        be empty - see ALWAYS_PRESENT. */
     if(ALWAYS_PRESENT.indexOf(layer)<0 && rnd()<emptyChance) continue;
     /* Only what goes with the character so far. */
-    const ok = RULES.length ? p.filter(r=>!conflictsWith(r,out)) : p;
+    const ok = RULES.length ? p.filter(r=>!clashesKeys(traitKey(r),outKeys)) : p;
     if(!ok.length){
       /* Everything here clashes with something already chosen. Leaving the layer
          out is the honest answer where a layer may be empty. Where it may not,
          this draw is cornered - say so and let the caller decide. */
       if(ALWAYS_PRESENT.indexOf(layer)<0) continue;
       violated=true;
-      out.push(weightedPick(p));
+      take(weightedPick(p));
       continue;
     }
-    out.push(weightedPick(ok));
+    take(weightedPick(ok));
   }
   /* BACK INTO PAINT ORDER BEFORE IT LEAVES. Two things downstream assume
      it and neither would say so if it stopped being true: the paint loop
@@ -14072,6 +14204,17 @@ function conflictsWith(rec,chosen){
     const o=traitKey(other);
     if(o!==k && bad.has(o)) return true;
   }
+  return false;
+}
+/* conflictsWith over keys already made: k is the candidate's traitKey and
+   keys those of the traits already chosen. The same predicate - o!==k
+   included, for the reason given above. buildCombo asks this, because it
+   has the keys and was rebuilding them for every candidate. */
+function clashesKeys(k,keys){
+  if(!RULES.length) return false;
+  const bad=clashSet(k);
+  if(!bad) return false;
+  for(const o of keys) if(o!==k && bad.has(o)) return true;
   return false;
 }
 
@@ -25424,6 +25567,10 @@ $('cgenzip').onclick=async()=>{
        denominator that describes the wrong population makes a sentence
        nobody can check. false rather than the wip box for the same reason:
        wip is not in the final project either. */
+    /* shareDrift asks every trait its chance over the final set, which is
+       an estimate of its own when rules exist - 0.8 to 2.6 s in one task.
+       Worked out in slices first, so shareDrift answers from memory. */
+    if(RULES.length) await distributionLater(r.pool,false,"set");
     const cstat=comboStats(r.pool,false);
     const short = r.made<r.asked
       ? " Asked for "+r.asked+" - "+bigLabel(cstat.distinct)+" combinations exist"

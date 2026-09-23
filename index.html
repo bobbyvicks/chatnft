@@ -17322,13 +17322,32 @@ function hideBaseClicked(){
     +(r.peeled?" ("+r.peeled.toLocaleString()+" of them the blended edge)":""));
 }
 
+/* The last answer, and what it was taken from. */
+let collectionPaletteKept=null;
+/* How many traits the last answer looked at, of how many. */
+let collectionPaletteFrom={looked:0, of:0};
 async function collectionPalette(cap){
   let items=[];
   try{ items=await dbAll(); }catch(_){ return []; }
   const traits=items.filter(i=>i.kind==="trait"&&inCollection(i.status));
   if(!traits.length) return [];
+  /* FORTY SPREAD ACROSS THE COLLECTION, in layer order - the first forty
+     by id were the first forty names, all one layer as often as not. */
+  const ordered=traits.slice().sort((a,b)=>
+    (LAYERS.indexOf(a.layer||"unsorted")-LAYERS.indexOf(b.layer||"unsorted"))||(a.id<b.id?-1:a.id>b.id?1:0));
+  const SAMPLE=40, step=Math.max(1,ordered.length/SAMPLE);
+  const picked=[];
+  for(let k=0;k<ordered.length&&picked.length<SAMPLE;k++){
+    const t=ordered[Math.floor(k*step)]; if(!t) break; picked.push(t);
+  }
+  /* KEPT against what it was taken from. Forty decodes and every pixel
+     counted, on every open of the dialog, for an answer that changes
+     only when one of these traits does. */
+  const key=cap+"|"+picked.map(t=>t.id+":"+(t.at||0)).join(",");
+  collectionPaletteFrom={looked:picked.length, of:traits.length};
+  if(collectionPaletteKept&&collectionPaletteKept.key===key) return collectionPaletteKept.list.map(c=>c.slice());
   const counts=new Map();
-  for(const t of traits.slice(0,40)){
+  for(const t of picked){
     let bm; try{ bm=await createImageBitmap(t.blob); }catch(_){ continue; }
     const c=document.createElement("canvas"); c.width=bm.width; c.height=bm.height;
     const g=c.getContext("2d",{willReadFrequently:true});
@@ -17351,7 +17370,9 @@ async function collectionPalette(cap){
   for(const k of counts.keys()){
     flat[i*4]=(k>>16)&255; flat[i*4+1]=(k>>8)&255; flat[i*4+2]=k&255; flat[i*4+3]=255; i++;
   }
-  return palette(flat,counts.size,20,cap).list.map(c=>[c.r,c.g,c.b]);
+  const list=palette(flat,counts.size,20,cap).list.map(c=>[c.r,c.g,c.b]);
+  collectionPaletteKept={key:key, list:list};
+  return list.map(c=>c.slice());
 }
 
 let pxSrc=null, pxName="", pxData=null, pxPending=null, pxFixed=null;
@@ -17417,6 +17438,8 @@ async function openPixelate(d,w,hh,name){
   if(!enough) $("pxmatch").checked=false;
   $("pxmatch").parentNode.title = enough
     ? pxFixed.length+" colours found across your approved traits"
+      +(collectionPaletteFrom.looked<collectionPaletteFrom.of
+        ? " - "+collectionPaletteFrom.looked+" of the "+collectionPaletteFrom.of+", spread across the layers" : "")
     : "";
   pxRender();
 }

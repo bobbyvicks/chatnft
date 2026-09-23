@@ -4174,9 +4174,17 @@ let touchSeq=0;
 const touchedAt=new Map();
 function touch(id){ if(id!=null) touchedAt.set(String(id),++touchSeq); }
 function touchedSince(id,seq){ return id!=null && (touchedAt.get(String(id))||0)>seq; }
+/* SETTLED ON ABORT TOO. A write over the storage quota aborts at commit
+   with QuotaExceededError and fires no error event, so a promise waiting
+   only for complete or error never settled: an import froze at 38 of 311,
+   Load from cloud at 51 with its button dead, Save never said it failed.
+   dbApplyShelfRecords already listened for abort; these three did not. */
+function dbAborted(t){ return t.error || new DOMException("The write was aborted","AbortError"); }
+function storeFull(e){ return !!e && (e.name==="QuotaExceededError" || /quota/i.test(String(e.message||""))); }
+const STORE_FULL="this device is out of storage space";
 async function dbPut(rec){ touch(rec&&rec.id); const d=await db(); return new Promise((res,rej)=>{
   const t=d.transaction(STORE,'readwrite'); t.objectStore(STORE).put(rec);
-  t.oncomplete=()=>res(); t.onerror=()=>rej(t.error); }); }
+  t.oncomplete=()=>res(); t.onerror=()=>rej(t.error); t.onabort=()=>rej(dbAborted(t)); }); }
 /* ONE RECORD, BY KEY. dbAll reads every row in the project including every
    picture, and several places wanted a single record and paid that price -
    which at 324 traits and 1.5 GB of blobs is the whole collection to answer
@@ -4189,10 +4197,10 @@ async function dbAll(){ const d=await db(); return new Promise((res,rej)=>{
   q.onsuccess=()=>res(q.result||[]); q.onerror=()=>rej(q.error); }); }
 async function dbDel(id){ touch(id); const d=await db(); return new Promise((res,rej)=>{
   const t=d.transaction(STORE,'readwrite'); t.objectStore(STORE).delete(id);
-  t.oncomplete=()=>res(); t.onerror=()=>rej(t.error); }); }
+  t.oncomplete=()=>res(); t.onerror=()=>rej(t.error); t.onabort=()=>rej(dbAborted(t)); }); }
 async function dbClear(){ const d=await db(); return new Promise((res,rej)=>{
   const t=d.transaction(STORE,'readwrite'); t.objectStore(STORE).clear();
-  t.oncomplete=()=>res(); t.onerror=()=>rej(t.error); }); }
+  t.oncomplete=()=>res(); t.onerror=()=>rej(t.error); t.onabort=()=>rej(dbAborted(t)); }); }
 
 /* Hiding is deliberately session-only. Keeping one state per open project
    prevents a local id such as t_hat_hats_wip from hiding an unrelated card
@@ -5727,7 +5735,8 @@ async function saveTrait(){
       toast('Saved '+name+' to '+layer+'/'+status+offGrid+edged);
     }
     return true;
-  }catch(e){ toast('Could not save: '+(e&&e.name||'storage error')); return false; }
+  }catch(e){ toast('Could not save: '+(storeFull(e) ? STORE_FULL+' - Download it to keep it, then free some space'
+    : (e&&e.name||'storage error'))); return false; }
 }
 $('saveproj').onclick=saveTrait;
 /* THE WHOLE PICTURE ONTO THE PALETTE. Through snapshot() so it is one
@@ -11544,7 +11553,7 @@ async function bulkImport(files){
     const u=LAYERS.indexOf("unsorted");
     if(u>=0) LAYERS.splice(u,0,l); else LAYERS.push(l);
   }
-  let ok=0,failed=0,refs=0,oversized=0,strips=0,renamed=0;
+  let ok=0,failed=0,refs=0,oversized=0,strips=0,renamed=0,full=false;
   /* WHAT DID NOT REACH THE GROUP. cloudSyncOne returns null on a failed
      upload, on a 401 or 403, and when there is no user, team or
      collection to write to - and both call sites threw that away, so a
@@ -11830,7 +11839,11 @@ async function bulkImport(files){
         perLayer[layer]=(perLayer[layer]||0)+1;
       }
       ok++;
-    }catch(_){ failed++; }
+    }catch(e){
+      /* Full: the rest would be refused the same way. Stopped and said. */
+      if(storeFull(e)){ full=true; break; }
+      failed++;
+    }
   }
   /* A file that changed folder is the SAME file. Same name, same layer, a
      status this import did not supply - that record is what the moved file
@@ -12024,6 +12037,7 @@ async function bulkImport(files){
   if(noLayer.length) bits.push(noLayer.length+" had no layer in the path and went to unsorted"+
     (noLayer.length<=4?" ("+noLayer.join(", ")+")":""));
   if(failed) bits.push(failed+" could not be read");
+  if(full) bits.push(STORE_FULL+" - "+ok+" of "+list.length+" imported before it filled; free some space and import the rest");
   /* SAID, because the alternative is finding out when a teammate opens the
      project and half the collection is not there. The traits are in this
      browser either way - this is a wrong message, not lost work - and
@@ -18343,7 +18357,7 @@ async function cloudPull(opts){
   const taken=new Set(existing.map(i=>i.id));
   /* Removed here and not yet removed there: not downloaded again. */
   const goneList=await goneLoad();
-  let added=0, renamed=0, failed=0, done=0, skipped=0;
+  let added=0, renamed=0, failed=0, done=0, skipped=0, full=false;
 
   /* Two passes, because the two halves want opposite things.
 
@@ -18487,7 +18501,7 @@ async function cloudPull(opts){
   const PULL_AT_ONCE=8;
   let next=0;
   async function puller(){
-    while(next<wanted.length){
+    while(next<wanted.length && !full){
       /* Before the download as well as before the write: a pull nobody is
          waiting for should stop asking the server for pictures too. */
       if(!wsStill(gen)) return;
@@ -18532,7 +18546,12 @@ async function cloudPull(opts){
            where it was decided - a download that failed its three tries is
            not an update that arrived. */
         if(w.incoming) incoming.push({name:w.name, layer:w.layer, at:w.row.updated_at||null});
-      }catch(_){ failed++; }
+      }catch(e){
+        /* The device is full: every picture after this would be refused
+           the same way, so the pull stops here and says so. */
+        if(storeFull(e)){ full=true; return; }
+        failed++;
+      }
       done++;
       say();
       /* The shelf reads every saved blob, so drawing it is the expensive part.
@@ -18671,6 +18690,7 @@ async function cloudPull(opts){
   if(tookOrder) bits.push("the group's paint order ("+tookOrder+" layer"+(tookOrder===1?"":"s")+")");
   else if(newLayers) bits.push(newLayers+" new layer"+(newLayers===1?"":"s"));
   if(failed) bits.push(failed+" could not be read");
+  if(full) bits.push(STORE_FULL+" - "+added+" of "+wanted.length+" saved here; free some space and Load again");
   if(skipped) bits.push(skipped+" changed here while loading, kept as changed");
   /* Only reachable on a collection past half a million rows, and said out
      loud rather than left to look like a complete answer - which is exactly

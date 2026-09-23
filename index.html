@@ -11827,7 +11827,7 @@ function readPath(rel){
 async function carryDecided(from,toId){
   if(!from||!toId) return false;
   let rec=null;
-  try{ rec=(await dbAll()).find(i=>i.id===toId); }catch(_){ return false; }
+  try{ rec=await dbGet(toId); }catch(_){ return false; }
   if(!rec||rec.kind!=="trait") return false;
   let changed=false;
   if(typeof from.rarity==="number"&&typeof rec.rarity!=="number"){
@@ -11842,7 +11842,13 @@ async function carryDecided(from,toId){
     rec.shelfOrder=from.shelfOrder; changed=true;
   }
   if(!changed) return false;
-  try{ await dbPut(rec); }catch(_){ return false; }
+  /* NOT STILL SYNCED. Inside a group the import uploaded this record
+     before this ran, at the default weight, and marked it matching the
+     server; the carried values were then here only, and the next pull
+     put the row's back. Marked as any change here is, and sent now. */
+  const next=unsentOf(rec);
+  try{ await dbPut(next); }catch(_){ return false; }
+  if(activeWs && next.rowId && next.unsent==="meta"){ try{ await cloudPatchOne(next); }catch(_){} }
   return true;
 }
 /* opts.inPlace: a save from Fix pixels, which writes the files it is given

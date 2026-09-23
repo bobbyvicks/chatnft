@@ -20610,6 +20610,12 @@ function colourCountNote(colours,budget){
    colour identity here, unlike the pixel inspection: the brief counts
    COLOURS, and the same red at two opacities is one colour used wrongly,
    which the partial-alpha number says on its own. */
+/* HOW MANY OFF-PALETTE COLOURS GET A NEAREST SUGGESTION: the ones covering
+   the most pixels. The search is 256 CIEDE2000 distances a colour, and run
+   for every colour it froze the editor for 12 s on a 77,427-colour trait
+   and 147 s on a 1,014,063-colour one - on every open and every stroke,
+   for a note that prints two counts. Nobody reads past the top of the list. */
+const SPEC_NEAREST=12;
 function specCheck(data,W,H,layer){
   const used=new Map();
   let partial=0, opaque=0;
@@ -20641,15 +20647,24 @@ function specCheck(data,W,H,layer){
        #264943.
 
        The distance is a dE now, on the same scale the button reports. */
-    const r=(k>>16)&255, g=(k>>8)&255, b=k&255;
-    const near=nearestPaletteColour(r,g,b);
-    off.push({hex:h, pixels:n, nearest:near.hex, distance:Math.round(near.dE)});
+    /* Counted here; searched below, for the top of the list only. */
+    off.push({hex:h, key:k, pixels:n, nearest:null, distance:null});
   }
   off.sort((a,b)=>b.pixels-a.pixels);
+  const nearestFor=Math.min(SPEC_NEAREST,off.length);
+  if(nearestFor){
+    const pal=paletteRGB(), palLab=pal.map(p=>labOf(p.r,p.g,p.b));
+    for(let j=0;j<nearestFor;j++){
+      const k=off[j].key;
+      const near=nearestPaletteColour((k>>16)&255,(k>>8)&255,k&255,pal,palLab);
+      off[j].nearest=near.hex; off[j].distance=Math.round(near.dE);
+    }
+  }
+  for(const o of off) delete o.key;
   const budget=ruleColourBudget(layer);
   return {layer:String(layer||""), colours:used.size, budget:budget,
     overBudget:budget?Math.max(0,used.size-budget):0,
-    offPalette:off, offPaletteColours:off.length,
+    offPalette:off, offPaletteColours:off.length, nearestFor:nearestFor,
     offPalettePixels:off.reduce((a,c)=>a+c.pixels,0),
     partialAlpha:partial, opaque:opaque};
 }

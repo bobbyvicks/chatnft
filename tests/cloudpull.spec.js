@@ -158,7 +158,10 @@ const pullWithBadFiles = (page, total, opts) => page.evaluate(async ([TOTAL, O])
   };
   try { await cloudPull({ quiet: true }); } finally { window.fetch = real; }
   const stored = (await dbAll()).filter(i => i.kind === 'trait').length;
-  return { loaded: stored, missing: TOTAL - stored, attempts,
+  /* Tries per failing file, for a count that a check of the line itself
+     (patch558: one good picture fetched again) does not disturb. */
+  const badTries = [...tries.entries()].filter(([w]) => w % EVERY === 0 && TIMES > 0).map(([, n]) => n);
+  return { loaded: stored, missing: TOTAL - stored, attempts, badTries,
            note: document.getElementById('cloudnote').textContent };
 }, [total, opts]);
 
@@ -286,7 +289,13 @@ test.describe('loading a collection bigger than one response', () => {
        before being given up on. This is what proves the retry STOPS - a pull
        that kept trying would arrive at the same 192 loaded and say the same
        thing on screen, and only the request count can tell the difference. */
-    expect(r.attempts, 'three tries each for the eight, one for everything else').toBe(216);
+    /* SUPERSEDES 'toBe(216)': the 192 good files once each and the eight bad
+       ones three times. Since patch558, three failures in a row ask whether
+       the line still answers by fetching one good picture again, so the
+       total now carries one or two of those, by timing. What this assertion
+       was for - that each bad file is tried three times and then left - is
+       asserted per file instead. */
+    expect(r.badTries, 'three tries for each of the eight, and no more').toEqual([3, 3, 3, 3, 3, 3, 3, 3]);
     /* This was `if (r.missing) expect(r.note).toContain('could not be read')`,
        and the count it depends on is not fixed - measured at 1, 2, 3 and 5
        across four runs. A conditional around the only assertion about the

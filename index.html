@@ -18602,6 +18602,18 @@ function pushWhy(reasons){
     : best==="collection" ? "the collection on the server could not be opened"
     : "the server could not be reached";
 }
+/* IS THE LINE STILL THERE? Asked when three transfers in a row could not
+   reach the server: fetch again a picture that already came through on
+   this run. Three in a row across concurrent transfers is also what a
+   few pictures that fail on their own look like (measured: a pull of
+   200 with 8 unreadable stopped at 170). No path - nothing has come
+   through yet - is no evidence the line works. */
+async function lineStillAnswers(path){
+  if(!path) return false;
+  const h=await sbHeaders();
+  if(!h) return false;
+  try{ return !!(await pullBlob(path,h,{})); }catch(_){ return false; }
+}
 async function cloudPush(){
   /* THREE answers, not two. "Could not ask" is not "you are signed out", and
      telling a signed-in person to sign in is an instruction to do the one
@@ -18646,6 +18658,8 @@ async function cloudPush(){
      has destroyed the server copy and not yet rebuilt it. Stale rows are
      removed at the end now, by comparison, once their replacements exist. */
   let saved=0, failed=0, done=0, patched=0, streak=0, broke=false;
+  /* The last picture that landed, and the one question in flight. */
+  let goodPath=null, asking=null;
   const reasons={};
   const rows=[];
   /* Everything that cannot change while this runs, worked out once. */
@@ -18698,13 +18712,16 @@ async function cloudPush(){
       const why={};
       if(job.light && await cloudPatchOne(it,ctx)){ okd=true; patched++; }
       else if(await cloudSyncOne(it,ctx,why)){ okd=true; saved++; }
-      if(okd){ rows.push({path:cloudPath(team,c,it)}); streak=0; }
+      if(okd){ rows.push({path:cloudPath(team,c,it)}); streak=0; goodPath=cloudPath(team,c,it); }
       else {
         failed++;
         const r=why.reason||"unreachable";
         reasons[r]=(reasons[r]||0)+1;
         streak = r==="unreachable" ? streak+1 : 0;
-        if(streak>=3) broke=true;
+        if(streak>=3 && !broke){
+          if(!asking) asking=lineStillAnswers(goodPath).finally(()=>{ asking=null; });
+          if(await asking) streak=0; else broke=true;
+        }
       }
       done++;
       if(done%10===0||done===fresh.length) say();
@@ -18931,6 +18948,8 @@ async function cloudPull(opts){
   /* Removed here and not yet removed there: not downloaded again. */
   const goneList=await goneLoad();
   let added=0, renamed=0, failed=0, done=0, skipped=0, full=false, streak=0, broke=false;
+  /* The last picture that came through, and the one question in flight. */
+  let goodPath=null, asking=null;
   const draftsKept=[];
 
   /* Two passes, because the two halves want opposite things.
@@ -19086,8 +19105,14 @@ async function cloudPull(opts){
         const blob=await pullBlob(w.row.path,(await sbHeaders())||h,bwhy);
         /* Three downloads in a row that could not reach the server end the
            pull. A missing or refused picture is an answer, not a dead line. */
-        if(!blob){ streak = bwhy.reason==="unreachable" ? streak+1 : 0; if(streak>=3) broke=true; }
-        else streak=0;
+        if(!blob){
+          streak = bwhy.reason==="unreachable" ? streak+1 : 0;
+          if(streak>=3 && !broke){
+            if(!asking) asking=lineStillAnswers(goodPath).finally(()=>{ asking=null; });
+            if(await asking) streak=0; else broke=true;
+          }
+        }
+        else { streak=0; goodPath=w.row.path; }
         /* Still counted as failed after three tries - the note has always
            said how many could not be read, and that stays true. */
         if(!blob) throw new Error("download");

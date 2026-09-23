@@ -4220,7 +4220,9 @@ async function dbAll(){ const d=await db(); return new Promise((res,rej)=>{
 async function dbDel(id){ touch(id); const d=await db(); return new Promise((res,rej)=>{
   const t=d.transaction(STORE,'readwrite'); t.objectStore(STORE).delete(id);
   t.oncomplete=()=>res(); t.onerror=()=>rej(t.error); t.onabort=()=>rej(dbAborted(t)); }); }
-async function dbClear(){ const d=await db(); return new Promise((res,rej)=>{
+/* Touches, like every other write: the shelf decides whether it is current
+   by the sequence, and a cleared store must not look like an unchanged one. */
+async function dbClear(){ touch("\u0000clear"); const d=await db(); return new Promise((res,rej)=>{
   const t=d.transaction(STORE,'readwrite'); t.objectStore(STORE).clear();
   t.oncomplete=()=>res(); t.onerror=()=>rej(t.error); t.onabort=()=>rej(dbAborted(t)); }); }
 
@@ -4852,7 +4854,9 @@ function thumbSize(w,h){ return fitSize(w,h,SHELF_THUMB); }
    survived its own canvases still had a second copy of the collection
    sitting in the decoder. A failed decode leaves an empty box, as before,
    rather than throwing the whole list away. */
-function thumbPaint(cv,blob){
+/* keep, when given, is the key this painted picture is kept under - see
+   thumbKept. The kept copy is taken from the canvas once it is drawn. */
+function thumbPaint(cv,blob,keep){
   if(!blob) return;
   createImageBitmap(blob).then(function(bm){
     const g=cv.getContext("2d");
@@ -4860,7 +4864,48 @@ function thumbPaint(cv,blob){
     g.clearRect(0,0,cv.width,cv.height);
     g.drawImage(bm,0,0,cv.width,cv.height);
     if(bm.close) bm.close();
+    if(keep) thumbKeep(keep,cv);
   }).catch(function(){});
+}
+/* PAINTED THUMBNAILS, KEPT BETWEEN RENDERS. Every render builds every tile
+   again, and nothing kept a painted one, so the tiles in view went blank
+   and were decoded again from their full-size PNGs on every hide, status,
+   weight and search press, and twice on a group open (measured: 28 of 28
+   visible blank on the first frame, 42 decodes and 42 MB a press).
+
+   Keyed by what identifies the picture: id, edit time, the PNG's length
+   and the tile size. Every write of a picture sets the edit time, so an
+   edited trait misses and is decoded fresh. Least recently drawn let go
+   first, and closed, past THUMB_KEEP_BYTES - about three hundred tiles at
+   160 pixels, which is the collection. */
+let THUMB_KEEP_BYTES=40*1024*1024;
+const thumbKept=new Map();
+let thumbKeptBytes=0;
+function thumbKeyOf(rec,cv){
+  if(!rec||!rec.blob||!rec.id) return null;
+  return rec.id+"|"+(rec.at||0)+"|"+(rec.blob.size||0)+"|"+cv.width+"x"+cv.height;
+}
+function thumbKeep(key,cv){
+  createImageBitmap(cv).then(function(bm){
+    const was=thumbKept.get(key);
+    if(was){ thumbKept.delete(key); thumbKeptBytes-=was.width*was.height*4; if(was.close) was.close(); }
+    thumbKept.set(key,bm); thumbKeptBytes+=bm.width*bm.height*4;
+    for(const [k,old] of thumbKept){
+      if(thumbKeptBytes<=THUMB_KEEP_BYTES) break;
+      thumbKept.delete(k); thumbKeptBytes-=old.width*old.height*4; if(old.close) old.close();
+    }
+  }).catch(function(){});
+}
+/* Draws a kept thumbnail into cv now, or says there is none. Moved to the
+   back of the queue, so the pictures on screen are the last to go. */
+function thumbFromKept(key,cv){
+  const bm=key&&thumbKept.get(key);
+  if(!bm) return false;
+  thumbKept.delete(key); thumbKept.set(key,bm);
+  const g=cv.getContext("2d");
+  g.imageSmoothingEnabled=false;
+  g.drawImage(bm,0,0);
+  return true;
 }
 function thumbCanvas(rec){
   const s=thumbSize(rec&&rec.w,rec&&rec.h);
@@ -4922,8 +4967,11 @@ function finalWatchReset(){
 function shelfTile(rec,watch){
   const cv=thumbCanvas(rec);
   const w=(arguments.length>1)?watch:shelfWatch;
-  if(w){ cv.pbPaint=function(){ thumbPaint(cv,rec&&rec.blob); }; w.observe(cv); }
-  else thumbPaint(cv,rec&&rec.blob);
+  /* Already drawn once: drawn again now, in the task that builds the tile. */
+  const key=thumbKeyOf(rec,cv);
+  if(thumbFromKept(key,cv)) return cv;
+  if(w){ cv.pbPaint=function(){ thumbPaint(cv,rec&&rec.blob,key); }; w.observe(cv); }
+  else thumbPaint(cv,rec&&rec.blob,key);
   return cv;
 }
 /* The records the last full render read, so a view-only one does not read
@@ -4934,6 +4982,14 @@ let shelfItems=null;
    records above, skips the apply passes over them, and skips the four
    panels that are functions of the records rather than of the view.
    Opt-in, so every caller that does not pass it is unchanged. */
+/* The touch sequence when the shelf last read the store: every write moves
+   it, so equal means nothing has been written since the shelf was drawn. */
+let shelfReadSeq=-1;
+/* For the ends of the pull and the catch-up, which used to render
+   whatever happened - three renders on a quiet group open. */
+async function renderShelfIfStale(){
+  if(shelfReadSeq!==touchSeq) await renderShelf();
+}
 async function renderShelf(viewOnly){
   /* Filled in at the end, once the records have been read. */
   let items=[];
@@ -4943,7 +4999,7 @@ async function renderShelf(viewOnly){
      asks for one has changed a record, and anything that DOES change a
      record calls this with no flag, which reads again. */
   if(viewOnly && shelfItems){ items=shelfItems; }
-  else try{ items=await dbAll(); }catch(_){ $('proj').hidden=true; $('compose').hidden=true;
+  else try{ shelfReadSeq=touchSeq; items=await dbAll(); }catch(_){ shelfReadSeq=-1; $('proj').hidden=true; $('compose').hidden=true;
     $('layers').hidden=true; $('rules').hidden=true; $('recent').hidden=true;
     $('review').hidden=true; return; }
   /* Before anything groups by layer: the saved order is the authority, and
@@ -13502,7 +13558,10 @@ async function takeEmptyChance(c){
   if(ok && theirs!==EMPTY_DEFAULT){
     emptyChance=theirs;
     const box=$("cempty"); if(box) box.value=String(Math.round(emptyChance*100));
-    await saveEmptyChance();
+    /* Written only when the recorded value differs, for the reason the
+       layer list is: a pull that changed nothing must write nothing. */
+    let mine=null; try{ mine=await dbGet(EMPTY_ID); }catch(_){ mine=null; }
+    if(!(mine&&mine.chance===theirs)) await saveEmptyChance();
     return "took";
   }
   if(emptyChance!==EMPTY_DEFAULT){
@@ -15915,7 +15974,9 @@ function renderRecent(items){
     /* A 34px row was being handed a 1280px canvas. thumbCanvas caps it and
        thumbPaint closes the bitmap, which this never did. */
     const cv=thumbCanvas(t);
-    thumbPaint(cv,t.blob);
+    /* The same size as a shelf tile, so the same kept picture: this list
+       is rebuilt on every full render and decoded ten PNGs each time. */
+    { const key=thumbKeyOf(t,cv); if(!thumbFromKept(key,cv)) thumbPaint(cv,t.blob,key); }
     row.appendChild(cv);
     const nm=document.createElement("span"); nm.className="rname";
     nm.textContent=t.name||"a trait"; nm.title=nm.textContent;
@@ -19008,8 +19069,13 @@ async function cloudPull(opts){
     /* Recorded, not declared. sharedLayerSig is what the server is known to
        hold, which after a pull is the declared list - so the next saveLayers
        sends nothing for an unchanged list and still sends a changed one. */
-    try{ await dbPut({id:LAYERS_ID, kind:"settings", layers:LAYERS.slice(),
-      hidden:[...HIDDEN_LAYERS].sort(), at:Date.now()}); }catch(_){}
+    /* Only when it differs from what is recorded: a pull that wrote an
+       unchanged list on every open made every open look like a change. */
+    const hid=[...HIDDEN_LAYERS].sort();
+    const same=own && JSON.stringify(mine.layers)===JSON.stringify(LAYERS)
+      && JSON.stringify((Array.isArray(mine.hidden)?mine.hidden:[]).slice().sort())===JSON.stringify(hid);
+    if(!same) try{ await dbPut({id:LAYERS_ID, kind:"settings", layers:LAYERS.slice(),
+      hidden:hid, at:Date.now()}); }catch(_){}
     sharedLayerSig=declared.join("\u0000");
   }
   /* THE RULES AND THE ANSWERS BEHIND THEM.
@@ -19053,6 +19119,7 @@ async function cloudPull(opts){
     const theirs=Array.isArray(c.rules)?c.rules.filter(g=>Array.isArray(g)).map(ruleGroup).filter(g=>g.length>=2):[];
     const merged=mergeDecisions(DECISIONS,Array.isArray(c.decisions)?c.decisions:[]);
     if(theirs.length||merged.length){
+      const rulesWere=JSON.stringify([RULES,DECISIONS,DECIDE_ORDER]);
       if(theirs.length) RULES=theirs;
       DECISIONS=merged;
       /* Every answer applied to the base, so one that contradicts a rule
@@ -19061,13 +19128,28 @@ async function cloudPull(opts){
       if(Array.isArray(c.decide_order)&&c.decide_order.length)
         DECIDE_ORDER=c.decide_order.map(String).filter(Boolean);
       pulledRules=RULES.length;
-      await saveRules();
+      /* WRITTEN AND STAMPED ONLY WHEN THIS CHANGED THEM. saveRules on every
+         pull rewrote both records, restamped the rules as a change made
+         here, and sent them back to the group - on every open. When
+         nothing changed here the group is told only if its copy differs
+         from this one, which is the case saveRules was covering: answers
+         given here that the group has not got. */
+      if(JSON.stringify([RULES,DECISIONS,DECIDE_ORDER])!==rulesWere) await saveRules();
+      else {
+        const theirsSig=JSON.stringify([theirs.length?theirs:[],
+          (Array.isArray(c.decide_order)&&c.decide_order.length)?c.decide_order.map(String).filter(Boolean):DECIDE_ORDER,
+          mergeDecisions([],Array.isArray(c.decisions)?c.decisions:[]),
+          typeof c.empty_chance==="number"?c.empty_chance:null]);
+        const oursSig=JSON.stringify([RULES,DECIDE_ORDER,DECISIONS,emptyChance]);
+        if(theirsSig===oursSig) sharedRuleSig=oursSig;
+        else await shareRules();
+      }
     } else if(RULES.length){
       /* Nothing up there and something here: send it rather than lose it. */
       await saveRules();
     }
   }
-  await renderShelf();
+  await renderShelfIfStale();
   $("cloudpull").disabled=false;
   await cloudStatus(u);
   /* KEPT, not just announced. This runs on open, quietly, on a page nobody
@@ -19228,7 +19310,7 @@ async function groupCatchUpRun(){
       }
     }
   }catch(_){}
-  await renderShelf();
+  await renderShelfIfStale();
 }
 
 async function wsSwitch(id){

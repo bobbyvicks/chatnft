@@ -7157,6 +7157,19 @@ function exAreaLabel(){
 }
 
 let pvPending=null, pvBusy=false, pvMode="result";
+/* THE PIPELINE ONCE PER SET OF INPUTS. extractTrait is 0.8 s a run on a
+   desktop and 2.4-3.4 s at phone speed, and the preview, an area drag and
+   Extract all asked it again for inputs it had just answered. Kept with
+   the two pictures (by identity - a new file is a new ImageData) and
+   every option, the area included; any change runs it again. */
+let lastResultSub=null, lastResultRef=null, lastResultKey="";
+function extractFor(){
+  const o=currentOpts(), key=JSON.stringify(o);
+  if(lastResult && lastResultSub===subData && lastResultRef===refData && lastResultKey===key) return lastResult;
+  const r=extractTrait(subData,refData,o);
+  lastResult=r; lastResultSub=subData; lastResultRef=refData; lastResultKey=key;
+  return r;
+}
 function renderPreview(){
   if(!subData){ $("previewwrap").hidden=true; return; }
   $("previewwrap").hidden=false;
@@ -7173,8 +7186,7 @@ function renderPreview(){
   pvPending=setTimeout(()=>{
     pvPending=null; if(pvBusy) return; pvBusy=true;
     try{
-      const r=extractTrait(subData,refData,currentOpts());
-      lastResult=r;
+      const r=extractFor();
       const cv=$("preview"); cv.width=r.W; cv.height=r.H;
       const g=cv.getContext("2d"); g.imageSmoothingEnabled=false;
       const img=g.createImageData(r.W,r.H);
@@ -7230,8 +7242,13 @@ function renderPreview(){
 let lastResult=null;
 let shelfFilter='all';
 let shelfQuery='';   /* what is typed in the shelf search box, already lowercased */
-$('sens').addEventListener('input',()=>{ $('sensv').textContent=$('sens').value; renderPreview(); });
-$('minblob').addEventListener('input',()=>{ $('minblobv').textContent=$('minblob').value; renderPreview(); });
+/* The number follows the thumb; the preview runs when it is let go. It ran
+   40 ms after every pause in a drag, 2.4-3.4 s each at phone speed, and the
+   thumb stopped following the finger for that long. */
+$('sens').addEventListener('input',()=>{ $('sensv').textContent=$('sens').value; });
+$('sens').addEventListener('change',()=>{ $('sensv').textContent=$('sens').value; renderPreview(); });
+$('minblob').addEventListener('input',()=>{ $('minblobv').textContent=$('minblob').value; });
+$('minblob').addEventListener('change',()=>{ $('minblobv').textContent=$('minblob').value; renderPreview(); });
 /* Drag on the preview to choose the area. A click without a drag clears it, so
    there is always a way back to the whole image. */
 (function(){
@@ -7394,8 +7411,9 @@ $('doextract').onclick=async()=>{
     refData=pick.data;
     toast('Matched reference: '+pick.name);
   }
-  // the pipeline the preview just showed, run once more so the result matches
-  const r=extractTrait(subData,refData,currentOpts());
+  /* What the preview showed, when it was made from these inputs - it used
+     to be run again to get the same bytes. */
+  const r=extractFor();
   if(!r.kept){
     $("exerr").textContent = r.stats.diffed
       ? "Cleanup removed everything that differed - loosen the speck filter or turn off tendril removal."

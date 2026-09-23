@@ -4187,7 +4187,14 @@ function db(){
    and asks before it does. */
 let touchSeq=0;
 const touchedAt=new Map();
-function touch(id){ if(id!=null) touchedAt.set(String(id),++touchSeq); tabsTell(); }
+/* A draft is not told: no other tab shows one, and the editor writes one
+   after every pause in drawing - each a whole-store read and a shelf
+   rebuild in every other tab. "autosave." is draftKey's prefix and
+   AUTO_ID's, declared further down. */
+function touch(id){
+  if(id!=null) touchedAt.set(String(id),++touchSeq);
+  if(id==null || String(id).indexOf("autosave.")!==0) tabsTell();
+}
 /* THE OTHER TABS OF THIS PROJECT, told that the store changed. Nothing
    listened: a second tab showed a trait as wip after the first had moved
    it twice, and a press on that stale card wrote the trait a second time
@@ -4206,6 +4213,14 @@ if(tabChan) tabChan.onmessage=(e)=>{
   if(tabRedrawTimer) return;
   tabRedrawTimer=setTimeout(async()=>{
     tabRedrawTimer=null;
+    /* NOT UNDER A FIELD BEING TYPED IN. The rebuild took the tile, and a
+       weight half typed into it went too. Asked again when it loses
+       focus, which is after its own change has been made. */
+    const f=document.activeElement, proj=$("proj");
+    if(f&&proj&&proj.contains(f)&&/^(INPUT|SELECT|TEXTAREA)$/.test(f.tagName)){
+      f.addEventListener("blur",()=>{ tabChan.onmessage({data:{db:wsDbName()}}); },{once:true});
+      return;
+    }
     try{ await renderShelf(); }catch(_){ }
     try{ const land=$("land"); if(land&&land.getAttribute("data-page")==="final") await renderFinal(); }catch(_){ }
   },100);

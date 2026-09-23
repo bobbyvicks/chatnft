@@ -17382,7 +17382,7 @@ async function cloudStatus(u){
   /* Kept as paths, so the two sides are compared on the identity the rest of
      this file already uses - cloudPath is what the push writes, what the sweep
      keeps, and what the stale check diffs on. */
-  let localPaths=null, remotePaths=null, remoteFloor=false;
+  let localPaths=null, remotePaths=null, remoteFloor=false, pendingGone=0;
   try{
     const mine=(await dbAll()).filter(i=>i.kind==="trait"||i.kind==="ref");
     localN=mine.length;
@@ -17416,7 +17416,11 @@ async function cloudStatus(u){
            request rather than joining it. */
         const got=await cloudRows({id:rows[0].id},h,"id,path");
         if(got.ok && !got.truncated){
-          remotePaths=new Set(got.rows.map(r=>r.path).filter(Boolean));
+          /* A row this device removed on purpose is not "only there" for Load
+             to fetch - it is a removal waiting for Save to cloud. */
+          const gl=await goneLoad();
+          pendingGone=got.rows.filter(r=>goneMatch(gl,r)).length;
+          remotePaths=new Set(got.rows.filter(r=>!goneMatch(gl,r)).map(r=>r.path).filter(Boolean));
           remoteN=got.rows.length;
         } else if(got.ok){
           /* Read, but not all of it. The number is a FLOOR, not the total, and
@@ -17457,7 +17461,7 @@ async function cloudStatus(u){
            reweight or a reorder leaves exactly this behind; so does an
            older failed picture upload a pull once put a path on. Keyed on
            the flag, because Save to cloud sends both. */
-        unsent=localPaths.filter(i=>!i.synced && i.rowId && remotePaths.has(cloudPath(team,c,i))).length;
+        unsent=localPaths.filter(i=>!i.synced && i.rowId && remotePaths.has(cloudPath(team,c,i))).length+pendingGone;
       }
     }catch(_){ onlyHere=null; onlyThere=null; }
   }
@@ -17726,7 +17730,10 @@ async function cloudSyncOne(rec,ctx,why){
    The image goes too. Leaving it orphans a file in the bucket that nothing
    points at and nobody can find. */
 async function cloudDropOne(rec){
-  if(!activeWs) return null;
+  /* No group to tell now. An import replacing an old copy calls this, and
+     the old row is one this device removed on purpose - remembered for
+     Save to cloud. null still: nothing was removed yet. */
+  if(!activeWs){ await goneAdd(rec); return null; }
   const u=await sbUser(); if(!u) return null;
   const team=await cloudTeam(); if(!team) return null;
   const c=await cloudCollection(u); if(!c) return null;
@@ -17798,6 +17805,38 @@ async function cloudDropOne(rec){
 /* Every route that removes a saved item goes through here, so a group cannot
    end up with a delete that happened on one machine only. Your own page is
    unaffected - activeWs is null there and nothing leaves the browser. */
+/* WHAT THIS DEVICE REMOVED ON PURPOSE, and the server has not been told.
+   On your own page nothing is sent live, so a deletion waits for Save to
+   cloud - and Save to cloud must be able to tell a trait removed here from
+   one that never arrived. It used to delete every row this device did not
+   hold: measured, a phone with 1 trait against 311 on the server deleted
+   all 311 rows and pictures. One record, a list of {rowId, path}. */
+const GONE_ID="settings.gone";
+async function goneLoad(){
+  try{ const r=await dbGet(GONE_ID); return (r&&Array.isArray(r.rows))?r.rows:[]; }catch(_){ return []; }
+}
+function goneKey(g){ return g&&g.rowId ? "r:"+g.rowId : "p:"+(g&&g.path||""); }
+/* The removal record a server row answers to, or null. By row id when the
+   record knows one; by path only when it does not. */
+function goneMatch(list,row){
+  if(!row) return null;
+  return list.find(g=>(g.rowId&&row.id===g.rowId)||(!g.rowId&&g.path&&row.path===g.path))||null;
+}
+async function goneAdd(rec){
+  /* Nothing to remove from the server for a trait that never reached it. */
+  if(!rec||!(rec.rowId||rec.path)) return;
+  const list=await goneLoad();
+  const g={rowId:rec.rowId||null, path:rec.path||null, name:rec.name||"", at:Date.now()};
+  if(list.some(x=>goneKey(x)===goneKey(g))) return;
+  list.push(g);
+  try{ await dbPut({id:GONE_ID, kind:"settings", rows:list, at:Date.now()}); }catch(_){}
+}
+async function goneForget(keys){
+  if(!keys.length) return;
+  const drop=new Set(keys);
+  const list=(await goneLoad()).filter(g=>!drop.has(goneKey(g)));
+  try{ await dbPut({id:GONE_ID, kind:"settings", rows:list, at:Date.now()}); }catch(_){}
+}
 async function dbDelShared(rec){
   /* Or the character preview keeps compositing a trait that is gone. */
   try{ cBitmapDrop(rec.id); }catch(_){}
@@ -17805,7 +17844,9 @@ async function dbDelShared(rec){
      and "removed here but the group still has it" are different events and
      were being reported identically. */
   await dbDel(rec.id);
-  if(!activeWs) return true;
+  /* Your own page: removed here, and remembered, so the next Save to
+     cloud removes it there - and only it. */
+  if(!activeWs){ await goneAdd(rec); return true; }
   return (await cloudDropOne(rec))===true;
 }
 
@@ -18007,20 +18048,41 @@ async function cloudPush(){
 
      Skipped only when something failed - deleting rows off a partial picture
      is how the destructive version got it wrong in the first place. */
-  let stale=0;
+  /* SUPERSEDES THE MIRROR DELETE ABOVE. "The server copy becomes what is on
+     this device" was the rule, and it has no way to tell a trait removed
+     here from one that never arrived here: measured, a phone with 1 trait
+     against 311 on the server deleted all 311 rows and pictures, a Load cut
+     short after 51 made the next Save delete the other 260. A row is
+     deleted now only because a removal record (goneAdd) names it, never
+     while a live record here still uses it, and every other row this
+     device does not hold is kept and counted. serverPaths is what the
+     rows still name after the uploads, for the sweep below. */
+  let stale=0, notHere=0, serverPaths=null;
   if(!activeWs && !failed){
     try{
       const here=new Set(items.map(i=>cloudPath(team,c,i)));
+      const live=new Set(items.map(i=>i.rowId).filter(Boolean));
+      const gone=await goneLoad();
       const got=await cloudRows(c,h,"id,path");
       if(got.ok && !got.truncated){
-        const dead=got.rows.filter(r=>r.path && !here.has(r.path));
-        for(const d of dead){
-          const q="id=eq."+encodeURIComponent(d.id);
-          const del=await fetch(SB_URL+"/rest/v1/traits?"+q,{method:"DELETE",headers:h});
-          if(del.ok) stale++;
+        const kept=[], done=[];
+        for(const r of got.rows){
+          const g=goneMatch(gone,r);
+          if(g && !live.has(r.id) && !(r.path && here.has(r.path))){
+            const q="id=eq."+encodeURIComponent(r.id);
+            const del=await fetch(SB_URL+"/rest/v1/traits?"+q,{method:"DELETE",headers:h});
+            if(del.ok){ stale++; done.push(goneKey(g)); continue; }
+          }
+          kept.push(r);
+          if(!g && r.path && !here.has(r.path) && !live.has(r.id)) notHere++;
         }
+        /* A removal whose row is already gone has nothing left to do. */
+        const ids=new Set(got.rows.map(r=>r.id)), paths=new Set(got.rows.map(r=>r.path));
+        for(const g of gone) if(g.rowId ? !ids.has(g.rowId) : !paths.has(g.path)) done.push(goneKey(g));
+        await goneForget(done);
+        serverPaths=kept.map(r=>r.path).filter(Boolean);
       }
-    }catch(_){ }
+    }catch(_){ serverPaths=null; }
   }
   /* THE SAME TWO GUARDS AS THE DELETE ABOVE, because it is the same question:
      is what this browser can see the whole picture. It was unguarded, and the
@@ -18047,7 +18109,10 @@ async function cloudPush(){
      either of these should let the push finish and report what it did,
      rather than abandoning a run that has already uploaded everything. */
   try{
-    if(!activeWs && !failed) swept=await cloudSweep(team,c,rows.map(r=>r.path));
+    /* Every picture a server row still names is kept, as well as this
+       device's own; keeping only this device's list is what took the 311
+       pictures. No reliable read of the rows, no sweep. */
+    if(!activeWs && !failed && serverPaths) swept=await cloudSweep(team,c,[...new Set(rows.map(r=>r.path).concat(serverPaths))]);
   }catch(_){ }
   try{
     await fetch(SB_URL+"/rest/v1/collections?id=eq."+c.id,{method:"PATCH",headers:h,
@@ -18062,7 +18127,11 @@ async function cloudPush(){
   if(unchangedSkipped) bits.push(unchangedSkipped+" already up to date");
   if(patched) bits.push(patched+" updated without re-uploading the picture");
   if(failed) bits.push(failed+" failed");
-  if(stale) bits.push("removed "+stale+" no longer here");
+  if(stale) bits.push("removed "+stale+" you deleted here");
+  /* Kept, and said, so the person knows the server holds more than this
+     device and which button brings it here. */
+  if(notHere) bits.push(notHere+" on the server "+(notHere===1?"is":"are")+" not on this device, kept"
+    +" - Load from cloud brings "+(notHere===1?"it":"them")+" here");
   if(swept) bits.push("removed "+swept+" old image"+(swept===1?"":"s"));
   toast(bits.length?bits.join(", "):"Everything was already up to date");
 }
@@ -18178,6 +18247,8 @@ async function cloudPull(opts){
   let existing=[];
   try{ existing=await dbAll(); }catch(_){}
   const taken=new Set(existing.map(i=>i.id));
+  /* Removed here and not yet removed there: not downloaded again. */
+  const goneList=await goneLoad();
   let added=0, renamed=0, failed=0, done=0, skipped=0;
 
   /* Two passes, because the two halves want opposite things.
@@ -18201,6 +18272,7 @@ async function cloudPull(opts){
   for(const row of rows){
     const layer=row.layer||"unsorted", status=row.status||"wip";
     const baseId=row.kind==="ref"?("ref_"+row.name):("t_"+row.name+"_"+layer+"_"+status);
+    if(goneMatch(goneList,row)) continue;
     /* MERGES, never replaces. Pulling is not a reason to lose work done on
        this device, so a clash is renamed exactly as an import does. */
     /* Already have this exact row, whatever it happens to be called here.

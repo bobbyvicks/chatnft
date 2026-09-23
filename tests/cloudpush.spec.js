@@ -185,10 +185,14 @@ test.describe('what Save to cloud costs', () => {
     // lose the behaviour - only the ordering.
     await withServer(page, { count: N });
     await push(page);
-    await page.evaluate(async () => { await dbDel('t_x3'); });
+    /* Through the tile's remove route, not a raw store delete: since
+       patch531 a row is removed from the server because this device
+       removed that trait on purpose, and dbDelShared is where that is
+       recorded. A bare dbDel is what a store eviction looks like. */
+    await page.evaluate(async () => { const t = await dbGet('t_x3'); await dbDelShared(t); });
     const r = await push(page);
     await restore(page);
-    expect(r.said, 'the row goes').toContain('no longer here');
+    expect(r.said, 'the row goes').toContain('you deleted here');
     expect(r.serverRows, 'leaving exactly what is here').toBe(N - 1);
   });
 

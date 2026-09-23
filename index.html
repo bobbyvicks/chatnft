@@ -7768,7 +7768,8 @@ async function openTraitRecord(t,opts){
   let draft=null;
   if(!opts.ignoreDraft){
     try{
-      const got=(await dbAll()).find(i=>i.id===draftKey(t.id));
+      /* The one record: this read the whole project on every open. */
+      const got=await dbGet(draftKey(t.id));
       if(got&&got.blob&&got.w&&got.h&&(got.at||0)>(t.at||0)) draft=got;
     }catch(_){}
   }
@@ -10591,8 +10592,15 @@ async function setBaseFromBlob(b){
     drawBase(); toast("Base added"); }
   catch(_){ toast("Could not read that image"); }
 }
+/* What the list was filled from: the project and its last write. */
+let basePickerFrom="";
 async function fillBasePicker(){
   const sel=$("basepick"); const keep=sel.value;
+  /* Nothing written since the last fill: the list is what it was, and this
+     read the whole project on every trait open to find that out. */
+  const from=wsDbName()+"|"+touchSeq;
+  if(from===basePickerFrom && sel.options.length) return;
+  basePickerFrom=from;
   let refs=[];
   try{ refs=(await dbAll()).filter(i=>i.kind==="ref").sort((a,b)=>b.at-a.at); }catch(_){}
   sel.innerHTML="";
@@ -10780,7 +10788,7 @@ function autosave(){
 }
 async function offerRestore(){
   let rec=null;
-  try{ rec=(await dbAll()).find(i=>i.id===AUTO_ID); }catch(_){}
+  try{ rec=await dbGet(AUTO_ID); }catch(_){}
   const bar=$("restore");
   if(!rec||!rec.blob){ bar.hidden=true; return; }
   const when=new Date(rec.at);
@@ -26314,7 +26322,7 @@ $('basepick').onchange=async()=>{
   if(!v){ return; }
   const id=v.slice(4);
   let rec=null;
-  try{ rec=(await dbAll()).find(i=>i.id===id); }catch(_){}
+  try{ rec=await dbGet(id); }catch(_){}
   if(!rec){ toast('That base is no longer saved'); fillBasePicker(); return; }
   await setBaseFromBlob(rec.blob);
 };

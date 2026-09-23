@@ -7488,6 +7488,12 @@ async function openTraitRecord(t,opts){
   try{ agentLogShow(); }catch(_){ }
   fileName=t.name+".png";
   startEditor(d.data,src.w,src.h,src.w,src.h,palette(d.data,src.w*src.h,24,64),false);
+  /* THE SIZE IT OPENED AT IS THE RECORD'S. startEditor took the draft's
+     canvas size for it, and after a shrink that removed the floor: a
+     1280 trait reopened through its draft was saved at 160x160, said
+     only "Saved" (measured, two routes - another trait and back, or an
+     autosave and a reload). */
+  if(draft) openWide=t.w;
   /* THE IDENTITY FIRST, because the block that follows reads it.
 
      adoptBlock looks up the collection rule for this trait's LAYER, and

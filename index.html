@@ -6065,6 +6065,17 @@ async function sha256Of(buf){
 }
 function zip(files){
   const enc=new TextEncoder(), parts=[], central=[];
+  /* THE FORMAT'S LIMITS, REFUSED RATHER THAN WRAPPED. Offsets and sizes
+     are 32-bit and the entry count 16-bit in this (non-ZIP64) writer, and
+     setUint32 wraps silently: an archive past 4 GiB came out with corrupt
+     offsets. Worked out before a byte is written, so nothing half-built
+     is ever handed over. */
+  {
+    let total=22;
+    for(const f of files){ const nl=enc.encode(f.name).length; total+=30+nl+f.data.length+46+nl; }
+    if(files.length>0xFFFF || total>0xFFFFFFFF)
+      throw new Error("too large for one zip ("+files.length+" files, "+Math.round(total/1048576)+" MB)");
+  }
   let off=0;
   for(const f of files){
     const nm=enc.encode(f.name), crc=crc32(f.data), sz=f.data.length;
@@ -13049,6 +13060,12 @@ function sizeLine(list){
     +" ("+big.names.join(", ")+") set the canvas, and "+rest+" smaller one"+(rest===1?"":"s")
     +" "+(rest===1?"is":"are")+" drawn at native size and centred, so they look small on it. Make them one size before minting.";
 }
+/* HOW MUCH OF A GENERATED SET IS HELD BEFORE IT IS HANDED OVER, and
+   where. Generate set sets the sink for the length of its own run; with
+   no sink the files are returned whole, as every other caller wants. A
+   part is handed over once it passes the budget, and let go of. */
+let GEN_PART_BYTES=400*1024*1024;
+let genPartSink=null;
 async function buildCollection(n,onProgress){
   /* THE FINAL PROJECT, NOT THE PROJECT. cPools() reads the rows on the
      project page, which hold every approved trait - so the page that exists
@@ -13097,6 +13114,8 @@ async function buildCollection(n,onProgress){
   const enc=new TextEncoder();
   const pad=String(combos.length).length;
   const files=[];
+  let held=0;
+  const sink=genPartSink;
   for(let i=0;i<combos.length;i++){
     g.clearRect(0,0,W,H);
     for(const r of combos[i]){ const bm=await cBitmap(r); paintTrait(g,bm,0,0,W,H); }
@@ -13117,6 +13136,14 @@ async function buildCollection(n,onProgress){
         trait_type: r.kind==="ref"?"base":(r.layer||"unsorted"), value:r.name}))
     },null,2))});
     if(onProgress && i%20===0){ onProgress(i+1,combos.length); await new Promise(r=>setTimeout(r,0)); }
+    /* PASSED THE BUDGET: handed over and let go of, so the set is never
+       held whole - 1000 characters held 614-651 MB, 3000 grew the browser
+       by 2.2 GB. The last part is handed over below. */
+    held+=files[files.length-2].data.length+files[files.length-1].data.length;
+    if(sink && held>=GEN_PART_BYTES && i<combos.length-1){
+      await sink(files.splice(0,files.length),false);
+      held=0;
+    }
   }
   /* combos travels with the files. The note measures what was actually built
      against what each tile promised, and it can only do that if the thing
@@ -13125,6 +13152,7 @@ async function buildCollection(n,onProgress){
   /* pool travels with the files for the same reason combos does: the report
      below measures what was built against what the set promised, and it can
      only do that against the set that was actually drawn from. */
+  if(sink && files.length) await sink(files.splice(0,files.length),true);
   return { files, made:combos.length, asked:n, combos, sizes:sizeSpread, pool };
 }
 /* LAY CHARACTERS OUT ON A CANVAS AND PAINT THEM.
@@ -25121,9 +25149,28 @@ $('cgenzip').onclick=async()=>{
   const was=btn.textContent;
   btn.textContent="Working";
   try{
-    const r=await buildCollection(n,(done,total)=>{
+    /* EACH PART DOWNLOADED AS IT IS MADE. One part keeps the name it always
+       had; more than one are numbered, and the note says how many. */
+    let partsMade=0;
+    const download=(b,name)=>{
+      const u=URL.createObjectURL(b), a=document.createElement("a");
+      a.href=u; a.download=name;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(()=>URL.revokeObjectURL(u),4000);
+    };
+    genPartSink=async(files,last)=>{
+      const count=files.filter(f=>f.name.indexOf("images/")===0).length;
+      if(last && !partsMade){ download(zip(files),"buildanft-collection-"+count+".zip"); partsMade=1; return; }
+      partsMade++;
+      download(zip(files),"buildanft-collection-part-"+partsMade+".zip");
+      $("cnote").textContent="Part "+partsMade+" downloaded ("+count+" characters)...";
+    };
+    let r;
+    try{
+    r=await buildCollection(n,(done,total)=>{
       $("cnote").textContent="Building "+done+" of "+total+"...";
     });
+    }finally{ genPartSink=null; }
     /* TOLD WHAT TO DO, not just that nothing happened. This is the first
        press for anybody who has not curated a final project yet, and
        "nothing saved to build from" would be false - there is plenty
@@ -25137,10 +25184,7 @@ $('cgenzip').onclick=async()=>{
       return;
     }
     if(!r.made){ toast("Nothing saved to build from"); $("cnote").textContent=""; return; }
-    const b=zip(r.files), u=URL.createObjectURL(b), a=document.createElement("a");
-    a.href=u; a.download="buildanft-collection-"+r.made+".zip";
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(()=>URL.revokeObjectURL(u),4000);
+    /* Downloaded already, part by part, by the sink above. */
     /* The same shortfall the sheet reports, for the same reason: asking for
        more than the set holds is a fact about the set. Finding that out from
        a zip of 340 files when 1,000 were asked for is worse than being told. */
@@ -25161,7 +25205,8 @@ $('cgenzip').onclick=async()=>{
       : "";
     $("cnote").textContent="Built "+r.made+" different character"+(r.made===1?"":"s")
     $("cnote").textContent="Built "+r.made+" different character"+(r.made===1?"":"s")
-      +" from the final project, with metadata."+short+missed+sizeLine(r.sizes)
+      +" from the final project, with metadata"+(partsMade>1 ? ", in "+partsMade+" zip files so no more than one is held at a time" : "")
+      +"."+short+missed+sizeLine(r.sizes)
       +driftLine(shareDrift(r.combos,r.pool,false),r.made);
     toast("Downloaded "+r.made+" character"+(r.made===1?"":"s"));
   }catch(e){

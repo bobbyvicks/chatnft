@@ -13882,10 +13882,20 @@ async function clearRules(){
 }
 
 /* One answer, recorded and applied. */
+/* Said once per spell of not reaching the group, not once per answer: a
+   review is dozens of presses. */
+let answersHeldSaid=false;
 async function decidePair(a,b,ok){
   DECISIONS=mergeDecisions(DECISIONS,[{a:a,b:b,ok:!!ok,at:Date.now()}]);
   applyDecision(a,b,ok);
-  await saveRules();
+  const sent=await saveRules();
+  /* AN ANSWER THE GROUP HAS NOT GOT, said. It was kept here in silence and
+     the sheet looked exactly as it does online. */
+  if(activeWs && !sent){
+    if(!answersHeldSaid){ answersHeldSaid=true;
+      toast("Answers are being kept on this device - the group has not got them yet. They are sent when the connection is back."); }
+  } else if(sent) answersHeldSaid=false;
+  return sent;
 }
 /* The rules and the answers, written to this browser's store. Lifted out of
    saveRules so a send that merges the server's answers in can keep them. */
@@ -20244,6 +20254,29 @@ $('cloudpush').onclick=()=>{
   });
 };
 $('cloudpull').onclick=cloudPull;
+/* WHEN THE CONNECTION COMES BACK, IN A GROUP: the rules and answers if they
+   never reached the server, then Save to cloud for what is marked unsent.
+   Nothing listened for this - real offline and online events produced no
+   request (measured) - so a phone that lost signal kept its changes until
+   somebody thought to press the button. Not on your own page, where
+   nothing is sent without a press. One at a time, and never over a push
+   already running. */
+let groupResending=null;
+async function groupResend(){
+  if(!activeWs || pushRunning || groupResending) return groupResending;
+  groupResending=(async()=>{
+    try{
+      if(sharedRuleSig===null && (RULES.length||DECISIONS.length)){
+        const sent=await shareRules();
+        if(sent) answersHeldSaid=false;
+      }
+      let unsent=[]; try{ unsent=(await dbAll()).filter(i=>(i.kind==="trait"||i.kind==="ref")&&!i.synced); }catch(_){ unsent=[]; }
+      if(unsent.length) await cloudPush();
+    }catch(_){ }
+  })();
+  try{ await groupResending; } finally{ groupResending=null; }
+}
+addEventListener('online',()=>{ groupResend(); });
 /* Read the sign-in fragment BEFORE the first render, so someone arriving from
    the email sees themselves signed in rather than the form again. */
 /* A recovery link carries a session, so without this it reads as an ordinary

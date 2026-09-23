@@ -18387,6 +18387,7 @@ async function cloudPull(opts){
   /* Removed here and not yet removed there: not downloaded again. */
   const goneList=await goneLoad();
   let added=0, renamed=0, failed=0, done=0, skipped=0, full=false;
+  const draftsKept=[];
 
   /* Two passes, because the two halves want opposite things.
 
@@ -18571,6 +18572,19 @@ async function cloudPull(opts){
            minutes old by the end of a cold pull and this covers both. */
         if(touchedSince(w.id,seqAt)||touchedSince(w.base,seqAt)){ skipped++; done++; say(); continue; }
         await dbPut(rec); added++;
+        /* A DRAWING HERE, NOT YET SAVED, of the trait just replaced. It was
+           older than the new record, so the next open would not offer it -
+           measured, the teammate's pixels and no draft bar. Kept, stamped
+           past the record the way draftsFollow does, and said. */
+        if(w.replaces){
+          try{
+            const dr=await dbGet(draftKey(w.id));
+            if(dr && dr.blob){
+              await dbPut(Object.assign({},dr,{at:Math.max(Date.now(),(rec.at||0)+1)}));
+              draftsKept.push(w.name);
+            }
+          }catch(_){ }
+        }
         /* Recorded where the write is known to have happened, rather than
            where it was decided - a download that failed its three tries is
            not an update that arrived. */
@@ -18715,6 +18729,8 @@ async function cloudPull(opts){
      through the repair, not a download, and used to arrive in silence. */
   if(repaired) bits.push(repaired+" changed in place "+(activeWs?"by the group":"on the server"));
   if(clashed.length) bits.push(clashed.length+" you have unsaved changes to, kept");
+  if(draftsKept.length) bits.push(draftsKept.length+" updated by the group while you had an unsaved drawing of "
+    +(draftsKept.length===1?"it":"them")+" - your drawing is kept as a draft ("+draftsKept.join(", ")+")");
   if(renamed) bits.push(renamed+" renamed so nothing here was replaced");
   if(tookOrder) bits.push("the group's paint order ("+tookOrder+" layer"+(tookOrder===1?"":"s")+")");
   else if(newLayers) bits.push(newLayers+" new layer"+(newLayers===1?"":"s"));

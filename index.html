@@ -10850,14 +10850,20 @@ async function sortApply(plan){
     const id="t_"+r.toName+"_"+r.toLayer+"_"+(r.status||"wip");
     if(id===old.id) continue;
     if(taken.has(id)){ refused.push(r.name+" - "+r.toLayer+" already has one"); continue; }
-    const rec={...old, id:id, name:r.toName, layer:r.toLayer, at:Date.now()};
+    /* `at` is kept: it is when the trait was last EDITED, which the final
+       page and the Last edited list read, and a sort is filing. */
+    const rec={...old, id:id, name:r.toName, layer:r.toLayer};
     try{
       await dbPut(rec);
       await dbDel(old.id);
       taken.delete(old.id); taken.add(id);
       await retargetRules([{from:traitKey(old), to:traitKey(rec)}]);
       draftMoves.push({from:old.id, to:id});
-      if(activeWs&&!await cloudMoveOne(old,rec)) stranded++;
+      /* ALWAYS, as retagLayer calls it: on your own page this is what marks
+         the move as not yet sent (patch525), and skipping it let the next
+         Load from cloud put the old layer back (measured). */
+      const shared=await cloudMoveOne(old,rec);
+      if(activeWs&&!shared) stranded++;
       moved++;
     }catch(_){ failed++; }
   }
@@ -18701,7 +18707,7 @@ async function cloudPull(opts){
   if(incoming.length) bits.push(incoming.length+" updated by the group");
   /* A move to another layer, a reorder or a reweight by a teammate arrives
      through the repair, not a download, and used to arrive in silence. */
-  if(repaired) bits.push(repaired+" changed in place by the group");
+  if(repaired) bits.push(repaired+" changed in place "+(activeWs?"by the group":"on the server"));
   if(clashed.length) bits.push(clashed.length+" you have unsaved changes to, kept");
   if(renamed) bits.push(renamed+" renamed so nothing here was replaced");
   if(tookOrder) bits.push("the group's paint order ("+tookOrder+" layer"+(tookOrder===1?"":"s")+")");

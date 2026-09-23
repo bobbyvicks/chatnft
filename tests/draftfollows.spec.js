@@ -178,6 +178,11 @@ test.describe('a draft follows the trait it belongs to', () => {
       const realNow = Date.now;
       Date.now = () => fixed;
       try {
+        /* THE TIE, MADE HERE. This used to come free: sortApply stamped the
+           moved record with now. Since patch537 a sort keeps the trait's
+           last-edited time, so the tie happens only when the trait was itself
+           edited in that millisecond - which is what this makes true. */
+        for (const x of (await dbAll()).filter(x => x.kind === 'trait')) { x.at = fixed; await dbPut(x); }
         const items = (await dbAll()).filter(x => x.kind === 'trait');
         await sortApply(planSort(items, [
           { layer: 'skins', trait: 'Cap.png', previousName: 'cap.png' }]));

@@ -12741,23 +12741,35 @@ let autoSide=null, autoKey="";
    picture before an edit. */
 function blockStoreKey(){ return "pb.blocks."+wsDbName(); }
 let blockStoreRead=false;
+/* READ ONCE, APPLIED TO EVERY LIST. This read the saved numbers once and
+   applied them only to the list it was first given - the final page's,
+   when that page was the first to ask - so every other trait was decoded
+   again on the same visit although its number was saved. The parsed copy
+   is kept, keyed by the project it came from. */
+let blockSaved=null, blockSavedKey="";
 function loadBlocks(list){
-  if(blockStoreRead) return;
-  blockStoreRead=true;
-  try{
-    const raw=localStorage.getItem(blockStoreKey());
-    if(!raw) return;
-    const saved=JSON.parse(raw);
-    if(!saved||typeof saved!=="object") return;
-    for(const r of (list||[])){
-      const e=r&&saved[r.id];
-      if(e&&r.blob&&e.s===r.blob.size&&typeof e.b==="number") blockOf.set(r.id,e.b);
-    }
-  }catch(_){}
+  if(!blockStoreRead || blockSavedKey!==blockStoreKey()){
+    blockStoreRead=true; blockSaved=null; blockSavedKey=blockStoreKey();
+    try{
+      const raw=localStorage.getItem(blockSavedKey);
+      const saved=raw ? JSON.parse(raw) : null;
+      if(saved&&typeof saved==="object") blockSaved=saved;
+    }catch(_){ blockSaved=null; }
+  }
+  if(!blockSaved) return;
+  for(const r of (list||[])){
+    if(!r || blockOf.has(r.id)) continue;
+    const e=blockSaved[r.id];
+    if(e&&r.blob&&e.s===r.blob.size&&typeof e.b==="number") blockOf.set(r.id,e.b);
+  }
 }
 function saveBlocks(list){
   try{
-    const out={};
+    /* MERGED INTO WHAT IS SAVED. A scan of a subset - the final page scans
+       only the chosen traits - used to replace the lot, and the next open
+       scanned every other trait again. */
+    let out={};
+    try{ const was=JSON.parse(localStorage.getItem(blockStoreKey())||"{}"); if(was&&typeof was==="object") out=was; }catch(_){ out={}; }
     for(const r of (list||[])){
       const b=r&&blockOf.get(r.id);
       if(b!==undefined&&r.blob) out[r.id]={b:b,s:r.blob.size};
@@ -12765,6 +12777,12 @@ function saveBlocks(list){
     localStorage.setItem(blockStoreKey(),JSON.stringify(out));
   }catch(_){}
 }
+/* DECODES IN FLIGHT, by record id. Every render during the first scan
+   used to start another pass over the same traits: 855-924 decodes for
+   311 on a group's cold open (measured). A pass that reaches a trait
+   another pass is decoding now waits for that decode, which also covers
+   two passes over the same collection - so they are not joined as well. */
+const blockPending=new Map();
 async function autoCanvas(recs){
   const list=(recs||[]).filter(r=>r&&r.kind!=="ref"&&(r.w||r.h));
   if(!list.length) return CANVAS_SIDE;
@@ -12794,11 +12812,23 @@ async function autoCanvas(recs){
          which blockOf already remembers. The number is what is wanted here.
          The bitmap is closed, which is exactly what the WeakMap over
          blockCache was written for. */
-      let bm=null;
-      try{ bm=await createImageBitmap(r.blob); blk=pixelBlock(bm); }
-      catch(_){ blk=1; }
-      if(bm&&bm.close) bm.close();
-      blockOf.set(r.id,blk);
+      /* SHARED: another pass decoding this trait is waited for, not
+         repeated. */
+      if(blockPending.has(r.id)) blk=await blockPending.get(r.id);
+      else {
+        const one=(async()=>{
+          let bm=null, b=1;
+          try{ bm=await createImageBitmap(r.blob); b=pixelBlock(bm); }
+          catch(_){ b=1; }
+          if(bm&&bm.close) bm.close();
+          blockOf.set(r.id,b);
+          return b;
+        })();
+        blockPending.set(r.id,one);
+        try{ blk=await one; } finally{ blockPending.delete(r.id); }
+        /* Saved as it goes, so a reload mid-scan keeps what was learnt. */
+        if(((scanned+1)%40)===0) saveBlocks(list);
+      }
       /* A BREATH BETWEEN RECORDS. The scan in pixelBlock is the only long
          synchronous run on this path and 318 of them back to back is a
          frozen page: about 15 seconds, measured at a sixth of a desktop

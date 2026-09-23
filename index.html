@@ -18152,6 +18152,19 @@ async function cloudSaveShelfPlan(updates){
   return r;
 }
 
+/* A PUSH IN PROGRESS, and whether its button has been pressed to stop it.
+   The button reads Stop while it runs. */
+let pushRunning=false, pushStopAsked=false;
+/* The dominant reason among what failed, in words for a push. */
+function pushWhy(reasons){
+  let best=null, n=0;
+  for(const k in reasons) if(reasons[k]>n){ n=reasons[k]; best=k; }
+  return best==="signedout" ? "you are signed out on this device"
+    : best==="notallowed" ? "this account may not write here"
+    : best==="refused" ? "the server refused them"
+    : best==="collection" ? "the collection on the server could not be opened"
+    : "the server could not be reached";
+}
 async function cloudPush(){
   /* THREE answers, not two. "Could not ask" is not "you are signed out", and
      telling a signed-in person to sign in is an instruction to do the one
@@ -18167,7 +18180,8 @@ async function cloudPush(){
   let items=[];
   try{ items=(await dbAll()).filter(i=>i.kind==="trait"||i.kind==="ref"); }catch(_){}
   if(!items.length){ toast("Nothing saved to upload"); return; }
-  $("cloudpush").disabled=true;
+  pushRunning=true; pushStopAsked=false;
+  $("cloudpush").textContent="Stop";
   $("cloudnote").textContent="Uploading "+items.length+" item"+(items.length===1?"":"s")+"...";
   /* One item at a time, through the same routine a save uses.
 
@@ -18194,7 +18208,8 @@ async function cloudPush(){
      stop being there - but doing it first means a push that dies half way
      has destroyed the server copy and not yet rebuilt it. Stale rows are
      removed at the end now, by comparison, once their replacements exist. */
-  let saved=0, failed=0, done=0, patched=0;
+  let saved=0, failed=0, done=0, patched=0, streak=0, broke=false;
+  const reasons={};
   const rows=[];
   /* Everything that cannot change while this runs, worked out once. */
   /* NO HEADERS IN HERE. They were built once and shared, so a run that
@@ -18235,20 +18250,31 @@ async function cloudPush(){
     else fresh.push({light:false, it:it});
   }
   async function pusher(){
-    while(next<fresh.length){
+    /* THREE IN A ROW THAT COULD NOT REACH THE SERVER end the run: every
+       picture after them would find the same, three attempts and a backoff
+       each (measured: 933 attempts and 42 s to learn that 311 failed). */
+    while(next<fresh.length && !broke && !pushStopAsked){
       const job=fresh[next++], it=job.it;
       /* The patch first for a light one; a row that is gone falls through
          to the upload it would have had. */
       let okd=false;
+      const why={};
       if(job.light && await cloudPatchOne(it,ctx)){ okd=true; patched++; }
-      else if(await cloudSyncOne(it,ctx)){ okd=true; saved++; }
-      if(okd) rows.push({path:cloudPath(team,c,it)});
-      else failed++;
+      else if(await cloudSyncOne(it,ctx,why)){ okd=true; saved++; }
+      if(okd){ rows.push({path:cloudPath(team,c,it)}); streak=0; }
+      else {
+        failed++;
+        const r=why.reason||"unreachable";
+        reasons[r]=(reasons[r]||0)+1;
+        streak = r==="unreachable" ? streak+1 : 0;
+        if(streak>=3) broke=true;
+      }
       done++;
       if(done%10===0||done===fresh.length) say();
     }
   }
   await Promise.all(Array.from({length:Math.min(PUSH_AT_ONCE,fresh.length)},pusher));
+  const notTried=fresh.length-done;
   /* What the server holds that this device does not, removed only now that
      everything here has landed. On a personal page that is the whole point of
      the old blanket delete, done in the safe order. In a group it stays off:
@@ -18267,7 +18293,8 @@ async function cloudPush(){
      device does not hold is kept and counted. serverPaths is what the
      rows still name after the uploads, for the sweep below. */
   let stale=0, notHere=0, serverPaths=null;
-  if(!activeWs && !failed){
+  /* Not after a run that stopped early either: what is left is unknown. */
+  if(!activeWs && !failed && !notTried){
     try{
       const here=new Set(items.map(i=>cloudPath(team,c,i)));
       const live=new Set(items.map(i=>i.rowId).filter(Boolean));
@@ -18329,6 +18356,8 @@ async function cloudPush(){
     await fetch(SB_URL+"/rest/v1/collections?id=eq."+c.id,{method:"PATCH",headers:h,
       body:JSON.stringify({layers:LAYERS})});
   }catch(_){ }
+  pushRunning=false; pushStopAsked=false;
+  $("cloudpush").textContent="Save to cloud";
   $("cloudpush").disabled=false;
   await cloudStatus(u);
   /* Every number that is not zero, and none that is. "0 skipped" on a first
@@ -18337,7 +18366,8 @@ async function cloudPush(){
   if(saved) bits.push("Saved "+saved+" to the cloud");
   if(unchangedSkipped) bits.push(unchangedSkipped+" already up to date");
   if(patched) bits.push(patched+" updated without re-uploading the picture");
-  if(failed) bits.push(failed+" failed");
+  if(failed) bits.push(failed+" failed - "+pushWhy(reasons));
+  if(notTried) bits.push(notTried+" not tried - "+(broke ? "the server stopped answering, so the rest wait for the next press" : "stopped"));
   if(stale) bits.push("removed "+stale+" you deleted here");
   /* Kept, and said, so the person knows the server holds more than this
      device and which button brings it here. */
@@ -18388,15 +18418,18 @@ const PULL_PAGE=1000, PULL_MAX_PAGES=500;
    The backoff is per file and the pull already runs eight at a time, so the
    other seven keep going while one waits. */
 const PULL_TRIES=3;
-async function pullBlob(path,h){
+/* why, when given, is told whether a null meant the picture is missing or
+   refused (an answer) or that the server could not be reached. */
+async function pullBlob(path,h,why){
   for(let attempt=0; attempt<PULL_TRIES; attempt++){
     try{
       const g=await fetch(SB_URL+"/storage/v1/object/traits/"+path,{headers:h});
       if(g.ok) return await g.blob();
-      if(g.status===404||g.status===401||g.status===403) return null;
+      if(g.status===404||g.status===401||g.status===403){ if(why) why.reason="answered"; return null; }
     }catch(_){ }
     if(attempt<PULL_TRIES-1) await new Promise(r=>setTimeout(r,250*(attempt+1)));
   }
+  if(why) why.reason="unreachable";
   return null;
 }
 async function cloudRows(c,h,select){
@@ -18460,7 +18493,7 @@ async function cloudPull(opts){
   const taken=new Set(existing.map(i=>i.id));
   /* Removed here and not yet removed there: not downloaded again. */
   const goneList=await goneLoad();
-  let added=0, renamed=0, failed=0, done=0, skipped=0, full=false;
+  let added=0, renamed=0, failed=0, done=0, skipped=0, full=false, streak=0, broke=false;
   const draftsKept=[];
 
   /* Two passes, because the two halves want opposite things.
@@ -18605,14 +18638,19 @@ async function cloudPull(opts){
   const PULL_AT_ONCE=8;
   let next=0;
   async function puller(){
-    while(next<wanted.length && !full){
+    while(next<wanted.length && !full && !broke){
       /* Before the download as well as before the write: a pull nobody is
          waiting for should stop asking the server for pictures too. */
       if(!wsStill(gen)) return;
       const w=wanted[next++];
       try{
         /* Per download: a pull of 311 can outlive its token. */
-        const blob=await pullBlob(w.row.path,(await sbHeaders())||h);
+        const bwhy={};
+        const blob=await pullBlob(w.row.path,(await sbHeaders())||h,bwhy);
+        /* Three downloads in a row that could not reach the server end the
+           pull. A missing or refused picture is an answer, not a dead line. */
+        if(!blob){ streak = bwhy.reason==="unreachable" ? streak+1 : 0; if(streak>=3) broke=true; }
+        else streak=0;
         /* Still counted as failed after three tries - the note has always
            said how many could not be read, and that stays true. */
         if(!blob) throw new Error("download");
@@ -18810,6 +18848,7 @@ async function cloudPull(opts){
   if(tookOrder) bits.push("the group's paint order ("+tookOrder+" layer"+(tookOrder===1?"":"s")+")");
   else if(newLayers) bits.push(newLayers+" new layer"+(newLayers===1?"":"s"));
   if(failed) bits.push(failed+" could not be read");
+  if(broke) bits.push("the server stopped answering, so "+(wanted.length-done)+" were left for the next Load");
   if(full) bits.push(STORE_FULL+" - "+added+" of "+wanted.length+" saved here; free some space and Load again");
   if(skipped) bits.push(skipped+" changed here while loading, kept as changed");
   /* Only reachable on a collection past half a million rows, and said out
@@ -20195,8 +20234,12 @@ function planFold(on,remember){
    scope for the report that uses them. A catch at the binding cannot break
    scoping and covers the whole window rather than the calls I noticed. */
 $('cloudpush').onclick=()=>{
+  /* WHILE A PUSH RUNS, THIS IS ITS STOP. Pictures already on their way
+     finish; no new one starts. */
+  if(pushRunning){ pushStopAsked=true; $("cloudpush").textContent="Stopping"; $("cloudpush").disabled=true; return; }
   Promise.resolve().then(cloudPush).catch(e=>{
-    try{ $("cloudpush").disabled=false; }catch(_){ }
+    pushRunning=false; pushStopAsked=false;
+    try{ $("cloudpush").textContent="Save to cloud"; $("cloudpush").disabled=false; }catch(_){ }
     try{ toast("Save to cloud stopped: "+((e&&e.message)||e)); }catch(_){ }
   });
 };

@@ -17186,11 +17186,35 @@ async function cloudCollection(u){
 /* 100 a page as before, but 500 pages rather than 20 - fifty thousand files,
    where the old ceiling was two thousand and was reached in silence. */
 const SWEEP_PAGE=100, SWEEP_MAX_PAGES=500;
+/* WHAT THE GROUP'S STORAGE HOLDS under this collection. Lifted out of
+   cloudSweep so the sweep and the catch-up cannot disagree about it; the
+   rules are the sweep's own, recorded below: page until an EMPTY batch
+   (never a short one), and a listing that hits the page bound is not an
+   answer. ok:false means "could not tell", never "empty". */
+async function bucketPaths(team,c,h){
+  try{
+    h=h||await sbHeaders({"Content-Type":"application/json"});
+    if(!h) return {ok:false, list:[], paths:new Set()};
+    const prefix=team+"/"+c.id;
+    const found=[]; let offset=0;
+    for(let page=0;;page++){
+      if(page>=SWEEP_MAX_PAGES) return {ok:false, list:found, paths:new Set(found)};
+      const r=await fetch(SB_URL+"/storage/v1/object/list/traits",{method:"POST",headers:h,
+        body:JSON.stringify({prefix:prefix, limit:SWEEP_PAGE, offset:offset})});
+      if(!r.ok) return {ok:false, list:found, paths:new Set(found)};
+      const batch=await r.json();
+      if(!Array.isArray(batch)||!batch.length) break;
+      for(const o of batch) if(o&&o.name) found.push(prefix+"/"+o.name);
+      offset+=batch.length;
+    }
+    return {ok:true, list:found, paths:new Set(found)};
+  }catch(_){ return {ok:false, list:[], paths:new Set()}; }
+}
 async function cloudSweep(team,c,keepPaths){
   const h=await sbHeaders({"Content-Type":"application/json"});
   if(!h) return 0;
-  const prefix=team+"/"+c.id;
-  let found=[], offset=0;
+  /* The listing is bucketPaths now; the two rules below are its rules. */
+  const b=await bucketPaths(team,c,h);
   /* STOPS ON AN EMPTY BATCH, never a short one - the same rule cloudRows was
      given this morning, and this is the sibling that did not get it. The
      server has its own cap and it can be lower than the limit asked for:
@@ -17200,21 +17224,11 @@ async function cloudSweep(team,c,keepPaths){
      The page bound is high enough that reaching it means something is wrong
      rather than something is large - 20 pages of 100 was a silent ceiling at
      2,000 files, and a bucket of 2,500 quietly kept 500 orphans. */
-  let truncated=false;
-  for(let page=0;;page++){
-    if(page>=SWEEP_MAX_PAGES){ truncated=true; break; }
-    const r=await fetch(SB_URL+"/storage/v1/object/list/traits",{method:"POST",headers:h,
-      body:JSON.stringify({prefix:prefix, limit:SWEEP_PAGE, offset:offset})});
-    if(!r.ok) return 0;
-    const batch=await r.json();
-    if(!Array.isArray(batch)||!batch.length) break;
-    for(const o of batch) if(o&&o.name) found.push(prefix+"/"+o.name);
-    offset+=batch.length;
-  }
   /* A sweep that ran out of pages has seen only part of the bucket, so what it
      did NOT find is not evidence of anything. Deleting on a partial picture is
      how the push used to destroy the server copy; refusing is the safe half. */
-  if(truncated) return 0;
+  if(!b.ok) return 0;
+  const found=b.list;
   const keep=new Set(keepPaths);
   const dead=found.filter(p=>!keep.has(p));
   if(!dead.length) return 0;
@@ -17672,14 +17686,44 @@ async function cloudSyncOne(rec,ctx,why){
         +"&layer=eq."+encodeURIComponent(rec.layer||"unsorted")
         +"&status=eq."+encodeURIComponent(rec.status||"wip"));
     await fetch(SB_URL+"/rest/v1/traits?"+q,{method:"DELETE",headers:h});
-    const r=await fetch(SB_URL+"/rest/v1/traits",{method:"POST",
-      headers:Object.assign({Prefer:"return=representation"},h),
-      body:JSON.stringify([{collection_id:c.id, team_id:team, owner:u.id,
+    /* THE UPLOAD'S RETRY, FOR THE ROW TOO. The delete above has already
+       run, so one failed insert here left the group with no row for this
+       trait - and every teammate's next open deleted it as "removed by
+       someone else" (measured, 3 rows became 2). A definite answer is not
+       retried. A 409 on a RETRY means an earlier attempt landed and its
+       answer was lost: that row is read back by its identity and adopted.
+       Reported as refused, the record would keep pointing at the deleted
+       row and every later save from here would collide the same way. */
+    const rowBody=JSON.stringify([{collection_id:c.id, team_id:team, owner:u.id,
         kind:rec.kind, name:rec.name,
         layer:rec.layer||"unsorted", status:rec.status||"wip",
         rarity:(typeof rec.rarity==="number"?rec.rarity:1),
         shelf_order:(typeof rec.shelfOrder==="number"?rec.shelfOrder:null),
-        w:rec.w||1, h:rec.h||1, path:p}])});
+        w:rec.w||1, h:rec.h||1, path:p}]);
+    const ident="collection_id=eq."+c.id
+        +"&kind=eq."+encodeURIComponent(rec.kind||"trait")
+        +"&name=eq."+encodeURIComponent(rec.name)
+        +"&layer=eq."+encodeURIComponent(rec.layer||"unsorted")
+        +"&status=eq."+encodeURIComponent(rec.status||"wip");
+    let r=null, adopted=null;
+    for(let attempt=0; attempt<PULL_TRIES; attempt++){
+      try{
+        r=await fetch(SB_URL+"/rest/v1/traits",{method:"POST",
+          headers:Object.assign({Prefer:"return=representation"},h), body:rowBody});
+        if(r.ok) break;
+        if(r.status===409 && attempt>0){
+          try{
+            const g=await fetch(SB_URL+"/rest/v1/traits?select=id,updated_at&"+ident,{headers:h});
+            const found=g.ok ? await g.json() : [];
+            if(Array.isArray(found) && found.length===1) adopted=found[0];
+          }catch(_){ }
+          break;
+        }
+        if(!cloudLater(r.status)) break;
+      }catch(_){ r=null; }
+      if(attempt<PULL_TRIES-1) await new Promise(x=>setTimeout(x,250*(attempt+1)));
+    }
+    if(!r && !adopted) return say("unreachable");
     /* Marked here, where it is known to have arrived, so every route that
        uploads gets it: a save inside a group, and Save to cloud. */
     /* A DEFINITE NO FROM THE SERVER, which is not a network problem and
@@ -17703,7 +17747,7 @@ async function cloudSyncOne(rec,ctx,why){
        is the request carrying no identity the server accepts, which is a
        thing to fix by signing in - and being sent to a person instead of
        to the sign-in box is a slow way to find that out. */
-    if(!r.ok) return say(r.status===403 ? "notallowed"
+    if(!adopted && !r.ok) return say(r.status===403 ? "notallowed"
       : r.status===401 ? "signedout"
       : cloudLater(r.status) ? "unreachable" : "refused", r.status);
     if(why) why.ok=true;
@@ -17712,10 +17756,11 @@ async function cloudSyncOne(rec,ctx,why){
        status change kept the OLD row's stamp and every upload read as a
        newer row. The insert answers with the row it made. */
     let madeId=null, madeAt=null;
-    if(r.ok){ try{ const made=(await r.json())[0]||{}; madeId=made.id||null; madeAt=made.updated_at||null; }
+    if(adopted){ madeId=adopted.id||null; madeAt=adopted.updated_at||null; }
+    else if(r.ok){ try{ const made=(await r.json())[0]||{}; madeId=made.id||null; madeAt=made.updated_at||null; }
       catch(_){ madeId=null; madeAt=null; } }
     /* Whatever the record was unsent for, it is sent now. */
-    if(r.ok && rec.id){ const up=Object.assign({},rec,
+    if((adopted||r.ok) && rec.id){ const up=Object.assign({},rec,
       {synced:true, rowId:madeId, path:p, rowAt:madeAt}); delete up.unsent;
       try{ await dbPut(up); }catch(_){} }
     return true;
@@ -18666,14 +18711,38 @@ async function groupCatchUp(){
         toast("The group came back empty, so nothing was removed here."
           +" Press Load from cloud if it really is empty.");
       } else {
-        let gone=0;
+        const cand=[];
         for(const it of mine){
-          if(!wsStill(gen)) break;
           if(touchedSince(it.id,seq0)) continue;
           if(onServer.has(shelfCore.recordKey(it))) continue;
+          cand.push(it);
+        }
+        /* A ROW MISSING BESIDE A PICTURE PRESENT IS A SAVE THAT HAS NOT
+           FINISHED, NOT A DELETION. Saving an edit deletes the row and
+           inserts it again; an insert that failed left a teammate's trait
+           rowless, and this deleted it from everybody (measured, 3 became
+           2). Every real removal takes the picture with it. Listed only
+           when there is something to decide; a listing that fails decides
+           nothing, and the question is asked again next open. */
+        let files=null;
+        if(cand.some(it=>it.path)){
+          try{
+            const u=await sbUser(), team=await cloudTeam();
+            const c=u ? await cloudCollection(u) : null;
+            if(team && c){ const b=await bucketPaths(team,c); if(b.ok) files=b.paths; }
+          }catch(_){ files=null; }
+        }
+        let gone=0, kept=0;
+        for(const it of cand){
+          if(!wsStill(gen)) break;
+          if(it.path && (files===null || files.has(it.path))){ kept++; continue; }
           await dbDel(it.id); gone++;
         }
-        if(gone) toast(gone+" removed by someone else");
+        const said=[];
+        if(gone) said.push(gone+" removed by someone else");
+        if(kept) said.push(kept+" kept - missing from the group's list, but "+(kept===1?"its picture is":"their pictures are")
+          +" still there, so a teammate's save may not have finished");
+        if(said.length) toast(said.join("; "));
       }
     }
   }catch(_){}

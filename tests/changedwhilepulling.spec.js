@@ -69,6 +69,10 @@ const run = (page, o) => page.evaluate(async (o) => {
     if (s.indexOf('/rest/v1/teams') >= 0) return json([{ id: 'team7', name: 'Seven', personal: false }]);
     if (s.indexOf('/rest/v1/collections') >= 0) return json([{ id: 'c1', layers: ['skins', 'hats'] }]);
     if (s.indexOf('/storage/v1/object/traits/') >= 0 && m === 'POST') return json({ Key: 'ok' });
+    /* The bucket, listed. A row that is really gone took its picture with it
+       (every removal deletes the files of the rows it removed), and since
+       patch532 the catch-up asks: a listing it cannot read decides nothing. */
+    if (s.indexOf('/storage/v1/object/list/traits') >= 0) return json([]);
     if (s.indexOf('/storage/') >= 0) {
       await delay('storage');
       return new Response(new Blob([new Uint8Array([9, 9, 9])]));

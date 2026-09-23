@@ -18310,14 +18310,16 @@ async function cloudSyncOne(rec,ctx,why){
 
    The image goes too. Leaving it orphans a file in the bucket that nothing
    points at and nobody can find. */
-async function cloudDropOne(rec){
+async function cloudDropOne(rec,ctx){
   /* No group to tell now. An import replacing an old copy calls this, and
      the old row is one this device removed on purpose - remembered for
      Save to cloud. null still: nothing was removed yet. */
   if(!activeWs){ await goneAdd(rec); return null; }
-  const u=await sbUser(); if(!u) return null;
-  const team=await cloudTeam(); if(!team) return null;
-  const c=await cloudCollection(u); if(!c) return null;
+  /* ctx: the user, team and collection the caller already has - see
+     cloudMoveOne. Every other caller passes nothing and asks here. */
+  const u=(ctx&&ctx.u)||await sbUser(); if(!u) return null;
+  const team=(ctx&&ctx.team)||await cloudTeam(); if(!team) return null;
+  const c=(ctx&&ctx.c)||await cloudCollection(u); if(!c) return null;
   try{
     const h=await sbHeaders({"Content-Type":"application/json"});
     if(!h) return null;
@@ -18483,7 +18485,19 @@ async function cloudMoveOne(oldRec,newRec,why){
      A failure now leaves BOTH copies, which is recoverable; the previous order
      left neither, which is not. */
   const fresh=Object.assign({},newRec); delete fresh.rowId;
-  const arrived=await cloudSyncOne(fresh,null,why);
+  /* WHO AND WHERE, ONCE. Both halves asked for themselves: nine requests a
+     press where seven do. Handed over only when the whole question was
+     answered - otherwise the upload asks again and says why it could not. */
+  let ctx=null;
+  {
+    const who=await sbAuthState();
+    if(who.state==="in"){
+      const team=await cloudTeam();
+      const c=team ? await cloudCollection(who.user) : null;
+      if(team&&c) ctx={u:who.user, team:team, c:c};
+    }
+  }
+  const arrived=await cloudSyncOne(fresh,ctx,why);
   if(!arrived){ await markUnsent(newRec); return null; }
   /* Only now, once the new copy has landed. */
   /* READ, NOT DISCARDED. The comment above calls a half-finished move
@@ -18494,7 +18508,7 @@ async function cloudMoveOne(oldRec,newRec,why){
      not be done", which leaves the old copy on the server. false is "it was
      done and matched nothing", which for a move means the old row had
      already gone - no second copy, nothing to say. */
-  const dropped=await cloudDropOne(oldRec);
+  const dropped=await cloudDropOne(oldRec,ctx);
   if(dropped===null&&why) why.oldKept=true;
   return arrived;
 }

@@ -4203,13 +4203,39 @@ function touch(id){
    writes. A tab told so redraws what it is showing. */
 const tabChan=(typeof BroadcastChannel==="function") ? new BroadcastChannel("pixelbench") : null;
 let tabTellTimer=null;
+/* Ids retired since the last message, as {from,to}: the next one carries
+   them, so a tab with one of these open in its editor can follow it. */
+let tabMoves=[];
 function tabsTell(){
   if(!tabChan||tabTellTimer) return;
-  tabTellTimer=setTimeout(()=>{ tabTellTimer=null; try{ tabChan.postMessage({db:wsDbName()}); }catch(_){ } },150);
+  tabTellTimer=setTimeout(()=>{
+    tabTellTimer=null;
+    const moved=tabMoves; tabMoves=[];
+    try{ tabChan.postMessage(moved.length ? {db:wsDbName(), moved:moved} : {db:wsDbName()}); }catch(_){ }
+  },150);
 }
 let tabRedrawTimer=null;
+/* A MOVE ANOTHER TAB MADE, to the trait open in this one's editor. At once,
+   not with the redraw below: a save pressed in the meantime would write
+   the trait back under the id it left. */
+async function editorFollowsElsewhere(moved){
+  if(!openRec||!openRec.id||!Array.isArray(moved)) return false;
+  const next=new Map();
+  for(const m of moved) if(m&&m.from&&m.to&&m.from!==m.to) next.set(String(m.from),String(m.to));
+  const was=openRec, seen=new Set([was.id]);
+  let to=next.get(was.id);
+  if(!to) return false;
+  /* A chain, as draftsFollow walks one: moved twice before the message. */
+  while(next.has(to)&&!seen.has(to)){ seen.add(to); to=next.get(to); }
+  if(!await editorFollows(was,to)) return false;
+  /* This tab's own draft, filed under the old id by an autosave that
+     landed before this message did. */
+  try{ await draftsFollow([{from:was.id, to:to}]); }catch(_){}
+  return true;
+}
 if(tabChan) tabChan.onmessage=(e)=>{
   if(!e||!e.data||e.data.db!==wsDbName()) return;
+  if(e.data.moved) editorFollowsElsewhere(e.data.moved).catch(()=>{});
   if(tabRedrawTimer) return;
   tabRedrawTimer=setTimeout(async()=>{
     tabRedrawTimer=null;
@@ -10705,6 +10731,9 @@ async function draftsFollow(pairs){
     if(to!==from) ends.push({from:from, to:to});
   }
   if(!ends.length) return 0;
+  /* Told to the other tabs, whose editors may hold one of these. */
+  for(const m of ends) tabMoves.push({from:m.from, to:m.to});
+  tabsTell();
   /* The editor too, when the trait it holds is one of these. */
   if(openRec&&openRec.id){
     const end=ends.find(m=>m.from===openRec.id);

@@ -19055,14 +19055,49 @@ async function wsLeave(){
   if(!h) return;
   /* Leaving does not delete the project or its work - the others keep it. Say
      so, because "leave" reads as destructive. */
-  if(!confirm("Leave this group project? Your own page is untouched, and the project stays for everyone else.")) return;
+  /* WHAT THIS DEVICE HOLDS THAT THE GROUP HAS NOT GOT. After leaving, the
+     group's database cannot be opened from any screen, so anything unsent
+     in it is out of reach until a rejoin - and the question used to be one
+     fixed sentence whatever was there (measured: three unsent traits, the
+     same words as with none). */
+  const leaving=activeWs, dbName=wsDbName();
+  let unsent=[], drawings=0;
+  try{
+    const all=await dbAll();
+    unsent=all.filter(i=>(i.kind==="trait"||i.kind==="ref")&&!i.synced).map(i=>i.name);
+    drawings=all.filter(i=>i.kind==="autosave"&&i.traitId).length;
+  }catch(_){ unsent=[]; drawings=0; }
+  const held=[];
+  if(unsent.length) held.push(unsent.length+" change"+(unsent.length===1?"":"s")+" the group has not got ("
+    +unsent.slice(0,3).join(", ")+(unsent.length>3?" and "+(unsent.length-3)+" more":"")+")");
+  if(drawings) held.push(drawings+" unsaved drawing"+(drawings===1?"":"s"));
+  const keeps=held.length>0;
+  if(!confirm(keeps
+    ? "Leave this group project? This device has "+held.join(" and ")+"."
+      +" After leaving you cannot open them unless you rejoin - press Cancel and Save to cloud first,"
+      +" or OK to leave anyway (they stay on this device). The project stays for everyone else."
+    : "Leave this group project? Your own page is untouched, and the project stays for everyone else.")) return;
   try{
     const r=await fetch(SB_URL+"/rest/v1/rpc/leave_team",{method:"POST",headers:h,
       body:JSON.stringify({p_team:activeWs})});
     if(!r.ok){ toast("Could not leave"); return; }
     await wsSwitch(null);
     await wsRender();
-    toast("Left the project");
+    /* NOTHING UNSENT: the group's copy on this device goes - 66 MB a group,
+       measured, kept for good before this. Something unsent: it stays, and
+       this says so, because deleting it would destroy what the question
+       was about. */
+    let freed=false;
+    if(!keeps && leaving && dbName && dbName!==DBN){
+      freed=await new Promise(res=>{
+        try{
+          const q=indexedDB.deleteDatabase(dbName);
+          q.onsuccess=()=>res(true); q.onerror=()=>res(false); q.onblocked=()=>res(false);
+        }catch(_){ res(false); }
+      });
+    }
+    toast(keeps ? "Left the project - what the group has not got is kept on this device"
+      : freed ? "Left the project, and cleared its copy from this device" : "Left the project");
   }catch(_){ toast("Could not reach the server"); }
 }
 

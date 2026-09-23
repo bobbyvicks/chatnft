@@ -11151,6 +11151,8 @@ function buildRules(traits){
       const wider=ruleGroup(g.concat([v]));
       if(RULES.some(q=>ruleId(q)===ruleId(wider))){ toast("That rule already exists"); return; }
       RULES=RULES.map(q=>ruleId(q)===gid?wider:q);
+      /* The new member against each one already there, as answers. */
+      answerPairs(g.map(m=>[m,v]),false);
       try{ await saveRules(); }catch(_){ toast("Could not save the rule"); return; }
       renderShelf();
       toast("Only one of "+wider.join(", ")+" will appear on a character");
@@ -11161,6 +11163,9 @@ function buildRules(traits){
     x.style.marginLeft="auto";
     x.setAttribute("aria-label","Remove the rule keeping "+g.join(", ")+" apart");
     x.onclick=async()=>{
+      /* Taken away as answers too - every pair it forbade across two
+         layers is now allowed - or the next pull puts it back. */
+      answerPairs(pairsIn(g),true);
       RULES=RULES.filter(q=>ruleId(q)!==gid);
       try{ await saveRules(); }catch(_){}
       renderShelf();
@@ -13707,6 +13712,23 @@ function mergeDecisions(a,b){
    one out does allow its other pairings too. Nothing the import makes has
    that shape; a hand-made one can, and this is the honest limit of doing it
    in one operation rather than splitting the group. */
+/* A HAND CHANGE TO THE RULES, AS ANSWERS. Every pair of traits on two
+   different layers, answered ok (allowed) or not. Pairs on one layer need
+   no answer - one layer draws one trait. Recorded as a person's answers,
+   so they merge pair by pair with everybody else's and outrank a file's. */
+function answerPairs(pairs,ok){
+  const layerOf=k=>String(k).slice(0,String(k).indexOf("/"));
+  const now=Date.now(), add=[];
+  for(const [a,b] of pairs) if(a&&b&&a!==b&&layerOf(a)!==layerOf(b))
+    add.push({a:a,b:b,ok:!!ok,at:now,src:"you"});
+  if(add.length) DECISIONS=mergeDecisions(DECISIONS,add);
+  return add.length;
+}
+function pairsIn(g){
+  const out=[];
+  for(let i=0;i<g.length;i++) for(let j=i+1;j<g.length;j++) out.push([g[i],g[j]]);
+  return out;
+}
 function applyDecision(a,b,ok){
   const A=pairOf(a,b)[0], B=pairOf(a,b)[1];
   const holds=g=>g.indexOf(A)>=0&&g.indexOf(B)>=0;
@@ -13722,7 +13744,11 @@ function applyDecision(a,b,ok){
     const layerOf=k=>k.slice(0,k.indexOf("/"));
     const n=k=>g.filter(x=>layerOf(x)===layerOf(k)).length;
     const drop = n(B)>=n(A) ? B : A;
-    return g.filter(x=>x!==drop);
+    const left=g.filter(x=>x!==drop);
+    /* A rule left holding one layer forbids nothing - one layer draws one
+       trait - and a remove replayed on another device would leave exactly
+       that remnant in the list. */
+    return new Set(left.map(layerOf)).size>=2 ? left : [];
   }).filter(g=>g.length>=2);
   return moved;
 }
@@ -13775,6 +13801,17 @@ async function decidePair(a,b,ok){
   applyDecision(a,b,ok);
   await saveRules();
 }
+/* The rules and the answers, written to this browser's store. Lifted out of
+   saveRules so a send that merges the server's answers in can keep them. */
+async function saveRulesHere(){
+  await dbPut({id:RULES_ID, kind:"settings", at:Date.now(),
+    groups:RULES.map(g=>g.slice()), rulesAt:rulesAt,
+    pairs:RULES.reduce((acc,g)=>{
+      for(let i=0;i<g.length;i++) for(let j=i+1;j<g.length;j++) acc.push([g[i],g[j]]);
+      return acc; },[])});
+  await dbPut({id:DECISIONS_ID, kind:"settings", at:Date.now(),
+    decisions:DECISIONS.map(d=>({a:d.a,b:d.b,ok:d.ok,at:d.at,by:d.by||null,src:d.src||"you"}))});
+}
 async function saveRules(){
   /* Stamped here rather than in shareRules, so the copy in this browser and
      the copy on the server carry the SAME number. Every caller of this
@@ -13788,13 +13825,7 @@ async function saveRules(){
      the expansion is the SAME rule rather than an approximation of it: an
      older tab enforces what it cannot display, instead of dropping it.
      Nothing in this file ever reads pairs. */
-  await dbPut({id:RULES_ID, kind:"settings", at:Date.now(),
-    groups:RULES.map(g=>g.slice()), rulesAt:rulesAt,
-    pairs:RULES.reduce((acc,g)=>{
-      for(let i=0;i<g.length;i++) for(let j=i+1;j<g.length;j++) acc.push([g[i],g[j]]);
-      return acc; },[])});
-  await dbPut({id:DECISIONS_ID, kind:"settings", at:Date.now(),
-    decisions:DECISIONS.map(d=>({a:d.a,b:d.b,ok:d.ok,at:d.at,by:d.by||null,src:d.src||"you"}))});
+  await saveRulesHere();
   /* AND THE GROUP. Same shape as saveLayers: sent when it changed, and the
      signature is remembered only when the send actually arrived, so a failed
      one is retried by the next change rather than assumed done. */
@@ -13816,13 +13847,31 @@ async function shareRules(){
     const c=u?await cloudCollection(u):null;
     const h=c?await sbHeaders({"Content-Type":"application/json"}):null;
     if(c&&h){
+      /* READ, MERGE, THEN WRITE. The PATCH below writes the whole list of
+         answers, and it used to write it blind: a teammate whose copy
+         predated your answer sent theirs over yours, and everybody's next
+         load adopted the loss. The server's answers are merged in first
+         and applied here, so a send carries every answer it could see. A
+         read that fails sends nothing - the next change retries. */
+      const g=await fetch(SB_URL+"/rest/v1/collections?select=decisions&id=eq."+c.id,{headers:h});
+      if(!g.ok) throw new Error("read");
+      const got=await g.json();
+      const theirs=(Array.isArray(got)&&got[0]&&Array.isArray(got[0].decisions))?got[0].decisions:[];
+      const before=JSON.stringify(DECISIONS);
+      const merged=mergeDecisions(DECISIONS,theirs);
+      if(JSON.stringify(merged)!==before){
+        DECISIONS=merged;
+        for(const d of DECISIONS) applyDecision(d.a,d.b,d.ok);
+        await saveRulesHere();
+      }
       const r=await fetch(SB_URL+"/rest/v1/collections?id=eq."+c.id,{method:"PATCH",
         headers:h, body:JSON.stringify({rules:RULES, decide_order:DECIDE_ORDER,
           decisions:DECISIONS, empty_chance:emptyChance, rules_at:rulesAt})});
       shared=r.ok;
     }
   }catch(_){ shared=false; }
-  sharedRuleSig = shared ? sig : null;
+  /* Taken again after the merge: what was sent is what is remembered. */
+  sharedRuleSig = shared ? JSON.stringify([RULES,DECIDE_ORDER,DECISIONS,emptyChance]) : null;
   return shared;
 }
 /* Does this trait clash with anything already on the character? */
@@ -24277,6 +24326,9 @@ $('ruleadd').onclick=async()=>{
   const p=ruleGroup([a,b]);
   if(RULES.some(q=>ruleId(q)===ruleId(p))){ toast("Already never together"); return; }
   RULES.push(p);
+  /* AND AS AN ANSWER, or the next pull replaces the rule list and nothing
+     rebuilds this one (measured: gone from both devices and the server). */
+  answerPairs([[a,b]],false);
   /* Returning, not falling through: the failure toast was overwritten by the
      success toast two lines down, so a rule that did not save said it had. */
   try{ await saveRules(); }catch(_){ toast("Could not save the rule"); return; }

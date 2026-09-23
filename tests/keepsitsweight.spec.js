@@ -185,6 +185,13 @@ test('THE RARITY WEIGHT CAN BE TAPPED ON A TOUCH SCREEN', async ({ browser }) =>
     await renderShelf();
     await new Promise(x => setTimeout(x, 600));
     const tile = document.querySelector('#projbody .item');
+    /* ON SCREEN FIRST: elementFromPoint answers nothing for a point outside
+       the viewport. Since patch559 a line above the shelf says when traits
+       are left out for being wip, as these two are, and at 844 px that
+       pushed the first tile below the fold - this read "nothing" with the
+       weight box uncovered. */
+    tile.scrollIntoView({ block: 'center' });
+    await new Promise(x => setTimeout(x, 100));
     const rar = tile.querySelector('.rar');
     const fx = tile.querySelector('.fx');
     const b = rar.getBoundingClientRect();

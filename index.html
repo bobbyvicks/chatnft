@@ -2446,12 +2446,24 @@ footer .mono{color:var(--ink);}
         <label for="shelfpicklayer" class="sr-only">Move the picked traits to</label>
         <select id="shelfpicklayer" aria-label="Move the picked traits to"></select>
         <button class="mini go" id="shelfpickmove" disabled>Move</button>
+        <!-- A status for all of them: an imported collection arrives as wip,
+             and approving it was one chip press a trait. -->
+        <label for="shelfpickstatus" class="sr-only">Set the picked traits to</label>
+        <select id="shelfpickstatus" aria-label="Set the picked traits to">
+          <option value="approved">approved</option><option value="stfp">stfp</option>
+          <option value="wip">wip</option><option value="rejected">rejected</option>
+        </select>
+        <button class="mini go" id="shelfpickstatusgo" disabled>Set status</button>
         <!-- The same traits, the other way out. -->
         <button class="mini" id="shelfpickfix" disabled
           title="Send the picked traits to Fix pixels as one run. They come back to the layers they came from.">Fix pixels</button>
         <button class="mini" id="shelfpicknone" disabled>Clear</button>
       </div>
     </div>
+    <!-- Said once, with the tick, when traits are left out only because
+         they are wip. -->
+    <p class="note" id="wipnote" hidden><span id="wipnotetext"></span>
+      <button class="mini" id="wipnoteinclude">Include wip</button></p>
     <div id="projbody"></div>
   </section>
   <div class="shelfdestinations" id="shelfdestinations" hidden aria-label="Move trait to layer"></div>
@@ -4471,6 +4483,43 @@ async function setTraitStatus(t,next){
   }
   return {ok:true, moved, shared, why};
 }
+/* EVERY PICKED TRAIT TO ONE STATUS. Through setTraitStatus, one at a time,
+   because it is the path the chip and the final page take and it carries
+   the record, the draft, the hidden and picked keys and the group with
+   it; and it refuses what the chip refuses. Drawn once, at the end. */
+async function bulkSetStatus(next){
+  if(!next || STATUS_CYCLE.indexOf(next)<0) return;
+  if(shelfMoveBusy){ toast("Still moving the last batch"); return; }
+  const keys=[...shelfPick];
+  if(!keys.length){ toast("Pick some traits first"); return; }
+  shelfMoveBusy=true;
+  let changed=0, same=0, stale=0, notShared=0;
+  const clash=[];
+  try{
+    let items=[];
+    try{ items=await dbAll(); }catch(_){ toast("Could not read the project"); return; }
+    let done=0;
+    for(const key of keys){
+      const t=items.find(i=>i&&i.kind==="trait"&&shelfCore.recordKey(i)===key);
+      if(!t) continue;
+      const r=await setTraitStatus(t,next);
+      if(r.same) same++;
+      else if(r.clash) clash.push(t.name);
+      else if(r.stale) stale++;
+      else if(r.ok){ changed++; if(activeWs && !r.shared) notShared++; }
+      done++;
+      if(done%10===0){ const c=$("shelfpickcount"); if(c) c.textContent="Setting "+done+" of "+keys.length+"..."; }
+    }
+    await renderShelf();
+    const bits=[changed+" set to "+next];
+    if(same) bits.push(same+" already "+next);
+    if(clash.length) bits.push(clash.length+" left alone - "+next+" copies already exist: "+clash.slice(0,4).join(", ")
+      +(clash.length>4?" and "+(clash.length-4)+" more":""));
+    if(stale) bits.push(stale+" changed in another tab and left alone");
+    if(notShared) bits.push(notShared+" here only - press Save to cloud");
+    toast(bits.join("; "));
+  }finally{ shelfMoveBusy=false; shelfPickPaint(); }
+}
 /* The order the states happen in, and the one place that says so. */
 const STATUS_CYCLE=["wip","approved","stfp","rejected"];
 function nextStatus(st){
@@ -4514,6 +4563,7 @@ function shelfPickPaint(){
   if(bar){
     const c=$("shelfpickcount"); if(c) c.textContent = n ? n+" picked" : "Nothing picked";
     const mv=$("shelfpickmove"); if(mv) mv.disabled=!n;
+    const st=$("shelfpickstatusgo"); if(st) st.disabled=!n;
     const cl=$("shelfpicknone"); if(cl) cl.disabled=!n;
     const fx=$("shelfpickfix"); if(fx) fx.disabled=!n;
   }
@@ -5085,7 +5135,18 @@ async function renderShelf(viewOnly){
   const cardShows=t=>shows(t)&&(!visibility.isHidden(shelfCore.recordKey(t))||visibility.reveal);
   /* Read once rather than per tile, and captured for the deferred pass
      below so it cannot answer with a different checkbox than it asked. */
+  wipRemembered();
   const wipOn=!!($("cwip")&&$("cwip").checked);
+  /* Left out only because they are wip: said once above the shelf. */
+  {
+    const n=wipOn ? 0 : items.filter(t=>t&&t.kind==="trait"&&(t.status||"wip")==="wip").length;
+    const note=$("wipnote");
+    if(note){
+      note.hidden=!n;
+      $("wipnotetext").textContent = n ? n+" trait"+(n===1?" is":"s are")+" wip, and wip is left out of the collection, so "
+        +(n===1?"it":"none of them")+" will be drawn. Include wip, or pick them and Set status to approved. " : "";
+    }
+  }
   /* Tiles whose figure is the weights-alone one until the estimate lands. */
   const pctLater=[];
   /* ONE PAINTER, because the label is written twice now - once while the
@@ -5344,7 +5405,10 @@ async function renderShelf(viewOnly){
              matters: the trait is approved, correctly weighted, and excluded
              by a control somewhere else on the page. */
           pct.title=ch.why;
-          if(ch.why){
+          /* Not when the only reason is the wip rule: that is said once,
+             above the shelf, rather than on every tile of an imported
+             collection. */
+          if(ch.why && !(!wipOn && (t.status||"wip")==="wip")){
             const why=document.createElement("span");
             why.className="whynot"; why.textContent=ch.why;
             el.appendChild(why);
@@ -6195,6 +6259,7 @@ function zip(files){
   return new Blob([...parts,...central,new Uint8Array(end.buffer)],{type:'application/zip'});
 }
 $('shelfpickmove').onclick=()=>bulkMoveToLayer($('shelfpicklayer').value);
+$('shelfpickstatusgo').onclick=()=>bulkSetStatus($('shelfpickstatus').value);
 /* THE PICKED TRAITS, INTO THE FIXER. Read out of the same records the
    shelf rendered, in the order they are on the shelf, so what is sent is
    what is showing. */
@@ -25853,7 +25918,24 @@ $('cgenzip').onclick=async()=>{
   }finally{ btn.disabled=false; btn.textContent=was; }
 };
 $('cclear').onclick=()=>{ $('crows').querySelectorAll('select').forEach(s=>s.value=''); drawCompose(); };
-$('cwip').onchange=()=>{ renderShelf(); };
+/* INCLUDE WIP, REMEMBERED per project on this device. It reset on every
+   load, so a collection worked on as wip had to be re-ticked each visit.
+   Read on the first render of each project; written when it is changed. */
+let wipRememberedFor=null;
+function wipKey(){ return "pb.cwip."+wsDbName(); }
+function wipRemembered(){
+  const box=$("cwip"); if(!box) return;
+  if(wipRememberedFor===wsDbName()) return;
+  wipRememberedFor=wsDbName();
+  let v=null; try{ v=localStorage.getItem(wipKey()); }catch(_){ v=null; }
+  if(v!==null) box.checked = v==="1";
+}
+$('cwip').onchange=()=>{
+  try{ localStorage.setItem(wipKey(), $("cwip").checked?"1":"0"); }catch(_){}
+  wipRememberedFor=wsDbName();
+  renderShelf();
+};
+$('wipnoteinclude').onclick=()=>{ const b=$('cwip'); b.checked=true; b.onchange(); };
 $('cdl').onclick=()=>{
   const cv=$("ccanvas");
   cv.toBlob(b=>{

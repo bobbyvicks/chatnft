@@ -19296,10 +19296,15 @@ async function cloudRows(c,h,select){
     /* The caller says what it needs. The pull wants every column; the stale
        check wants an id and a path and was pulling name, layer, status,
        rarity, shelf_order, w and h to ignore them. */
-    const r=await fetch(SB_URL+"/rest/v1/traits?select="+(select||"*")+"&collection_id=eq."+c.id
-      +"&order=id.asc&limit="+PULL_PAGE+"&offset="+from,{headers:h});
+    /* A DROPPED CONNECTION IS AN ANSWER TOO. Uncaught, it left the pull
+       before anything was said, and nothing catches it further up. */
+    let r=null, batch=null;
+    try{
+      r=await fetch(SB_URL+"/rest/v1/traits?select="+(select||"*")+"&collection_id=eq."+c.id
+        +"&order=id.asc&limit="+PULL_PAGE+"&offset="+from,{headers:h});
+    }catch(_){ return {rows:out, ok:false, truncated:false, unreachable:true}; }
     if(!r.ok) return {rows:out, ok:false, truncated:false};
-    const batch=await r.json();
+    try{ batch=await r.json(); }catch(_){ return {rows:out, ok:false, truncated:false, unreachable:true}; }
     if(!Array.isArray(batch)||!batch.length) break;
     out=out.concat(batch);
     from+=batch.length;
@@ -19331,7 +19336,7 @@ async function cloudPull(opts){
      is newer than what the server is about to say. */
   const seqAt=touchSeq;
   const got=await cloudRows(c,h);
-  if(!got.ok){ toast("Could not read your collection"); return; }
+  if(!got.ok){ toast(got.unreachable ? CLOUD_OFFLINE_TOAST : "Could not read your collection"); return; }
   const rows=got.rows;
   /* The identities the server holds, so the caller can work out what has been
      removed by somebody else since this device last looked. */

@@ -16838,12 +16838,21 @@ async function importProject(file){
   let existing=[];
   try{ existing=await dbAll(); }catch(_){}
   const taken=new Set(existing.map(i=>i.id));
+  const byId=new Map(existing.map(i=>[i.id,i]));
+  /* The same bytes, by SHA-256 - the test bulkImport already uses. A hash
+     that cannot be taken is no match, never a false one. */
+  const sameBytes=async(a,b)=>{
+    try{
+      const x=await sha256Of(await a.arrayBuffer()), y=await sha256Of(await b.arrayBuffer());
+      return !!x && x===y;
+    }catch(_){ return false; }
+  };
   /* A RESTORE, not a merge. Nothing here to lose, so the settings in the
      file are the only ones there are. With traits already present this is
      somebody adding to a project they are working in, and their grid and
      draw order are the ones that count. */
   const wasEmpty=!existing.some(i=>i.kind==="trait");
-  let added=0, renamed=0, failed=0;
+  let added=0, renamed=0, failed=0, already=0;
   for(const it of doc.items){
     if(!it||!it.png||!it.name) { failed++; continue; }
     let blob=null;
@@ -16854,6 +16863,13 @@ async function importProject(file){
     const layer=it.layer||"unsorted", status=it.status||"wip";
     let name=it.name;
     let id=it.kind==="ref" ? "ref_"+name : "t_"+name+"_"+layer+"_"+status;
+    /* ALREADY HERE, NOT A NAMESAKE. An id taken by a record holding the
+       same picture is this trait, from a backup of this collection -
+       renaming it made a byte-identical "-2" copy outside every rule
+       (measured, 310 of them on one restore). Nothing is written. */
+    if(taken.has(id) && byId.has(id) && byId.get(id).blob && await sameBytes(byId.get(id).blob,blob)){
+      already++; continue;
+    }
     let k=2;
     while(taken.has(id)){
       name=it.name+"-"+k;
@@ -16950,6 +16966,7 @@ async function importProject(file){
   await renderShelf();
   const bits=["Imported "+added+" item"+(added===1?"":"s")];
   if(restored.length) bits.push("restored "+restored.join(", "));
+  if(already) bits.push(already+" already here");
   if(renamed) bits.push(renamed+" renamed to avoid replacing something");
   if(newLayers) bits.push(newLayers+" new layer"+(newLayers===1?"":"s"));
   if(failed) bits.push(failed+" could not be read");

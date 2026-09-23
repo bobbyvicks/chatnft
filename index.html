@@ -17552,7 +17552,10 @@ async function importProject(file){
     toast("That project was saved by a newer version of BuildaNFT"); return;
   }
   let existing=[];
-  try{ existing=await dbAll(); }catch(_){}
+  /* Not read is not empty: taken as empty, the file's settings replaced
+     this project's and a trait with the same id was written over. */
+  try{ existing=await dbAll(); }
+  catch(_){ toast("Could not read this project, so nothing was imported - try again"); return; }
   const taken=new Set(existing.map(i=>i.id));
   const byId=new Map(existing.map(i=>[i.id,i]));
   /* The same bytes, by SHA-256 - the test bulkImport already uses. A hash
@@ -17568,7 +17571,7 @@ async function importProject(file){
      somebody adding to a project they are working in, and their grid and
      draw order are the ones that count. */
   const wasEmpty=!existing.some(i=>i.kind==="trait");
-  let added=0, renamed=0, failed=0, already=0;
+  let added=0, renamed=0, failed=0, already=0, full=false;
   for(const it of doc.items){
     if(!it||!it.png||!it.name) { failed++; continue; }
     let blob=null;
@@ -17601,7 +17604,15 @@ async function importProject(file){
     if(rec.kind==="trait"){ rec.layer=layer; rec.status=status;
       if(typeof it.rarity==="number") rec.rarity=it.rarity;
       if(typeof it.shelfOrder==="number") rec.shelfOrder=it.shelfOrder; }
-    try{ await dbPut(rec); added++; }catch(_){ failed++; }
+    /* Full is not unreadable, and the rest would be refused the same way. */
+    try{ await dbPut(rec); added++; }catch(e){ if(storeFull(e)){ full=true; break; } failed++; }
+  }
+  /* The settings are writes too. Left for the import that finishes the job:
+     what landed here is "already here" by its bytes then. */
+  if(full){
+    await renderShelf();
+    toast(STORE_FULL+" - "+added+" of "+doc.items.length+" imported before it filled; free some space and import the file again");
+    return;
   }
   /* THE SETTINGS. Rules and answers MERGE, always: the importer already
      refuses to let a file cost somebody their traits, and their rules and

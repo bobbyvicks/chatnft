@@ -22162,11 +22162,21 @@ function fixWorker(){
     "  try{",
     "    const r=PF.process(m.data,m.width,m.height,{mode:m.mode,forceStep:m.forceStep,",
     "      onProgress:function(f,l){ postMessage({progress:f,label:l}); }});",
-    "    postMessage({done:{cols:r.cols,rows:r.rows,stepX:r.stepX,stepY:r.stepY,consensus:r.consensus,",
+    /* The palette step, in the worker rather than on the page - see
+       patch567. m.palette is the page's palette, or null when it is off. */
+    "    let pal=null;",
+    "    if(m.palette){ paletteRGB=function(){ return m.palette; }; pal=snapToPalette(r.data,r.width*r.height); }",
+    "    postMessage({done:{cols:r.cols,rows:r.rows,stepX:r.stepX,stepY:r.stepY,consensus:r.consensus,pal:pal,",
     "      confidence:r.confidence,width:r.width,height:r.height,data:r.data}},[r.data.buffer]);",
     "  }catch(e){ postMessage({error:String(e&&e.message||e)}); }",
     "};"].join("\n");
-  const url=URL.createObjectURL(new Blob([el.textContent,"\n",glue],{type:"text/javascript"}));
+  /* THE PAGE'S OWN PALETTE STEP, carried as its text, so the worker runs
+     exactly what the page would. paletteRGB is the one thing it reads
+     from the page's state; the message carries its answer. */
+  const snap=["let paletteRGB=function(){ return []; };",
+    "const SNAP_GROUP_DE="+SNAP_GROUP_DE+";",
+    labOf.toString(), deltaE2000.toString(), snapToPalette.toString()].join("\n");
+  const url=URL.createObjectURL(new Blob([el.textContent,"\n",snap,"\n",glue],{type:"text/javascript"}));
   const w=new Worker(url); w._url=url; return w;
 }
 /* PNG BYTES, READ AND WRITTEN WITHOUT THE BROWSER'S CANVAS.
@@ -22584,7 +22594,8 @@ let fixPalWorst=0, fixPalMerged=0, fixPalWorstFile="";
 function fixPalWanted(){ const b=$("fixpal"); return !!(b&&b.checked); }
 function fixPalApply(out,rel){
   if(!out||!out.data||!fixPalWanted()) return null;
-  const r=snapToPalette(out.data,out.width*out.height);
+  /* Worked out in the worker, beside the engine, when it was asked there. */
+  const r=(out.pal!==undefined && out.pal!==null) ? out.pal : snapToPalette(out.data,out.width*out.height);
   if(r.colours){
     fixPalMoved+=r.colours; fixPalPixels+=r.pixels; fixPalFiles++;
     if(r.worst>fixPalWorst){ fixPalWorst=r.worst; fixPalWorstFile=String(rel||""); }
@@ -23634,7 +23645,8 @@ function fixRun(){
        Transferring the original would leave FIX.src holding a detached
        buffer of length zero. */
     const copy=new Uint8ClampedArray(src.data);
-    w.postMessage({data:copy, width:src.width, height:src.height, mode, forceStep:forced>0?forced:null},[copy.buffer]);
+    w.postMessage({data:copy, width:src.width, height:src.height, mode, forceStep:forced>0?forced:null,
+      palette:fixPalWanted()?paletteRGB():null},[copy.buffer]);
   });
 }
 /* READY, OR THE REASON IT IS NOT, as a clause. Both the engine path and
@@ -23868,6 +23880,7 @@ async function fixBatchRun(files){
     /* The same bytes, untouched, when there is nothing to ask. */
     const r=scale ? {ok:{data:px, width:sw, height:sh, stepX:1, stepY:1}}
       : await fixAsk(w,{data:new Uint8ClampedArray(px), width:sw, height:sh,
+        palette:fixPalWanted()?paletteRGB():null,
         mode:mode, forceStep:(()=>{ const s=fixStepFor(sw,px,sh);
           if(fixGridlessPick){ fixGridlessAt.push(fixGridlessPick);
             if(!fixGridlessPassed){ fixGridlessFellAt.push(fixGridlessPick); fixGridlessFellKept=Math.min(fixGridlessFellKept,fixGridlessKept); } }

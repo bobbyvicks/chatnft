@@ -13459,6 +13459,11 @@ function cPools(){
    That is a fact about this draw, not about the set - another draw of the same
    set usually has no such problem - so this reports it rather than deciding
    what to do about it. */
+/* Characters with no trait on them - a base alone, or nothing. Counted by
+   kind, not length: with no base in the project, one item is one trait. */
+function bareCount(combos){
+  return (combos||[]).filter(c=>!(c||[]).some(x=>x&&x.kind==="trait")).length;
+}
 function buildCombo(pools){
   const out=[]; let violated=false;
   /* The keys of what is on the character, kept beside it. Filtering a layer
@@ -13806,7 +13811,7 @@ async function drawSheet(count){
      full-size characters, and the reason is written down there. */
   await paintCombos(cv,combos,W,H,SHEET_CELL);
   sheetMode=true;
-  const empties=combos.filter(c=>c.length<=1).length;
+  const empties=bareCount(combos);
   /* drawSheet computes the same max W,H that drawCompose does and drew every
      piece stretched to it without ever saying so - the one-character preview
      warned about mixed sizes and the twelve-character sheet did not, though it
@@ -26297,7 +26302,10 @@ $('cgenzip').onclick=async()=>{
     $("cnote").textContent="Built "+r.made+" different character"+(r.made===1?"":"s")
     $("cnote").textContent="Built "+r.made+" different character"+(r.made===1?"":"s")
       +" from the final project, with metadata"+(partsMade>1 ? ", in "+partsMade+" zip files so no more than one is held at a time" : "")
-      +"."+short+missed+sizeLine(r.sizes)
+      +"."+short+missed
+      /* The sheet has always said this; the set that ships did not. */
+      +(bareCount(r.combos) ? " "+bareCount(r.combos)+" of them came out with no trait on them, only the base." : "")
+      +sizeLine(r.sizes)
       +driftLine(shareDrift(r.combos,r.pool,false),r.made);
     toast("Downloaded "+r.made+" character"+(r.made===1?"":"s"));
   }catch(e){

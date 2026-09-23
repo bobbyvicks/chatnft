@@ -5046,6 +5046,38 @@ let shelfItems=null;
 /* The touch sequence when the shelf last read the store: every write moves
    it, so equal means nothing has been written since the shelf was drawn. */
 let shelfReadSeq=-1;
+/* PRESSES ON THE SHELF, by pointer, and who is waiting for them to end.
+   A rebuild between a tile's press and its release lost the tap: the
+   click belongs to the element the press started on, and that element
+   was gone. Window and capture, so a handler that stops the press at the
+   tile - the drag handle does - cannot hide it from this. */
+const shelfPresses=new Set();
+let shelfPressWaiters=[];
+let SHELF_PRESS_MAX_MS=10000;
+function shelfPressEnded(){
+  shelfPresses.clear();
+  const w=shelfPressWaiters; shelfPressWaiters=[];
+  /* A task later: the release's click is dispatched in this one, and it
+     has to find the tile it was pressed on. */
+  if(w.length) setTimeout(()=>{ for(const f of w) f(); },0);
+}
+function shelfPressOver(){
+  return new Promise(res=>{
+    shelfPressWaiters.push(res);
+    /* A release this page never hears must not hold the shelf. */
+    setTimeout(()=>{ if(shelfPressWaiters.indexOf(res)>=0) shelfPressEnded(); },SHELF_PRESS_MAX_MS);
+  });
+}
+window.addEventListener("pointerdown",ev=>{
+  const b=$("projbody");
+  if(b&&ev.target instanceof Node&&b.contains(ev.target)) shelfPresses.add(ev.pointerId);
+},true);
+for(const type of ["pointerup","pointercancel"])
+  window.addEventListener(type,ev=>{
+    if(!shelfPresses.delete(ev.pointerId)||shelfPresses.size) return;
+    shelfPressEnded();
+  },true);
+window.addEventListener("blur",()=>{ if(shelfPresses.size) shelfPressEnded(); });
 /* For the ends of the pull and the catch-up, which used to render
    whatever happened - three renders on a quiet group open. */
 async function renderShelfIfStale(){
@@ -5238,6 +5270,9 @@ async function renderShelf(viewOnly){
       if(LAYERS.indexOf(keep)>=0) sel.value=keep;
     }
   }
+  /* Not while a tile is pressed: the tap would be lost with the tile. Only
+     then, so a render with nothing pressed builds in the task that asked. */
+  if(shelfPresses.size) await shelfPressOver();
   const body=$('projbody'); body.innerHTML='';
   /* With the DOM the old observer was watching. See shelfWatchReset. */
   shelfWatchReset();

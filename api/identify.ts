@@ -22,28 +22,68 @@ import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 /* THE SAME FOURTEEN AS index.html's DEFAULT_LAYERS, and it has to be: this is
    a z.enum, so a name missing here is a layer the model can never answer,
    and a retired name present here is a layer the save path would adopt
-   back. patch516. */
+   back. patch516.
+
+   Now only the fallback. A project's layers are editable - renamed, added,
+   removed, adopted from a group - and a fixed list meant a project that had
+   renamed hats to headwear could only ever be told "hats", which the page
+   could not select, so the trait saved as unsorted under a toast saying it
+   had been found. The page sends its live list and the enum is built from
+   it per request (patch554). */
 const LAYERS = [
   "backgrounds", "skins", "mouth", "eyes", "clothing", "chains", "hair",
   "glasses", "hats", "ears", "costumes", "masks", "extras", "unsorted",
 ] as const;
 
-const Identified = z.object({
-  name: z.string().describe("short kebab-case name, e.g. cross-chain or neet-bucket-hat"),
-  layer: z.enum(LAYERS).describe("which layer this belongs on"),
-  description: z.string().describe("one short sentence describing it"),
-  confidence: z.enum(["high", "medium", "low"]),
-});
+/* The page's list, checked: strings of 1-40 characters, at most 64 of them,
+   no repeats. Anything else and the fixed fourteen are used - a malformed
+   list is a page bug, not a reason to refuse a paid call. */
+function layersFrom(v: unknown): [string, ...string[]] {
+  if (!Array.isArray(v)) return [...LAYERS];
+  const out: string[] = [];
+  for (const s of v) {
+    if (typeof s !== "string") return [...LAYERS];
+    const t = s.trim();
+    if (!t || t.length > 40) return [...LAYERS];
+    if (!out.includes(t)) out.push(t);
+  }
+  if (!out.length || out.length > 64) return [...LAYERS];
+  return out as [string, ...string[]];
+}
 
-const Located = Identified.extend({
-  box: z.object({
-    x0: z.number().describe("left edge, 0-1 of image width"),
-    y0: z.number().describe("top edge, 0-1 of image height"),
-    x1: z.number().describe("right edge, 0-1 of image width"),
-    y1: z.number().describe("bottom edge, 0-1 of image height"),
-  }).describe("tight box around the added item only, not the character"),
-  reliable: z.boolean().describe("false if the item is hard to separate from the character"),
-});
+function shapes(layers: [string, ...string[]]) {
+  const Identified = z.object({
+    name: z.string().describe("short kebab-case name, e.g. cross-chain or neet-bucket-hat"),
+    layer: z.enum(layers).describe("which layer this belongs on"),
+    description: z.string().describe("one short sentence describing it"),
+    confidence: z.enum(["high", "medium", "low"]),
+  });
+  const Located = Identified.extend({
+    box: z.object({
+      x0: z.number().describe("left edge, 0-1 of image width"),
+      y0: z.number().describe("top edge, 0-1 of image height"),
+      x1: z.number().describe("right edge, 0-1 of image width"),
+      y1: z.number().describe("bottom edge, 0-1 of image height"),
+    }).describe("tight box around the added item only, not the character"),
+    reliable: z.boolean().describe("false if the item is hard to separate from the character"),
+  });
+  return { Identified, Located };
+}
+
+/* DEADLINES. Nothing bounded this call: the sign-in check and the model
+   request could each wait until the platform killed the function, and the
+   page sat on "Looking..." for all of it (measured past 45 s). The page
+   gives up at 60 s; everything here finishes inside that. One attempt at
+   the model, because a retry after 45 s would outlive the page's wait - an
+   overloaded answer says "try again shortly" instead. */
+const AUTH_DEADLINE_MS = 5_000;
+const MODEL_DEADLINE_MS = 45_000;
+
+/* max_tokens bounds thinking AND the answer together on this model. At 2,000
+   a long think was cut off and came back as "No structured answer" or, cut
+   mid-answer, as "Could not reach Claude" - paid for and unreadable. The
+   answer is a few dozen tokens; this is room to think. */
+const MAX_TOKENS = 16_000;
 
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 
@@ -91,6 +131,7 @@ async function callerId(req: any): Promise<string | null> {
   try {
     const r = await fetch(SB_URL + "/auth/v1/user", {
       headers: { apikey: SB_KEY, Authorization: "Bearer " + m[1] },
+      signal: AbortSignal.timeout(AUTH_DEADLINE_MS),
     });
     if (!r.ok) return null;
     const j: any = await r.json();
@@ -147,7 +188,9 @@ export default async function handler(req: any, res: any) {
       return;
     }
 
-    const client = new Anthropic();
+    const client = new Anthropic({ timeout: MODEL_DEADLINE_MS, maxRetries: 0 });
+    const { Identified, Located } = shapes(layersFrom(body?.layers));
+    const format = zodOutputFormat(mode === "locate" ? Located : Identified);
     const img = { type: "image" as const, source: { type: "base64" as const, media_type: "image/png" as const, data: image } };
 
     const prompt = mode === "locate"
@@ -160,22 +203,31 @@ The box must not include the character's head, torso or arms except where the it
 
 Name it and choose the layer it belongs on.`;
 
-    const response = await client.messages.parse({
+    /* create, and parsed here, rather than parse: parse throws on an answer
+       cut off mid-JSON before stop_reason can be read, and that throw landed
+       in the catch below as "Could not reach Claude". */
+    const response = await client.messages.create({
       model: "claude-opus-5",
-      max_tokens: 2000,
+      max_tokens: MAX_TOKENS,
       thinking: { type: "adaptive" },
       system:
         "You label pixel-art traits for an NFT collection. Names are short and kebab-case. " +
         "Be literal about what is drawn; do not invent detail you cannot see.",
       messages: [{ role: "user", content: [img, { type: "text", text: prompt }] }],
-      output_config: { format: zodOutputFormat(mode === "locate" ? Located : Identified) },
+      output_config: { format },
     });
 
     if (response.stop_reason === "refusal") {
       res.status(422).json({ error: "refused", message: "Claude declined to describe this image." });
       return;
     }
-    const parsed = response.parsed_output;
+    if (response.stop_reason === "max_tokens") {
+      res.status(502).json({ error: "cut_off", message: "Claude's answer was cut off before it finished - try again." });
+      return;
+    }
+    const text = response.content.find((b: any) => b.type === "text") as any;
+    let parsed: any = null;
+    try { parsed = text ? format.parse(text.text) : null; } catch { parsed = null; }
     if (!parsed) {
       res.status(502).json({ error: "unparsed", message: "No structured answer came back." });
       return;
@@ -198,6 +250,11 @@ Name it and choose the layer it belongs on.`;
        the account", which are completely different problems for whoever runs
        this. Collapsing them cost real debugging time, so credit is called out
        by name. The upstream text is matched, not echoed. */
+    /* The model deadline above, said as what it is. */
+    if (err instanceof Anthropic.APIConnectionTimeoutError) {
+      res.status(504).json({ error: "timeout", message: "Claude did not answer in time - try again." });
+      return;
+    }
     const upstream = String(err?.error?.error?.message ?? err?.message ?? "");
     if (/credit balance is too low|billing/i.test(upstream)) {
       res.status(402).json({

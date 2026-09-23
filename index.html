@@ -24020,7 +24020,18 @@ function fixOpen(){
    on a 1024, so five hundred is minutes rather than seconds. The number is
    here so that a pile past it is SAID rather than quietly shortened. */
 const FIX_BATCH_MAX=500;
-let fixBatchFiles=null, fixBatchStop=false, fixBatchWorker=null;
+let fixBatchFiles=null, fixBatchStop=false, fixBatchWorker=null, fixBatchWorkers=[];
+/* HOW MANY ENGINES a folder runs on: one fewer than the cores, so the page
+   keeps one, at most three, one on a device that says it has under 4 GB
+   - each engine holds its own copy of the image it is on - and never
+   more than there are files. A let, so a test can set it. */
+let FIX_ENGINES_MAX=3;
+function fixEnginesFor(files){
+  const cores=(navigator.hardwareConcurrency|0)||2;
+  const mem=navigator.deviceMemory;
+  if(typeof mem==="number" && mem<4) return 1;
+  return Math.max(1, Math.min(FIX_ENGINES_MAX, cores-1, files|0));
+}
 /* One question to a worker that stays alive, so a batch parses the engine
    once instead of five hundred times. The single-image path keeps building
    its own, because there Stop has to terminate rather than ask. */
@@ -24087,120 +24098,147 @@ async function fixBatchRun(files){
      over the cell count, so a batch of mixed sizes has a different step
      for each one and still lands them all on the same grid. */
   const t0=performance.now();
-  for(let i=0;i<list.length;i++){
+  /* SEVERAL ENGINES, ONE ORDER. Prepare runs ahead for as many files as
+     there are engines, each on its own engine with one image in flight;
+     finish takes the answers back in folder order, so every total, list
+     and tile is in the order it was with one. PF.process resets its
+     generator per image, so the answers are the same too. */
+  const pool=[w];
+  if(!scale){ const n=fixEnginesFor(list.length);
+    for(let k=1;k<n;k++){ try{ pool.push(fixWorker()); }catch(_){ break; } } }
+  fixBatchWorkers=pool.filter(Boolean);
+  const prepare=async(i,wk)=>{
+      const file=list[i];
+      const name=String(file.name||("image"+(i+1))).replace(/\.[^.]+$/,"");
+      const rel=String(file.webkitRelativePath||file.name||("image"+(i+1)));
+      fixBatchSay((i+1)+" of "+list.length+" \u00b7 "+name);
+      fixProgress(i/list.length,"image "+(i+1)+" of "+list.length);
+      const dec=await fixDecodeFile(file);
+      if(!dec){ failed.push(name+" (not an image this browser can read)"); return null; }
+      if(dec.how==="browser"&&pngIs(new Uint8Array(await file.slice(0,33).arrayBuffer()))) fixBrowserRead.push(name+" ("+dec.why+")");
+      const W=dec.width, H=dec.height;
+      /* Kept on the input so the report can count what the snap could not
+         be used on - by then the bitmap is closed and W is out of scope. */
+      try{ file.__w=W; }catch(_){ }
+      /* PAST THE PAGE OWN CEILING, or too small for any grid to be found in
+         - those are refusals. Between that and the engine limit the picture
+         is reduced by a whole factor below, not turned away. */
+      if(Math.min(W,H)<FIX_MIN_SIDE||W>MAX_SIDE||H>MAX_SIDE){
+        failed.push(name+" ("+W+"\u00d7"+H+", outside what this can take)");
+        return null;
+      }
+      /* One canvas, reused, and the bitmap closed the moment its pixels are
+         out - the same rule the shelf and the sweeps follow. */
+      /* sw and sh, not w and h - w is the WORKER in this scope and fixAsk       takes it as its first argument. */
+      let px=dec.data, sw=W, sh=H;
+      /* Over the engine limit: reduced by a whole factor first, or refused
+         with the number and what to do about it. */
+      const small=fixShrinkToFit(px,W,H);
+      if(small){ px=small.data; sw=small.width; sh=small.height;
+        shrunk.push(name+" ("+W+"\u00d7"+H+" reduced "+small.factor+"\u00d7"+" to fit)"); }
+      else if(W*H>FIX_MAX_PIXELS){
+        failed.push(name+" ("+W+"\u00d7"+H+", and no whole factor brings it under "
+          +(FIX_MAX_PIXELS/1e6)+" megapixels - resize it to "+CANVAS_SIDE+" first)");
+        return null;
+      }
+      /* TRANSLUCENT PIXELS, COUNTED PER PICTURE for the note. */
+      { const tl=fixTranslucent(px,sw*sh); if(tl.count){ fixAlphaFiles++; fixAlphaPixels+=tl.count; } }
+      /* The same bytes, untouched, when there is nothing to ask. */
+      const pending=scale ? Promise.resolve({ok:{data:px, width:sw, height:sh, stepX:1, stepY:1}})
+        : fixAsk(wk,{data:new Uint8ClampedArray(px), width:sw, height:sh,
+          palette:fixPalWanted()?paletteRGB():null,
+          mode:mode, forceStep:(()=>{ const s=fixStepFor(sw,px,sh);
+            if(fixGridlessPick){ fixGridlessAt.push(fixGridlessPick);
+              if(!fixGridlessPassed){ fixGridlessFellAt.push(fixGridlessPick); fixGridlessFellKept=Math.min(fixGridlessFellKept,fixGridlessKept); } }
+            if(fixMeasuredBlock>1&&fixNativeNoisy>0) fixNoisyFiles++;
+            /* THE DECISION, RECORDED PER FILE. Only the cell count survives
+               the loop, and a count cannot say why; and one variable for
+               "the move" was every moved file overwriting the last. */
+            if(fixMoved){ fixMovedCount++; fixMovedLast=fixMoved; }
+            if(fixUnhonoured) fixUnhonouredAt.push(fixUnhonoured);
+            if(fixMeasuredBlock===1) fixNativeKept++;
+            else if(fixMeasuredBlock>1&&(sw<fixGridCells().cells||sh<fixGridCells().cells)) fixOwnBlocks++;
+            if(fixBlockUnfit) fixUnfitAt.push(fixBlockUnfit.block);
+            if(fixBlockRecut) fixRecutAt.push(fixBlockRecut.canvasBlock);
+            if(fixTypedRecut){ fixTypedRecutAt.push(fixTypedRecut.block);
+              if(fixTypedRecut.strokes) fixTypedStrokesAt.push({name:name, strokes:fixTypedRecut.strokes}); }
+            return s>0?s:null; })()});
+    return {name:name, rel:rel, px:px, sw:sw, sh:sh, pending:pending};
+  };
+  const finish=async(job)=>{
+    const name=job.name, rel=job.rel, px=job.px, sw=job.sw, sh=job.sh;
+    const r=await job.pending;
+      if(!r||r.error){ failed.push(name+" ("+((r&&r.error)||"no answer")+")"); return; }
+      const out=r.ok;
+      /* MARKS SMALLER THAN A CELL THAT THIS RESULT DROPPED, counted here
+         because this is the one moment the source and the result are both
+         in hand. */
+      { const mk=fixSmallMarks(px,sw,sh);
+        const dr=mk.count?fixMarksDropped(mk,out,sw,sh):0;
+        if(dr){ fixMarksDroppedTotal+=dr; fixMarksDroppedFiles++; } }
+      /* Before the canvas is made from it, so the file and the tile agree. */
+      fixPalApply(out,rel);
+      /* READY FOR THE COLLECTION, counted here: after the palette, which is
+         what decides the colour question, and before the canvas, which
+         cannot change any of the four facts. */
+      { const gt=fixGateOf(out);
+        if(gt.ready) fixGateReady++;
+        else for(const w of gt.why) fixGateWhy.set(w.kind,(fixGateWhy.get(w.kind)||0)+1);
+        /* AND THE COLOUR COUNT, WHICH THE GATE DOES NOT JUDGE. Counted here
+           because `rel` is in scope and the layer is the only thing that gives
+           the guideline a number - a file in a folder this project has no
+           layer for has none, and then there is nothing to count. */
+        const bd=ruleColourBudget(fixLayerOf(rel));
+        if(bd&&gt.colours>bd){ fixGatePast++;
+          if(gt.colours>fixGatePastMost) fixGatePastMost=gt.colours; } }
+      /* The same canvas the single save uses, so the switch means one thing. */
+      const oc=fixGridCanvas(out);
+      const blob=scale ? null : await new Promise(res=>oc.toBlob(res,"image/png"));
+      /* THE TILE, TAKEN HERE because oc is about to be released and this is
+         the only moment the picture exists as a canvas. A 1280 result is
+         6.5 MB decoded and five hundred of them is the shelf crash again,
+         so what the grid keeps is 160x160 - fitSize at the shelf cap, whole
+         divisor where there is one, so it stays true pixel art. */
+      const t=fitSize(oc.width,oc.height,SHELF_THUMB);
+      const tc=document.createElement("canvas"); tc.width=t.w; tc.height=t.h;
+      const tg=tc.getContext("2d"); tg.imageSmoothingEnabled=false;
+      tg.drawImage(oc,0,0,t.w,t.h);
+      const tb=await new Promise(res=>tc.toBlob(res,"image/png"));
+      tc.width=1; tc.height=1;
+      /* Kept as bytes rather than as a canvas: five hundred canvases would be
+         five hundred backing stores, and the bytes are what the zip wants. */
+      /* TWO NAMES ON PURPOSE. `name` is what the zip calls it, folders and
+         all, and `rel` is the path it arrived on - which is what the project
+         reads the category and the trait name out of. See patch402. */
+      fixBatchFiles.push({name:fixZipName(rel,name),
+        rel:rel,
+        /* The count the engine landed on, kept so the run can say whether it
+           divides the canvas. w and h are the SAVED size and cannot answer
+           that: 1280 is 1280 whether its pixels are eight across or one. */
+        cells:out.width,
+        data:scale ? await fixScaledBytes(out) : new Uint8Array(await blob.arrayBuffer()),
+        thumb:URL.createObjectURL(tb), tw:t.w, th:t.h,
+        w:oc.width, h:oc.height});
+      oc.width=1; oc.height=1;
+      fixTile(fixBatchFiles[fixBatchFiles.length-1]);
+      /* The thumbnail BYTES, not the URL the grid made for them - that one
+         is revoked when the next run clears the grid. */
+      fixRecentAdd(fixBatchFiles[fixBatchFiles.length-1],tb);
+  };
+  const ahead=[]; let next=0;
+  for(;;){
+    while(ahead.length<pool.length && next<list.length && !fixBatchStop){
+      const i=next++; ahead.push(await prepare(i,pool[i%pool.length]));
+    }
+    if(!ahead.length) break;
+    const job=ahead.shift();
+    if(job) await finish(job);
+    /* "Stopping after this one": that one is kept, the ones sent ahead
+       are dropped with their engines below. */
     if(fixBatchStop) break;
-    const file=list[i];
-    const name=String(file.name||("image"+(i+1))).replace(/\.[^.]+$/,"");
-    const rel=String(file.webkitRelativePath||file.name||("image"+(i+1)));
-    fixBatchSay((i+1)+" of "+list.length+" \u00b7 "+name);
-    fixProgress(i/list.length,"image "+(i+1)+" of "+list.length);
-    const dec=await fixDecodeFile(file);
-    if(!dec){ failed.push(name+" (not an image this browser can read)"); continue; }
-    if(dec.how==="browser"&&pngIs(new Uint8Array(await file.slice(0,33).arrayBuffer()))) fixBrowserRead.push(name+" ("+dec.why+")");
-    const W=dec.width, H=dec.height;
-    /* Kept on the input so the report can count what the snap could not
-       be used on - by then the bitmap is closed and W is out of scope. */
-    try{ file.__w=W; }catch(_){ }
-    /* PAST THE PAGE OWN CEILING, or too small for any grid to be found in
-       - those are refusals. Between that and the engine limit the picture
-       is reduced by a whole factor below, not turned away. */
-    if(Math.min(W,H)<FIX_MIN_SIDE||W>MAX_SIDE||H>MAX_SIDE){
-      failed.push(name+" ("+W+"\u00d7"+H+", outside what this can take)");
-      continue;
-    }
-    /* One canvas, reused, and the bitmap closed the moment its pixels are
-       out - the same rule the shelf and the sweeps follow. */
-    /* sw and sh, not w and h - w is the WORKER in this scope and fixAsk       takes it as its first argument. */
-    let px=dec.data, sw=W, sh=H;
-    /* Over the engine limit: reduced by a whole factor first, or refused
-       with the number and what to do about it. */
-    const small=fixShrinkToFit(px,W,H);
-    if(small){ px=small.data; sw=small.width; sh=small.height;
-      shrunk.push(name+" ("+W+"\u00d7"+H+" reduced "+small.factor+"\u00d7"+" to fit)"); }
-    else if(W*H>FIX_MAX_PIXELS){
-      failed.push(name+" ("+W+"\u00d7"+H+", and no whole factor brings it under "
-        +(FIX_MAX_PIXELS/1e6)+" megapixels - resize it to "+CANVAS_SIDE+" first)");
-      continue;
-    }
-    /* TRANSLUCENT PIXELS, COUNTED PER PICTURE for the note. */
-    { const tl=fixTranslucent(px,sw*sh); if(tl.count){ fixAlphaFiles++; fixAlphaPixels+=tl.count; } }
-    /* The same bytes, untouched, when there is nothing to ask. */
-    const r=scale ? {ok:{data:px, width:sw, height:sh, stepX:1, stepY:1}}
-      : await fixAsk(w,{data:new Uint8ClampedArray(px), width:sw, height:sh,
-        palette:fixPalWanted()?paletteRGB():null,
-        mode:mode, forceStep:(()=>{ const s=fixStepFor(sw,px,sh);
-          if(fixGridlessPick){ fixGridlessAt.push(fixGridlessPick);
-            if(!fixGridlessPassed){ fixGridlessFellAt.push(fixGridlessPick); fixGridlessFellKept=Math.min(fixGridlessFellKept,fixGridlessKept); } }
-          if(fixMeasuredBlock>1&&fixNativeNoisy>0) fixNoisyFiles++;
-          /* THE DECISION, RECORDED PER FILE. Only the cell count survives
-             the loop, and a count cannot say why; and one variable for
-             "the move" was every moved file overwriting the last. */
-          if(fixMoved){ fixMovedCount++; fixMovedLast=fixMoved; }
-          if(fixUnhonoured) fixUnhonouredAt.push(fixUnhonoured);
-          if(fixMeasuredBlock===1) fixNativeKept++;
-          else if(fixMeasuredBlock>1&&(sw<fixGridCells().cells||sh<fixGridCells().cells)) fixOwnBlocks++;
-          if(fixBlockUnfit) fixUnfitAt.push(fixBlockUnfit.block);
-          if(fixBlockRecut) fixRecutAt.push(fixBlockRecut.canvasBlock);
-          if(fixTypedRecut){ fixTypedRecutAt.push(fixTypedRecut.block);
-            if(fixTypedRecut.strokes) fixTypedStrokesAt.push({name:name, strokes:fixTypedRecut.strokes}); }
-          return s>0?s:null; })()});
-    if(!r||r.error){ failed.push(name+" ("+((r&&r.error)||"no answer")+")"); continue; }
-    const out=r.ok;
-    /* MARKS SMALLER THAN A CELL THAT THIS RESULT DROPPED, counted here
-       because this is the one moment the source and the result are both
-       in hand. */
-    { const mk=fixSmallMarks(px,sw,sh);
-      const dr=mk.count?fixMarksDropped(mk,out,sw,sh):0;
-      if(dr){ fixMarksDroppedTotal+=dr; fixMarksDroppedFiles++; } }
-    /* Before the canvas is made from it, so the file and the tile agree. */
-    fixPalApply(out,rel);
-    /* READY FOR THE COLLECTION, counted here: after the palette, which is
-       what decides the colour question, and before the canvas, which
-       cannot change any of the four facts. */
-    { const gt=fixGateOf(out);
-      if(gt.ready) fixGateReady++;
-      else for(const w of gt.why) fixGateWhy.set(w.kind,(fixGateWhy.get(w.kind)||0)+1);
-      /* AND THE COLOUR COUNT, WHICH THE GATE DOES NOT JUDGE. Counted here
-         because `rel` is in scope and the layer is the only thing that gives
-         the guideline a number - a file in a folder this project has no
-         layer for has none, and then there is nothing to count. */
-      const bd=ruleColourBudget(fixLayerOf(rel));
-      if(bd&&gt.colours>bd){ fixGatePast++;
-        if(gt.colours>fixGatePastMost) fixGatePastMost=gt.colours; } }
-    /* The same canvas the single save uses, so the switch means one thing. */
-    const oc=fixGridCanvas(out);
-    const blob=scale ? null : await new Promise(res=>oc.toBlob(res,"image/png"));
-    /* THE TILE, TAKEN HERE because oc is about to be released and this is
-       the only moment the picture exists as a canvas. A 1280 result is
-       6.5 MB decoded and five hundred of them is the shelf crash again,
-       so what the grid keeps is 160x160 - fitSize at the shelf cap, whole
-       divisor where there is one, so it stays true pixel art. */
-    const t=fitSize(oc.width,oc.height,SHELF_THUMB);
-    const tc=document.createElement("canvas"); tc.width=t.w; tc.height=t.h;
-    const tg=tc.getContext("2d"); tg.imageSmoothingEnabled=false;
-    tg.drawImage(oc,0,0,t.w,t.h);
-    const tb=await new Promise(res=>tc.toBlob(res,"image/png"));
-    tc.width=1; tc.height=1;
-    /* Kept as bytes rather than as a canvas: five hundred canvases would be
-       five hundred backing stores, and the bytes are what the zip wants. */
-    /* TWO NAMES ON PURPOSE. `name` is what the zip calls it, folders and
-       all, and `rel` is the path it arrived on - which is what the project
-       reads the category and the trait name out of. See patch402. */
-    fixBatchFiles.push({name:fixZipName(rel,name),
-      rel:rel,
-      /* The count the engine landed on, kept so the run can say whether it
-         divides the canvas. w and h are the SAVED size and cannot answer
-         that: 1280 is 1280 whether its pixels are eight across or one. */
-      cells:out.width,
-      data:scale ? await fixScaledBytes(out) : new Uint8Array(await blob.arrayBuffer()),
-      thumb:URL.createObjectURL(tb), tw:t.w, th:t.h,
-      w:oc.width, h:oc.height});
-    oc.width=1; oc.height=1;
-    fixTile(fixBatchFiles[fixBatchFiles.length-1]);
-    /* The thumbnail BYTES, not the URL the grid made for them - that one
-       is revoked when the next run clears the grid. */
-    fixRecentAdd(fixBatchFiles[fixBatchFiles.length-1],tb);
   }
+  for(const x of pool.slice(1)){ try{ x.terminate(); }catch(_){} try{ URL.revokeObjectURL(x._url); }catch(_){} }
+  fixBatchWorkers=[];
   /* Guarded together: scale mode never built one, and reaching into
      w._url on null threw into a catch that hid it. */
   if(w){ try{ w.terminate(); }catch(_){} try{ URL.revokeObjectURL(w._url); }catch(_){} }

@@ -5773,7 +5773,19 @@ function saveSizeNote(){
     : "Writes "+W+"\u00d7"+H+", the trait "+tw+"\u00d7"+th
       +" where it sits on the base"+movedNote+floorNote;
 }
-async function saveTrait(){
+/* ONE SAVE AT A TIME. A second press while one runs gets its answer: two
+   at once meant the second found the first's renamed record in its
+   name-clash check and said "There is already" about the person's own
+   trait. Every caller - Save, Save and close, the review queue - comes
+   through here. */
+let saveFlight=null;
+function saveTrait(){
+  if(saveFlight) return saveFlight;
+  const b=$("saveproj"); if(b) b.disabled=true;
+  saveFlight=saveTraitNow().finally(()=>{ saveFlight=null; if(b) b.disabled=false; });
+  return saveFlight;
+}
+async function saveTraitNow(){
   if(!ctx) return;
   const name=($('tname').value.trim()||fileName.replace(/\.png$/,'')||'trait').slice(0,60);
   const layer=$('tlayer').value||'unsorted';

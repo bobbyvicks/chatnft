@@ -16081,7 +16081,11 @@ async function cloudRarity(rec){
    patched by id - what cloudRarity does live in a group - and the record
    is marked synced on the row that answered. false when no row answered:
    the row is gone, and the caller uploads as it would have. */
-async function cloudPatchOne(rec,ctx){
+/* seq: the touch sequence when rec was read. A record written after it is
+   not overwritten with this copy. Defaults to now, for callers that read
+   it a moment ago. */
+async function cloudPatchOne(rec,ctx,seq){
+  const readAt=(typeof seq==="number")?seq:touchSeq;
   if(!rec||!rec.rowId) return false;
   try{
     const h=(ctx&&ctx.h)||await sbHeaders({"Content-Type":"application/json"});
@@ -16093,6 +16097,9 @@ async function cloudPatchOne(rec,ctx){
     if(!r.ok) return false;
     let rows=[]; try{ rows=await r.json(); }catch(_){ rows=[]; }
     if(!Array.isArray(rows)||rows.length!==1) return false;
+    /* Edited while this was in flight: the edit is newer than what was
+       sent, stays unsent, and the next push sends it. */
+    if(rec.id && touchedSince(rec.id,readAt)) return true;
     const up=Object.assign({},rec,{synced:true, rowAt:rows[0].updated_at||rec.rowAt||null}); delete up.unsent;
     try{ await dbPut(up); }catch(_){}
     return true;
@@ -18385,7 +18392,9 @@ function cloudWhyNot(why){
     return "the collection on the server could not be opened.";
   return "could not reach the group. Press Save to cloud when you are back.";
 }
-async function cloudSyncOne(rec,ctx,why){
+async function cloudSyncOne(rec,ctx,why,seq){
+  /* The touch sequence when rec was read - see cloudPatchOne. */
+  const readAt=(typeof seq==="number")?seq:touchSeq;
   /* No guard here: the caller decides. saveTrait only calls this inside a
      group, and cloudPush calls it for everything on either kind of page. */
   /* WHY IT DID NOT ARRIVE, for the caller that has to say something.
@@ -18560,7 +18569,17 @@ async function cloudSyncOne(rec,ctx,why){
     else if(r.ok){ try{ const made=(await r.json())[0]||{}; madeId=made.id||null; madeAt=made.updated_at||null; }
       catch(_){ madeId=null; madeAt=null; } }
     /* Whatever the record was unsent for, it is sent now. */
-    if((adopted||r.ok) && rec.id){ const up=Object.assign({},rec,
+    /* EDITED WHILE THIS WAS IN FLIGHT, and what was sent is the copy from
+       before. Writing that back marked synced took the edit away. The
+       row just made is noted, so the next push replaces it rather than
+       colliding with it on the unique index, and the record stays unsent
+       - without the path, which would tell unsentOf the picture is on
+       the server when the one there is the old one. */
+    if((adopted||r.ok) && rec.id && touchedSince(rec.id,readAt)){
+      let cur=null; try{ cur=await dbGet(rec.id); }catch(_){ cur=null; }
+      if(cur && !cur.synced){ try{ await dbPut(Object.assign({},cur,{rowId:madeId, rowAt:madeAt})); }catch(_){} }
+    }
+    else if((adopted||r.ok) && rec.id){ const up=Object.assign({},rec,
       {synced:true, rowId:madeId, path:p, rowAt:madeAt}); delete up.unsent;
       try{ await dbPut(up); }catch(_){} }
     return true;
@@ -18855,6 +18874,9 @@ async function cloudPush(){
   const team=await cloudTeam();
   if(!team){ toast("Could not open your team"); return; }
   let items=[];
+  /* Taken before the read: anything written after it is read again before
+     it is sent. */
+  const readSeq=touchSeq;
   try{ items=(await dbAll()).filter(i=>i.kind==="trait"||i.kind==="ref"); }catch(_){}
   if(!items.length){ toast("Nothing saved to upload"); return; }
   pushRunning=true; pushStopAsked=false;
@@ -18886,6 +18908,8 @@ async function cloudPush(){
      has destroyed the server copy and not yet rebuilt it. Stale rows are
      removed at the end now, by comparison, once their replacements exist. */
   let saved=0, failed=0, done=0, patched=0, streak=0, broke=false;
+  /* Removed, or moved to another id, after the read and before its turn. */
+  let changed=0;
   /* The last picture that landed, and the one question in flight. */
   let goodPath=null, asking=null;
   const reasons={};
@@ -18933,13 +18957,27 @@ async function cloudPush(){
        picture after them would find the same, three attempts and a backoff
        each (measured: 933 attempts and 42 s to learn that 311 failed). */
     while(next<fresh.length && !broke && !pushStopAsked){
-      const job=fresh[next++], it=job.it;
+      const job=fresh[next++];
+      let it=job.it, light=job.light, seq=readSeq;
+      /* WRITTEN SINCE THE READ - an edit saved, a weight changed, while
+         the run was on earlier items. The copy in hand is older than the
+         store, and sending it sent the old picture and then wrote it back
+         over the edit. The current copy goes instead. */
+      if(touchedSince(it.id,readSeq)){
+        seq=touchSeq;
+        let cur=null; try{ cur=await dbGet(it.id); }catch(_){ cur=null; }
+        const p=cur&&cloudPath(team,c,cur);
+        if(!cur) changed++;
+        else if(cur.synced && cur.rowId && cur.path===p){ unchangedSkipped++; rows.push({path:p}); }
+        else { it=cur; light=!cur.synced && cur.unsent==="meta" && !!cur.rowId && cur.path===p && cur.kind==="trait"; }
+        if(it!==cur){ done++; if(done%10===0||done===fresh.length) say(); continue; }
+      }
       /* The patch first for a light one; a row that is gone falls through
          to the upload it would have had. */
       let okd=false;
       const why={};
-      if(job.light && await cloudPatchOne(it,ctx)){ okd=true; patched++; }
-      else if(await cloudSyncOne(it,ctx,why)){ okd=true; saved++; }
+      if(light && await cloudPatchOne(it,ctx,seq)){ okd=true; patched++; }
+      else if(await cloudSyncOne(it,ctx,why,seq)){ okd=true; saved++; }
       if(okd){ rows.push({path:cloudPath(team,c,it)}); streak=0; goodPath=cloudPath(team,c,it); }
       else {
         failed++;
@@ -18976,7 +19014,8 @@ async function cloudPush(){
      rows still name after the uploads, for the sweep below. */
   let stale=0, notHere=0, serverPaths=null;
   /* Not after a run that stopped early either: what is left is unknown. */
-  if(!activeWs && !failed && !notTried){
+  /* Nor after one that something changed under. */
+  if(!activeWs && !failed && !notTried && !changed){
     try{
       const here=new Set(items.map(i=>cloudPath(team,c,i)));
       const live=new Set(items.map(i=>i.rowId).filter(Boolean));
@@ -19031,7 +19070,7 @@ async function cloudPush(){
     /* Every picture a server row still names is kept, as well as this
        device's own; keeping only this device's list is what took the 311
        pictures. No reliable read of the rows, no sweep. */
-    if(!activeWs && !failed && serverPaths) swept=await cloudSweep(team,c,[...new Set(rows.map(r=>r.path).concat(serverPaths))]);
+    if(!activeWs && !failed && !changed && serverPaths) swept=await cloudSweep(team,c,[...new Set(rows.map(r=>r.path).concat(serverPaths))]);
   }catch(_){ }
   try{
     h=(await sbHeaders({"Content-Type":"application/json"}))||h;
@@ -19050,6 +19089,7 @@ async function cloudPush(){
   if(patched) bits.push(patched+" updated without re-uploading the picture");
   if(failed) bits.push(failed+" failed - "+pushWhy(reasons));
   if(notTried) bits.push(notTried+" not tried - "+(broke ? "the server stopped answering, so the rest wait for the next press" : "stopped"));
+  if(changed) bits.push(changed+" moved or removed while this ran - Save to cloud again to send "+(changed===1?"it":"them"));
   if(stale) bits.push("removed "+stale+" you deleted here");
   /* Kept, and said, so the person knows the server holds more than this
      device and which button brings it here. */

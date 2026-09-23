@@ -18851,7 +18851,19 @@ async function wsList(){
    Failures are swallowed on purpose: this runs at boot, and a group that
    cannot be reached must leave somebody with their own work on screen
    rather than an error where the shelf should be. */
+/* ONE AT A TIME, per project. Entering a group from your own page started
+   two - cloudRender's, unawaited, and wsSwitch's own - and both downloaded
+   every picture (measured: 622 requests for 311, 132 MB for 66). A call
+   while one runs for the same project joins it. */
+let catchUpFlight=null, catchUpFlightGen=-1;
 async function groupCatchUp(){
+  if(catchUpFlight && catchUpFlightGen===wsGen) return catchUpFlight;
+  catchUpFlightGen=wsGen;
+  const p=groupCatchUpRun();
+  catchUpFlight=p;
+  try{ return await p; } finally{ if(catchUpFlight===p) catchUpFlight=null; }
+}
+async function groupCatchUpRun(){
   /* Same reason as the pull: this deletes local records, and it runs on
      every page load and every switch. Deleting them out of the project the
      person moved to would be the worst version of this. */

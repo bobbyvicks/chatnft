@@ -4864,9 +4864,10 @@ async function duplicateTrait(t){
 const article=(w)=>("aeiou".indexOf(String(w).charAt(0).toLowerCase())>=0?"an ":"a ")+w;
 async function idHolder(id,exceptId){
   if(!id||id===exceptId) return null;
-  let all=[];
-  try{ all=await dbAll(); }catch(_){ return null; }
-  const hit=all.find(r=>r.id===id);
+  /* The one record, by its key - this read every record in the project
+     to find it. */
+  let hit=null;
+  try{ hit=await dbGet(id); }catch(_){ return null; }
   return hit && hit.id!==exceptId ? hit : null;
 }
 /* WHAT A SHELF TILE IS ACTUALLY SHOWN AT, which until now was "whatever the
@@ -24600,6 +24601,15 @@ function finalTile(t,label,note,press){
 
    OUT GOES TO approved, not wip: it passed review, it is just not in the
    final cut. */
+/* THE SHELF BEHIND THE FINAL PAGE. Drawn now only if the final page is
+   not what is showing; otherwise showPage draws it on the way to another
+   page, if the store has moved since it last read it. Redrawing a page
+   nobody is looking at was a 162 ms task at phone speed after each add. */
+function shelfBehind(){
+  const land=$("land");
+  if(land && land.getAttribute("data-page")==="final") return;
+  renderShelf();
+}
 async function finalMove(t,next){
   const r=await setTraitStatus(t,next);
   if(r.clash){
@@ -24607,10 +24617,10 @@ async function finalMove(t,next){
       +" - rename one of them first");
     return;
   }
-  if(r.stale){ toast(t.name+" changed in another tab - the page has been redrawn"); await renderFinal(); renderShelf(); return; }
+  if(r.stale){ toast(t.name+" changed in another tab - the page has been redrawn"); await renderFinal(); shelfBehind(); return; }
   if(!r.ok) return;
   await renderFinal();
-  renderShelf();
+  shelfBehind();
   /* Said the same way the shelf says it, because it is the same event. */
   const what=t.name+(next==="stfp"?" is in the final project":" is out of the final project");
   /* r.same, because setTraitStatus returns early with shared:null when the
@@ -24862,6 +24872,7 @@ function showPage(p,push){
      top of it. On the first render the attribute is unset, so this never
      blocks the one call that has to happen. */
   if(land.getAttribute("data-page")===want) return;
+  const leaving=land.getAttribute("data-page");
   land.setAttribute("data-page",want);
   for(const b of document.querySelectorAll(".pgtab")){
     /* Project stays lit while you are in its settings. You have not left the
@@ -24887,6 +24898,8 @@ function showPage(p,push){
      second pass over every trait, and the page it is on is the only one
      that shows it. */
   if(want==="final") renderFinal();
+  /* Leaving the final page: the shelf it did not redraw, if anything moved. */
+  else if(leaving==="final") renderShelfIfStale();
 }
 (function(){
   const run=async(fn)=>{

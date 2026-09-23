@@ -11201,14 +11201,27 @@ function buildRules(traits){
     const first=document.createElement("option");
     first.value=""; first.textContent="add a trait";
     add.appendChild(first);
-    for(const k of keys){
-      if(g.indexOf(k)>=0) continue;
-      const o=document.createElement("option");
-      o.value=k; o.textContent=k;
-      add.appendChild(o);
-    }
+    /* FILLED WHEN REACHED FOR. Every row used to carry every trait it did
+       not hold - rules times traits options, 105,182 of them at 349 rules,
+       92% of the page, rebuilt in 270-430 ms on edits nobody was looking
+       at. Filled once, from the same list, the first time a person goes
+       to use it. */
+    const addable=keys.filter(k=>g.indexOf(k)<0).length;
+    let filled=false;
+    const fill=()=>{
+      if(filled) return; filled=true;
+      const frag=document.createDocumentFragment();
+      for(const k of keys){
+        if(g.indexOf(k)>=0) continue;
+        const o=document.createElement("option");
+        o.value=k; o.textContent=k;
+        frag.appendChild(o);
+      }
+      add.appendChild(frag);
+    };
+    for(const ev of ["mousedown","pointerdown","focus","keydown"]) add.addEventListener(ev,fill);
     /* Nothing left to offer means nothing to click. */
-    add.disabled = add.options.length<2;
+    add.disabled = addable<1;
     add.onchange=async()=>{
       const v=add.value;
       if(!v) return;

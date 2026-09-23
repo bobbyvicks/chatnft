@@ -45,6 +45,9 @@ const addRule = (page, a, b) => page.evaluate(async ([x, y]) => {
 /* Widens the first rule through its own row's picker. */
 const widen = (page, key) => page.evaluate(async (k) => {
   const sel = $('rulelist').querySelector('select');
+  /* Reached for first, as a person does: since patch547 the picker fills
+     when it is pressed, not when the list is drawn. */
+  sel.dispatchEvent(new Event('mousedown'));
   sel.value = k;
   return sel.onchange();
 }, key);

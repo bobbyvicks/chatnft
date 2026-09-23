@@ -144,7 +144,8 @@ test.describe('a rule made by hand is an answer, and merges like one', () => {
     await arm(page, { localRules: [[CAP, VEIL]], localDecisions: [FILE_NO],
       serverRules: [[CAP, VEIL]], serverDecisions: [FILE_NO], failPatch: 1 });
     await page.evaluate(async (k) => {
-      const sel = $('rulelist').querySelector('select'); sel.value = k; await sel.onchange();
+      /* Reached for first, as a person does (patch547 fills it on press). */
+      const sel = $('rulelist').querySelector('select'); sel.dispatchEvent(new Event('mousedown')); sel.value = k; await sel.onchange();
     }, WINK);
     await openAgain(page);
     const s = await state(page);

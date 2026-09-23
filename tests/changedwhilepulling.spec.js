@@ -85,6 +85,13 @@ const run = (page, o) => page.evaluate(async (o) => {
       const batch = rows.slice(off, off + lim);
       return json(batch, { 'Content-Range': off + '-' + (off + Math.max(0, batch.length - 1)) + '/' + rows.length });
     }
+    /* A weight PATCH names a row that exists here, so it answers with it -
+       an empty answer means the row is gone, which since patch548 is read
+       as not delivered. */
+    if (s.indexOf('/rest/v1/traits') >= 0 && m === 'PATCH') {
+      const id = decodeURIComponent((s.match(/id=eq\.([^&]+)/) || [])[1] || '');
+      return json(rows.some(r => r.id === id) ? [{ id }] : []);
+    }
     if (s.indexOf('/rest/v1/traits') >= 0 && m === 'DELETE') return json([{ id: 'row-1', path: 'x' }]);
     if (s.indexOf('/rest/v1/traits') >= 0 && m === 'POST') return json([{ id: 'row-2', updated_at: '2026-03-03T00:00:00Z' }]);
     return json([]);

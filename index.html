@@ -15565,11 +15565,16 @@ function planRows(items,layer,wip){
 async function cloudRarity(rec){
   if(!activeWs || !rec || !rec.rowId) return "nogroup";
   try{
-    const h=await sbHeaders({"Content-Type":"application/json"});
+    /* return=representation, so a PATCH that matched no row - the row is
+       gone - is not read as sent. It answers 200 with nothing in it. */
+    const h=await sbHeaders({"Content-Type":"application/json",Prefer:"return=representation"});
     if(!h) return "unreachable";
     const r=await fetch(SB_URL+"/rest/v1/traits?id=eq."+encodeURIComponent(rec.rowId),
       {method:"PATCH", headers:h, body:JSON.stringify({rarity:rec.rarity})});
-    if(r&&r.ok) return "ok";
+    if(r&&r.ok){
+      let rows=null; try{ rows=await r.json(); }catch(_){ rows=null; }
+      return (Array.isArray(rows)&&rows.length===0) ? "unreachable" : "ok";
+    }
     /* THE RANGE IS THE DATABASE'S, AND IT CAN DISAGREE WITH THIS PAGE.
        Widening the column and shipping the page are two steps, so there is a
        window where a weight this app allows is one the store refuses - and
@@ -15645,6 +15650,46 @@ async function setRarity(rec,w){
      synced is already false on it. "refused" stays as it is. */
   if((sent==="unreachable"||sent==="nogroup") && next.rowId && next.synced) await dbPut({...next, synced:false, unsent:"meta"});
   return true;
+}
+/* THE SAME WEIGHT FOR MANY TRAITS, as one store write and, in a group, one
+   PATCH per hundred rows. setRarity one at a time took 5.2 s for the 47
+   backgrounds and 29 s for "Set the rest to normal" over 264, one request
+   in flight (measured at 100 ms round trips). The outcomes mean what
+   setRarity's do. Returns how many changed. */
+const RARITY_BATCH=100;
+async function setRarityMany(recs,w){
+  const v = Math.round(w)===RAR_UNSET ? RAR_UNSET
+    : Math.max(RAR_MIN,Math.min(RAR_MAX,Math.round(w)||RAR_NORMAL));
+  const changed=(recs||[]).filter(r=>r && (typeof r.rarity==="number" ? r.rarity : RAR_UNSET)!==v)
+    .map(r=>Object.assign({},r,{rarity:v}));
+  if(!changed.length) return 0;
+  await dbApplyShelfRecords([],changed);
+  const behind=[];
+  const onServer=changed.filter(r=>r.rowId);
+  if(!activeWs){ for(const r of onServer) if(r.synced) behind.push(r); }
+  else {
+    let refused=false;
+    for(let i=0;i<onServer.length;i+=RARITY_BATCH){
+      const part=onServer.slice(i,i+RARITY_BATCH);
+      let got=null, status=0, body="";
+      try{
+        const h=await sbHeaders({"Content-Type":"application/json",Prefer:"return=representation"});
+        if(h){
+          const r=await fetch(SB_URL+"/rest/v1/traits?id=in.("+part.map(x=>encodeURIComponent(x.rowId)).join(",")+")",
+            {method:"PATCH", headers:h, body:JSON.stringify({rarity:v})});
+          status=r.status;
+          if(r.ok){ try{ got=await r.json(); }catch(_){ got=[]; } }
+          else { try{ body=await r.text(); }catch(_){ } }
+        }
+      }catch(_){ got=null; }
+      if(status===400 && /rarity/i.test(body)){ refused=true; continue; }
+      const answered=new Set((Array.isArray(got)?got:[]).map(x=>x&&x.id));
+      for(const r of part) if(!answered.has(r.rowId) && r.synced) behind.push(r);
+    }
+    if(refused) toast("The group will not take a rarity of "+v+" - its limit is lower than this page allows. Saved here only.");
+  }
+  if(behind.length) await dbApplyShelfRecords([],behind.map(r=>Object.assign({},r,{synced:false, unsent:"meta"})));
+  return changed.length;
 }
 
 /* How long ago, in words somebody reads rather than a timestamp.
@@ -16236,8 +16281,8 @@ function planGroup(g,items,wip){
         const O=othersOf(t.id);
         const nw=weightForShare(multOfPos(+sl.value,n)/n, O);
         let also=0;
-        for(const r of g.rows)
-          if(r.id!==t.id && !rarityPlanned(r) && await setRarity(r,RAR_NORMAL)) also++;
+        /* The rest of the set at normal, as one write and one request. */
+        also=await setRarityMany(g.rows.filter(r=>r.id!==t.id && !rarityPlanned(r)),RAR_NORMAL);
         await setRarity(t,nw);
         await afterRarity();
         if(also) toast("Planned the other "+also+" in "+g.layer+" at normal,"
@@ -16303,7 +16348,8 @@ async function seedRarity(list){
   const want=(list||[]).filter(t=>!rarityPlanned(t));
   if(!want.length) return 0;
   let done=0;
-  for(const t of want){ if(await setRarity(t,RAR_NORMAL)) done++; }
+  /* One write and one request for the lot. */
+  done=await setRarityMany(want,RAR_NORMAL);
   await afterRarity();
   toast("Set "+done+" trait"+(done===1?"":"s")+" to normal."
     +" Nothing about the collection changed.");

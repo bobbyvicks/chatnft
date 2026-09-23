@@ -4314,7 +4314,11 @@ async function commitShelfMove(spec){
     .filter(Boolean);
   const state=currentShelfVisibility();
   try{
-    await dbApplyShelfRecords(plan.updates.map(update=>update.oldId),plan.updates.map(update=>update.record));
+    /* ON YOUR OWN PAGE, WRITTEN ALREADY MARKED. They were marked one read
+       and one write at a time after the redraw, holding the lock: 78 round
+       trips for 39 hats, with every drag refused meanwhile. */
+    await dbApplyShelfRecords(plan.updates.map(update=>update.oldId),
+      plan.updates.map(update=>activeWs?update.record:unsentOf(update.record)));
   }catch(_){ toast('Could not save the new order'); return false; }
   for(const update of plan.updates) state.transfer(update.oldKey,shelfCore.recordKey(update.record));
   /* The selection survives a drag too: a cross-layer move rewrites the local
@@ -4323,7 +4327,7 @@ async function commitShelfMove(spec){
   /* A cross-layer drag rewrites the local id, so the draft moves with it. */
   try{ await draftsFollow(plan.updates.map(u=>({from:u.oldId, to:u.record.id}))); }catch(_){}
   await renderShelf();
-  const shared=await cloudSaveShelfPlan(plan.updates);
+  const shared=await cloudSaveShelfPlan(plan.updates,true);
   if(!shared.ok){
     try{
       await dbApplyShelfRecords(plan.updates.map(update=>update.record.id),originals);
@@ -4736,7 +4740,10 @@ function endShelfDrag(cancelled){
   if(!cancelled&&drag.target) commitShelfMove(drag.target).catch(()=>{ shelfMoveBusy=false; });
 }
 function startShelfDrag(event,record,card,handle){
-  if(shelfMoveBusy||event.button>0) return;
+  if(event.button>0) return;
+  /* Said, as the keyboard and the final page say it. A drag refused with
+     nothing on screen reads as a handle that is broken. */
+  if(shelfMoveBusy){ toast("Still moving the last one"); return; }
   event.preventDefault(); event.stopPropagation();
   const key=shelfCore.recordKey(record), destinations=$('shelfdestinations');
   destinations.innerHTML='<span>Drop in layer</span>';
@@ -18435,10 +18442,12 @@ async function dbDelShared(rec){
    stored path with it, because that path describes the server's old
    object. The pull then leaves it alone (patch522) and Save to cloud
    sends it. Nothing to do for a record that never claimed. */
-async function markUnsent(rec){
-  if(!rec||!rec.id) return;
-  let stored=null; try{ stored=await dbGet(rec.id); }catch(_){ stored=null; }
-  if(!stored || !(stored.synced||stored.path)) return;
+/* What a record looks like once it is marked as not yet sent: the rule
+   markUnsent applies, without the store round trip, so a caller holding
+   fresh records can write them marked in its own transaction. A record
+   that was never on the server comes back as it was. */
+function unsentOf(stored){
+  if(!stored || !(stored.synced||stored.path)) return stored;
   const honest=Object.assign({},stored,{synced:false});
   /* THE PATH STAYS WHEN IT STILL DESCRIBES THE RECORD - a reweight or a
      reorder leaves name, layer and status alone, and the picture is still
@@ -18452,7 +18461,13 @@ async function markUnsent(rec){
      because an older pull put paths on unsent records too. */
   if(stored.path && String(stored.path).slice(-cloudTail(stored).length)===cloudTail(stored)) honest.unsent="meta";
   else { delete honest.path; delete honest.unsent; }
-  try{ await dbPut(honest); }catch(_){}
+  return honest;
+}
+async function markUnsent(rec){
+  if(!rec||!rec.id) return;
+  let stored=null; try{ stored=await dbGet(rec.id); }catch(_){ stored=null; }
+  if(!stored || !(stored.synced||stored.path)) return;
+  try{ await dbPut(unsentOf(stored)); }catch(_){}
 }
 async function cloudMoveOne(oldRec,newRec,why){
   /* No group means nothing was sent, and on a personal page the record
@@ -18514,8 +18529,12 @@ async function cloudSendShelfPlan(updates){
    2026-09-22). Marked unsent then, and on a failed send. commitShelfMove
    rolls its records back to the originals on failure, which overwrites
    the mark with the truth; bulkMoveToLayer keeps them, marked. */
-async function cloudSaveShelfPlan(updates){
+/* marked: the caller wrote these records already marked unsent (a drop on
+   your own page does, in the same transaction), so nothing is left to do
+   here unless a group refused them. */
+async function cloudSaveShelfPlan(updates,marked){
   const r=await cloudSendShelfPlan(updates);
+  if(marked && !activeWs) return r;
   if(!activeWs || !(r&&r.ok)) for(const u of (updates||[])) await markUnsent(u&&u.record);
   return r;
 }

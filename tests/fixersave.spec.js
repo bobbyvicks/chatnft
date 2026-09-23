@@ -185,9 +185,12 @@ test('the save goes through the import rather than writing its own record', asyn
   await ready(page);
   /* ONE WRITER. bulkImport decides what a trait's layer is - adopting a
      folder the project has never seen, carrying a status folder, numbering
-     unnamed files, spotting one that moved. A save that built its own record
-     would be a second answer to all of that, and the two would drift. */
+     unnamed files. A save that built its own record would be a second
+     answer to all of that, and the two would drift.
+     In place since patch571: spotting a file that moved is a folder's
+     rule, and it deleted a same-named trait of another status on a fixer
+     save - see fixsavekeepsothers.spec.js. */
   const src = await page.evaluate(() => String(fixSaveFiles));
-  expect(src).toContain('bulkImport(files)');
+  expect(src).toContain('bulkImport(files,{inPlace:true})');
   expect(src).not.toMatch(/dbPut|readPath|shelfOrder/);
 });

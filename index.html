@@ -11845,7 +11845,12 @@ async function carryDecided(from,toId){
   try{ await dbPut(rec); }catch(_){ return false; }
   return true;
 }
-async function bulkImport(files){
+/* opts.inPlace: a save from Fix pixels, which writes the files it is given
+   and nothing else - no moved-file deletion, no same-picture merge, no
+   report of what the "folder" did not bring. Those three read a folder as
+   the whole truth about the layers it touches, and a fixer save is not one. */
+async function bulkImport(files,opts){
+  const inPlace=!!(opts&&opts.inPlace);
   const note=$("bulknote");
   const all=[...files];
   const pngs=all.filter(f=>/\.png$/i.test(f.name));
@@ -12186,7 +12191,7 @@ async function bulkImport(files){
      batch means someone keeps two files and both stay. A different layer is
      a different trait - the live collection repeats names across layers. A
      layer this import never touched is never reached into. */
-  if(supplied.length){
+  if(supplied.length && !inPlace){
     let existing=[]; try{ existing=await dbAll(); }catch(_){ existing=[]; }
     const here=new Set(supplied.map(s=>s.id));
     for(const rec of existing){
@@ -12241,7 +12246,7 @@ async function bulkImport(files){
      The server copy goes too, or the next pull brings the old name back. */
   const mergedAway=[];
   const mergedIds=new Set();
-  if(supplied.length){
+  if(supplied.length && !inPlace){
     let existing=[]; try{ existing=await dbAll(); }catch(_){ existing=[]; }
     const here=new Set(supplied.map(s=>s.id));
     /* NEW NAMES ONLY. Importing a subset of a folder supplies files that
@@ -12250,8 +12255,13 @@ async function bulkImport(files){
        merged by it, it is simply not in this import. That case belongs to
        the absent-check below, which names it and leaves it alone. */
     const incoming=existing.filter(r=>r.kind==="trait"&&freshIds.has(r.id));
+    /* Hashed only in a layer a new name landed in: a trait in any other
+       cannot match, and with no new name there is no such layer. Every
+       trait was read and hashed first, on every import. */
+    const intoLayers=new Set(incoming.map(t=>t.layer||"unsorted"));
     for(const rec of existing){
       if(rec.kind!=="trait"||here.has(rec.id)||movedIds.has(rec.id)) continue;
+      if(!intoLayers.has(rec.layer||"unsorted")) continue;
       const s=await recSig(rec);
       if(!s) continue;   /* no hash means no match, never a false one */
       let onto=null;
@@ -12284,7 +12294,7 @@ async function bulkImport(files){
      Only layers this import supplied, on the same reasoning: a layer the folder
      never mentioned is not evidence of anything. */
   const absent=[];
-  if(supplied.length){
+  if(supplied.length && !inPlace){
     const touched=new Set(supplied.map(s=>s.layer));
     const here=new Set(supplied.map(s=>s.id));
     for(const rec of beforeTraits){
@@ -24266,7 +24276,9 @@ async function fixSaveFiles(files,say){
   if(typeof mayUse==="function"&&!mayUse()) return 0;
   say("Saving "+files.length+" to the project…");
   let r=null;
-  try{ r=await bulkImport(files); }
+  /* In place: see bulkImport. A fixed trait replaces itself and nothing
+     else - it had deleted a same-named trait of another status. */
+  try{ r=await bulkImport(files,{inPlace:true}); }
   catch(e){ say("Could not save: "+((e&&e.message)||e)); return 0; }
   /* WHAT WAS WRITTEN, not what was handed over. bulkImport drops a file on
      four paths without throwing - a bitmap that will not decode, one past

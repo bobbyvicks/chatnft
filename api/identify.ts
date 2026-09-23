@@ -7,13 +7,15 @@
  * be in the bundle to be used. So the key lives in a Vercel environment
  * variable and only this function sees it.
  *
- * Two modes:
- *   identify - given a trait already cut out on transparency, name it and pick
- *              a layer, so saving to the project is one click.
- *   locate   - given a whole character with no reference to diff against, find
- *              what was added and return where it sits. This is a best guess
- *              from vision, not a measurement: with a reference, differencing
- *              is exact and should always be preferred.
+ * One mode, locate: given a whole character with no reference to diff
+ * against, find what was added and return where it sits. This is a best
+ * guess from vision, not a measurement: with a reference, differencing is
+ * exact and should always be preferred.
+ *
+ * There was a second, identify - name a trait already cut out and pick its
+ * layer. The page stopped calling it when the Ask Claude button went
+ * (d76de2b), and it stayed answerable to any signed-in caller, spending
+ * credit for nothing the page uses. A request for it is refused now.
  */
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
@@ -51,14 +53,12 @@ function layersFrom(v: unknown): [string, ...string[]] {
   return out as [string, ...string[]];
 }
 
-function shapes(layers: [string, ...string[]]) {
-  const Identified = z.object({
+function located(layers: [string, ...string[]]) {
+  return z.object({
     name: z.string().describe("short kebab-case name, e.g. cross-chain or neet-bucket-hat"),
     layer: z.enum(layers).describe("which layer this belongs on"),
     description: z.string().describe("one short sentence describing it"),
     confidence: z.enum(["high", "medium", "low"]),
-  });
-  const Located = Identified.extend({
     box: z.object({
       x0: z.number().describe("left edge, 0-1 of image width"),
       y0: z.number().describe("top edge, 0-1 of image height"),
@@ -67,7 +67,6 @@ function shapes(layers: [string, ...string[]]) {
     }).describe("tight box around the added item only, not the character"),
     reliable: z.boolean().describe("false if the item is hard to separate from the character"),
   });
-  return { Identified, Located };
 }
 
 /* DEADLINES. Nothing bounded this call: the sign-in check and the model
@@ -177,7 +176,10 @@ export default async function handler(req: any, res: any) {
 
   try {
     const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
-    const mode: "identify" | "locate" = body?.mode === "locate" ? "locate" : "identify";
+    if (body?.mode !== "locate") {
+      res.status(400).json({ error: "bad_request", message: "The only mode is locate." });
+      return;
+    }
     const image = stripPrefix(String(body?.image ?? ""));
     if (!image) {
       res.status(400).json({ error: "bad_request", message: "No image supplied." });
@@ -189,19 +191,14 @@ export default async function handler(req: any, res: any) {
     }
 
     const client = new Anthropic({ timeout: MODEL_DEADLINE_MS, maxRetries: 0 });
-    const { Identified, Located } = shapes(layersFrom(body?.layers));
-    const format = zodOutputFormat(mode === "locate" ? Located : Identified);
+    const format = zodOutputFormat(located(layersFrom(body?.layers)));
     const img = { type: "image" as const, source: { type: "base64" as const, media_type: "image/png" as const, data: image } };
 
-    const prompt = mode === "locate"
-      ? `This is a pixel-art character wearing or carrying one added item - a hat, necklace, backpack, glasses, or similar.
+    const prompt = `This is a pixel-art character wearing or carrying one added item - a hat, necklace, backpack, glasses, or similar.
 
 Identify the single added item and give a tight box around ONLY that item, in fractions of the image size.
 
-The box must not include the character's head, torso or arms except where the item overlaps them. If the item is hard to separate from the body, set reliable to false rather than guessing a loose box.`
-      : `This is a single pixel-art trait on a transparent background, cut out from a character.
-
-Name it and choose the layer it belongs on.`;
+The box must not include the character's head, torso or arms except where the item overlaps them. If the item is hard to separate from the body, set reliable to false rather than guessing a loose box.`;
 
     /* create, and parsed here, rather than parse: parse throws on an answer
        cut off mid-JSON before stop_reason can be read, and that throw landed

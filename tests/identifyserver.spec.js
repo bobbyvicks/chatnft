@@ -117,4 +117,17 @@ test.describe('the locate function on the server', () => {
     const r = await call();
     expect(r.code).toBe(422);
   });
+
+  /* The identify mode the page stopped calling in d76de2b. RUN AGAINST THE
+     HANDLER BEFORE: 200, with the model asked. A request with no mode fell
+     through to it too. */
+  test('THE RETIRED IDENTIFY MODE is refused without asking the model', async () => {
+    mode = 'ok';
+    for (const m of ['identify', undefined]) {
+      seen = [];
+      const r = await call({ mode: m });
+      expect(r.code, String(m)).toBe(400);
+      expect(seen.length, String(m) + ': the model was not asked').toBe(0);
+    }
+  });
 });

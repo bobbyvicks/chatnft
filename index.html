@@ -871,6 +871,9 @@ button.planhead:focus-visible{outline:2px solid var(--accent); outline-offset:2p
 .item .cyc{display:block; width:100%; margin-top:4px; padding:2px 0; border-radius:5px;
   background:var(--panel-2); border:1px solid var(--line); color:var(--muted); font-size:9.5px;}
 .item .cyc:hover{border-color:var(--accent); color:var(--ink);}
+/* A thumb's size on a touch screen: 20 px, and a miss by 10 or more
+   opened the editor instead. 30 px is what .fx and .x get above. */
+@media (hover:none){ .item .cyc{min-height:30px; font-size:11px;} }
 .item.temporarily-hidden{opacity:.42; border-style:dashed;}
 .item.temporarily-hidden:hover{opacity:.8;}
 .item.shelf-drag-source{opacity:.35;}
@@ -5546,7 +5549,7 @@ async function renderShelf(viewOnly){
     });
   }
 }
-/* Asking Claude what a trait is. The call goes through /api/identify so the
+/* Asking Claude where an added item sits. The call goes through /api/identify so the
    API key stays on the server - a key in this page would be readable by anyone
    who opens it. If the endpoint is not configured the button hides itself
    rather than sitting there broken. */
@@ -5594,7 +5597,6 @@ async function ask(mode,dataUrl){
     throw e;
   }finally{ clearTimeout(timer); }
 }
-function canvasDataUrl(){ return art.toDataURL('image/png'); }
 
 
 /* THE RULE. The outermost ring of pixels of a trait is TRAIT_BLACK, on
@@ -14203,9 +14205,13 @@ function decideOrderClashes(edges){
   }
   return {pairs:pairs, stuck:left};
 }
-/* Newest answer per pair. Order-independent, so it does not matter which
-   side is called "mine" - which is what makes it safe to run on a pull and
-   on a push with the same result. */
+/* Newest answer per pair. SUPERSEDES "Order-independent, so it does not
+   matter which side is called mine": it is, except on a tie - the same
+   source and the same millisecond - where the one later in the list wins.
+   Every caller passes the incoming answers second, so an answer just
+   given here beats one from the same millisecond, and browsers converge on
+   the server's copy because shareRules sends DECISIONS whole. The tie is
+   kept as it is; only this sentence was wrong. */
 function mergeDecisions(a,b){
   const by=new Map();
   for(const d of (a||[]).concat(b||[])){

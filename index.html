@@ -10952,6 +10952,32 @@ const cBitmaps=new Map();   /* record id -> ImageBitmap, decoded once */
    draws it with no await in between, so nothing can be holding one that
    gets closed underneath it. */
 const CBITMAP_BUDGET=96*1048576;
+/* What the cache may hold right now: CBITMAP_BUDGET, except during a
+   Generate run on a machine with room - see genBitmapBudget. */
+let cBitmapBudget=CBITMAP_BUDGET;
+/* A GENERATE RUN'S ALLOWANCE. Characters are drawn from the whole final set,
+   so at 96 MB about 95% of lookups decoded the PNG again (1000 characters,
+   77 s, 51 of them decoding). A desktop the browser says has 8 GB gets 512
+   MB for the run, 4 GB gets 256; a phone, or a browser that does not say,
+   keeps the budget above, which is the decision it records. */
+function genBitmapBudget(){
+  let mobile=false;
+  try{ mobile = navigator.userAgentData ? !!navigator.userAgentData.mobile : /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent||""); }catch(_){ mobile=true; }
+  const mem=Number(navigator.deviceMemory);
+  if(mobile || !(mem>0)) return CBITMAP_BUDGET;
+  if(mem>=8) return 512*1048576;
+  if(mem>=4) return 256*1048576;
+  return CBITMAP_BUDGET;
+}
+/* Let the oldest go until the cache is inside the budget. */
+function cBitmapTrim(){
+  while(cBitmapBytes()>cBitmapBudget && cBitmaps.size>1){
+    const oldest=cBitmaps.keys().next().value;
+    const gone=cBitmaps.get(oldest);
+    cBitmaps.delete(oldest);
+    if(gone.close) gone.close();
+  }
+}
 /* One full-size canvas the review tiles composite into, shared because they
    are painted one at a time, and given back by revBuild when the grid is
    built. */
@@ -10982,12 +11008,7 @@ async function cBitmap(rec){
   const now=cBitmaps.get(rec.id);
   if(now){ if(bm.close) bm.close(); return now; }
   cBitmaps.set(rec.id,bm);
-  while(cBitmapBytes()>CBITMAP_BUDGET && cBitmaps.size>1){
-    const oldest=cBitmaps.keys().next().value;
-    const gone=cBitmaps.get(oldest);
-    cBitmaps.delete(oldest);
-    if(gone.close) gone.close();
-  }
+  cBitmapTrim();
   return bm;
 }
 /* ONE RECORD OUT, when its artwork has changed or it is gone.
@@ -13533,6 +13554,11 @@ async function buildCollection(n,onProgress){
   const files=[];
   let held=0;
   const sink=genPartSink;
+  /* More room for the length of the run, where there is room - and back
+     to the budget, letting the rest go, however the run ends. */
+  const budgetWas=cBitmapBudget;
+  cBitmapBudget=Math.max(cBitmapBudget,genBitmapBudget());
+  try{
   for(let i=0;i<combos.length;i++){
     g.clearRect(0,0,W,H);
     for(const r of combos[i]){ const bm=await cBitmap(r); paintTrait(g,bm,0,0,W,H); }
@@ -13569,6 +13595,7 @@ async function buildCollection(n,onProgress){
   /* pool travels with the files for the same reason combos does: the report
      below measures what was built against what the set promised, and it can
      only do that against the set that was actually drawn from. */
+  }finally{ cBitmapBudget=budgetWas; cBitmapTrim(); }
   if(sink && files.length) await sink(files.splice(0,files.length),true);
   return { files, made:combos.length, asked:n, combos, sizes:sizeSpread, pool };
 }

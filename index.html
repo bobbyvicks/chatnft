@@ -20683,7 +20683,9 @@ function paletteRGB(){
    mean picks one palette colour for all of them. Measured: Dark Skin
    5 -> 3 output colours and 0 split cells, 41 -> 27 split files over the
    set, mean error to the source unchanged (8.543 -> 8.547). Past 8,192
-   distinct colours each colour is its own group, which is the old rule.
+   distinct colours each colour WAS its own group, the old rule, because
+   the grouping compared each colour with every group; it finds them
+   through a grid now and every picture is grouped (patch553).
 
    Works on the pixels in place and answers with what it did: how many
    distinct colours moved, how many pixels, the furthest any colour had
@@ -20841,7 +20843,9 @@ function nearestPaletteColour(r,g,b,pal,palLab){
    and nothing shows it sensitive to this, which is why the new one exists.
    Decided 2026-09-21. */
 const SNAP_GROUP_DE=2.3;
-const SNAP_GROUP_MAX=8192;
+/* SNAP_GROUP_MAX (8192) is gone: the grouping capped itself there because
+   it was quadratic, and past it the photographic traits froze the page for
+   up to 232 s and came back speckled. See snapToPalette. */
 function snapToPalette(d,n){
   const pal=paletteRGB();
   const exact=new Set(pal.map(p=>p.h));
@@ -20866,24 +20870,43 @@ function snapToPalette(d,n){
   /* Largest first, ties by value, so the grouping is a function of the
      picture and nothing else. */
   cols.sort((a,b)=>b.px-a.px||a.key-b.key);
-  const canGroup=cols.length<=SNAP_GROUP_MAX;
+  /* CANDIDATE GROUPS THROUGH A GRID over Lab, cells the size of the box
+     below, so a colour is only compared with groups in its own cell and
+     the 26 around it - everything outside was skipped by the box anyway.
+     The earliest-made group that passes wins, which is what the scan in
+     creation order answered: identical on all 261 real traits under the
+     old 8,192 cap, and no cap. */
+  const grid=new Map();
+  const cellOf=lab=>[Math.floor(lab[0]/5),Math.floor(lab[1]/16),Math.floor(lab[2]/16)];
   const groups=[];
   const hit=new Map();
   for(const c of cols){
     if(exact.has(hexOf(c.key))){ hit.set(c.key,null); continue; }
     const lab=labOf(c.r,c.g,c.b);
     let grp=null;
-    if(canGroup){
-      for(const g of groups){
-        const q=g.lab;
-        /* A cheap box first: 2.3 dE cannot span more than about 4 in L
-           or 14 in chroma, so anything outside this box is not a member
-           and the trigonometry is skipped. */
-        if(Math.abs(q[0]-lab[0])>5||Math.abs(q[1]-lab[1])>16||Math.abs(q[2]-lab[2])>16) continue;
-        if(deltaE2000(q[0],q[1],q[2],lab[0],lab[1],lab[2])<=SNAP_GROUP_DE){ grp=g; break; }
+    {
+      const [x,y,z]=cellOf(lab);
+      let first=Infinity;
+      for(let dx=-1;dx<=1;dx++) for(let dy=-1;dy<=1;dy++) for(let dz=-1;dz<=1;dz++){
+        const list=grid.get((x+dx)+","+(y+dy)+","+(z+dz));
+        if(!list) continue;
+        /* Each cell lists its groups in the order they were made. */
+        for(const g of list){
+          if(g.idx>=first) break;
+          const q=g.lab;
+          /* A cheap box first: 2.3 dE cannot span more than about 4 in L
+             or 14 in chroma, so anything outside this box is not a member
+             and the trigonometry is skipped. */
+          if(Math.abs(q[0]-lab[0])>5||Math.abs(q[1]-lab[1])>16||Math.abs(q[2]-lab[2])>16) continue;
+          if(deltaE2000(q[0],q[1],q[2],lab[0],lab[1],lab[2])<=SNAP_GROUP_DE){ first=g.idx; grp=g; break; }
+        }
       }
     }
-    if(!grp){ grp={lab:lab, sumL:0, suma:0, sumb:0, px:0, members:[]}; groups.push(grp); }
+    if(!grp){
+      grp={idx:groups.length, lab:lab, sumL:0, suma:0, sumb:0, px:0, members:[]}; groups.push(grp);
+      const k=cellOf(lab).join(","), l=grid.get(k);
+      if(l) l.push(grp); else grid.set(k,[grp]);
+    }
     grp.sumL+=lab[0]*c.px; grp.suma+=lab[1]*c.px; grp.sumb+=lab[2]*c.px; grp.px+=c.px;
     grp.members.push({c:c, lab:lab});
   }

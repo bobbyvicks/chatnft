@@ -72,7 +72,7 @@ test.describe('the palette map is per picture', () => {
         const pooled = run([[a, 4096], [b, 4096]]);
         const lab = h => { const k = key(h); return labOf((k >> 16) & 255, (k >> 8) & 255, k & 255); };
         return { alone, other, pooled, src: dE(la, lb), moved: dE(lab(alone), lab(pooled[0])),
-          threshold: SNAP_GROUP_DE, cap: SNAP_GROUP_MAX };
+          threshold: SNAP_GROUP_DE };
       }, { A, B });
       expect(r.src, 'the two sources are inside the grouping threshold')
         .toBeLessThan(r.threshold);

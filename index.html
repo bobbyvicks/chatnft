@@ -17070,28 +17070,37 @@ function sbSaveSession(s){
 /* Refreshes a minute BEFORE expiry rather than after a 401. Retrying on
    failure would work too, but only for requests that are safe to repeat, and
    a half-finished upload is not. */
+let sbRenewing=null;
 async function sbToken(){
   let s=sbLoadSession();
   if(!s||!s.access_token) return null;
   if(s.expires_at && Date.now() < (s.expires_at*1000 - 60000)) return s.access_token;
   if(!s.refresh_token){ sbSaveSession(null); return null; }
-  try{
-    const r=await fetch(SB_URL+"/auth/v1/token?grant_type=refresh_token",{
-      method:"POST", headers:{apikey:SB_KEY,"Content-Type":"application/json"},
-      body:JSON.stringify({refresh_token:s.refresh_token})});
-    /* ONLY a definitive rejection clears the session. A 500, a timeout or a
-       dropped connection means "ask again later", and treating those as
-       "you are signed out" is exactly what makes someone need a fresh email
-       after every hiccup. */
-    if(!r.ok){
-      if(r.status===400||r.status===401||r.status===403) sbSaveSession(null);
-      return null;
-    }
-    const j=await r.json();
-    sbSaveSession({access_token:j.access_token, refresh_token:j.refresh_token,
-      expires_at:j.expires_at, user:j.user||s.user});
-    return j.access_token;
-  }catch(_){ return null; }
+  /* ONE RENEWAL AT A TIME. Every request reads its headers now (a run that
+     outlived its token used to carry the dead one to the end), so six
+     uploads reaching expiry together would each send the same refresh
+     token. One renews; the rest wait for its answer. */
+  if(sbRenewing) return sbRenewing;
+  sbRenewing=(async()=>{
+    try{
+      const r=await fetch(SB_URL+"/auth/v1/token?grant_type=refresh_token",{
+        method:"POST", headers:{apikey:SB_KEY,"Content-Type":"application/json"},
+        body:JSON.stringify({refresh_token:s.refresh_token})});
+      /* ONLY a definitive rejection clears the session. A 500, a timeout or a
+         dropped connection means "ask again later", and treating those as
+         "you are signed out" is exactly what makes someone need a fresh email
+         after every hiccup. */
+      if(!r.ok){
+        if(r.status===400||r.status===401||r.status===403) sbSaveSession(null);
+        return null;
+      }
+      const j=await r.json();
+      sbSaveSession({access_token:j.access_token, refresh_token:j.refresh_token,
+        expires_at:j.expires_at, user:j.user||s.user});
+      return j.access_token;
+    }catch(_){ return null; }
+  })();
+  try{ return await sbRenewing; } finally{ sbRenewing=null; }
 }
 async function sbHeaders(extra){
   const t=await sbToken();
@@ -18175,7 +18184,7 @@ async function cloudPush(){
      where you are the only member. In a group it would mean deleting work
      that is not yours to delete, and a stale row left behind is a far smaller
      harm than someone else losing a day. */
-  const h=await sbHeaders({"Content-Type":"application/json"});
+  let h=await sbHeaders({"Content-Type":"application/json"});
   /* The blanket delete that used to be here ran BEFORE the first upload:
 
        if(!activeWs) await fetch(".../traits?collection_id=eq."+c.id,{method:"DELETE"})
@@ -18188,8 +18197,11 @@ async function cloudPush(){
   let saved=0, failed=0, done=0, patched=0;
   const rows=[];
   /* Everything that cannot change while this runs, worked out once. */
-  const ctx={u:u, team:team, c:c, h:h,
-    hb:await sbHeaders({"Content-Type":"image/png","x-upsert":"true"})};
+  /* NO HEADERS IN HERE. They were built once and shared, so a run that
+     outlived the token sent the dead one to the end (measured, 95 of 311
+     failed). cloudSyncOne and cloudPatchOne read their own per request,
+     which renews the token when it is due. */
+  const ctx={u:u, team:team, c:c};
   /* SIX AT A TIME, not one. cloudPull already does this and says why in its
      own comment - a project with 310 traits meant 310 round trips in a row -
      and the upload never got the same treatment. Six rather than the pull's
@@ -18260,6 +18272,7 @@ async function cloudPush(){
       const here=new Set(items.map(i=>cloudPath(team,c,i)));
       const live=new Set(items.map(i=>i.rowId).filter(Boolean));
       const gone=await goneLoad();
+      h=(await sbHeaders({"Content-Type":"application/json"}))||h;
       const got=await cloudRows(c,h,"id,path");
       if(got.ok && !got.truncated){
         const kept=[], done=[];
@@ -18312,6 +18325,7 @@ async function cloudPush(){
     if(!activeWs && !failed && serverPaths) swept=await cloudSweep(team,c,[...new Set(rows.map(r=>r.path).concat(serverPaths))]);
   }catch(_){ }
   try{
+    h=(await sbHeaders({"Content-Type":"application/json"}))||h;
     await fetch(SB_URL+"/rest/v1/collections?id=eq."+c.id,{method:"PATCH",headers:h,
       body:JSON.stringify({layers:LAYERS})});
   }catch(_){ }
@@ -18597,7 +18611,8 @@ async function cloudPull(opts){
       if(!wsStill(gen)) return;
       const w=wanted[next++];
       try{
-        const blob=await pullBlob(w.row.path,h);
+        /* Per download: a pull of 311 can outlive its token. */
+        const blob=await pullBlob(w.row.path,(await sbHeaders())||h);
         /* Still counted as failed after three tries - the note has always
            said how many could not be read, and that stays true. */
         if(!blob) throw new Error("download");

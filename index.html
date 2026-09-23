@@ -17491,7 +17491,9 @@ async function importProject(file){
     if(name!==it.name) renamed++;
     taken.add(id);
     const rec={id:id, kind:it.kind==="ref"?"ref":"trait", name:name,
-      w:it.w||0, h:it.h||0, blob:blob, at:Date.now()};
+      /* The time it was last edited, from the file. A restore is not an
+         edit, any more than a download is. */
+      w:it.w||0, h:it.h||0, blob:blob, at:(typeof it.at==="number" && isFinite(it.at)) ? it.at : Date.now()};
     if(rec.kind==="trait"){ rec.layer=layer; rec.status=status;
       if(typeof it.rarity==="number") rec.rarity=it.rarity;
       if(typeof it.shelfOrder==="number") rec.shelfOrder=it.shelfOrder; }

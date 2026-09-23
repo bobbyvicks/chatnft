@@ -10675,6 +10675,22 @@ function draftId(){ return openRec&&openRec.id ? draftKey(openRec.id) : AUTO_ID;
    Keyed gets, not dbAll: a bulk move of forty traits would otherwise read
    every blob in the project forty times to find the nought or one draft
    that exists. */
+/* THE TRAIT OPEN IN THE EDITOR, carried to the id it moved to. Each field
+   follows only if it still says what the record said: one the person
+   changed in the editor is theirs. Left on the old id, a save wrote the
+   trait back under it - two of it, the move undone on one. */
+async function editorFollows(was,toId){
+  let now=null; try{ now=await dbGet(toId); }catch(_){ now=null; }
+  if(!now||now.kind!=="trait"||openRec!==was) return false;
+  if($("tname").value.trim()===String(was.name||"")) $("tname").value=now.name;
+  if(($("tlayer").value||"unsorted")===(was.layer||"unsorted")){
+    buildLayerSelect();
+    $("tlayer").value=LAYERS.indexOf(now.layer)>=0 ? now.layer : "unsorted";
+  }
+  if((chipVal("tstatus")||"wip")===String(was.status||"wip")) setChip("tstatus",now.status||"wip");
+  openRec=now;
+  return true;
+}
 async function draftsFollow(pairs){
   const next=new Map();
   for(const p of (pairs||[])) if(p&&p.from&&p.to&&p.from!==p.to) next.set(p.from,p.to);
@@ -10689,6 +10705,11 @@ async function draftsFollow(pairs){
     if(to!==from) ends.push({from:from, to:to});
   }
   if(!ends.length) return 0;
+  /* The editor too, when the trait it holds is one of these. */
+  if(openRec&&openRec.id){
+    const end=ends.find(m=>m.from===openRec.id);
+    if(end){ try{ await editorFollows(openRec,end.to); }catch(_){} }
+  }
   const d=await db();
   return new Promise((res,rej)=>{
     const t=d.transaction(STORE,"readwrite"), s=t.objectStore(STORE);

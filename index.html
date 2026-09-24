@@ -16531,8 +16531,22 @@ async function traitFingerprint(t){
 function artworkStale(e){
   return !!(e&&e.artworkAccepted&&e.artHash&&e.artHashNow&&e.artHash!==e.artHashNow);
 }
+/* The trait each entry found last, by id. */
+const reviewTraitIdOf=new Map();
 async function traitForEntry(e){
   if(!e) return null;
+  /* BY ID FIRST. Every Next, Previous, Skip and accept came through here
+     and read the whole project to find one trait. The import stamps the
+     entry's id on the trait, so a stamped one is found by its own id:
+     the one found last, or one of the four its name and layer allow. */
+  const nm=reviewBase(e.currentName), ly=e.layer||"";
+  const tries=[reviewTraitIdOf.get(e.id)].concat(STATUSES.map(s=>"t_"+nm+"_"+ly+"_"+s));
+  for(const id of tries){
+    if(!id) continue;
+    let t=null; try{ t=await dbGet(id); }catch(_){ t=null; }
+    if(t&&t.kind==="trait"&&t.reviewId===e.id){ reviewTraitIdOf.set(e.id,t.id); return t; }
+  }
+  /* Not stamped, or renamed since: the whole read, by the rule it had. */
   let items=[]; try{ items=(await dbAll()).filter(i=>i.kind==="trait"); }catch(_){ return null; }
   return items.find(t=>t.reviewId===e.id)
     || items.find(t=>(t.layer||"")===e.layer && t.name===reviewBase(e.currentName))
@@ -26031,6 +26045,21 @@ async function importReviewQueue(f){
   for(const e of list){ if(!e||!e.id||ids.has(e.id)){
     say("That queue has entries with missing or repeated ids, so it was not loaded."); return false; }
     ids.add(e.id); }
+  /* THE PASS BEING REPLACED. Its answers live only here, never in the file,
+     so the same revision carries them and another asks before it drops
+     them. */
+  const was=REVIEW;
+  const rev=(doc&&doc.collectionRevision)||null;
+  const sameRev=!!(was&&was.revision&&rev&&was.revision===rev);
+  const keep=sameRev ? new Map(was.entries.map(x=>[x.id,x])) : null;
+  if(was&&!sameRev){
+    const answered=was.entries.filter(x=>x.artworkAccepted||x.nameAccepted||x.skipped).length;
+    if(answered && !confirm("Load this queue? The review pass open now has "+answered+" answer"
+        +(answered===1?"":"s")+", and a queue for another revision starts a new pass without them.")){
+      say("Not loaded - the pass open now is kept.");
+      return false;
+    }
+  }
   let items=[]; try{ items=(await dbAll()).filter(i=>i.kind==="trait"); }catch(_){}
   /* How many traits answer to each layer+name, so an ambiguous one can be
      left alone rather than guessed at. */
@@ -26047,6 +26076,7 @@ async function importReviewQueue(f){
     const k=layer+"/"+name;
     const t=dupes.has(k)?null:by.get(k);
     const decided=reviewDecided(e);
+    const old=keep?keep.get(e.id):null;
     if(decided) already.push({name:name, said:decided.said});
     if(dupes.has(k)) ambiguous.push(k);
     else if(!t) missing.push(k);
@@ -26058,10 +26088,10 @@ async function importReviewQueue(f){
       /* CARRIED OVER ONLY FROM A RECEIPT. A bare status still starts this
          pass unreviewed, which is what the handoff asked for; a recorded
          final-pass decision is work somebody already did. */
-      artworkAccepted:!!(decided&&decided.artwork),
-      nameAccepted:!!(decided&&decided.name),
-      approvedRevision:decided?e.approvedRevision:null,
-      skipped:false});
+      artworkAccepted:!!(decided&&decided.artwork)||!!(old&&old.artworkAccepted),
+      nameAccepted:!!(decided&&decided.name)||!!(old&&old.nameAccepted),
+      approvedRevision:decided?e.approvedRevision:((old&&old.approvedRevision)||null),
+      skipped:!!(old&&old.skipped)});
     if(t && t.reviewId!==e.id){
       try{ await dbPut(Object.assign({},t,{reviewId:e.id})); stamped++; }catch(_){}
     }
@@ -26069,6 +26099,8 @@ async function importReviewQueue(f){
   entries.sort((a,b)=>(a.sequence||0)-(b.sequence||0));
   REVIEW={revision:(doc&&doc.collectionRevision)||null,
     activeId:(doc&&doc.activeTraitId)||entries[0].id, entries:entries};
+  /* Where the pass was, when it is the same pass. */
+  if(keep&&was.activeId&&entries.some(x=>x.id===was.activeId)) REVIEW.activeId=was.activeId;
   if(!REVIEW.entries.some(e=>e.id===REVIEW.activeId)) REVIEW.activeId=entries[0].id;
   await saveReview();
   /* The same order the rules file carries, applied the same way. */

@@ -18205,16 +18205,40 @@ async function cloudTeam(){
   }catch(_){ return null; }
 }
 
+/* THE TEAM'S PROJECT: the one it was given first. "limit=1" with no order
+   returned whichever row Postgres had first on disk, and an update moves a
+   row - so a team with more than one project got a different one after
+   any of them was saved, and a load judged the device against the wrong
+   one (patch591). Every lookup of a team's project uses these words. */
+const TEAM_PROJECT_PICK="&order=created_at.asc,id.asc&limit=1";
 async function cloudCollection(u){
   /* Its two fetches were the only unguarded ones on this path - cloudTeam and
      sbUser both catch - and a throw here escaped commitShelfMove entirely. */
   try{
   const team=await cloudTeam();
   if(!team) return null;
-  const h=await sbHeaders({"Content-Type":"application/json"});
+  let h=await sbHeaders({"Content-Type":"application/json"});
   if(!h) return null;
-  let r=await fetch(SB_URL+"/rest/v1/collections?select=id,layers,rules,decisions,decide_order,empty_chance,rules_at&team_id=eq."+team+"&limit=1",{headers:h});
-  if(r.ok){ const rows=await r.json(); if(rows.length) return rows[0]; }
+  const ask=()=>fetch(SB_URL+"/rest/v1/collections?select=id,layers,rules,decisions,decide_order,empty_chance,rules_at&team_id=eq."+team+TEAM_PROJECT_PICK,{headers:h});
+  let r=await ask();
+  /* A REFUSED TOKEN IS ASKED ONCE MORE, a second later with the headers
+     built again: both times a team was given a second project, this
+     lookup had been refused with 401 about a second after the token was
+     refreshed, and the insert straight after it succeeded. */
+  if(r.status===401){
+    await new Promise(res=>setTimeout(res,1000));
+    h=await sbHeaders({"Content-Type":"application/json"});
+    if(!h) return null;
+    r=await ask();
+  }
+  /* ONLY A CLEAR "NONE" MAKES ONE. This used to fall through to the insert
+     on any answer that was not a row - a 500, a refused token - and a
+     team that already had a project got another (two, measured on the
+     server). Not knowing is not the same as having none. */
+  if(!r.ok) return null;
+  const rows=await r.json();
+  if(!Array.isArray(rows)) return null;
+  if(rows.length) return rows[0];
   r=await fetch(SB_URL+"/rest/v1/collections",{method:"POST",
     headers:Object.assign({Prefer:"return=representation"},h),
     body:JSON.stringify({team_id:team, owner:u.id, name:"My collection", layers:LAYERS})});
@@ -18455,7 +18479,7 @@ async function cloudStatus(u){
   if(!h) return;
   let remoteN=null, when=null;
   try{
-    const cr=await fetch(SB_URL+"/rest/v1/collections?select=id,updated_at&team_id=eq."+(await cloudTeam())+"&limit=1",{headers:h});
+    const cr=await fetch(SB_URL+"/rest/v1/collections?select=id,updated_at&team_id=eq."+(await cloudTeam())+TEAM_PROJECT_PICK,{headers:h});
     if(cr.ok){
       const rows=await cr.json();
       if(rows.length){
@@ -19962,18 +19986,42 @@ async function groupCatchUpRun(){
            2). Every real removal takes the picture with it. Listed only
            when there is something to decide; a listing that fails decides
            nothing, and the question is asked again next open. */
-        let files=null;
-        if(cand.some(it=>it.path)){
-          try{
-            const u=await sbUser(), team=await cloudTeam();
-            const c=u ? await cloudCollection(u) : null;
-            if(team && c){ const b=await bucketPaths(team,c); if(b.ok) files=b.paths; }
-          }catch(_){ files=null; }
+        /* EACH PICTURE IS LOOKED FOR WHERE ITS OWN PATH SAYS IT IS.
+
+           SUPERSEDED: this listed the folder of the project cloudCollection
+           returned NOW. On 2026-09-24 that was a different project from
+           the one the pull had just read, and not the one the device's
+           traits were saved in, so none of their pictures was "there" and
+           every old trait on the device was deleted as removed by someone
+           else. A picture present in its own folder means the trait was
+           not removed, whichever list it is missing from.
+
+           Only this team's folders are asked: a folder this person cannot
+           read lists as empty, which would read as "every picture gone".
+           A path in no folder of this team, or a folder that cannot be
+           listed, decides nothing and the trait is kept - the rule a failed
+           listing already had. */
+        const inFolders=new Map();
+        let team=null;
+        try{ team=await cloudTeam(); }catch(_){ team=null; }
+        const folderOf=p=>{
+          if(!team||typeof p!=="string") return null;
+          const parts=p.split("/");
+          return parts.length===3&&parts[0]===String(team)&&parts[1]&&parts[2] ? parts[1] : null;
+        };
+        for(const it of cand){
+          const f=folderOf(it.path);
+          if(!f||inFolders.has(f)) continue;
+          inFolders.set(f,null);
+          try{ const b=await bucketPaths(team,{id:f}); if(b.ok) inFolders.set(f,b.paths); }catch(_){ }
         }
         let gone=0, kept=0;
         for(const it of cand){
           if(!wsStill(gen)) break;
-          if(it.path && (files===null || files.has(it.path))){ kept++; continue; }
+          if(it.path){
+            const files=inFolders.get(folderOf(it.path))||null;
+            if(files===null || files.has(it.path)){ kept++; continue; }
+          }
           await dbDel(it.id); gone++;
         }
         const said=[];

@@ -8042,7 +8042,7 @@ function buildPalette(list){
        which is the only way to fix a misclick without starting over. */
     b.onclick=()=>{
       if(rcPick.has(h)) rcPick.delete(h); else rcPick.add(h);
-      setColor(h);
+      paintWith(h);
       rcSummary();
     };
     /* RIGHT: what they become. The browser menu is suppressed here and only
@@ -8115,7 +8115,7 @@ function buildProjectPalette(){
     /* LEFT: paint with it. Not also marked for replacing, the way a trait
        swatch is - a palette colour is not in the picture, so there is
        nothing of it to replace. */
-    b.onclick=()=>{ setColor(h); };
+    b.onclick=()=>{ paintWith(h); };
     /* RIGHT: what the marked colours become. The same gesture as on a
        trait swatch, and the useful one here. */
     b.oncontextmenu=(e)=>{
@@ -8173,7 +8173,7 @@ function buildRecentColours(){
     b.title=h+" \u00b7 just used";
     b.setAttribute("aria-pressed",String(h===String(color||"").toLowerCase()));
     b.setAttribute("aria-label","Recently used colour "+h);
-    b.onclick=()=>setColor(h);
+    b.onclick=()=>paintWith(h);
     wrap.appendChild(b);
   }
 }
@@ -8201,6 +8201,14 @@ function setColor(h,used){
    also why those colours must not be recorded: they are the ones swept
    past, not the one chosen. change fires once, when the picker is done,
    and that is the colour that was actually picked. */
+/* A SWATCH PRESSED: paint with it. With the eraser on, the next stroke
+   erased, which is not what picking a colour means - so the eraser gives
+   way to the pencil. Any other tool keeps the colour and stays, and
+   setColor stays as it is: it also runs when a trait opens. */
+function paintWith(h){
+  setColor(h);
+  if(tool==="eraser") selectTool("pencil");
+}
 $('picker').oninput=e=>{ setColor(e.target.value,false); selectTool('pencil'); };
 $('picker').onchange=e=>{ setColor(e.target.value); };
 
@@ -27741,7 +27749,7 @@ function pioRender(){
       if(rcTo===h) b.dataset.to="1";
       /* The toggle and the modifier do the same thing: one for a finger,
          one for the hand already on a keyboard. */
-      b.onclick=e=>{ if(pioTake||e.ctrlKey||e.metaKey){ PIO.colours[i]=null; pioRender(); return; } setColor(h); };
+      b.onclick=e=>{ if(pioTake||e.ctrlKey||e.metaKey){ PIO.colours[i]=null; pioRender(); return; } paintWith(h); };
       b.oncontextmenu=e=>{ e.preventDefault(); rcTo=(rcTo===h)?null:h; rcSummary(); return false; };
     } else {
       b.classList.add("pioempty");

@@ -321,12 +321,17 @@ test.describe('symmetry', () => {
       const top = r('clbtn').top;
       return { height: Math.round(s.height), viewport: innerWidth,
         sameLine: ['ppbtn', 'symh', 'symv'].every(id => Math.abs(r(id).top - top) < 8 && r(id).right <= s.right + 1),
-        aboveSnap: r('gsnap').top > r('ppbtn').bottom - 1 };
+        snapSameLine: Math.abs(r('gsnap').top - top) < 8 };
     });
     expect(m.viewport).toBe(1280);
     expect(m.height, 'no taller than a strip').toBeLessThan(90);
     expect(m.sameLine, 'on the colour\'s line, inside the strip').toBe(true);
-    expect(m.aboveSnap, 'and above Snap, not beside it').toBe(true);
+    /* SUPERSEDED: "and above Snap, not beside it" - true of the 274px column,
+       where Snap's row was full. patch588 made .opts the full-width strip the
+       grid always gave it, so at 1280 everything is one 41px row and Snap
+       sits on the same line. The height ceiling above still pins what this
+       test was for: a strip, not a stack. */
+    expect(m.snapSameLine, 'one row: Snap on the line of the colour too').toBe(true);
     /* Hidden with Snap for a tool they do not apply to, back with the pencil. */
     await page.evaluate(() => selectTool('fill'));
     expect(await page.evaluate(() => document.getElementById('strokeopts').hidden)).toBe(true);

@@ -1063,7 +1063,13 @@ body.shelf-dragging,body.shelf-dragging *{cursor:grabbing!important;}
 .big span{font-size:12.5px; opacity:.8;}
 
 /* ---------- editor ---------- */
-.app{display:grid; grid-template-columns:auto 1fr; grid-template-rows:auto auto auto auto 1fr auto;
+/* Column one at least 227 px - four rail columns, what it was at 1280x900
+   before the options strip became one row (patch588). With the extra
+   height the rail fitted in fewer columns, the track shrank, the colour
+   box fell to 48 of 64 colours and a restored draft took 52 px of canvas
+   width. The canvas is limited by height here, so this costs it nothing.
+   The phone layout sets its own single column. */
+.app{display:grid; grid-template-columns:minmax(227px,auto) 1fr; grid-template-rows:auto auto auto auto 1fr auto;
   /* The rail, then the canvas, and nothing across from it. The 244px column
      that used to sit between them is a strip under the header now, because
      what it still held is looked at rather than gone to. */

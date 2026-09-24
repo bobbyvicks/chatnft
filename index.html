@@ -5576,9 +5576,7 @@ async function renderShelf(viewOnly){
         if(!await fixFromRecords([t])) return;
         toast("Sent "+t.name+" to Fix pixels"); };
       el.appendChild(fx);
-      el.onclick=async()=>{
-        if(!await openTraitRecord(t)) toast("Could not open "+(t.name||"that trait"));
-      };
+      el.onclick=()=>openFromTile(t);
       grid.appendChild(el);
     }
     wrap.appendChild(grid); body.appendChild(wrap);
@@ -7781,6 +7779,17 @@ function analyse(im,file){
 
    Returns false rather than throwing, because both callers are click
    handlers and an unhandled rejection in one is silence. */
+/* A TILE OPENING ITS TRAIT. One open at a time per trait: a double-click on
+   a shelf tile, whose single click already opens, started two opens that
+   raced - each flushing the autosave and loading the canvas. */
+let tileOpening=null;
+async function openFromTile(t){
+  const id=t&&t.id;
+  if(!id||tileOpening===id) return;
+  tileOpening=id;
+  try{ if(!await openTraitRecord(t)) toast("Could not open "+(t.name||"that trait")); }
+  finally{ if(tileOpening===id) tileOpening=null; }
+}
 async function openTraitRecord(t,opts){
   if(!t||!t.blob||!t.w||!t.h) return false;
   opts=opts||{};
@@ -24934,6 +24943,29 @@ function finalTile(t,label,note,press){
   b.setAttribute("aria-label",label+" "+t.name);
   b.onclick=press;
   el.appendChild(b);
+  /* EDITABLE FROM HERE. The shelf's own fix button - same class, so the
+     same corner and the same touch size - and a double-click on the
+     tile to open it in the editor. A double-click on a control in the
+     tile belongs to the control. */
+  /* Only on a trait IN the final project, as asked: the "add from" folds
+     hold candidates, and their tiles stay a picture and an Add button. */
+  if(String(t.status||"wip")==="stfp"){
+  const fx=document.createElement("button"); fx.className="fx"; fx.type="button";
+  fx.textContent="fix";
+  fx.title="Send "+t.name+" to Fix pixels";
+  fx.setAttribute("aria-label","Send "+t.name+" to Fix pixels");
+  fx.onclick=async ev=>{ ev.stopPropagation();
+    if(!await fixFromRecords([t])) return;
+    toast("Sent "+t.name+" to Fix pixels"); };
+  el.appendChild(fx);
+  /* The hint on the picture, not the tile: the tile's title is its name,
+     which is how the page and its tests tell tiles apart. */
+  { const pic=el.querySelector(".fsart"); if(pic) pic.title="Double-click to edit "+t.name; }
+  el.ondblclick=ev=>{
+    if(ev.target.closest&&ev.target.closest("button,select,input,label,summary")) return;
+    openFromTile(t);
+  };
+  }
   /* WHICH LAYER IT IS IN, AND THE WAY OUT OF THE WRONG ONE. On every tile,
      not only the unsorted ones: a trait filed under the wrong layer is wrong
      wherever it is sitting.

@@ -4531,12 +4531,17 @@ async function setTraitStatus(t,next,asName){
      moved it since: a press on the stale card deleted an id that was
      already gone and wrote the trait a second time (measured - the store
      held cap approved and cap stfp, and Save to cloud uploaded both). */
+  /* Kept past the check (patch593): the move is built from the STORED
+     record, whose row id is the live one - the card's copy can carry the
+     id a group send has since replaced, and dropping the old row by it
+     left the server holding the trait under both statuses. */
+  let now=null;
   {
-    let now=null; try{ now=await dbGet(t.id); }catch(_){ now=null; }
+    try{ now=await dbGet(t.id); }catch(_){ now=null; }
     if(!now || String(now.status||"wip")!==String(t.status||"wip") || (now.layer||"")!==(t.layer||"")
        || now.name!==t.name) return {ok:false, stale:true};
   }
-  let moved={...t, id:"t_"+(asName||t.name)+"_"+t.layer+"_"+next, status:next, name:asName||t.name};
+  let moved={...now, id:"t_"+(asName||t.name)+"_"+t.layer+"_"+next, status:next, name:asName||t.name};
   let renamed=asName||null;
   /* REFUSE, do not overwrite. This used to dbDel the old record and dbPut
      over whatever held the new id, destroying its artwork and rarity and
@@ -4552,7 +4557,7 @@ async function setTraitStatus(t,next,asName){
     if(String(next)!==FINAL_KEEPS_BOTH || asName) return {ok:false, clash:true};
     const free=await finalFreeName(t.name,[t.layer],t.id);
     if(!free) return {ok:false, clash:true};
-    moved={...t, id:"t_"+free+"_"+t.layer+"_"+next, status:next, name:free};
+    moved={...now, id:"t_"+free+"_"+t.layer+"_"+next, status:next, name:free};
     renamed=free;
   }
   const visibility=currentShelfVisibility();
@@ -4571,7 +4576,7 @@ async function setTraitStatus(t,next,asName){
   /* Filled by the upload when it fails, so the tile and the final-set
      page can each say WHICH failure it was. */
   const why={};
-  const shared=await cloudMoveOne(t,moved,why);
+  const shared=await cloudMoveOne(now,moved,why);
   /* AND THE RECORD STOPS CLAIMING TO BE ON THE SERVER. `moved` above is a
      spread of `t`, so a trait that was synced carries `synced` and `path`
      into its NEW identity - one the server has never seen. Measured, with
@@ -6065,22 +6070,31 @@ async function saveTraitNow(){
     let id='t_'+name+'_'+layer+'_'+status;
     let shelfItems=[];
     try{ shelfItems=await dbAll(); }catch(_){}
+    /* THE TRAIT AS IT IS STORED NOW (patch593), not as it was when it was
+       opened. A group save gives the trait a new row and writes its id to
+       the store only, so openRec's row id is the deleted one from the first
+       save on: the second save's insert met the trait's own row (409) and
+       was refused, and no other device ever saw that edit. The weight and
+       the shelf position can have moved since the opening too. openRec
+       still says WHICH trait; the store says what it holds. */
+    let base=openRec;
+    if(openRec){ try{ const s=await dbGet(openRec.id); if(s&&s.kind===openRec.kind) base=s; }catch(_){ } }
     const rec={id:id, kind:'trait', name, layer, status, blob,
       w:c.width, h:c.height, at:Date.now(),
-      shelfOrder:openRec&&openRec.layer===layer&&typeof openRec.shelfOrder==="number"
-        ? openRec.shelfOrder : shelfCore.nextShelfOrder(shelfItems,layer)};
+      shelfOrder:base&&base.layer===layer&&typeof base.shelfOrder==="number"
+        ? base.shelfOrder : shelfCore.nextShelfOrder(shelfItems,layer)};
     /* Rarity lives on the shelf, not in the editor, so rebuilding the record
        from the visible fields silently reset it. Measured: a trait saved at
        rarity 5, reopened and saved with nothing changed, came back with no
        rarity at all - and rarity is what decides how often a trait appears.
        rowId travels for the same reason: it is how a delete finds the row. */
-    if(openRec){
-      if(typeof openRec.rarity==="number") rec.rarity=openRec.rarity;
-      if(openRec.rowId) rec.rowId=openRec.rowId;
+    if(base){
+      if(typeof base.rarity==="number") rec.rarity=base.rarity;
+      if(base.rowId) rec.rowId=base.rowId;
       /* AND THE QUEUE ENTRY. The record key carries the name, so a rename
          makes a different record - which is exactly the thing a review pass
          must survive. Entry 12 is still entry 12 after it is renamed. */
-      if(openRec.reviewId) rec.reviewId=openRec.reviewId;
+      if(base.reviewId) rec.reviewId=base.reviewId;
     }
     /* Captured before anything reassigns it. */
     const openWas = openRec;
@@ -6179,7 +6193,9 @@ async function saveTraitNow(){
          your friends seeing it and not. */
       /* A move on the server too, or the group ends up holding both. */
       const why={};
-      const shared = moved ? await cloudMoveOne(openWas,rec,why)
+      /* The old row by the id the store holds (patch593), or the drop misses
+         the live row and the group keeps the trait under both names. */
+      const shared = moved ? await cloudMoveOne(base||openWas,rec,why)
         : await cloudSyncOne(rec,null,why);
       /* Marked only once it is actually up there. A save that could not reach
          the group stays unmarked, and the reconcile below will not remove it -
@@ -16446,6 +16462,10 @@ async function setRarity(rec,w){
   /* Against the EFFECTIVE stored value, so a record with no rarity field at
      all is already 1 and setting it to 1 writes nothing. Comparing
      traitWeight alone would have called every no-op a change. */
+  /* THE RECORD AS STORED (patch593). A card drawn before a group send
+     landed carries the row id that send replaced, and the PATCH by it
+     matched nothing. */
+  { let s=null; try{ s=await dbGet(rec.id); }catch(_){ s=null; } if(s&&s.kind===rec.kind) rec=s; }
   const cur = typeof rec.rarity==="number" ? rec.rarity : RAR_UNSET;
   if(cur===v) return false;
   const next={...rec, rarity:v};
@@ -19096,6 +19116,10 @@ async function goneForget(keys){
   try{ await dbPut({id:GONE_ID, kind:"settings", rows:list, at:Date.now()}); }catch(_){}
 }
 async function dbDelShared(rec){
+  /* THE ROW ID THE STORE HOLDS (patch593). A card drawn before a group
+     send landed carries the id that send replaced; the delete by it
+     matched nothing and the trait came back on the next load. */
+  { let s=null; try{ s=await dbGet(rec.id); }catch(_){ s=null; } if(s&&s.kind===rec.kind) rec=s; }
   /* Or the character preview keeps compositing a trait that is gone. */
   try{ cBitmapDrop(rec.id); }catch(_){}
   /* Returns what actually happened, so the message can be honest: "removed"

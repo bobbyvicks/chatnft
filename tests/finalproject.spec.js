@@ -129,7 +129,11 @@ test.describe('the final project page', () => {
     });
     expect(out.before, 'nothing is drawn while it is shut').toBe(0);
     expect(out.after, 'and both of that layer are there once it is open').toBe(2);
-    expect(out.labels).toEqual(['add', 'add']);
+    /* SUPERSEDED (patch592): this was ['add', 'add'] - an add-from tile was
+       a picture and an Add button. Asked for since: "i want the fix button to
+       be available to press from the "add from" traits". Each tile now has
+       its Add and its fix; the order says Add is still the first button. */
+    expect(out.labels).toEqual(['add', 'fix', 'add', 'fix']);
   });
 
   test('ADDING A TRAIT PUTS IT IN, AND IT IS STILL IN AFTER A RELOAD',

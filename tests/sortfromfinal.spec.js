@@ -301,6 +301,13 @@ test.describe('sorting traits into layers from the final project page', () => {
        skins already holds an stfp trait called tan, and so does unsorted after
        this - a batch import landing a name the project already uses is exactly
        how unsorted fills up. planShelfMove refuses on name+layer+status. */
+    /* SUPERSEDED (patch592): that clash was the refusal this test used, and
+       in the final project it is no longer one - asked for, "allow me to put
+       duplicate nemed things in the STFP", so the move now keeps both as
+       "tan (2)" (tests/finalkeepsboth.spec.js). The refusal here is now the
+       other one commitShelfMove has: a move while the last one is still
+       running. What is tested is unchanged - a refused move snaps the control
+       back and says why. */
     await page.evaluate(async () => {
       const c = document.createElement('canvas'); c.width = 16; c.height = 16;
       c.getContext('2d').fillRect(0, 0, 16, 16);
@@ -319,12 +326,14 @@ test.describe('sorting traits into layers from the final project page', () => {
           .textContent.startsWith('unsorted'));
       if (!item) throw new Error('no unsorted tan tile');
       const sel = item.querySelector('select.fslayer');
+      shelfMoveBusy = true;
       sel.value = 'skins';
       sel.dispatchEvent(new Event('change', { bubbles: true }));
     });
     await page.waitForTimeout(900);
     const after = await page.evaluate(() => {
       if (window.__realToast) window.toast = window.__realToast;
+      shelfMoveBusy = false;
       const item = [...document.querySelectorAll('#finallayers .item')]
         .find(i => i.title === 'tan' && i.closest('.layer').querySelector('h3')
           .textContent.startsWith('unsorted'));
@@ -335,7 +344,7 @@ test.describe('sorting traits into layers from the final project page', () => {
     expect(where.tan.sort(), 'neither copy moved').toEqual(['skins', 'unsorted']);
     expect(after.shows, 'and the control says where the trait actually is')
       .toBe('unsorted');
-    expect(after.said, 'having said why').toMatch(/already has this trait/i);
+    expect(after.said, 'having said why').toMatch(/still moving/i);
   });
 
   test('ARROWING THROUGH THE LIST MAKES ONE MOVE, TO WHERE IT STOPPED',

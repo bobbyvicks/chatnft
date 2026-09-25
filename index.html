@@ -4393,9 +4393,25 @@ async function commitShelfMove(spec){
   catch(_){ toast('Could not read the project'); return false; }
   /* Read BEFORE the plan, which hands back records already carrying the
      destination layer - so afterwards there is nothing left to compare. */
-  const moving=items.find(i=>shelfCore.recordKey(i)===String(spec&&spec.recordKey||""));
+  let moving=items.find(i=>shelfCore.recordKey(i)===String(spec&&spec.recordKey||""));
   const originalLayer=moving?moving.layer:null;
-  const plan=shelfCore.planShelfMove(items,spec);
+  let plan=shelfCore.planShelfMove(items,spec);
+  /* IN THE FINAL PROJECT BOTH ARE KEPT (patch592). Renamed where it is
+     first, through setTraitStatus, then moved as itself: the move reaches
+     the group as a layer change by row id, which carries no name. */
+  let keptAs=null;
+  if(!plan.ok && plan.reason==='duplicate' && moving && String(moving.status||"wip")===FINAL_KEEPS_BOTH){
+    const free=await finalFreeName(moving.name,[moving.layer,spec.toLayer],moving.id);
+    const rr=free ? await setTraitStatus(moving,moving.status,free) : {ok:false};
+    if(rr.ok){
+      keptAs=free;
+      try{ items=await dbAll(); }catch(_){ toast('Could not read the project'); return false; }
+      let now=null; try{ now=await dbGet(rr.moved.id); }catch(_){ now=null; }
+      moving=now;
+      spec=Object.assign({},spec,{recordKey:now?shelfCore.recordKey(now):""});
+      plan=shelfCore.planShelfMove(items,spec);
+    }
+  }
   if(!plan.ok){
 
     toast(plan.reason==='duplicate'
@@ -4463,7 +4479,7 @@ async function commitShelfMove(spec){
   const crossed=plan.destinationLayer!==originalLayer;
   toast(crossed
     ? 'Moved '+(plan.movedName||'the trait')+' to '+plan.destinationLayer
-      +(activeWs?' for the group':'')
+      +(activeWs?' for the group':'')+keptBothWords(keptAs)
     : (activeWs?'Order saved for the group':'Order saved'));
   return true;
   }finally{ shelfMoveBusy=false; }
@@ -4505,9 +4521,12 @@ let shelfPick=new Set();
    RETURNS rather than says. The shelf tile and the final-set page want to
    report different things about the same event, and a function that toasts
    is a function only one of them can use. */
-async function setTraitStatus(t,next){
+/* asName (patch592): the same move under a new name, which is how a layer
+   move into a final-project layer that has one of this name renames the
+   trait where it is before moving it. */
+async function setTraitStatus(t,next,asName){
   if(!t||!next) return {ok:false};
-  if(String(t.status||"wip")===String(next)) return {ok:true, moved:t, shared:null, same:true};
+  if(String(t.status||"wip")===String(next) && !asName) return {ok:true, moved:t, shared:null, same:true};
   /* THE RECORD AS IT IS, NOT AS THE CARD WAS DRAWN. Another tab may have
      moved it since: a press on the stale card deleted an id that was
      already gone and wrote the trait a second time (measured - the store
@@ -4517,13 +4536,25 @@ async function setTraitStatus(t,next){
     if(!now || String(now.status||"wip")!==String(t.status||"wip") || (now.layer||"")!==(t.layer||"")
        || now.name!==t.name) return {ok:false, stale:true};
   }
-  const moved={...t, id:"t_"+t.name+"_"+t.layer+"_"+next, status:next};
+  let moved={...t, id:"t_"+(asName||t.name)+"_"+t.layer+"_"+next, status:next, name:asName||t.name};
+  let renamed=asName||null;
   /* REFUSE, do not overwrite. This used to dbDel the old record and dbPut
      over whatever held the new id, destroying its artwork and rarity and
      reporting success. planShelfMove already refuses a clash and names it;
      this does the same rather than renaming, because the person is setting a
      status deliberately and gold-2 is not what they asked for. */
-  if(await idHolder(moved.id,t.id)) return {ok:false, clash:true};
+  /* SUPERSEDED FOR THE FINAL PROJECT (patch592): "gold-2 is not what they
+     asked for" held until they asked for it - "allow me to put duplicate
+     nemed things in the STFP so i can compare". Arriving in the final
+     project beside one of the same name and layer, the trait is kept as
+     "Name (2)". Every other status still refuses, for the reason above. */
+  if(await idHolder(moved.id,t.id)){
+    if(String(next)!==FINAL_KEEPS_BOTH || asName) return {ok:false, clash:true};
+    const free=await finalFreeName(t.name,[t.layer],t.id);
+    if(!free) return {ok:false, clash:true};
+    moved={...t, id:"t_"+free+"_"+t.layer+"_"+next, status:next, name:free};
+    renamed=free;
+  }
   const visibility=currentShelfVisibility();
   const key=shelfCore.recordKey(t);
   await dbDel(t.id);
@@ -4535,6 +4566,8 @@ async function setTraitStatus(t,next){
   /* And the unsaved work, which used to be the one id-keyed thing this did
      not carry - the line above has always carried the other. */
   await draftsFollow([{from:t.id, to:moved.id}]);
+  /* A new name is a new layer/name, which is what a rule holds. */
+  if(renamed) await carryRules(traitKey(t),traitKey(moved));
   /* Filled by the upload when it fails, so the tile and the final-set
      page can each say WHICH failure it was. */
   const why={};
@@ -4577,7 +4610,7 @@ async function setTraitStatus(t,next){
       pickTransfer(movedKey,freshKey);
     }
   }
-  return {ok:true, moved, shared, why};
+  return {ok:true, moved, shared, why, renamed};
 }
 /* EVERY PICKED TRAIT TO ONE STATUS. Through setTraitStatus, one at a time,
    because it is the path the chip and the final page take and it carries
@@ -4590,6 +4623,7 @@ async function bulkSetStatus(next){
   if(!keys.length){ toast("Pick some traits first"); return; }
   shelfMoveBusy=true;
   let changed=0, same=0, stale=0, notShared=0;
+  const kept=[];
   const clash=[];
   try{
     let items=[];
@@ -4602,7 +4636,7 @@ async function bulkSetStatus(next){
       if(r.same) same++;
       else if(r.clash) clash.push(t.name);
       else if(r.stale) stale++;
-      else if(r.ok){ changed++; if(activeWs && !r.shared) notShared++; }
+      else if(r.ok){ changed++; if(r.renamed) kept.push(r.renamed); if(activeWs && !r.shared) notShared++; }
       done++;
       if(done%10===0){ const c=$("shelfpickcount"); if(c) c.textContent="Setting "+done+" of "+keys.length+"..."; }
     }
@@ -4612,6 +4646,8 @@ async function bulkSetStatus(next){
     if(clash.length) bits.push(clash.length+" left alone - "+next+" copies already exist: "+clash.slice(0,4).join(", ")
       +(clash.length>4?" and "+(clash.length-4)+" more":""));
     if(stale) bits.push(stale+" changed in another tab and left alone");
+    if(kept.length) bits.push(kept.length+" kept beside one of the same name: "+kept.slice(0,4).join(", ")
+      +(kept.length>4?" and "+(kept.length-4)+" more":""));
     if(notShared) bits.push(notShared+" here only - press Save to cloud");
     toast(bits.join("; "));
   }finally{ shelfMoveBusy=false; shelfPickPaint(); }
@@ -4724,6 +4760,7 @@ async function bulkMoveToLayer(toLayer){
        and whatever is not, does not. */
     let working=items.slice();
     const refused=[];
+    const keptBoth=[];
     /* Every id a plan retires, paired with the id that replaces it, so the
        hidden set can follow the traits across the move. */
     const transfers=[];
@@ -4734,7 +4771,22 @@ async function bulkMoveToLayer(toLayer){
       const rec=working.find(i=>shelfCore.recordKey(i)===key);
       if(!rec){ continue; }
       if(rec.layer===toLayer){ continue; }
-      const plan=shelfCore.planShelfMove(working,{recordKey:key,toLayer,beforeKey:null});
+      let plan=shelfCore.planShelfMove(working,{recordKey:key,toLayer,beforeKey:null});
+      /* The final project keeps both (patch592): renamed where it is, then
+         planned as itself. The renamed record replaces the old one in both
+         lists, so the diff below neither deletes nor re-creates it. */
+      if(!plan.ok && plan.reason==="duplicate" && String(rec.status||"wip")===FINAL_KEEPS_BOTH){
+        const free=await finalFreeName(rec.name,[rec.layer,toLayer],rec.id);
+        const rr=free ? await setTraitStatus(rec,rec.status,free) : {ok:false};
+        let now=null;
+        if(rr.ok){ try{ now=await dbGet(rr.moved.id); }catch(_){ now=null; } }
+        if(now){
+          working=working.filter(i=>i.id!==rec.id).concat([now]);
+          items=items.filter(i=>i.id!==rec.id).concat([now]);
+          keptBoth.push(free);
+          plan=shelfCore.planShelfMove(working,{recordKey:shelfCore.recordKey(now),toLayer,beforeKey:null});
+        }
+      }
       if(!plan.ok){ refused.push({name:rec.name,reason:plan.reason}); continue; }
       for(const u of plan.updates) transfers.push({from:u.oldKey,to:shelfCore.recordKey(u.record)});
       /* Ids rather than record keys, because a draft is filed under the id.
@@ -4782,7 +4834,9 @@ async function bulkMoveToLayer(toLayer){
     const shared=await cloudSaveShelfPlan(updates.map(r=>({record:r})));
     const tail = refused.length ? "  "+refusalLine(refused) : "";
     toast("Moved "+moved+" trait"+(moved===1?"":"s")+" to "+toLayer
-      +(shared&&shared.ok===false ? " here only - the group did not get it" : "")+tail);
+      +(shared&&shared.ok===false ? " here only - the group did not get it" : "")
+      +(keptBoth.length ? " - "+keptBoth.length+" kept beside one of the same name: "+keptBoth.slice(0,4).join(", ")
+        +(keptBoth.length>4?" and "+(keptBoth.length-4)+" more":"") : "")+tail);
   } finally { shelfMoveBusy=false; }
 }
 /* Named, not counted. "4 could not move" sends someone hunting; naming them
@@ -4958,6 +5012,66 @@ async function duplicateTrait(t){
    is to be believed. Derived from the word rather than hardcoded to the three
    statuses that exist today. */
 const article=(w)=>("aeiou".indexOf(String(w).charAt(0).toLowerCase())>=0?"an ":"a ")+w;
+/* THE FINAL PROJECT KEEPS BOTH (patch592). Asked for: "allow me to put
+   duplicate nemed things in the STFP so i can compare and chose from the 2
+   traits". Name, layer and status are the id, the picture's file name and
+   the server's identity, so two of one name cannot both be "X": the one
+   arriving is "X (2)", or the next number free. Only this status - every
+   other one still refuses a clash. */
+const FINAL_KEEPS_BOTH="stfp";
+/* "X (2)" colliding again is "X (3)", not "X (2) (2)". */
+function copyNameBase(name){ return String(name||"").replace(/ \(\d+\)$/,""); }
+/* Free in the final project in every one of `layers` - a layer move
+   renames where the trait is and then moves it, so the name has to be free
+   at both ends. exceptId is the record being renamed. */
+async function finalFreeName(name,layers,exceptId){
+  const base=copyNameBase(name);
+  for(let n=2;n<10000;n++){
+    const cand=base+" ("+n+")";
+    let taken=false;
+    for(const l of (layers||[])){
+      if(await idHolder("t_"+cand+"_"+l+"_"+FINAL_KEEPS_BOTH,exceptId)){ taken=true; break; }
+    }
+    if(!taken) return cand;
+  }
+  return null;
+}
+/* THE RULES OF THE NAME IT HAD, FOR THE COPY. A copy in the final project is
+   a finished alternative; with no rules it could be generated beside a
+   trait it must never appear with. Every rule naming the old key gains the
+   new one, and every answer about the old key is given again about the new
+   one - answers first, because applyDecision rebuilds rules from them. */
+function copyRules(fromKey,toKey){
+  if(!fromKey||!toKey||fromKey===toKey) return 0;
+  let n=0;
+  const add=[];
+  for(const d of DECISIONS){
+    if(d.a!==fromKey&&d.b!==fromKey) continue;
+    const na=d.a===fromKey?toKey:d.a, nb=d.b===fromKey?toKey:d.b;
+    if(na===nb) continue;
+    add.push({a:na,b:nb,ok:d.ok,at:d.at,by:d.by,src:d.src});
+  }
+  if(add.length){ DECISIONS=mergeDecisions(DECISIONS.concat(add),[]); n+=add.length; }
+  const next=[];
+  let grew=0;
+  for(const g of RULES){
+    if(g.indexOf(fromKey)>=0&&g.indexOf(toKey)<0){ next.push(ruleGroup(g.concat([toKey]))); grew++; }
+    else next.push(g);
+  }
+  if(grew){ RULES=next; n+=grew; }
+  return n;
+}
+/* A copy when another trait still answers to the old name, a move when
+   none does - which is what a rename has always done (retargetRules). */
+async function carryRules(fromKey,toKey){
+  if(!fromKey||!toKey||fromKey===toKey) return;
+  let still=true;
+  try{ still=(await dbAll()).some(i=>i&&i.kind==="trait"&&traitKey(i)===fromKey); }catch(_){ still=true; }
+  if(still){ if(copyRules(fromKey,toKey)) await saveRules(); }
+  else await retargetRules([{from:fromKey,to:toKey}]);
+}
+/* What each gesture adds to its own sentence when it kept both. */
+function keptBothWords(name){ return name ? " - one of that name was already there, so both are kept and this one is "+name : ""; }
 async function idHolder(id,exceptId){
   if(!id||id===exceptId) return null;
   /* The one record, by its key - this read every record in the project
@@ -5480,7 +5594,7 @@ async function renderShelf(viewOnly){
            still said "hat -> approved". */
         toast((activeWs && !r.shared
           ? t.name+' -> '+next+' here only - '+cloudWhyNot(r.why)
-          : t.name+' -> '+next)+cloudAlsoOld(r.why)); };
+          : t.name+' -> '+next)+keptBothWords(r.renamed)+cloudAlsoOld(r.why)); };
       el.appendChild(cyc);
       const dup=document.createElement('button');
       dup.className='dup'; dup.textContent='copy';
@@ -5916,7 +6030,7 @@ function saveTrait(){
 }
 async function saveTraitNow(){
   if(!ctx) return;
-  const name=($('tname').value.trim()||fileName.replace(/\.png$/,'')||'trait').slice(0,60);
+  let name=($('tname').value.trim()||fileName.replace(/\.png$/,'')||'trait').slice(0,60);
   const layer=$('tlayer').value||'unsorted';
   const edge={};
   const c=saveCanvas(edge);
@@ -5948,7 +6062,7 @@ async function saveTraitNow(){
         +" set to black by the collection's border rule"
       : "";
     const status=chipVal('tstatus')||'wip';
-    const id='t_'+name+'_'+layer+'_'+status;
+    let id='t_'+name+'_'+layer+'_'+status;
     let shelfItems=[];
     try{ shelfItems=await dbAll(); }catch(_){}
     const rec={id:id, kind:'trait', name, layer, status, blob,
@@ -5970,16 +6084,25 @@ async function saveTraitNow(){
     }
     /* Captured before anything reassigns it. */
     const openWas = openRec;
-    const moved = openWas && openWas.id!==id;
     /* Same shape as the status chip: renaming an open trait onto a name that
        already exists in this layer and status would overwrite it. openRec is
        the record being edited, so saving it back over itself is not a clash. */
     const clash=await idHolder(id, openRec&&openRec.id);
-    if(clash){
+    /* The final project keeps both (patch592): saved as "Name (2)", and the
+       name field says so. */
+    let keptAs=null;
+    if(clash && status===FINAL_KEEPS_BOTH){
+      const free=await finalFreeName(name,[layer],openRec&&openRec.id);
+      if(free){ keptAs=free; name=free; id='t_'+free+'_'+layer+'_'+status; rec.name=free; rec.id=id;
+        try{ $('tname').value=free; }catch(_){ } }
+    }
+    if(clash && !keptAs){
       toast("There is already "+article(status)+" "+name+" in "+layer
         +" - pick another name, or open that one to change it");
       return false;
     }
+    /* After the clash, which can give the trait a new id. */
+    const moved = openWas && openWas.id!==id;
     await dbPut(rec);
     /* THE ONE MOMENT A TRAIT'S PIXELS CHANGE, which is why the check lives
        here and not in a render. Sweeping 317 traits means decoding 317 PNGs
@@ -6024,7 +6147,10 @@ async function saveTraitNow(){
       /* And the rules, which name a trait by layer/name. `moved` is also true
          for a status-only change, where the traitKey does not move at all -
          retargetRules ignores a pair whose ends are equal. */
-      await retargetRules([{from:traitKey(openWas), to:traitKey(rec)}]);
+      /* A kept copy takes the rules as a copy while another trait still
+         answers to its old name (patch592). */
+      if(keptAs) await carryRules(traitKey(openWas), traitKey(rec));
+      else await retargetRules([{from:traitKey(openWas), to:traitKey(rec)}]);
     }
     /* The character preview decodes each trait once and keeps it forever, so
        without this it goes on compositing the version from before the edit.
@@ -6059,10 +6185,10 @@ async function saveTraitNow(){
          the group stays unmarked, and the reconcile below will not remove it -
          losing work because the network blinked would be worse than the stale
          copy it is meant to clean up. */
-      toast((shared ? "Saved "+name+" and shared it with the group"
+      toast((shared ? "Saved "+name+" and shared it with the group"+keptBothWords(keptAs)
         : "Saved "+name+" here only - "+cloudWhyNot(why))+cloudAlsoOld(why)+offGrid+edged);
     } else {
-      toast('Saved '+name+' to '+layer+'/'+status+offGrid+edged);
+      toast('Saved '+name+' to '+layer+'/'+status+keptBothWords(keptAs)+offGrid+edged);
     }
     return true;
   }catch(e){ toast('Could not save: '+(storeFull(e) ? STORE_FULL+' - Download it to keep it, then free some space'
@@ -25554,9 +25680,12 @@ function finalTile(t,label,note,press){
      same corner and the same touch size - and a double-click on the
      tile to open it in the editor. A double-click on a control in the
      tile belongs to the control. */
-  /* Only on a trait IN the final project, as asked: the "add from" folds
-     hold candidates, and their tiles stay a picture and an Add button. */
-  if(String(t.status||"wip")==="stfp"){
+  /* SUPERSEDED (patch592): "Only on a trait IN the final project, as asked:
+     the "add from" folds hold candidates, and their tiles stay a picture
+     and an Add button." Then asked: "i want the fix button to be available
+     to press from the "add from" traits so i can work on the traits i want
+     to add directly". On every tile now, and the double-click with it. */
+  {
   const fx=document.createElement("button"); fx.className="fx"; fx.type="button";
   fx.textContent="fix";
   fx.title="Send "+t.name+" to Fix pixels";
@@ -25662,7 +25791,7 @@ async function finalMove(t,next){
   await renderFinal();
   shelfBehind();
   /* Said the same way the shelf says it, because it is the same event. */
-  const what=t.name+(next==="stfp"?" is in the final project":" is out of the final project");
+  const what=t.name+(next==="stfp"?" is in the final project":" is out of the final project")+keptBothWords(r.renamed);
   /* r.same, because setTraitStatus returns early with shared:null when the
      status is already the one asked for - and "here only" on a change that
      never happened is a warning about a send nobody attempted. */

@@ -1,0 +1,23 @@
+-- One project per team.
+--
+-- The page looked a team's project up with "limit=1" and no order, and
+-- made a new one whenever that lookup did not come back with a row,
+-- including when it was refused (a 401 right after a token refresh). One
+-- team was given two extra projects that way (09-22 and 09-23). Which of
+-- the three the page then used changed whenever one of them was updated,
+-- and on 09-24 a page load deleted a device's traits against the wrong one
+-- (see 45a2bd3, which fixes the page: an ordered lookup, no project made on
+-- an error, and pictures looked for in their own folder).
+--
+-- Applied 2026-09-25 12:1x UTC, in the same transaction as the one-off
+-- repair of that team: its 19 traits in the extra project were moved into
+-- the original (ids and picture paths unchanged; none shared a name, layer
+-- and status with a trait already there), and the two extra projects -
+-- empty after the move, with the same layers, rules and review answers as
+-- the original - were removed. Read back after: the team has one project
+-- with 448 traits, every one with its picture, and no team has two.
+--
+-- With this index a second project for a team is refused by the database
+-- whichever client asks; the page then reports that it could not open the
+-- collection instead of starting a new one.
+create unique index if not exists collections_one_per_team on public.collections (team_id);

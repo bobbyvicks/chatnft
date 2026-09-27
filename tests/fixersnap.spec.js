@@ -68,6 +68,16 @@ const setSnap = (page, on) => page.evaluate((v) => {
   return b.checked;
 }, on);
 
+/* PIXEL SIZE 0 - WORK IT OUT. The box starts at 16 since 2026-09-27 ("id
+   rather default be 16 now pls"), and a size beats every work-it-out path.
+   The tests that call this are about one of those paths, so they ask for it
+   the way a person would: type 0. The input event redraws the Snap switch,
+   which is greyed out while a size is set. */
+const workItOut = (page) => page.evaluate(() => {
+  const f = document.getElementById('fixforce');
+  f.disabled = false; f.value = '0'; f.dispatchEvent(new Event('input', { bubbles: true }));
+});
+
 /* How many grid squares of the saved canvas hold more than one colour. This
    is what "on the grid" means, and a cell count that merely divides the
    canvas does not imply it. */
@@ -121,14 +131,26 @@ test('the switch is on, and names the grid it snaps to', async ({ page }) => {
     on: document.getElementById('fixsnap').checked,
     label: document.getElementById('fixsnaplab').textContent,
     grid: projectGrid,
+    box: document.getElementById('fixforce').value,
+    greyed: document.getElementById('fixsnap').disabled,
+    snapping: fixSnapping(),
   }));
-  expect(r.on, 'on by default - it is the stated workflow').toBe(true);
+  /* SUPERSEDES "on by default - it is the stated workflow" (2026-09-27). The
+     Pixel size box starts at 16 and a size beats the snap, so on a fresh page
+     the switch is still ticked but greyed out, and snaps nothing - said on
+     the switch rather than left looking live. A size of 0 is what makes it
+     snap, which the tests below do. */
+  expect(r.on, 'still ticked, so a size of 0 snaps').toBe(true);
+  expect(r.box, 'the box starts at 16').toBe('16');
+  expect(r.greyed, 'greyed out while a size is set').toBe(true);
+  expect(r.snapping, 'and snapping nothing then').toBe(false);
   expect(r.grid).toBe(160);
   expect(r.label).toBe('Snap to the 160 cell grid');
 });
 
 test('SNAPPED, EVERY BLOCK OF THE GRID THE PICTURE IS ON IS ONE COLOUR', async ({ page }) => {
   await ready(page);
+  await workItOut(page);
   await load(page);
   await setSnap(page, true);
   await page.evaluate(() => fixRun());
@@ -198,15 +220,30 @@ test('EVERY SOURCE SIZE COMES OUT ON A WHOLE GRID AT 1280', async ({ page }) => 
      divisible by 5, so there is no grid to measure and both fall back to the
      declared 160 - which is the fallback doing its job, and the reason it
      was kept. */
-  const got = [];
-  for (const W of [1280, 1254, 1024]) {
-    await load(page, W, 5);
-    await setSnap(page, true);
-    await page.evaluate(() => fixRun());
-    const r = await impure(page);
-    got.push(W + ': ' + r.cells + ' blocks=' + r.N + ' mixed=' + r.bad
-      + ' saved=' + r.saved);
-  }
+  const run = async () => {
+    const got = [];
+    for (const W of [1280, 1254, 1024]) {
+      await load(page, W, 5);
+      await setSnap(page, true);
+      await page.evaluate(() => fixRun());
+      const r = await impure(page);
+      got.push(W + ': ' + r.cells + ' blocks=' + r.N + ' mixed=' + r.bad
+        + ' saved=' + r.saved);
+    }
+    return got;
+  };
+  /* AT THE DEFAULT FIRST (2026-09-27): the box starts at 16, so every source
+     is cut to the 80 cells 16 means - and the property this test names has to
+     hold there too: 1280 square, a count that divides 1280, every block one
+     colour. */
+  expect(await run(), 'at the box\'s 16').toEqual([
+    '1280: 80x80 blocks=16 mixed=0 saved=1280x1280',
+    '1254: 80x80 blocks=16 mixed=0 saved=1280x1280',
+    '1024: 80x80 blocks=16 mixed=0 saved=1280x1280',
+  ]);
+  /* AND WORKED OUT, which is what the snap does with the size at 0. */
+  await workItOut(page);
+  const got = await run();
   expect(got).toEqual([
     '1280: 256x256 blocks=5 mixed=0 saved=1280x1280',
     '1254: 160x160 blocks=8 mixed=0 saved=1280x1280',
@@ -221,6 +258,8 @@ test('the batch takes the step per file, not once for all of them', async ({ pag
      in a run of 1280s would be fixed at the wrong step. */
   const r = await page.evaluate(async () => {
     document.getElementById('fixsnap').checked = true;
+    /* Size 0, so the per-file step is the SNAP's - the box starts at 16. */
+    { const f = document.getElementById('fixforce'); f.disabled = false; f.value = '0'; f.dispatchEvent(new Event('input', { bubbles: true })); }
     const files = [];
     for (const W of [1280, 1254, 1024]) {
       const c = document.createElement('canvas'); c.width = W; c.height = W;
@@ -246,6 +285,8 @@ test('THE PIXEL SIZE BOX DECIDES, SNAP OR NO SNAP', async ({ page }) => {
   await ready(page);
   await load(page);
   await setSnap(page, true);
+  /* The readout half below is the worked-out answer; the box starts at 16. */
+  await workItOut(page);
   /* REVERSED. This was called "the pixel size box stops pretending it decides
      anything" and asserted it is greyed out while the snap is on, for the
      honest reason that "a live box that changes no answer is a control that
@@ -264,7 +305,10 @@ test('THE PIXEL SIZE BOX DECIDES, SNAP OR NO SNAP', async ({ page }) => {
     hint: (fixSizeHint(), document.getElementById('fixsize').textContent),
   }));
   expect(on.disabled, 'live, because it changes the answer').toBe(false);
-  expect(on.title, 'and says so').toContain('even with Snap on');
+  /* SUPERSEDES 'even with Snap on' (2026-09-27): a number still decides, and
+     now the Snap switch is greyed out while one is set, so the words say that
+     instead of describing a switch that no longer looks on. */
+  expect(on.title, 'and says so').toContain('A number here decides, and Snap is not used while one is set');
   /* WAS 160x160 and x8. The readout asks the run now, and the run measures
      the picture - this fixture is 5px art, which is 256 cells. */
   expect(on.hint).toContain('256×256 pixels');
@@ -280,6 +324,9 @@ test('a grid that cannot divide the canvas is said, not faked', async ({ page })
   await load(page);
   const said = await page.evaluate(() => {
     projectGrid = 150;
+    /* Size 0: the grid's own warning is what is tested, and a size (the box
+       starts at 16) decides without the grid, so it would never be given. */
+    document.getElementById('fixforce').value = '0';
     document.getElementById('fixsnap').checked = true;
     fixModeUI();
     fixSizeHint();
@@ -300,9 +347,18 @@ test('snapping is off in scale only, where nothing is detected at all', async ({
     const s = document.getElementById('fixmode');
     s.value = 'scale';
     s.dispatchEvent(new Event('change', { bubbles: true }));
-    return { snapping: fixSnapping(), step: fixStepFor(1280) };
+    const sn = document.getElementById('fixsnap');
+    const atDefault = { box: document.getElementById('fixforce').value, snapping: fixSnapping(), greyed: sn.disabled };
+    /* And with the size at 0, so what stops it below is scale only ALONE -
+       at the box's 16 a size would stop it too, and could not be told apart. */
+    const f = document.getElementById('fixforce'); f.value = '0'; f.dispatchEvent(new Event('input', { bubbles: true }));
+    return { atDefault, snapping: fixSnapping(), step: fixStepFor(1280), greyed: sn.disabled };
   });
+  expect(r.atDefault.box).toBe('16');
+  expect(r.atDefault.snapping).toBe(false);
+  expect(r.atDefault.greyed, 'and the switch is greyed out, saying so').toBe(true);
   /* Scale only never reaches the engine, so there is no step to force. */
   expect(r.snapping).toBe(false);
+  expect(r.greyed, 'still greyed out at 0: scale only does that by itself').toBe(true);
   expect(r.step).toBe(0);
 });

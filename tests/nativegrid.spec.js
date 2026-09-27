@@ -266,6 +266,9 @@ test('A MEASUREMENT DOES NOT OUTLIVE THE RUN THAT MADE IT', async ({ page }) => 
     const b = await new Promise(res => c.toBlob(res, 'image/png'));
     c.width = 1; c.height = 1;
     showPage('fixer', false);
+    /* Size 0 for the MEASURED first run - the box starts at 16 since
+       2026-09-27, and a size is never a measurement. */
+    { const f = document.getElementById('fixforce'); f.disabled = false; f.value = '0'; f.dispatchEvent(new Event('input', { bubbles: true })); }
     await fixLoad(new File([b], 'trait.png', { type: 'image/png' }));
     const sn = document.getElementById('fixsnap');
     sn.checked = true; sn.dispatchEvent(new Event('change', { bubbles: true }));

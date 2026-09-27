@@ -51,6 +51,11 @@ test('A NUDGED BRUSH DOES NOT FOLLOW YOU TO THE NEXT TRAIT', async ({ page }) =>
   const r = await page.evaluate(async (srcs) => {
     try { authed = true; } catch (_) {}
     gateShow(false);
+    /* PIXEL SIZE 0: the two sizes this test follows between traits are what
+       working it out gives each of them. The box starts at 16 since
+       2026-09-27, which would put both on 80 cells - one size, nothing for a
+       nudge to follow or not follow. */
+    { const f = document.getElementById('fixforce'); f.disabled = false; f.value = '0'; f.dispatchEvent(new Event('input', { bubbles: true })); }
     // eslint-disable-next-line no-new-func
     const mk = (s) => new Function('return (' + s + ')')();
     const snap = () => ({ block: gridBlock,

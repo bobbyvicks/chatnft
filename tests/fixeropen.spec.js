@@ -33,6 +33,10 @@ const fix = (page, on) => page.evaluate(async (grid) => {
   }
   const b = await new Promise(r => c.toBlob(r, 'image/png'));
   c.width = 1; c.height = 1;
+  /* PIXEL SIZE 0. This fixture is 8px art on 1280, and every sentence in this
+     file is about the 1280 switch on the measured answer, 160 cells. The box
+     starts at 16 since 2026-09-27, which would merge it to 80. */
+  { const f = document.getElementById('fixforce'); f.disabled = false; f.value = '0'; f.dispatchEvent(new Event('input', { bubbles: true })); }
   await fixLoad(new File([b], 'trait.png', { type: 'image/png' }));
   document.getElementById('fixgrid').checked = grid;
   const out = await fixRun();

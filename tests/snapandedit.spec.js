@@ -136,6 +136,9 @@ test('the readout says it too, before anything runs', async ({ page }) => {
     c.width = 1; c.height = 1;
     document.getElementById('fixsnap').checked = true;
     document.getElementById('fixgrid').checked = true;
+    /* Size 0: the subject is the snap refusing a picture narrower than its
+       grid, and the box starts at 16 since 2026-09-27. */
+    { const f = document.getElementById('fixforce'); f.disabled = false; f.value = '0'; f.dispatchEvent(new Event('input', { bubbles: true })); }
     await fixLoad(new File([b], 'small.png', { type: 'image/png' }));
     fixSizeHint();
     return document.getElementById('fixsize').textContent;
@@ -153,6 +156,9 @@ test('OPENING IN THE EDITOR KEEPS THE BRUSH ON THE GRID', async ({ page }) => {
     c.width = 1; c.height = 1;
     await fixLoad(new File([b], 'trait.png', { type: 'image/png' }));
     document.getElementById('fixgrid').checked = true;
+    /* Size 0: the measured 8px blocks, 160 cells - the brush reasoning below.
+       The box starts at 16 since 2026-09-27, which would merge them to 80. */
+    { const f = document.getElementById('fixforce'); f.disabled = false; f.value = '0'; f.dispatchEvent(new Event('input', { bubbles: true })); }
     const out = await fixRun();
     fixOpen();
     await new Promise(res => setTimeout(res, 250));
@@ -177,6 +183,8 @@ test('and a native-size open is still one pixel, as it always was', async ({ pag
     c.width = 1; c.height = 1;
     await fixLoad(new File([b], 'trait.png', { type: 'image/png' }));
     document.getElementById('fixgrid').checked = false;
+    /* The control runs the same pipeline as its partner above, switch aside. */
+    { const f = document.getElementById('fixforce'); f.disabled = false; f.value = '0'; f.dispatchEvent(new Event('input', { bubbles: true })); }
     await fixRun();
     fixOpen();
     await new Promise(res => setTimeout(res, 250));

@@ -95,16 +95,20 @@ test('and the box is live again, because it decides something', async ({ page })
       sn.checked = snap; sn.dispatchEvent(new Event('change', { bubbles: true }));
       return document.getElementById('fixforce').disabled;
     };
-    const snapOn = at(true), snapOff = at(false);
+    /* Size 0 first: "live while snapping" has to be measured WHILE snapping,
+       and the box starts at 16 since 2026-09-27, which stops the snap. */
+    { const f = document.getElementById('fixforce'); f.disabled = false; f.value = '0'; f.dispatchEvent(new Event('input', { bubbles: true })); }
+    const snapOn = at(true), snappingThen = fixSnapping(), snapOff = at(false);
     const s = document.getElementById('fixmode');
     s.value = 'scale'; s.dispatchEvent(new Event('change', { bubbles: true }));
     const scale = document.getElementById('fixforce').disabled;
-    return { snapOn, snapOff, scale,
+    return { snapOn, snappingThen, snapOff, scale,
       title: document.getElementById('fixforce').title };
   }, art(1280, 5, 'fives.png'));
   /* It was greyed out while the snap was on, for the honest reason that a
      live box changing no answer is a control that lies. It changes the
      answer now, so it is live. */
+  expect(r.snappingThen, 'and it really was snapping').toBe(true);
   expect(r.snapOn, 'live while snapping').toBe(false);
   expect(r.snapOff).toBe(false);
   /* SCALE ONLY STILL TURNS IT OFF, and that one is still true: there the

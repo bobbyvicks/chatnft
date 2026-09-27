@@ -55,6 +55,16 @@ const feed = (page, scale = 3, n = 16) => page.evaluate(async ({ scale, n }) => 
   return { w: big.width, h: big.height };
 }, { scale, n });
 
+/* PIXEL SIZE 0 - WORK IT OUT. The box starts at 16 since 2026-09-27 ("id
+   rather default be 16 now pls"), and a size beats every work-it-out path.
+   The tests that call this are about one of those paths, so they ask for it
+   the way a person would: type 0. The input event redraws the Snap switch,
+   which is greyed out while a size is set. */
+const workItOut = (page) => page.evaluate(() => {
+  const f = document.getElementById('fixforce');
+  f.disabled = false; f.value = '0'; f.dispatchEvent(new Event('input', { bubbles: true }));
+});
+
 const runFix = (page) => page.evaluate(async () => {
   const r = await fixRun();
   return r && { cols: r.cols, rows: r.rows, consensus: r.consensus,
@@ -147,6 +157,9 @@ test.describe('the Fix pixels tab', () => {
        <script type="text/plain"> the page never executes, so if the worker
        were not started this returns nothing at all. */
     await page.evaluate(() => showPage('fixer', false));
+    /* The measured native 16x16 is the subject; 16 in the box would keep
+       the 3px blocks as a size it cannot hold, and call it forced. */
+    await workItOut(page);
     await feed(page, 3, 16);
     const r = await runFix(page);
     expect(r, 'the run produced an answer').not.toBeNull();
@@ -202,6 +215,10 @@ test.describe('the Fix pixels tab', () => {
   test('OPENS THE RESULT IN THE EDITOR THE WAY A DROPPED FILE DOES',
     async ({ page }) => {
       await page.evaluate(() => { try { authed = true; } catch (_) {} gateShow(false); showPage('fixer', false); });
+      /* The rebuilt pixels at their own size, from the measurement - at the
+         box's 16 the same pixels come back only because 48px cannot hold 80
+         cells, which is a different reason. */
+      await workItOut(page);
       await feed(page, 3, 16);
       await runFix(page);
       /* SWITCH OFF, because this test is about opening the rebuilt pixels AT
@@ -262,7 +279,9 @@ test.describe('the Fix pixels tab', () => {
       const bg = big.getContext('2d'); bg.imageSmoothingEnabled = false;
       bg.drawImage(c, 0, 0, n * scale, n * scale);
       const d = bg.getImageData(0, 0, big.width, big.height).data;
-      return PB.fix({ data: d, width: big.width, height: big.height, name: 'probe' });
+      /* forceStep 0: the same work-it-out run as the mouse test above. PB.fix
+         uses the box, which starts at 16 since 2026-09-27. */
+      return PB.fix({ data: d, width: big.width, height: big.height, name: 'probe', forceStep: 0 });
     });
     expect(r.ok).toBe(true);
     expect({ cols: r.cols, rows: r.rows }).toEqual({ cols: 16, rows: 16 });
@@ -308,6 +327,9 @@ test.describe('the Fix pixels tab', () => {
        is the tool working and finding the wrong answer, and it looks exactly
        like the tool not working. */
     await page.evaluate(() => showPage('fixer', false));
+    /* The case it is sure of is the MEASURED one; at the box's 16 this run
+       would be forced, which is the second half of this test. */
+    await workItOut(page);
     await feed(page, 3, 16);
     const sure = await page.evaluate(async () => {
       const r = await fixRun();
@@ -398,6 +420,9 @@ test.describe('the Fix pixels tab', () => {
       /* THE CONTROL. Advice on every run is noise, and noise on a good result
          is what teaches somebody to stop reading the line. */
       await page.evaluate(() => showPage('fixer', false));
+      /* THE CONTROL is a measured good result. At the box's 16 this run is
+         forced, and forced is exempt from the advice for a different reason. */
+      await workItOut(page);
       await feed(page, 3, 16);
       const r = await page.evaluate(async () => {
         const out = await fixRun();

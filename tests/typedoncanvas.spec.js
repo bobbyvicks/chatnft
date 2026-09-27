@@ -270,6 +270,11 @@ test.describe('the typed pixel size on the canvas', () => {
     expect(r.said, 'the one that could not take the size is named').toContain('1 narrower than the 128 cells that 12 means on 1280 and kept their own pixels');
     expect(r.said, 'the uneven one names its cause').toContain('12 cannot land on 1280 for them');
     expect(r.said).not.toContain('turn Snap on, or type a size');
-    expect(r.said, 'none of the three is on the 160 grid, and the note says so').toContain('3 not on the 160 cell grid');
+    /* SUPERSEDES 'none of the three is on the 160 grid, and the note says so'
+       (2026-09-27). That note counts files off the project's grid to inform a
+       default; while a size is set it is no longer given - the box starts at
+       16, and every default folder ended by calling all its files off-grid.
+       The file that could not take the size is still named, above. */
+    expect(r.said, 'no off-grid count while a size is set').not.toContain('not on the 160 cell grid');
   });
 });

@@ -1346,6 +1346,9 @@ input[type=range]{width:100%; accent-color:var(--accent); cursor:pointer;}
    that is its longest option - which is why flex:1 was not enough and the
    Change row hung 111px past the edge. */
 .olrow select{min-width:0;}
+/* A SWITCH THAT DECIDES NOTHING LOOKS IT. The checkbox alone greys to a few
+   pixels; its words stayed full contrast beside it. */
+.olrow input[type=checkbox]:disabled+span{opacity:.45;}
 .olchk{display:flex; align-items:center; gap:6px; font-size:12.5px; cursor:pointer;}
 .olchk input{accent-color:var(--good); cursor:pointer;}
 #bcur.tiny::after{content:""; position:absolute; inset:-4px; border-radius:3px;
@@ -1998,7 +2001,7 @@ footer .mono{color:var(--ink);}
        that has to share a screen now - and the drop zone below says the same
        thing in its own title. The measurement that sent them: 892px of panel
        at a 1078px viewport. -->
-  <h2 title="Turns fake pixel art - an upscale, an AI render, a blurred or off-grid sprite - into real pixel art at the size it was drawn at. Four independent detectors find the grid; each cell becomes one true pixel. the Retro Diffusion Pixel Art Fixer, running here. Nothing leaves your device.">Fix pixels</h2>
+  <h2 title="Turns fake pixel art - an upscale, an AI render, a blurred or off-grid sprite - into real pixel art: at the Pixel size in the box, which starts at 16, or - with the box at 0 - at the size it was drawn at, where the detectors find the grid. Each cell becomes one true pixel. the Retro Diffusion Pixel Art Fixer, running here. Nothing leaves your device.">Fix pixels</h2>
   <div class="fixcols">
   <div class="fixwork">
   <div class="drop" id="fixdrop" tabindex="0" role="button" aria-label="Choose an image to fix">
@@ -2016,11 +2019,15 @@ footer .mono{color:var(--ink);}
   <input type="file" id="fixfolder" webkitdirectory directory multiple hidden>
   <div class="agjob">
     <label for="fixmode">Mode</label>
-    <select id="fixmode" title="Quick looks for the grid and rebuilds the picture at one pixel per cell. Scale only does not look at all - it takes an already-finished piece up to the collection size with its pixels untouched."><option value="fast">Quick - three detectors</option><option value="scale">Already fixed - scale only</option></select>
+    <select id="fixmode" title="Quick rebuilds the picture at the Pixel size, or looks for the grid itself when the size is 0. Scale only does not look at all - it takes an already-finished piece up to the collection size with its pixels untouched."><option value="fast">Quick - three detectors</option><option value="scale">Already fixed - scale only</option></select>
+    <!-- STARTS AT 16. The owner, 2026-09-27: "id rather default be 16 now pls".
+         Anyone can type another number, and 0 still works it out. While a
+         number is set the Snap switch is greyed out, because it decides
+         nothing then - see fixModeUI. -->
     <label for="fixforce">Pixel size</label>
-    <input type="number" id="fixforce" min="0" step="1" value="0" style="width:84px"
+    <input type="number" id="fixforce" min="0" step="1" value="16" style="width:84px"
       inputmode="numeric"
-      title="The pixel size of the result, in whole numbers. With Save at 1280 on that is the block on the 1280 canvas - 8 means 160 cells whatever size the picture is; with it off, how many picture pixels make one pixel. 0 works it out. If the result still looks soft, the guess was too small - try 8, 12 or 16.">
+      title="The pixel size of the result, in whole numbers. It starts at 16. With Save at 1280 on that is the block on the 1280 canvas - 16 means 80 cells and 8 means 160, whatever size the picture is; with it off, how many picture pixels make one pixel. While a size is set Snap is not used; 0 works it out instead.">
     <!-- WAS margin-left:auto, from when the readout shared this row and
          the row was crowded. With the readout on its own line that put a
          thousand pixels of nothing in the middle of five controls. -->
@@ -21179,8 +21186,20 @@ async function editorFix(){
     const r=await fixRun();
     if(!r){ toast("Fix pixels did not finish: "+(($("fixout")||{}).textContent||"")); return; }
     const out=await pngDecode(await fixResultBytes(r));
+    const widthWas=art.width, blockWas=gridBlock;
     snapshot();
+    /* THE BLOCK IT REPLACES, on the entry Undo returns to - so Undo puts back
+       the 8px grid with the 8px art, not only the pixels. */
+    undoStack[undoStack.length-1].block=blockWas;
     restoreImage(new ImageData(new Uint8ClampedArray(out.data),out.width,out.height));
+    /* THE BLOCK THE RESULT IS DRAWN IN, as fixOpen sets it: without this an 8px
+       trait merged to 16 kept an 8px grid, brush and "drawn at" readout. */
+    /* SCALE ONLY is the picture untouched, one "cell" per source pixel, so
+       reading a block off the result gave 1. It keeps the block it had,
+       scaled with the canvas, or measures one when that is not whole. */
+    adoptBlock(r.consensus==="scaled"
+      ? (Number.isInteger(out.width/widthWas*blockWas) ? out.width/widthWas*blockWas : measuredBlock(out.data,out.width,out.height))
+      : (r.width===r.height ? fixBlockFor(r.width,out.width) : 1));
     refreshStats(); resizeBoxes(); repalette();
     try{ autosave(); }catch(_){ }
     const said=(($("fixout")||{}).textContent||"").trim();
@@ -21195,8 +21214,11 @@ async function editorFix(){
    canvas, which after a resize can be far larger than the entry it is about
    to pop. Measured, one click at 4096 took the pair 58% past a budget that
    only snapshot() enforced. */
-$('undo').onclick=()=>{ if(!undoStack.length) return; redoStack.push(ctx.getImageData(0,0,art.width,art.height)); trimHistory(); restoreImage(undoStack.pop()); refreshStats(); resizeBoxes(); repalette(); };
-$('redo').onclick=()=>{ if(!redoStack.length) return; undoStack.push(ctx.getImageData(0,0,art.width,art.height)); trimHistory(); restoreImage(redoStack.pop()); refreshStats(); resizeBoxes(); repalette(); };
+/* AN ENTRY MAY CARRY THE BLOCK IT WAS DRAWN IN (the editor's Fix pixels sets
+   one). Undo and redo put it back with the pixels, and give the entry they
+   push the block being left. Entries without one are untouched. */
+$('undo').onclick=()=>{ if(!undoStack.length) return; const cur=ctx.getImageData(0,0,art.width,art.height); if(undoStack[undoStack.length-1].block) cur.block=gridBlock; redoStack.push(cur); trimHistory(); const got=undoStack.pop(); restoreImage(got); if(got.block) adoptBlock(got.block); refreshStats(); resizeBoxes(); repalette(); };
+$('redo').onclick=()=>{ if(!redoStack.length) return; const cur=ctx.getImageData(0,0,art.width,art.height); if(redoStack[redoStack.length-1].block) cur.block=gridBlock; undoStack.push(cur); trimHistory(); const got=redoStack.pop(); restoreImage(got); if(got.block) adoptBlock(got.block); refreshStats(); resizeBoxes(); repalette(); };
 /* PROPORTIONAL BELOW 1x, which is what zoomNotch says about the wheel a few
    lines up and what these were never given. A phone fits a 1280 trait at
    about 0.28, where a flat -1 clamps to the 0.05 floor and a flat +1 lands
@@ -23135,7 +23157,11 @@ function fixEvenSizes(nat){
   if(nat>1){
     const own=fixRint(FIX.src.width/nat);
     return CANVAS_SIDE%own===0
-      ? ". Type "+nat+" to keep its "+nat+"px blocks ("+own+" cells)."
+      /* THE CANVAS SIZE THAT KEEPS THEM. This only runs with Save at 1280 on,
+         where a typed number is the block on the canvas; it offered the
+         SOURCE block, so 1024 art at 8px was told "Type 8" - which means 160
+         cells there, not its 128. */
+      ? ". Type "+(CANVAS_SIDE/own)+" to keep its "+nat+"px blocks ("+own+" cells)."
       : ". No size lands its "+nat+"px blocks on "+CANVAS_SIDE+" without resampling.";
   }
   const W=FIX.src.width, H=FIX.src.height;
@@ -23148,9 +23174,19 @@ function fixEvenSizes(nat){
   }
   if(!out.length) return ". Nothing divides this image onto that grid.";
   const want=+($("fixforce")&&$("fixforce").value)||8;
-  out.sort((a,b)=>Math.abs(a.s-want)-Math.abs(b.s-want));
-  const pick=out.slice(0,3).sort((a,b)=>a.s-b.s);
-  return ". "+pick.map(p=>p.s+" gives "+p.cols+"\u00d7"+p.cols).join(", ")
+  /* ON THE CANVAS, rows and all. Each offer was the SOURCE step, printed as
+     square: "16 gives 64x64" on a 1024x768 picture, right after the readout
+     said 16 gives 80x60. The number to type for `cols` cells on the canvas
+     is the canvas over it, and its rows are what that step makes of H. */
+  for(const p of out){ p.k=CANVAS_SIDE/p.cols; p.rows=Math.max(1,fixRint(H/p.s)); }
+  /* SQUARE ONLY, and never the size already typed: the canvas is square, so
+     "divides evenly" is only true of an offer whose rows equal its columns. */
+  const typedNow=+($("fixforce")&&$("fixforce").value)||0;
+  const even=out.filter(p=>p.rows===p.cols&&p.k!==typedNow);
+  if(!even.length) return ". Nothing divides this image evenly onto the "+CANVAS_SIDE+" canvas.";
+  even.sort((a,b)=>Math.abs(a.k-want)-Math.abs(b.k-want));
+  const pick=even.slice(0,3).sort((a,b)=>a.k-b.k);
+  return ". "+pick.map(p=>p.k+" gives "+p.cols+"\u00d7"+p.rows).join(", ")
     +" and divide"+(pick.length===1?"s":"")+" evenly.";
 }
 /* WHICH OF THE THREE THIS IS. "full" is still unbuilt and the select does
@@ -23662,8 +23698,18 @@ function fixGridCells(){
   const g=Math.max(1,projectGrid|0);
   return {cells:g, exact:Number.isInteger(CANVAS_SIDE/g), per:CANVAS_SIDE/g};
 }
+/* A NUMBER IN THE PIXEL SIZE BOX, read exactly as fixStepFor reads it -
+   `+value||0`, over 0 - so the switch and the decision cannot disagree about
+   whether a size is set. */
+function fixSizeSet(){ const f=$("fixforce"); return (+(f&&f.value)||0)>0; }
 function fixSnapping(){
   const b=$("fixsnap");
+  /* NOT WHILE A SIZE IS SET. fixStepFor's typed branch returns on every path
+     before it asks this, so a size already beat the snap; the box starts at
+     16 now, so that is the ordinary case, and the switch is greyed out for
+     it. The readout and the folder summary also ask this, to describe a
+     snap - they must hear the answer the switch shows. */
+  if(fixSizeSet()) return false;
   return !!(b&&b.checked)&&fixMode()==="fast";
 }
 /* WHEN CAN A PICTURE BE SNAPPED TO THE GRID AT ALL?
@@ -23692,7 +23738,7 @@ let fixBlockRecut=null;
    the default path's version of this and carries an instruction with it
    ("type 10 to keep them"); this one carries none, because a size was
    typed on purpose and the answer is not that it was wrong. */
-let fixTypedRecut=null;
+let fixTypedRecut=null, fixTypedMerge=null, fixTypedResample=null;
 /* How many pictures in this run had no block structure for the snap to
    use. They fall back to the declared grid, which keeps the pixels square
    and cannot keep detail the picture never had on a grid - so the run
@@ -23719,7 +23765,7 @@ let fixUnhonoured=null;
 let fixBlockUnfit=null;
 /* THE FOLDER RUN'S TALLIES, kept per file inside the loop because only
    the cell count survives it, and a count cannot say why. */
-let fixMovedLast=null, fixMovedCount=0, fixUnhonouredAt=[], fixNativeKept=0, fixOwnBlocks=0, fixUnfitAt=[], fixTypedRecutAt=[], fixTypedStrokesAt=[];
+let fixMovedLast=null, fixMovedCount=0, fixUnhonouredAt=[], fixNativeKept=0, fixOwnBlocks=0, fixUnfitAt=[], fixTypedRecutAt=[], fixTypedStrokesAt=[], fixTypedMergeAt=[], fixTypedMergeStrokesAt=[], fixTypedResampleAt=[];
 /* WHAT THE GRIDLESS SEARCH FOUND for the last decision: whether a count
    passed the 95% rule or was the best of a failed lot, and what it kept. */
 let fixGridlessPassed=false, fixGridlessKept=0;
@@ -24221,7 +24267,7 @@ function fixStepFor(w,data,h){
   /* THIS DECISION, NOT THE LAST ONE. Every flag below describes the step
      about to be returned; left over from a previous call, any of them
      puts that label on a different answer. */
-  fixMeasuredBlock=0; fixGridlessPick=0; fixMoved=null; fixUnhonoured=null; fixBlockUnfit=null; fixBlockRecut=null; fixTypedRecut=null;
+  fixMeasuredBlock=0; fixGridlessPick=0; fixMoved=null; fixUnhonoured=null; fixBlockUnfit=null; fixBlockRecut=null; fixTypedRecut=null; fixTypedMerge=null; fixTypedResample=null;
   const asked=+$("fixforce").value||0;
   const onGrid=$("fixgrid")&&$("fixgrid").checked;
   const px=data||(FIX.src&&FIX.src.data);
@@ -24235,11 +24281,22 @@ function fixStepFor(w,data,h){
      to beat the declared grid, which is a setting nobody chose for this
      picture; it has no business beating a size somebody typed for it.
 
-     0 still means work it out, which is what the box has always said. */
+     0 still means work it out, which is what the box has always said.
+
+     SUPERSEDED IN PART, 2026-09-27: the box STARTS at 16 now ("id rather
+     default be 16 now pls"), so this branch is the ordinary path, not the
+     exception. 0 still means work it out. */
   if(asked>0){
     /* WITH THE SWITCH OFF it is what it always was: how many picture
        pixels make one pixel, and the output is its own size. */
-    if(!onGrid) return asked;
+    /* ONE BLOCK OF FLAG CODE FOR EVERY WAY THIS BRANCH ENDS (patch598). The
+       switch-off return and the no-landing return used to leave before the
+       flags were set, so a merge or a resample there went unsaid. They break
+       out to it now with the step and the grid they make; only the
+       never-upsample keep still returns on its own, and says so itself. */
+    let step=0, grid=0;
+    cut:{
+    if(!onGrid){ step=asked; grid=Math.max(1,fixRint(w/asked)); break cut; }
     /* ON THE 1280 CANVAS THE TYPED SIZE IS THE BLOCK SIZE THERE. It used
        to be source pixels per cell here too, so 8 on a 1254 source gave
        157 cells and uneven pixels (86 of the 297 raw sources - the
@@ -24264,7 +24321,7 @@ function fixStepFor(w,data,h){
     /* Nothing within a quarter of what was asked - 3 means 427 cells and
        the nearest that lands is 320 - so it keeps the old meaning and
        the readout says the pixels come out uneven. */
-    if(!cells) return asked;
+    if(!cells){ step=asked; grid=Math.max(1,fixRint(w/asked)); break cut; }
     if(w<cells||ph<cells){
       /* NEVER UPSAMPLE. A picture narrower than the cells its size means
          cannot answer them without inventing pixels: a 0.8px step on a
@@ -24295,12 +24352,32 @@ function fixStepFor(w,data,h){
        the step is known; recorded in a flag rather than returned because
        every caller of this function wants the step and one of them wants
        the reason. */
-    const step=w/cells;
+    step=w/cells; grid=cells;
+    }
     const drawn=px?fixNativeBlockFor(px,w,ph):0;
     const whole=x=>Math.abs(x-Math.round(x))<1e-9;
     if(drawn>1&&step>0&&!whole(drawn/step)&&!whole(step/drawn))
-      fixTypedRecut={block:drawn, cells:Math.max(1,fixRint(w/drawn)), to:step,
+      fixTypedRecut={block:drawn, cells:Math.max(1,fixRint(w/drawn)), to:step, grid:grid,
         strokes:fixThinStrokes(px,w,ph,drawn)};
+    /* AND A WHOLE MERGE, SAID TOO. The comment above let "2px art typed at 8"
+       go unsaid as "a merge the marks-dropped clause already covers". It does
+       not: fixSmallMarks counts alpha-connected marks, sized to the project
+       grid, so a pupil or a mouth line painted on opaque art is never one.
+       With the box at 16 this is every trait drawn at 8px - most finished
+       ones - merged 2 to 1, and the owner's mouths and eyes are exactly the
+       detail one block wide that a merge can drop (measured on the 20 of
+       each: at 16 mouths lose a median 23% of their shape, two entirely).
+       The size still wins; the run just stops being silent about it. */
+    else if(drawn>1&&step>0&&whole(step/drawn)&&Math.round(step/drawn)>=2)
+      fixTypedMerge={block:drawn, cells:Math.max(1,fixRint(w/drawn)), by:Math.round(step/drawn), grid:grid,
+        strokes:fixThinStrokes(px,w,ph,drawn)};
+    /* AND A PICTURE WITH NO BLOCKS TO MERGE: fixNativeBlock measured nothing
+       (it answers a block of 2 or more, or 0). A render, a blur - 53% of
+       SAVED TRAITS, 13 of the 20 mouths - or a sprite at one pixel per cell,
+       which it cannot tell from them. RESAMPLED when the step is over one,
+       and the run said "medium confidence (forced)" about it. */
+    else if(drawn<2&&step>1+1e-9)
+      fixTypedResample={grid:grid, w:w};
     return step;
   }
   if(fixSnapping()){
@@ -24401,9 +24478,27 @@ function fixModeUI(){
      sentence is to let it decide, not to keep it switched off. Scale only
      still turns it off, because there the picture really is already one
      pixel per cell and there is nothing for a size to do. */
+  /* AND NOW THE OTHER WAY ROUND (2026-09-27). The box starts at 16, and while
+     it holds a number the SNAP switch is the live control that changes no
+     answer, so that is the one greyed out - with its reason on its label,
+     where the hover lands. Scale only greys it too: nothing is detected or
+     snapped there, and it was live and inert. */
   const g=fixGridCells();
   const lab=$("fixsnaplab");
   if(lab) lab.textContent="Snap to the "+g.cells+" cell grid";
+  const sn=$("fixsnap");
+  if(sn){
+    const sized=fixSizeSet();
+    const wrap=sn.closest("label");
+    /* The words it has when it is live are the markup's, kept the first time
+       this runs so there is one copy of them. */
+    if(wrap&&wrap.dataset.live===undefined) wrap.dataset.live=wrap.title;
+    sn.disabled=scale||sized;
+    const t=scale ? "Not used in scale only - nothing is detected or snapped."
+      : sized ? "Not used while a pixel size is set - the size decides. Set Pixel size to 0 to hand the choice back to this switch (ticked, it snaps to the "+g.cells+" cell grid)."
+      : (wrap?wrap.dataset.live:"");
+    if(wrap) wrap.title=t;
+  }
   const b=$("fixrun"); if(b) b.textContent=scale?"Scale it":"Fix it";
   /* THE PALETTE SWITCH, THE SAME WAY. Scale only does not recolour, so a
      live switch there would change no answer - which is the thing the
@@ -24417,10 +24512,12 @@ function fixModeUI(){
         +" are left alone and nothing transparent is touched."; }
   const f=$("fixforce"); if(f){ f.disabled=scale; f.title=scale
     ? "Not used in scale only - the picture is already one pixel per cell."
-    : "The pixel size of the result. With Save at 1280 on that is the block on the "+CANVAS_SIDE
-      +" canvas - 8 means "+(CANVAS_SIDE/8)+" cells whatever size the picture is; with it off, how many"
+    /* The starting size is the markup's own value, so these words cannot name
+       a different number from the one the page opens with. */
+    : "The pixel size of the result. It starts at "+f.defaultValue+". With Save at 1280 on that is the block on the "+CANVAS_SIDE
+      +" canvas - "+f.defaultValue+" means "+(CANVAS_SIDE/(+f.defaultValue||16))+" cells and 8 means "+(CANVAS_SIDE/8)+", whatever size the picture is; with it off, how many"
       +" picture pixels make one pixel."
-      +" A number here decides, even with Snap on. 0 works it out:"
+      +" A number here decides, and Snap is not used while one is set. 0 works it out:"
       +" the grid the picture is actually drawn on, or the "+g.cells
       +" cell grid when it is not drawn on one."; }
 }
@@ -24461,7 +24558,11 @@ function fixSizeHint(){
   const W=FIX.src.width, H=FIX.src.height;
   const nat=FIX.src.data?fixNativeBlockFor(FIX.src.data,W,H):0;
   const decided=scale?0:fixStepFor(W,FIX.src.data,H);
-  const moved=fixMoved, unhon=fixUnhonoured, unfit=fixBlockUnfit, meas=fixMeasuredBlock, recut=fixBlockRecut;
+  /* NOT IN SCALE ONLY, which never called fixStepFor above: these would be left
+     over from the last fast decision, and with the box at 16 that printed
+     "16 means 80 cells" in a mode whose box is greyed out. */
+  const moved=scale?null:fixMoved, unhon=scale?null:fixUnhonoured, unfit=scale?null:fixBlockUnfit,
+    meas=scale?0:fixMeasuredBlock, recut=scale?null:fixBlockRecut;
   const gridOn=$("fixgrid")&&$("fixgrid").checked;
   const cols=scale?W:(decided>0?Math.max(1,fixRint(W/decided)):g.cells);
   const rows=scale?H:(decided>0?Math.max(1,fixRint(H/decided)):g.cells);
@@ -24482,6 +24583,13 @@ function fixSizeHint(){
     const k=CANVAS_SIDE/cols;
     note = (cols===rows && Number.isInteger(k))
       ? " \u00b7 \u00d7"+k+" to "+CANVAS_SIDE
+      /* NOT SQUARE. The canvas is, so its pixels are stretched at any size:
+         this said "1280/80 is 16, so pixels come out uneven" - 16 is the even
+         part - and then offered sizes that were no more even. It says what
+         happens, and offers nothing a size cannot fix. */
+      : cols!==rows
+      ? " \u00b7 not square, so on the "+CANVAS_SIDE+" canvas each pixel comes out "+(Math.round(k*100)/100)
+        +" wide and "+(Math.round(CANVAS_SIDE/rows*100)/100)+" tall"
       : " \u00b7 "+CANVAS_SIDE+"/"+cols+" is "+(Math.round(k*100)/100)
         /* NOT IN SCALE MODE: there is no other size to pick, because
            nothing is being detected. Offering one would read as advice
@@ -24535,6 +24643,10 @@ function fixRun(){
     FIX.src?FIX.src.data:null, FIX.src?FIX.src.height:0);
   /* WITH the decision, not read again when the worker answers. */
   const measured=fixMeasuredBlock;
+  /* AND WHAT THE TYPED PATH NOTED, for the same reason: typing in the box
+     while this runs redraws the readout, which asks fixStepFor again and
+     resets every flag before the worker answers. */
+  const typedAt=fixTypedRecut, mergedAt=fixTypedMerge, resampledAt=fixTypedResample, recutAt=fixBlockRecut;
   const noisy=fixNativeNoisy;
   const gridless={pick:fixGridlessPick, passed:fixGridlessPassed, kept:fixGridlessKept};
   const src=FIX.src;
@@ -24620,7 +24732,12 @@ function fixRun(){
            small step keeps the softness faithfully - which is the tool
            working and finding the wrong answer, and looks exactly like the
            tool not working. Quiet when the size was forced: then the
-           question has already been answered by hand. */
+           question has already been answered by hand.
+
+           SUPERSEDED IN PART, 2026-09-27: the box starts at 16, so a forced
+           size is the default rather than a hand's answer. Still quiet -
+           the size is on screen in the box - and what forcing it did to
+           the picture is said below, as a re-cut or a merge. */
         /* TWO REASONS TO LOOK AGAIN, and the second is the one that matters.
 
            Confidence alone was not enough: the case this was written for -
@@ -24658,23 +24775,39 @@ function fixRun(){
         /* RE-CUT, SAID IN THE RUN'S OWN WORDS. The engine reports "forced"
            for the step it was given, so without this the sentence would
            call a decision the tab took a confidence level. */
-        const recutBy=fixBlockRecut;
+        const recutBy=recutAt;
         /* AND THE TYPED PATH'S VERSION. Without this a forced run falls
            through to "medium confidence (forced)", which is the engine
            describing the instruction it was given - not a word about the
            picture it was given it for. */
-        const typedBy=fixTypedRecut;
+        const typedBy=typedAt;
+        const mergedBy=mergedAt;
+        const resampledBy=resampledAt;
         const how = recutBy
           ? "measured "+recutBy.canvasBlock+"px blocks off the picture and re-cut them on the "
             +fixGridCells().cells+" cell grid - type "+recutBy.canvasBlock+" to keep them"
           : typedBy
           ? "drawn at "+typedBy.block+"px blocks ("+typedBy.cells+" cells), which the "
-            +fixGridCells().cells+" cell grid cuts across"
+            /* The grid the SIZE means, not the project's: at 16 that is 80 cells,
+               and "the 160 cell grid cuts across" named one nobody used. */
+            +(typedBy.grid||fixGridCells().cells)+" cell grid cuts across"
             /* Only when there is some: a picture of flat shapes re-cuts with
                nothing lost, and a clause on every cut-across run would be
                noise where the count is the finding. */
             +(typedBy.strokes ? " - "+typedBy.strokes.toLocaleString()+" stroke"
               +(typedBy.strokes===1?"":"s")+" one block wide will not survive it" : "")
+          : mergedBy
+          ? "drawn at "+mergedBy.block+"px blocks ("+mergedBy.cells+" cells), merged "+mergedBy.by+" to 1 onto the "
+            +mergedBy.grid+" cell grid"
+            +(mergedBy.strokes ? " - "+mergedBy.strokes.toLocaleString()+" stroke"
+              +(mergedBy.strokes===1?"":"s")+" one block wide may not survive it" : "")
+          : resampledBy
+          ? "no block grid found; resampled from "+resampledBy.w+" across onto the "+resampledBy.grid+" cell grid"
+            /* HOW MUCH OF THE PAINT THE NEW CELLS KEPT, the measure the gridless
+               search and the size offers already use - square only, because
+               it counts cells both ways. */
+            +((src.width===src.height)?(()=>{ const k=fixCellsKept(src.data,src.width,src.height,resampledBy.grid);
+              return k.srcN?", which kept "+Math.round(k.kept/k.srcN*100)+"% of the paint":""; })():"")
           : r.consensus==="measured"
           ? (r.measuredBlock===1
             ? "kept at one pixel per cell - the picture is already at its native size"
@@ -24882,7 +25015,7 @@ async function fixBatchRun(files){
   const over=all.length-list.length;
   /* BEFORE the list is replaced: it is what holds the urls to revoke. */
   fixMoved=null; fixNoGrid=0; fixGridlessAt=[];
-  fixMovedLast=null; fixMovedCount=0; fixUnhonouredAt=[]; fixNativeKept=0; fixOwnBlocks=0; fixUnfitAt=[]; fixTypedRecutAt=[]; fixTypedStrokesAt=[];
+  fixMovedLast=null; fixMovedCount=0; fixUnhonouredAt=[]; fixNativeKept=0; fixOwnBlocks=0; fixUnfitAt=[]; fixTypedRecutAt=[]; fixTypedStrokesAt=[]; fixTypedMergeAt=[]; fixTypedMergeStrokesAt=[]; fixTypedResampleAt=[];
   fixGridlessFellAt=[]; fixGridlessFellKept=1; fixMarksDroppedTotal=0; fixMarksDroppedFiles=0; fixNoisyFiles=0; fixAlphaFiles=0; fixAlphaPixels=0; fixBrowserRead=[]; fixGateReady=0; fixGateWhy=new Map(); fixRecutAt=[]; fixGatePast=0; fixGatePastMost=0;
   fixPalMoved=0; fixPalPixels=0; fixPalFiles=0; fixPalWorst=0; fixPalMerged=0; fixPalWorstFile="";
   fixOutlined=0; fixOutlineCells=0;
@@ -24955,6 +25088,7 @@ async function fixBatchRun(files){
       /* TRANSLUCENT PIXELS, COUNTED PER PICTURE for the note. */
       { const tl=fixTranslucent(px,sw*sh); if(tl.count){ fixAlphaFiles++; fixAlphaPixels+=tl.count; } }
       /* The same bytes, untouched, when there is nothing to ask. */
+      let cut=null;
       const pending=scale ? Promise.resolve({ok:{data:px, width:sw, height:sh, stepX:1, stepY:1}})
         : fixAsk(wk,{data:new Uint8ClampedArray(px), width:sw, height:sh,
           palette:fixPalWanted()?paletteRGB():null,
@@ -24971,16 +25105,25 @@ async function fixBatchRun(files){
             else if(fixMeasuredBlock>1&&(sw<fixGridCells().cells||sh<fixGridCells().cells)) fixOwnBlocks++;
             if(fixBlockUnfit) fixUnfitAt.push(fixBlockUnfit.block);
             if(fixBlockRecut) fixRecutAt.push(fixBlockRecut.canvasBlock);
-            if(fixTypedRecut){ fixTypedRecutAt.push(fixTypedRecut.block);
-              if(fixTypedRecut.strokes) fixTypedStrokesAt.push({name:name, strokes:fixTypedRecut.strokes}); }
+            /* WHAT THE SIZE DID TO THIS FILE, taken with its decision and counted
+               in finish() once the file is really done - a file sent ahead and
+               dropped on Stop, or one the engine failed, is not counted. */
+            cut={recut:fixTypedRecut, merge:fixTypedMerge, resample:fixTypedResample};
             return s>0?s:null; })()});
-    return {name:name, rel:rel, px:px, sw:sw, sh:sh, pending:pending};
+    /* WHETHER A SIZE DECIDED THIS FILE, read in the same turn as its step. */
+    return {name:name, rel:rel, px:px, sw:sw, sh:sh, pending:pending, sized:!scale&&fixSizeSet(), cut:cut};
   };
   const finish=async(job)=>{
     const name=job.name, rel=job.rel, px=job.px, sw=job.sw, sh=job.sh;
     const r=await job.pending;
       if(!r||r.error){ failed.push(name+" ("+((r&&r.error)||"no answer")+")"); return; }
       const out=r.ok;
+      { const c=job.cut||{};
+        if(c.recut){ fixTypedRecutAt.push({block:c.recut.block, grid:c.recut.grid});
+          if(c.recut.strokes) fixTypedStrokesAt.push({name:name, strokes:c.recut.strokes}); }
+        if(c.merge){ fixTypedMergeAt.push({block:c.merge.block, grid:c.merge.grid});
+          if(c.merge.strokes) fixTypedMergeStrokesAt.push({name:name, strokes:c.merge.strokes}); }
+        if(c.resample) fixTypedResampleAt.push({w:c.resample.w, grid:c.resample.grid}); }
       /* MARKS SMALLER THAN A CELL THAT THIS RESULT DROPPED, counted here
          because this is the one moment the source and the result are both
          in hand. */
@@ -25023,7 +25166,7 @@ async function fixBatchRun(files){
          all, and `rel` is the path it arrived on - which is what the project
          reads the category and the trait name out of. See patch402. */
       fixBatchFiles.push({name:fixZipName(rel,name),
-        rel:rel,
+        rel:rel, sized:!!job.sized,
         /* The count the engine landed on, kept so the run can say whether it
            divides the canvas. w and h are the SAVED size and cannot answer
            that: 1280 is 1280 whether its pixels are eight across or one. */
@@ -25087,7 +25230,10 @@ async function fixBatchRun(files){
       +CANVAS_SIDE+", so their pixels are uneven"
       /* THE CAUSE IT COUNTED. This said "turn Snap on, or type a size" on
          runs where both were on - advice already followed. */
-      +((+$("fixforce").value||0)>0 ? " - "+(+$("fixforce").value)+" cannot land on "+CANVAS_SIDE+" for them"
+      /* SCALE FIRST: the box is greyed out there but still holds its number,
+         and scale only keeps each picture's own count - nothing was typed at it. */
+      +(scale ? " - scale only keeps each picture's own count"
+        : (+$("fixforce").value||0)>0 ? " - "+(+$("fixforce").value)+" cannot land on "+CANVAS_SIDE+" for them"
         : wantedSnap ? " - they are drawn in blocks the grid cannot hold"
         : " - turn Snap on, or type a size")
     : "";
@@ -25116,16 +25262,42 @@ async function fixBatchRun(files){
      "type 10 to keep them" would be telling somebody to leave the grid the
      gate is about. It is here so that a folder of traits whose lettering
      comes out broken says which files to go and look at. */
+  /* SUPERSEDED IN PART, 2026-09-27: "the collection wants 8" above. The box
+     starts at 16 now, and the grid a typed size cuts across is the one THAT
+     size means - 80 cells at 16 - not the project's 160. */
+  /* The grids the files were cut to, as they were decided. One is the ordinary
+     case; more than one means the box changed during the run. */
+  /* EACH NOTE NAMES THE GRIDS ITS OWN FILES WENT TO. One is the ordinary case;
+     more than one means the box changed during the run. */
+  const gridsOf=(a)=>{ const g=[...new Set(a.map(x=>x.grid))].sort((p,q)=>p-q); return {words:g.join(" and "), many:g.length>1}; };
+  const blocksOf=(a)=>[...new Set(a.map(x=>x.block))].sort((p,q)=>p-q).map(b=>b+"px").join(", ");
+  const gR=gridsOf(fixTypedRecutAt), gM=gridsOf(fixTypedMergeAt), gS=gridsOf(fixTypedResampleAt);
   const typedRecutNote = fixTypedRecutAt.length
     ? " \u00b7 "+fixTypedRecutAt.length+" were drawn at a block size the "
-      +fixGridCells().cells+" cell grid cuts across ("
-      +[...new Set(fixTypedRecutAt)].sort((a,b)=>a-b).map(b=>b+"px").join(", ")+")"
+      +gR.words+(gR.many?" cell grids cut across (":" cell grid cuts across (")
+      +blocksOf(fixTypedRecutAt)+")"
       /* AND HOW MANY OF THOSE WILL LOSE SOMETHING, with the worst named so
          a folder of 311 says which three to open first. */
       +(fixTypedStrokesAt.length
         ? ", "+fixTypedStrokesAt.length+" of them holding detail one block wide (most in "
           +fixTypedStrokesAt.slice().sort((a,b)=>b.strokes-a.strokes).slice(0,3).map(s=>s.name).join(", ")+")"
         : "")
+    : "";
+  /* THE WHOLE MERGES, counted the same way, with the files holding one-block
+     detail named first - at 16 this is every trait drawn at 8px. */
+  const mergeNote = fixTypedMergeAt.length
+    ? " \u00b7 "+fixTypedMergeAt.length+" drawn in finer blocks ("
+      +blocksOf(fixTypedMergeAt)+")"+(fixTypedMergeAt.length===1?" was":" were")+" merged onto the "
+      +gM.words+(gM.many?" cell grids":" cell grid")
+      +(fixTypedMergeStrokesAt.length
+        ? ", "+fixTypedMergeStrokesAt.length+" of them holding detail one block wide that may not survive it (most in "
+          +fixTypedMergeStrokesAt.slice().sort((a,b)=>b.strokes-a.strokes).slice(0,3).map(s=>s.name).join(", ")+")"
+        : "")
+    : "";
+  /* AND THE RESAMPLED ONES: no block grid measured in them. */
+  const resampleNote = fixTypedResampleAt.length
+    ? " \u00b7 "+fixTypedResampleAt.length+" with no block grid "+(fixTypedResampleAt.length===1?"was":"were")
+      +" resampled onto the "+gS.words+(gS.many?" cell grids":" cell grid")
     : "";
   const unfitNote = fixUnfitAt.length
     ? " \u00b7 "+fixUnfitAt.length+" drawn in blocks the grid cannot hold ("
@@ -25136,7 +25308,14 @@ async function fixBatchRun(files){
      at. With nothing typed the tab follows the picture's own grid, which
      is a stated design; whether the collection wants that as its default
      is a decision, and this count is what the decision is about. */
-  const offGrid = gridOn ? fixBatchFiles.filter(f=>f.cells&&f.cells!==fixGridCells().cells) : [];
+  /* NOT WHILE A SIZE IS SET (2026-09-27). This counts files off the project's
+     grid to inform a default nobody had chosen; the owner chose it - the box
+     starts at 16 - and at 16 every default folder ended "N not on the 160
+     cell grid" for all N. Files that could not take the size are named by
+     the "narrower than the N cells" clause. Scale only keeps it: nothing is
+     typed there, and its counts are the pictures' own. */
+  /* Per file: only the ones no size decided. */
+  const offGrid = gridOn ? fixBatchFiles.filter(f=>!f.sized&&f.cells&&f.cells!==fixGridCells().cells) : [];
   const offNote = offGrid.length
     ? (()=>{ const by=new Map(); for(const f of offGrid){ const k=Math.round(CANVAS_SIDE/f.cells*100)/100; by.set(k,(by.get(k)||0)+1); }
         return " \u00b7 "+offGrid.length+" not on the "+fixGridCells().cells+" cell grid ("
@@ -25201,7 +25380,7 @@ async function fixBatchRun(files){
   const noisyNote = fixNoisyFiles
     ? " \u00b7 "+fixNoisyFiles+" measured with one stray pixel in some blocks and kept on their blocks"
     : "";
-  fixBatchSay(fixBatchFiles.length+" of "+list.length+" done in "+secs+"s"+movedNote+unhonNote+raggedNote+smallNote+noGridNote+marksNote+noisyNote+recutNote+typedRecutNote+unfitNote+offNote+alphaNote+readNote+shrunkNote+palNote+(fixOutlined?" \u00b7 "+fixOutlined+" outline"+(fixOutlined===1?"":"s")+" made one cell thick":"")+gateNote+pastNote
+  fixBatchSay(fixBatchFiles.length+" of "+list.length+" done in "+secs+"s"+movedNote+unhonNote+raggedNote+smallNote+noGridNote+marksNote+noisyNote+recutNote+typedRecutNote+mergeNote+resampleNote+unfitNote+offNote+alphaNote+readNote+shrunkNote+palNote+(fixOutlined?" \u00b7 "+fixOutlined+" outline"+(fixOutlined===1?"":"s")+" made one cell thick":"")+gateNote+pastNote
     +(fixBatchStop?" (stopped - what is done is kept)":"")
     +(over?" \u00b7 "+over+" past the limit of "+FIX_BATCH_MAX+" were left out":"")
     +(failed.length?" \u00b7 could not do: "+failed.slice(0,6).join(", ")
@@ -25521,7 +25700,7 @@ function fixDownload(){
   d.ondrop=e=>{ e.preventDefault(); d.classList.remove("over");
     took(e.dataTransfer&&e.dataTransfer.files); };
   $("fixrun").onclick=()=>{ fixRun(); };
-  $("fixforce").addEventListener("input",fixSizeHint);
+  $("fixforce").addEventListener("input",()=>{ fixModeUI(); fixSizeHint(); });
   /* WHOLE NUMBERS. The arrows step by one now; this is for a fraction
      typed or pasted in. On change rather than on input, because rounding
      every keystroke makes 12 unreachable if you pause after the 1 - it
@@ -25531,7 +25710,7 @@ function fixDownload(){
     const f=$("fixforce"), v=+f.value;
     if(!f.value) return;
     const w=Math.max(0,Math.round(v||0));
-    if(String(w)!==f.value){ f.value=String(w); fixSizeHint(); }
+    if(String(w)!==f.value){ f.value=String(w); fixModeUI(); fixSizeHint(); }
   });
   $("fixgrid").addEventListener("change",fixSizeHint);
   /* The mode decides what the readout means and what the button does, so
@@ -25579,6 +25758,9 @@ PB.fix=async function(o){
   if(!FIX.src) return {ok:false, why:"nothing to fix"};
   if(o.mode) $("fixmode").value=o.mode;
   if(o.forceStep!=null) $("fixforce").value=o.forceStep;
+  /* Set without events, so the switches are redrawn here: PB.fix({forceStep:0})
+     snaps, and must not leave the Snap switch greyed beside the 0. */
+  fixModeUI(); fixSizeHint();
   const r=await fixRun();
   if(!r) return {ok:false, why:$("fixout").textContent};
   if(o.open) fixOpen();

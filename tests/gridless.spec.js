@@ -193,6 +193,9 @@ test('and a trait with its own grid never reaches the search', async ({ page }) 
     }
     const d = g.getImageData(0, 0, W, W).data;
     c.width = 1; c.height = 1;
+    /* Size 0: the search is part of working it out, and the box starts at 16
+       since 2026-09-27 - a size never reaches it either. */
+    document.getElementById('fixforce').value = '0';
     return { nat: fixNativeBlock(d, W, W), step: fixStepFor(W, d, W), pick: fixGridlessPick };
   });
   /* 10px art is exact, so the search - which is a choice between imperfect

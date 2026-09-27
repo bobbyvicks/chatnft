@@ -109,7 +109,15 @@ test.describe('the Fix pixels tab', () => {
   });
 
   test('only offers a mode the engine answers to', async ({ page }) => {
-    /* core.detect throws by name on "full" - the arbitration pass is not
+    /* SUPERSEDED 2026-09-27 (patch599), and kept as the reason the rule
+       exists: "core.detect throws by name on "full" - the arbitration pass is
+       not ported", with the menu pinned to ['fast', 'scale'] and 'fast'
+       picked. The arbitration is ported now - checked against the Python on
+       359 of 359 traits - so the menu offers full, first and chosen. The rule
+       itself stands: nothing on offer may be a question the engine refuses,
+       which is now checked against the engine's own text.
+
+       Before: core.detect throws by name on "full" - the arbitration pass is not
        ported. A menu offering it would be a button that fails on its first
        press, which is how this read before it was measured.
 
@@ -125,10 +133,15 @@ test.describe('the Fix pixels tab', () => {
       scaleAsks: /fixWorker|postMessage|fixAsk/.test(
         String(fixRun).slice(String(fixRun).indexOf('if(mode==="scale"){'),
           String(fixRun).indexOf('return Promise.resolve(r);'))),
+      /* THE ENGINE'S OWN TEXT, so "offered" is checked against "answered":
+         the old engine carried this refusal, and had no arbitration. */
+      refusesFull: document.getElementById('pfcore').textContent.indexOf('full mode is not ported yet') >= 0,
+      hasFull: document.getElementById('pfcore').textContent.indexOf('function detectFull') >= 0,
     }));
-    expect(r.values).toEqual(['fast', 'scale']);
-    expect(r.values).not.toContain('full');
-    expect(r.picked).toBe('fast');
+    expect(r.values).toEqual(['full', 'fast', 'scale']);
+    expect(r.refusesFull, 'the engine no longer refuses full').toBe(false);
+    expect(r.hasFull, 'and carries the arbitration it is offered for').toBe(true);
+    expect(r.picked).toBe('full');
     expect(r.scaleAsks, 'scale mode must never reach the engine').toBe(false);
   });
 

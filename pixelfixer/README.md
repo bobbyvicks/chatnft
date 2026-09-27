@@ -13,13 +13,52 @@ it and starts a Worker from it.
 
 ## What is ported, and what is not
 
-**Fast mode only.** `core.detect` runs the three cheap detectors - autocorrelation,
-run-length combs, shift self-similarity - and takes the size they agree on,
-with the reference's calibrated early exit. It **throws by name** on
-`mode:"full"`: the arbitration stage that resolves genuine disagreement
-(`fusion`, `varcontrast`, `channels`, `reconsearch` - about 3,300 of the
-reference's 5,455 lines) is not ported. The tab offers only the mode that
-works, rather than a menu whose default fails.
+**Both modes.** `core.detect` runs `mode:"fast"` - the three cheap detectors
+(autocorrelation, run-length combs, shift self-similarity) and the size they
+agree on, with the reference's calibrated early exit - and `mode:"full"`, the
+reference's default, which adds the arbitration stage that resolves genuine
+disagreement (`fusion`, `varcontrast`, `channels`, `reconsearch`, and the
+rest of `core.py` after the early exits).
+
+Measured 2026-09-27 by `tools/test-oracle-full.cjs` against the Python
+reference's own `detect()` in both modes on 360 real trait images
+(`modes/modes.jsonl`, each produced in its own python process; one node
+process per image here, fast then full, the same order as the reference
+run). Compared: cols, rows, step to 4 dp, consensus label.
+
+| | images |
+|---|---|
+| fast exact | 359 |
+| fast differs | 0 |
+| full exact | 359 |
+| full differs | 0 |
+| errors | 0 |
+
+The 360th image (2048x2048) is outside the input limit and is skipped by
+both sides. Of the 359, full mode left through the early exit on 275; the
+other 84 exercised arbitration (78 `arbitrated`, 6 with the fused fourth
+voter) and all 84 agree. Before any detector result is read, the PNG decoder
+is checked to hand the detector PIL's exact RGBA bytes (sha256, 360 of 360),
+and the comparison is shown able to fail: one arbitration weight changed
+(0.6 to 0.5) turns 2 of the 78 arbitrated images red while fast stays 78 of
+78 (see the header of `tools/test-oracle-full.cjs`).
+
+What this does not show: the population is square traits of 1024-1280px, so
+other sizes and aspect ratios are unmeasured; and it compares the grid, not
+reconstructed pixels in full mode.
+
+**Cost.** Node, 6 images at a time on a 16-core machine, seconds per image:
+fast mean 1.57, max 5.32 (fast runs first, so this includes JIT warm-up);
+full mean 2.51, max 11.93 - 0.76 mean on images that take the early exit,
+8.13 mean / 11.93 max on the 78 that arbitrate. A browser Worker will be no
+faster. The Python reference's own timings, recorded in the oracle (its
+driver also ran 6 at a time): fast 0.76 / 3.68, full 2.07 / 10.91.
+
+**The tab is not changed by this.** This work did not touch the site. This
+README said the Fix pixels tab offers only fast mode; that has not been
+re-checked here. Whether to offer full, given up to ~12 s per image, is a
+decision for whoever owns the tab, not something this port settles.
+`tools/build.cjs`'s bundle header still says "FAST MODE ONLY" and is stale.
 
 Reconstruction is `two_stage_pack`, the reference's default: quantise only to
 decide which label wins each cell, then colour that cell from the **original**
@@ -33,6 +72,8 @@ comparison against it rather than a reading of it.
 - `tools/test-detect.js` - the detected grid, consensus and step for every
   fixture and example image against `pixelfixer.core.detect(mode="fast")`.
   **7 of 7 agree exactly**, zero step drift.
+- `tools/test-oracle-full.cjs` - both modes against the reference's saved
+  answers on 360 real traits, one process per image (table above).
 - `tools/test-endtoend.js` - `PF.process` against `pixelfixer.api.process`,
   pixels included. **Byte-identical** on every image with a reference.
 - Per-module: `test-core-array`, `test-fft`, `test-scipy`, `test-cv2`,

@@ -16,8 +16,10 @@
  *                 ONLY when all three ports are on PF; otherwise it is
  *                 reported as SKIPPED and the process exits 2 so a skip can
  *                 never read as a pass.
- *   D  guards     JS-only behaviour with no reference counterpart: mode
- *                 "full" / unknown mode / missing port throw; strict rethrows.
+ *   D  guards     JS-only behaviour with no reference counterpart: unknown
+ *                 mode / missing port throw; strict rethrows; the default
+ *                 mode is full (ported; tools/test-core-full.cjs is its
+ *                 parity test).
  *
  * Floats are compared with Object.is on the decoded float64 (NaN == NaN,
  * -0 != +0), i.e. bit-exact.
@@ -283,10 +285,20 @@ console.log('\n== D. guards (JS-only; the reference has no counterpart)');
 {
   const rgba = { d: new Uint8Array(16), w: 2, h: 2, cn: 4 };
   let m;
+  // SUPERSEDED (full-mode port, pf-50-core/2): these two used to require
+  // the "full mode is not ported yet" refusal. Full mode is ported and
+  // measured by tools/test-core-full.cjs; what stays checkable here is that
+  // the default IS full mode and that on this 2x2 image it raises, as the
+  // reference does (measured: ValueError "zero-size array to reduction
+  // operation maximum" from the serial rebuild of `shared`, core.py:119;
+  // the JS autocorr port refuses the same rebuild one call earlier, in
+  // d2_along's width check) - and never with the old refusal.
   try { PF.core.detect(rgba); m = 'no throw'; } catch (e) { m = e.message; }
-  ok(m === 'full mode is not ported yet', 'default mode (full) throws', m);
+  ok(m !== 'no throw' && m !== 'full mode is not ported yet' && /d2_along/.test(m),
+    'default mode is full: 2x2 raises in the serial rebuild, as the reference does', m);
   try { PF.core.detect(rgba, 'full'); m = 'no throw'; } catch (e) { m = e.message; }
-  ok(m === 'full mode is not ported yet', 'mode "full" throws', m);
+  ok(m !== 'no throw' && m !== 'full mode is not ported yet' && /d2_along/.test(m),
+    'mode "full": 2x2 raises in the serial rebuild, as the reference does', m);
   try { PF.core.detect(rgba, 'medium'); m = 'no throw'; } catch (e) { m = e.message; }
   ok(/unknown mode "medium"/.test(m), 'unknown mode throws', m);
   try { PF.core.detect({ d: new Uint8Array(15), w: 2, h: 2, cn: 4 }, 'fast'); m = 'no throw'; } catch (e) { m = e.message; }

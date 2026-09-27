@@ -764,5 +764,344 @@
     return pairwise(a, off, n, f32 ? Math.fround : ident);
   };
 
-  PF.version = 'pf-00-base/2';
+  /* ================================================================== *
+   * FULL-MODE ADDITIONS (added with pf-06-linalg.js)
+   *
+   * The scans and reductions fusion / varcontrast / channels / reconsearch
+   * call. Every summation ORDER here was measured, not assumed:
+   * tools/probe-linalg-reductions.py scores each candidate order bit for
+   * bit against numpy 2.5.3 on data where the rival orders disagree, and
+   * tools/test-linalg.cjs re-checks the ported code against
+   * fixtures/linalg-parity.json. A reduction that "adds the same numbers"
+   * in another order is a different float, so the order IS the port.
+   * ================================================================== */
+
+  function floatKind(a, what) {
+    if (a instanceof Float64Array) return false;
+    if (a instanceof Float32Array) return true;
+    throw new Error('PF.' + what + ': float32 or float64 data only (got ' +
+      (a && a.constructor ? a.constructor.name : typeof a) + ')');
+  }
+  function prod(shape, from, to) {
+    var p = 1, i;
+    for (i = from; i < to; i++) p *= shape[i];
+    return p;
+  }
+  function normAxis(axis, nd, what) {
+    if (axis < 0) axis += nd;
+    check(axis >= 0 && axis < nd && axis === Math.floor(axis), what + ': axis out of range');
+    return axis;
+  }
+
+  /* numpy's pairwise_sum over a STRIDED run (the same algorithm as
+   * pairwise() above; numpy indexes a + i*stride and the block structure
+   * depends only on n). */
+  function pairwiseS(a, off, n, st, R) {
+    var i, res;
+    if (n < 8) {
+      res = 0.0;
+      for (i = 0; i < n; i++) res = R(res + a[off + i * st]);
+      return res;
+    }
+    if (n <= 128) {
+      var r0 = a[off], r1 = a[off + st], r2 = a[off + 2 * st], r3 = a[off + 3 * st];
+      var r4 = a[off + 4 * st], r5 = a[off + 5 * st], r6 = a[off + 6 * st], r7 = a[off + 7 * st];
+      var end = n - (n % 8), p;
+      for (i = 8; i < end; i += 8) {
+        p = off + i * st;
+        r0 = R(r0 + a[p]); r1 = R(r1 + a[p + st]);
+        r2 = R(r2 + a[p + 2 * st]); r3 = R(r3 + a[p + 3 * st]);
+        r4 = R(r4 + a[p + 4 * st]); r5 = R(r5 + a[p + 5 * st]);
+        r6 = R(r6 + a[p + 6 * st]); r7 = R(r7 + a[p + 7 * st]);
+      }
+      res = R(R(R(r0 + r1) + R(r2 + r3)) + R(R(r4 + r5) + R(r6 + r7)));
+      for (; i < n; i++) res = R(res + a[off + i * st]);
+      return res;
+    }
+    var n2 = (n / 2) | 0;
+    n2 -= n2 % 8;
+    return R(pairwiseS(a, off, n2, st, R) + pairwiseS(a, off + n2 * st, n - n2, st, R));
+  }
+  PF.pairwiseSumStrided = function (a, off, n, stride, f32) {
+    return pairwiseS(a, off, n, stride, f32 ? Math.fround : ident);
+  };
+
+  /* ------------------------------------------------------------------ *
+   * np.cumsum(a, axis) for a C-contiguous array {d, shape}.
+   *
+   * add.accumulate is a plain sequential loop IN THE ARRAY'S DTYPE:
+   * out[0] = a[0], out[k] = out[k-1] + a[k]. MEASURED 6300/6300 on every
+   * axis of float32 and float64 3-D data, and 18060/18060 on reconsearch's
+   * own form np.cumsum(img, 1, out=S[:, 1:]) (float32 into float32). The
+   * float64-then-cast rival matches 2936/18000 - so float32 input must NOT
+   * be widened: reconsearch.py:111's comment ("float32 cumsums stay
+   * accurate") is a claim about magnitude, not about bits.
+   *   varcontrast.py:51,53,204,207  float64    reconsearch.py:113,115  float32
+   * Returns a new array of the input's type.
+   * ------------------------------------------------------------------ */
+  PF.cumsum = function (d, shape, axis) {
+    var f32 = floatKind(d, 'cumsum');
+    var R = f32 ? Math.fround : ident;
+    if (shape === undefined || shape === null) shape = [d.length];
+    var nd = shape.length;
+    axis = normAxis(axis === undefined || axis === null ? 0 : axis, nd, 'cumsum');
+    checkLen(d, prod(shape, 0, nd), 'cumsum data');
+    var n = shape[axis], inner = prod(shape, axis + 1, nd), outer = prod(shape, 0, axis);
+    var out = new d.constructor(d.length), o, j, k, p, acc;
+    for (o = 0; o < outer; o++) {
+      for (j = 0; j < inner; j++) {
+        p = o * n * inner + j;
+        if (n === 0) continue;
+        acc = d[p]; out[p] = acc;
+        for (k = 1; k < n; k++) {
+          p += inner;
+          acc = R(acc + d[p]);
+          out[p] = acc;
+        }
+      }
+    }
+    return out;
+  };
+
+  /* ------------------------------------------------------------------ *
+   * np.maximum.accumulate(a, axis): out[k] = np.maximum(out[k-1], a[k]),
+   * with np.maximum's NaN propagation (channels.py:1221, 1263). Max is
+   * exact, so the only semantics to keep are NaN and the +-0 tie rule of
+   * PF.npMaximum.
+   * ------------------------------------------------------------------ */
+  PF.maximum_accumulate = function (d, shape, axis) {
+    if (shape === undefined || shape === null) shape = [d.length];
+    var nd = shape.length;
+    axis = normAxis(axis === undefined || axis === null ? 0 : axis, nd, 'maximum_accumulate');
+    checkLen(d, prod(shape, 0, nd), 'maximum_accumulate data');
+    var n = shape[axis], inner = prod(shape, axis + 1, nd), outer = prod(shape, 0, axis);
+    var out = new d.constructor(d.length), o, j, k, p, acc;
+    for (o = 0; o < outer; o++) {
+      for (j = 0; j < inner; j++) {
+        p = o * n * inner + j;
+        if (n === 0) continue;
+        acc = d[p]; out[p] = acc;
+        for (k = 1; k < n; k++) {
+          p += inner;
+          acc = npMaximum(acc, d[p]);
+          out[p] = acc;
+        }
+      }
+    }
+    return out;
+  };
+
+  /* ------------------------------------------------------------------ *
+   * np.add.reduceat(a, indices, axis)
+   *
+   * MEASURED: each segment is a[start] + pairwise_sum(a[start+1:end]) -
+   * the first element is COPIED and the rest handed to the pairwise inner
+   * loop (ufunc_object.c PyUFunc_Reduceat: memmove of the first item, then
+   * the loop in IS_BINARY_REDUCE form). 65/65 on every (dtype, axis) cell;
+   * plain sequential scores 19-27/65, pairwise-over-all 21-29/65.
+   * numpy's other rules, kept verbatim: the last segment runs to the end
+   * of the axis; if indices[i] >= indices[i+1] the i-th output is just
+   * a[indices[i]]; an index outside [0, n) raises.
+   *   reconsearch.py:130,136,171,180  float64 axis 0
+   *   reconsearch.py:179              float32 axis 1 (nbc > 1 only)
+   * ------------------------------------------------------------------ */
+  PF.add_reduceat = function (d, shape, indices, axis) {
+    var f32 = floatKind(d, 'add_reduceat');
+    var R = f32 ? Math.fround : ident;
+    if (shape === undefined || shape === null) shape = [d.length];
+    var nd = shape.length;
+    axis = normAxis(axis === undefined || axis === null ? 0 : axis, nd, 'add_reduceat');
+    checkLen(d, prod(shape, 0, nd), 'add_reduceat data');
+    var n = shape[axis], inner = prod(shape, axis + 1, nd), outer = prod(shape, 0, axis);
+    var ni = indices.length, i, o, j, s0, s1, base, oshape = shape.slice();
+    for (i = 0; i < ni; i++) {
+      check(indices[i] === Math.floor(indices[i]) && indices[i] >= 0 && indices[i] < n,
+        'add_reduceat: index ' + indices[i] + ' out-of-bounds for axis of size ' + n);
+    }
+    oshape[axis] = ni;
+    var out = new d.constructor(outer * ni * inner);
+    for (o = 0; o < outer; o++) {
+      for (i = 0; i < ni; i++) {
+        s0 = indices[i];
+        s1 = (i + 1 < ni) ? indices[i + 1] : n;
+        for (j = 0; j < inner; j++) {
+          base = o * n * inner + s0 * inner + j;
+          if (s1 <= s0) { out[(o * ni + i) * inner + j] = d[base]; continue; }
+          out[(o * ni + i) * inner + j] = R(d[base] + pairwiseS(d, base + inner, s1 - s0 - 1, inner, R));
+        }
+      }
+    }
+    return { d: out, shape: oshape };
+  };
+
+  /* ------------------------------------------------------------------ *
+   * ndarray.sum(axis=...) - the ORDER follows MEMORY LAYOUT, not the
+   * logical axis (numpy docs: pairwise summation "is only used when
+   * summing along the fast axis in memory").
+   *
+   * Model (numpy's nditer walks the operand in memory order and coalesces
+   * adjacent axes; for a reduction the inner loop is either a BINARY_REDUCE
+   * over the innermost reduced run, or an elementwise add over a kept
+   * axis):
+   *   1. Walk the base array in memory order (C order of the BASE).
+   *   2. The innermost block of consecutive base axes that are all reduced
+   *      (size-1 axes do not break it) is one "chunk"; if the innermost
+   *      axis of size > 1 is KEPT, every chunk is a single element.
+   *   3. out = 0 (the identity), then out[k] += pairwise(chunk) for every
+   *      chunk in memory order.
+   * MEASURED (probe): C 2-D sum(axis=0) sequential 200/200 vs pairwise
+   * 16/200; sum(axis=1) pairwise 300/300 vs sequential 30/300; a.T.sum(0)
+   * pairwise; a transposed (L, other, C) view summed over (0, 2) is ONE
+   * pairwise run of L*C per output (40/40; the per-row rival 5/40) while
+   * the same axes of the C-contiguous array are a sequential sum of
+   * per-pixel channel sums (70/70). tools/test-linalg.cjs checks this
+   * model against numpy on every permutation x axis subset of random 2-D
+   * and 3-D arrays.
+   *
+   * @param d      C-contiguous data of the BASE array (float32/float64)
+   * @param shape  the BASE array's shape
+   * @param axes   reduced axes, in VIEW coordinates (int or array)
+   * @param perm   optional: the view is base.transpose(perm); omitted =
+   *               identity. varcontrast.py:45 transposes before summing.
+   * @returns {d, shape} C-contiguous result in VIEW axis order, same dtype
+   * ------------------------------------------------------------------ */
+  PF.sumAxes = function (d, shape, axes, perm) {
+    var f32 = floatKind(d, 'sumAxes');
+    var R = f32 ? Math.fround : ident;
+    var nd = shape.length, v, b, i;
+    checkLen(d, prod(shape, 0, nd), 'sumAxes data');
+    if (perm === undefined || perm === null) { perm = []; for (i = 0; i < nd; i++) perm.push(i); }
+    check(perm.length === nd, 'sumAxes: perm length');
+    if (typeof axes === 'number') axes = [axes];
+    var redView = new Array(nd), redBase = new Array(nd);
+    for (i = 0; i < nd; i++) { redView[i] = false; redBase[i] = false; }
+    for (i = 0; i < axes.length; i++) {
+      v = normAxis(axes[i], nd, 'sumAxes');
+      check(!redView[v], 'sumAxes: duplicate axis');
+      redView[v] = true;
+      redBase[perm[v]] = true;
+    }
+    // output: kept view axes in view order, C-contiguous
+    var oshape = [], keptView = [];
+    for (v = 0; v < nd; v++) if (!redView[v]) { keptView.push(v); oshape.push(shape[perm[v]]); }
+    var ostrBase = new Array(nd), s = 1;
+    for (b = 0; b < nd; b++) ostrBase[b] = 0;
+    for (i = keptView.length - 1; i >= 0; i--) { ostrBase[perm[keptView[i]]] = s; s *= shape[perm[keptView[i]]]; }
+    var out = new d.constructor(s);
+    // innermost reduced run (size-1 axes coalesce with anything)
+    var run = 1, nb = nd, anyRed = false;
+    for (b = nd - 1; b >= 0; b--) {
+      if (shape[b] === 1) { nb = b; continue; }
+      if (!redBase[b]) break;
+      run *= shape[b]; nb = b; anyRed = true;
+    }
+    if (!anyRed) { run = 1; nb = nd; }
+    var total = d.length;
+    if (total === 0) return { d: out, shape: oshape };
+    // odometer over base axes 0..nb-1 (the chunk covers nb..nd-1)
+    var idx = new Array(nb), oo = 0, p = 0, k;
+    for (b = 0; b < nb; b++) idx[b] = 0;
+    for (;;) {
+      if (run === 1) out[oo] = R(out[oo] + d[p]);
+      else out[oo] = R(out[oo] + pairwiseS(d, p, run, 1, R));
+      p += run;
+      // advance
+      for (k = nb - 1; k >= 0; k--) {
+        idx[k]++;
+        oo += ostrBase[k];
+        if (idx[k] < shape[k]) break;
+        oo -= ostrBase[k] * shape[k];
+        idx[k] = 0;
+      }
+      if (k < 0) break;
+    }
+    return { d: out, shape: oshape };
+  };
+
+  /* ndarray.mean(axis=...) = sum / count in the array's dtype (float32
+   * stays float32: MEASURED (n,3).mean(0) = sequential float32 sum / n,
+   * 3/3, the pairwise rival 0/3; reconsearch.py:76). */
+  PF.meanAxes = function (d, shape, axes, perm) {
+    var r = PF.sumAxes(d, shape, axes, perm);
+    var cnt = d.length / Math.max(r.d.length, 1), i;
+    if (d instanceof Float32Array) { var c32 = Math.fround(cnt); for (i = 0; i < r.d.length; i++) r.d[i] = Math.fround(r.d[i] / c32); }
+    else for (i = 0; i < r.d.length; i++) r.d[i] = r.d[i] / cnt;
+    return r;
+  };
+
+  /* Full-array mean / std of a C-contiguous array (any number of dims:
+   * numpy coalesces them into one run, so this is pairwise over all).
+   *   std = sqrt(pairwise((x - mean)^2) / n), two-pass, in the dtype;
+   *   ddof = 0 only (every reference call uses the default).
+   * float32 call sites: reconsearch.py:82,83 alpha.std()/.mean(),
+   * channels.py:585 prof.mean(); float64: channels.py:119,440,441,1127,
+   * varcontrast.py:246,323,348. */
+  PF.mean = function (a) {
+    var f32 = floatKind(a, 'mean'), n = a.length;
+    check(n > 0, 'mean of an empty array');
+    return f32 ? Math.fround(pairwise(a, 0, n, Math.fround) / Math.fround(n)) : pairwise(a, 0, n, ident) / n;
+  };
+  PF.std = function (a) {
+    var f32 = floatKind(a, 'std'), n = a.length, i, t;
+    check(n > 0, 'std of an empty array');
+    var R = f32 ? Math.fround : ident;
+    var mu = PF.mean(a);
+    var sq = new a.constructor(n);
+    for (i = 0; i < n; i++) { t = R(a[i] - mu); sq[i] = R(t * t); }
+    var v = f32 ? Math.fround(pairwise(sq, 0, n, Math.fround) / Math.fround(n)) : pairwise(sq, 0, n, ident) / n;
+    return R(Math.sqrt(v));
+  };
+
+  /* np.average(x, weights=w), 1-D (reconsearch.py:234-239):
+   * np.multiply(x, w).sum() / w.sum(), both pairwise. MEASURED 200/200.
+   * The result dtype is np.result_type(x, w, 'f8'), so float32 input is
+   * WIDENED to float64 before anything is multiplied or summed - there is
+   * no float32 path. numpy raises ZeroDivisionError when the weights sum
+   * to zero; so does this. */
+  PF.average = function (x, w) {
+    var n = x.length, i;
+    checkLen(w, n, 'average weights');
+    var ww = new Float64Array(n), xw = new Float64Array(n);
+    for (i = 0; i < n; i++) { ww[i] = w[i]; xw[i] = x[i] * ww[i]; }
+    var scl = pairwise(ww, 0, n, ident);
+    if (scl === 0) throw new Error('PF.average: Weights sum to zero, can\'t be normalized');
+    return pairwise(xw, 0, n, ident) / scl;
+  };
+
+  /* ------------------------------------------------------------------ *
+   * Python's round(x, ndigits) on a float - NOT numpy's.
+   *
+   * fusion.py, reconsearch.py and channels.py use round(s, 4) and
+   * round(s, 2) as dictionary keys and for de-duplication, so a different
+   * last digit is a different candidate. CPython (floatobject.c
+   * double_round) rounds the EXACT binary value to ndigits decimals with
+   * _Py_dg_dtoa mode 3 - ties to EVEN - and parses the result back with a
+   * correctly rounded strtod. Number.prototype.toFixed also works on the
+   * exact value, but breaks ties AWAY from zero: round(0.125, 2) is 0.12 in
+   * Python and (0.125).toFixed(2) is "0.13". A tie needs x to be a dyadic
+   * rational with at most ndigits+1 fractional bits (e.g. 1254/64 =
+   * 19.59375 at 4 digits), which extent/count steps can be.
+   * ndigits 0..20 only (the reference uses 2 and 4).
+   * ------------------------------------------------------------------ */
+  PF.pyRound = function (x, nd) {
+    check(nd === Math.floor(nd) && nd >= 0 && nd <= 20, 'pyRound: ndigits must be an integer in [0, 20]');
+    if (x !== x || x === Infinity || x === -Infinity || x === 0) return x;
+    var ax = Math.abs(x);
+    if (ax >= 1e21) return x;                       // already an integer; toFixed would go exponential
+    var ex = ax.toFixed(100);                       // exact for every double that can tie at <= 20 digits
+    var dot = ex.indexOf('.');
+    var tail = ex.slice(dot + 1 + nd);
+    var r;
+    if (tail.charAt(0) === '5' && /^50*$/.test(tail)) {
+      var kept = nd > 0 ? ex.slice(0, dot + 1 + nd) : ex.slice(0, dot);
+      var last = kept.charCodeAt(kept.length - 1) - 48;
+      r = (last % 2 === 0) ? kept : ax.toFixed(nd);  // even: truncate; odd: toFixed rounds the tie up
+    } else {
+      r = ax.toFixed(nd);
+    }
+    var v = parseFloat(r);
+    return x < 0 ? -v : v;
+  };
+
+  PF.version = 'pf-00-base/3';
 })();

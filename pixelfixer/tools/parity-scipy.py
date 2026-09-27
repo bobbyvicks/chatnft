@@ -23,7 +23,7 @@ ROOT = os.path.dirname(HERE)
 FIX = os.path.join(ROOT, "fixtures")
 
 sys.path.insert(0, os.path.join(
-    os.path.dirname(os.path.dirname(ROOT)), "pixel-art-fixer", "python"))
+    os.path.dirname(os.path.dirname(ROOT)), "paf-ref", "python"))
 from pixelfixer import channels  # noqa: E402
 
 

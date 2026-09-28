@@ -37,16 +37,51 @@ export default defineConfig({
        went to the real network. Measured in the live project's edge logs
        (read-only, 2026-09-27 10:05Z to 2026-09-28 10:05Z): from at least
        2026-09-27 14:09Z, HeadlessChrome pages on 127.0.0.1 ports 5771, 5783,
-       5793, 5794, 5797 and 5799 reached it, suite-wide. It refused all of it -
-       GET /auth/v1/user 403 (bad_jwt, "token is malformed") 22 times, POST
-       /rest/v1/rpc/my_team 401 once - and the rest were OPTIONS preflights
-       to /auth/v1/user, /rest/v1/rpc/my_team, /rest/v1/teams and
-       /rest/v1/traits. No data was read or written from a test port.
+       5793, 5794, 5797 and 5799 reached it, suite-wide. Every request that
+       was not a preflight was refused: GET /auth/v1/user 403 (bad_jwt,
+       "token is malformed") 22 times, and POST /rest/v1/rpc/my_team 401
+       once. The rest were OPTIONS preflights, to /auth/v1/user,
+       /rest/v1/rpc/my_team, /rest/v1/teams and /rest/v1/traits. No data
+       was read or written from a test port.
 
-       So every *.supabase.co name now fails to resolve inside the browser,
-       and nothing is sent. page.route handlers and window.fetch stubs are
-       untouched: both answer a request before it is sent, so no name is
-       looked up for it (tests/networkguard.spec.js pins that too).
+       WHAT THE RULE COVERS. Names Chromium resolves itself: every
+       *.supabase.co name, with or without a trailing dot (a trailing-dot
+       name slipped past the plain entry, measured by review), fails to
+       resolve, and nothing is sent. A proxy set at launch (a --proxy-server
+       arg, or Playwright's launch option proxy) would otherwise take the
+       name to the proxy unresolved: the bypass list makes Chromium resolve
+       *.supabase.co names itself even then. Measured 2026-09-28 with a
+       local listener standing in for the proxy and made-up *.supabase.co
+       names only: without the bypass list, http requests reached it as GET
+       and https as CONNECT; with *.supabase.co alone in the list, a
+       trailing-dot name still reached it; with both entries below, every
+       *.supabase.co request was refused while a name outside the list
+       still went through the listener. With Playwright's launch option,
+       this list comes after the one Playwright adds, and it is the one in
+       force (measured: the names were refused). So that option's own
+       bypass entries are dropped (inferred from that, not measured).
+
+       NOT COVERED, measured the same way: a proxy set on a context
+       (browser.newContext({ proxy }), or proxy in a test's use). Chromium
+       gives that context its own proxy settings, the launch bypass list
+       does not reach them, and every *.supabase.co request, trailing dot or
+       not, went to the listener. Not measured: a proxy from the operating
+       system or a PAC script. A --proxy-pac-url (data: or served locally)
+       was not applied at all by this headless Chromium, so it measured
+       nothing. And a launchOptions set by a spec's test.use or by a
+       project's use REPLACES this one rather than merging with it (measured
+       by review), so the guard is gone wherever that is done.
+       tests/networkguard.spec.js fails if any spec or project sets
+       launchOptions, or sets a proxy.
+
+       page.route handlers and window.fetch stubs are untouched: a route
+       answers a request before any name is looked up, and a stub never
+       makes one. tests/networkguard.spec.js pins the page.route half.
+
+       In tests/networkguard.spec.js, tests 1 and 2 and the trailing-dot
+       test are what detect a bypass of the *.supabase.co entries. Test 4
+       does not: it exercises only its own probe entry, to show that the
+       rule is in force at all.
 
        The rule is Chromium's (--host-resolver-rules). A WebKit or Firefox
        project added below would not have it, and would need its own guard.
@@ -55,7 +90,10 @@ export default defineConfig({
        prove the rule is in force without any external traffic: Chromium
        resolves every *.localhost name to loopback by itself, so that name
        failing while pb-guard-open.localhost still loads is the rule's doing. */
-    launchOptions: { args: ['--host-resolver-rules=MAP *.supabase.co ~NOTFOUND, MAP pb-guard-probe.localhost ~NOTFOUND'] },
+    launchOptions: { args: [
+      '--host-resolver-rules=MAP *.supabase.co ~NOTFOUND, MAP *.supabase.co. ~NOTFOUND, MAP pb-guard-probe.localhost ~NOTFOUND',
+      '--proxy-bypass-list=*.supabase.co;*.supabase.co.',
+    ] },
   },
   projects: [{ name: 'chromium', use: { browserName: 'chromium' } }],
   webServer: {

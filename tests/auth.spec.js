@@ -519,23 +519,40 @@ const LIVE_PASS = process.env.CHATNFT_PASS;
    every *.supabase.co name fail to resolve in the browser (Task 10a, see
    tests/networkguard.spec.js), so with credentials set this test would wait
    out its 25 s poll for a sign-in that can never be sent, and fail without
-   saying why. It skips instead, naming the guard, and only while the guard's
-   rule is in the launch arguments: take the rule out on purpose and this
-   runs as before. */
-const GUARDED = (launchOptions) => ((launchOptions && launchOptions.args) || [])
-  .some(a => /^--host-resolver-rules=.*\*\.supabase\.co ~NOTFOUND/.test(a));
+   saying why. So before signing in it asks the browser for the project's
+   host, and skips, naming the guard, only if that name did not resolve.
+
+   It decides by what the browser does, not by reading the config. An
+   earlier version matched the rule's text in the launch arguments, and
+   review measured it wrong both ways: it missed a stronger rule (MAP *
+   ~NOTFOUND), and it was fooled by a later --host-resolver-rules that
+   overrides the guard (the last one wins). With the guard removed on
+   purpose, the name resolves and this runs as before. The one request it
+   adds then is a no-cors GET of the project's root. */
+const GUARD_REASON = 'the Playwright config blocks *.supabase.co (Task 10a); '
+  + 'run this against the live project only with the guard removed on purpose';
+
+/* What the browser did with one request: its network error if it failed
+   before any answer, or "answered <status>". */
+const fateOf = (page, url) => new Promise((resolve, reject) => {
+  const off = () => { page.off('requestfailed', failed); page.off('response', answered); };
+  const failed = (r) => { if (r.url() === url) { off(); resolve(r.failure() ? r.failure().errorText : 'failed'); } };
+  const answered = (r) => { if (r.url() === url) { off(); resolve('answered ' + r.status()); } };
+  page.on('requestfailed', failed);
+  page.on('response', answered);
+  page.evaluate((u) => fetch(u, { mode: 'no-cors' }).then(() => {}, () => {}), url)
+    .catch((e) => { off(); reject(e); });
+});
 
 test.describe('against the live project', () => {
   test.skip(!LIVE_USER || !LIVE_PASS, 'set CHATNFT_USER and CHATNFT_PASS to run this');
-  /* Playwright reads which fixtures a callback needs from its destructured
-     first argument, so it has to stay destructured. */
-  test.skip(({ launchOptions }) => !!(LIVE_USER && LIVE_PASS) && GUARDED(launchOptions),
-    'the Playwright config blocks *.supabase.co (Task 10a); run this against the live project only with the guard removed on purpose');
 
   test('the real account signs in and the gate opens', async ({ page }) => {
     await page.goto('/index.html');
     await page.waitForFunction(() => typeof gateSignIn === 'function');
     await page.waitForFunction(() => !document.getElementById('signin').hidden, null, { timeout: 10000 });
+    const root = (await page.evaluate(() => SB_URL)) + '/';
+    test.skip((await fateOf(page, root)) === 'net::ERR_NAME_NOT_RESOLVED', GUARD_REASON);
     await signIn(page, LIVE_USER, LIVE_PASS);
     await expect.poll(async () => (await gated(page)).scrim, { timeout: 25000 }).toBe(false);
     expect(await page.textContent('#cloudwho'), 'and the account is named on screen')

@@ -44,14 +44,47 @@ test.describe('stage 0: the open lock', () => {
     expect(await held(page, 'pixelbench'), 'the control: the store in use is still held').toEqual(['shared']);
   });
 
-  test('once s0CloseAllGone settles, the store\'s lock is free for an exclusive request at once', async ({ page }) => {
+  /* What this measures is that closing frees the lock. It cannot tell "gone"
+     from "released": in Chromium a request made one await after the release
+     already finds the lock free (measured), so s0CloseAllGone without its
+     wait passes here too (25 of 25). The next test is the one that can. */
+  test('closing this tab\'s handles frees the store\'s lock for an exclusive request', async ({ page }) => {
     const free = await page.evaluate(async () => {
       await dbAll();
       await s0CloseAllGone('pixelbench');
       dbp = null; dbpName = null;
       return navigator.locks.request('open:pixelbench', { mode: 'exclusive', ifAvailable: true }, (l) => !!l);
     });
-    expect(free, 'this tab\'s own lock is gone, not merely released').toBe(true);
+    expect(free, 'this tab\'s own lock no longer blocks an exclusive request').toBe(true);
+  });
+
+  test('s0CloseAllGone stays pending until every lock it closed has gone, and settles after', async ({ page }) => {
+    /* The wait itself, which Task 14's Leave depends on: one tracked entry's
+       gone() is swapped for a promise this test settles, so "gone" happens
+       when the test says, not a microtask after the release. */
+    const r = await page.evaluate(async () => {
+      await dbAll();
+      const set = s0OpenDbs.get('pixelbench');
+      const entries = set ? set.size : 0;
+      const entry = set ? [...set][0] : null;
+      const hadHold = !!(entry && entry.hold && typeof entry.hold.gone === 'function');
+      let letGo = null;
+      const deferred = new Promise(res => { letGo = res; });
+      if (hadHold) entry.hold.gone = () => deferred;
+      let settled = false;
+      const closing = s0CloseAllGone('pixelbench').then(n => { settled = true; return n; });
+      await new Promise(res => setTimeout(res, 200));
+      const pendingWhileHeld = !settled;
+      letGo();
+      const n = await Promise.race([closing, new Promise(res => setTimeout(() => res('still pending after 2s'), 2000))]);
+      dbp = null; dbpName = null;
+      return { entries, hadHold, pendingWhileHeld, n, settledAfter: settled };
+    });
+    expect(r.entries, 'the precondition: one tracked handle on the store').toBe(1);
+    expect(r.hadHold, 'and it holds a lock whose gone() can be replaced').toBe(true);
+    expect(r.pendingWhileHeld, 's0CloseAllGone is still pending while the lock has not gone').toBe(true);
+    expect(r.n, 'and settles once it has, answering how many it closed').toBe(1);
+    expect(r.settledAfter).toBe(true);
   });
 
   test('the store is still version 1', async ({ page }) => {

@@ -4441,24 +4441,27 @@ function s0NewLid(){
 }
 function s0Stamps(rec){ return !!rec && (rec.kind==="trait"||rec.kind==="ref"||rec.kind==="autosave"); }
 /* stored: what the store held under this id, read in the same transaction
-   (null when the caller did not need it read). */
-function s0Stamp(rec,stored,wk){
+   (null when the caller did not need it read). uid: the account a
+   person's write is stamped with, when the caller took it before this
+   ran - null meaning nobody was signed in then. Left out, it is whoever
+   is signed in now; only autosaveNow passes it (fix round 1). */
+function s0Stamp(rec,stored,wk,uid){
   const draft=rec.kind==="autosave";
   if(!draft && !rec.lid) rec.lid=(stored&&stored.lid)||s0NewLid();
   /* A pull writing something unsent - a draft it re-times, or the server's
      row merged into a record whose picture never went up - is neither a
      pull's copy nor the signed-in account's act: it keeps whose it was. */
   const keep=wk==="pull" && (draft||!rec.synced);
-  const u=keep ? (rec.by||(stored&&stored.by)||null) : s0Uid();
+  const u=keep ? (rec.by||(stored&&stored.by)||null) : (uid!==undefined ? uid : s0Uid());
   if(u) rec.by=u; else delete rec.by;
   rec.wk=(!draft&&!keep&&(wk==="pull"||wk==="sent")) ? wk : "person";
   return rec;
 }
-async function dbPut(rec,wk){ touch(rec&&rec.id); const d=await db(); return new Promise((res,rej)=>{
+async function dbPut(rec,wk,uid){ touch(rec&&rec.id); const d=await db(); return new Promise((res,rej)=>{
   const t=d.transaction(STORE,'readwrite'), s=t.objectStore(STORE);
   /* A person's draft needs nothing from what it replaces: stamped as it goes. */
-  if(s0Stamps(rec)&&rec.kind==="autosave"&&wk!=="pull") s.put(s0Stamp(rec,null,wk));
-  else if(s0Stamps(rec)){ const q=s.get(rec.id); q.onsuccess=()=>{ s.put(s0Stamp(rec,q.result,wk)); }; }
+  if(s0Stamps(rec)&&rec.kind==="autosave"&&wk!=="pull") s.put(s0Stamp(rec,null,wk,uid));
+  else if(s0Stamps(rec)){ const q=s.get(rec.id); q.onsuccess=()=>{ s.put(s0Stamp(rec,q.result,wk,uid)); }; }
   else s.put(rec);
   t.oncomplete=()=>res(); t.onerror=()=>rej(t.error); t.onabort=()=>rej(dbAborted(t)); }); }
 /* ONE RECORD, BY KEY. dbAll reads every row in the project including every
@@ -11161,6 +11164,12 @@ function autosaveNow(){
      draft is written with the first picture's bytes under the second
      one's dimensions and name - a draft that restores wrong. */
   const W=art.width, H=art.height, nm=fileName||"untitled.png";
+  /* STAGE 0: AND WHOSE DRAWING IT IS, for the same reason. sessionEnded and
+     cloudSignOut save the drawing and let the uid go in the same run, so
+     the uid read when the write landed a task later was nobody's, and the
+     draft was written with no owner over one that had one (measured, fix
+     round 1). */
+  const by=s0Uid();
   /* A saved trait opened and closed without a stroke has nothing to keep -
      the record already says it. startEditor empties undoStack, so a
      non-empty one is exactly "edited since this was opened", and without
@@ -11185,7 +11194,7 @@ function autosaveNow(){
     art.toBlob(b=>{
       if(!b){ done(false); return; }
       dbPut({id:key, kind:"autosave", traitId:of, name:nm,
-             w:W, h:H, blob:b, at:Date.now()})
+             w:W, h:H, blob:b, at:Date.now()},"person",by)
         .then(()=>done(true), ()=>{
           try{ toast("Could not save your work to this browser - copy it out"
             +" with Download before closing the tab."); }catch(_){}
@@ -18479,13 +18488,26 @@ async function cloudRender(){
 
 
 function cloudSignOut(){
+  /* STAGE 0: AN AUTOSAVE STILL WAITING IS SAVED NOW, while the person who
+     drew it is the one signed in - autosaveNow takes the uid as it starts -
+     rather than when its timer fires, after the lines below have let the
+     uid go, stamped with nobody (measured, fix round 1). sessionEnded saves
+     the same way. Only one that is waiting: saving unconditionally would
+     add a write that does not happen today. Like the timer's, this write
+     lands in the store activeWs names when it lands, which is after the
+     line below that clears it. */
+  if(autoPending){ try{ autosaveNow(); }catch(_){} }
   sbSaveSession(null);
   gateShow(true);
   activeWs=null; wsSave(null); cloudTeamId=null; sharedLayerSig=null;
-  /* STAGE 0: nobody is signed in now, and anything still running for the
-     project just left - a pull downloading - stops: wsStill() is how its
-     writes ask, and only wsSwitch bumped this before, so a pull that
-     outlived a sign-out wrote the group's rows into the personal store. */
+  /* STAGE 0: nobody is signed in now. A pull still running for the project
+     just left - cloudPull, or the catch-up that runs one - stops: wsStill()
+     is how their writes ask, and only wsSwitch bumped this before, so a
+     pull that outlived a sign-out wrote the group's rows into the personal
+     store. Nothing else asks wsStill(). A push still in flight carries on,
+     and its confirmation - cloudSyncOne's "sent" write - lands in the
+     personal store, marked synced and with no owner, while the group's
+     own record stays unsent (measured, fix round 1). */
   wsGen++; s0SeenUid=null;
   /* The invite leaves with the person who signed out. Without this, the
      ordinary shared-device case still hands their pending invite to
@@ -19769,6 +19791,14 @@ function sameRepair(a,b){
 }
 async function cloudPull(opts){
   opts=opts||{};
+  /* STAGE 0: THE PROJECT THIS PULL IS FOR, noted before the first wait. It
+     was noted further down, after the sign-in check, the collection, the
+     headers and the row listing, and a sign-out during those bumped wsGen
+     before it was read: the pull took the signed-out generation for its
+     own and wrote the group's rows into the personal store (measured, fix
+     round 1). Nothing on the way there bumps wsGen itself, so this never
+     stops a pull on its own. */
+  const gen=wsGen;
   /* THREE answers, not two. "Could not ask" is not "you are signed out", and
      telling a signed-in person to sign in is an instruction to do the one
      thing that risks losing local work. */
@@ -19796,7 +19826,7 @@ async function cloudPull(opts){
   /* THE PROJECT THIS PULL IS FOR. Everything below writes to whichever
      database activeWs names AT THE MOMENT OF THE WRITE, and there are
      hundreds of awaits between here and the last one. */
-  const gen=wsGen;
+  /* (gen: noted at the top of this function since stage 0 - see there.) */
   $("cloudpull").disabled=true;
   let existing=[];
   try{ existing=await dbAll(); }catch(_){}

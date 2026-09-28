@@ -33,7 +33,24 @@
    And one fix the stamps need: cloudSignOut (18326) left wsGen alone, so a
    group pull still downloading when the person signed out wrote the group's
    rows into the personal store, stamped with nobody. It bumps wsGen now, as
-   wsSwitch does (20199). */
+   wsSwitch does (20199).
+
+   Fix round 1 (review, 2026-09-28); each was measured red on 1e026db first.
+   - cloudPull noted its generation only after four waits (the sign-in
+     check, the collection, the headers, the row listing), so a sign-out
+     during them was taken for the pull's own generation and the group's
+     rows still landed in the personal store. It is noted before the first
+     await now. Nothing on that path bumps wsGen itself, so a pull never
+     stops itself (checked by call closure: neither wsSwitch nor
+     cloudSignOut is reachable from it).
+   - The drawing saved as a session ends lost its owner. autosaveNow encodes
+     first and writes a task later, by which time sessionEnded and
+     cloudSignOut have let the uid go, and the draft was written with no
+     owner, over one that had one. autosaveNow now takes the uid as it
+     starts, with the key, the trait and the size, and dbPut stamps the
+     draft with it (dbPut's third argument; every other caller passes none
+     and is stamped as before). cloudSignOut saves an autosave still waiting
+     before it lets the uid go, as sessionEnded does. */
 const s0 = require('./stage0-common.cjs');
 const doc = s0.start([['function s0CloseAll(name){', 'patch600 is not applied']]);
 
@@ -93,24 +110,27 @@ doc.swap([
   '}',
   'function s0Stamps(rec){ return !!rec && (rec.kind==="trait"||rec.kind==="ref"||rec.kind==="autosave"); }',
   '/* stored: what the store held under this id, read in the same transaction',
-  '   (null when the caller did not need it read). */',
-  'function s0Stamp(rec,stored,wk){',
+  '   (null when the caller did not need it read). uid: the account a',
+  '   person\'s write is stamped with, when the caller took it before this',
+  '   ran - null meaning nobody was signed in then. Left out, it is whoever',
+  '   is signed in now; only autosaveNow passes it (fix round 1). */',
+  'function s0Stamp(rec,stored,wk,uid){',
   '  const draft=rec.kind==="autosave";',
   '  if(!draft && !rec.lid) rec.lid=(stored&&stored.lid)||s0NewLid();',
   '  /* A pull writing something unsent - a draft it re-times, or the server\'s',
   '     row merged into a record whose picture never went up - is neither a',
   '     pull\'s copy nor the signed-in account\'s act: it keeps whose it was. */',
   '  const keep=wk==="pull" && (draft||!rec.synced);',
-  '  const u=keep ? (rec.by||(stored&&stored.by)||null) : s0Uid();',
+  '  const u=keep ? (rec.by||(stored&&stored.by)||null) : (uid!==undefined ? uid : s0Uid());',
   '  if(u) rec.by=u; else delete rec.by;',
   '  rec.wk=(!draft&&!keep&&(wk==="pull"||wk==="sent")) ? wk : "person";',
   '  return rec;',
   '}',
-  "async function dbPut(rec,wk){ touch(rec&&rec.id); const d=await db(); return new Promise((res,rej)=>{",
+  "async function dbPut(rec,wk,uid){ touch(rec&&rec.id); const d=await db(); return new Promise((res,rej)=>{",
   "  const t=d.transaction(STORE,'readwrite'), s=t.objectStore(STORE);",
   '  /* A person\'s draft needs nothing from what it replaces: stamped as it goes. */',
-  '  if(s0Stamps(rec)&&rec.kind==="autosave"&&wk!=="pull") s.put(s0Stamp(rec,null,wk));',
-  '  else if(s0Stamps(rec)){ const q=s.get(rec.id); q.onsuccess=()=>{ s.put(s0Stamp(rec,q.result,wk)); }; }',
+  '  if(s0Stamps(rec)&&rec.kind==="autosave"&&wk!=="pull") s.put(s0Stamp(rec,null,wk,uid));',
+  '  else if(s0Stamps(rec)){ const q=s.get(rec.id); q.onsuccess=()=>{ s.put(s0Stamp(rec,q.result,wk,uid)); }; }',
   '  else s.put(rec);',
   "  t.oncomplete=()=>res(); t.onerror=()=>rej(t.error); t.onabort=()=>rej(dbAborted(t)); }); }",
 ]);
@@ -154,11 +174,29 @@ doc.swap(['  authed=inn;', '  gateShow(!inn);'], [
 
 doc.swap('  activeWs=null; wsSave(null); cloudTeamId=null; sharedLayerSig=null;', [
   '  activeWs=null; wsSave(null); cloudTeamId=null; sharedLayerSig=null;',
-  '  /* STAGE 0: nobody is signed in now, and anything still running for the',
-  '     project just left - a pull downloading - stops: wsStill() is how its',
-  '     writes ask, and only wsSwitch bumped this before, so a pull that',
-  '     outlived a sign-out wrote the group\'s rows into the personal store. */',
+  '  /* STAGE 0: nobody is signed in now. A pull still running for the project',
+  '     just left - cloudPull, or the catch-up that runs one - stops: wsStill()',
+  '     is how their writes ask, and only wsSwitch bumped this before, so a',
+  '     pull that outlived a sign-out wrote the group\'s rows into the personal',
+  '     store. Nothing else asks wsStill(). A push still in flight carries on,',
+  '     and its confirmation - cloudSyncOne\'s "sent" write - lands in the',
+  '     personal store, marked synced and with no owner, while the group\'s',
+  '     own record stays unsent (measured, fix round 1). */',
   '  wsGen++; s0SeenUid=null;',
+]);
+
+doc.swap(['function cloudSignOut(){', '  sbSaveSession(null);'], [
+  'function cloudSignOut(){',
+  '  /* STAGE 0: AN AUTOSAVE STILL WAITING IS SAVED NOW, while the person who',
+  '     drew it is the one signed in - autosaveNow takes the uid as it starts -',
+  '     rather than when its timer fires, after the lines below have let the',
+  '     uid go, stamped with nobody (measured, fix round 1). sessionEnded saves',
+  '     the same way. Only one that is waiting: saving unconditionally would',
+  '     add a write that does not happen today. Like the timer\'s, this write',
+  '     lands in the store activeWs names when it lands, which is after the',
+  '     line below that clears it. */',
+  '  if(autoPending){ try{ autosaveNow(); }catch(_){} }',
+  '  sbSaveSession(null);',
 ]);
 
 doc.swap(['  try{ autosaveNow(); }catch(_){}', '  authed=false;'], [
@@ -186,6 +224,36 @@ doc.swap('        await dbPut(rec); added++;', '        await dbPut(rec,"pull");
 doc.swap('              await dbPut(Object.assign({},dr,{at:Math.max(Date.now(),(rec.at||0)+1)}));',
   '              await dbPut(Object.assign({},dr,{at:Math.max(Date.now(),(rec.at||0)+1)}),"pull");   /* STAGE 0: keeps its maker */');
 
+/* Fix round 1: the pull notes its project before its first wait. */
+doc.swap(['async function cloudPull(opts){', '  opts=opts||{};'], [
+  'async function cloudPull(opts){',
+  '  opts=opts||{};',
+  '  /* STAGE 0: THE PROJECT THIS PULL IS FOR, noted before the first wait. It',
+  '     was noted further down, after the sign-in check, the collection, the',
+  '     headers and the row listing, and a sign-out during those bumped wsGen',
+  '     before it was read: the pull took the signed-out generation for its',
+  '     own and wrote the group\'s rows into the personal store (measured, fix',
+  '     round 1). Nothing on the way there bumps wsGen itself, so this never',
+  '     stops a pull on its own. */',
+  '  const gen=wsGen;',
+]);
+doc.swap(['  const gen=wsGen;', '  $("cloudpull").disabled=true;'], [
+  '  /* (gen: noted at the top of this function since stage 0 - see there.) */',
+  '  $("cloudpull").disabled=true;',
+]);
+
+/* Fix round 1: the drawing a session saves on its way out keeps its maker. */
+doc.swap('  const W=art.width, H=art.height, nm=fileName||"untitled.png";', [
+  '  const W=art.width, H=art.height, nm=fileName||"untitled.png";',
+  '  /* STAGE 0: AND WHOSE DRAWING IT IS, for the same reason. sessionEnded and',
+  '     cloudSignOut save the drawing and let the uid go in the same run, so',
+  '     the uid read when the write landed a task later was nobody\'s, and the',
+  '     draft was written with no owner over one that had one (measured, fix',
+  '     round 1). */',
+  '  const by=s0Uid();',
+]);
+doc.swap('             w:W, h:H, blob:b, at:Date.now()})', '             w:W, h:H, blob:b, at:Date.now()},"person",by)');
+
 doc.swap('      if(base.rowId) rec.rowId=base.rowId;', [
   '      if(base.rowId) rec.rowId=base.rowId;',
   '      /* STAGE 0: the local id goes wherever the row id goes (design B1). */',
@@ -197,11 +265,22 @@ doc.swap('        if(prev&&prev.rowId) trec.rowId=prev.rowId;', [
 ]);
 
 doc.finish(({ code, must }) => {
-  must('async function dbPut(rec,wk){', 'dbPut does not take the kind of write');
+  must('async function dbPut(rec,wk,uid){', 'dbPut does not take the kind of write and the uid');
   must('async function dbApplyShelfRecords(deleteIds,records,wk){', 'dbApplyShelfRecords does not take the kind');
   must('rec.wk=(!draft&&!keep&&(wk==="pull"||wk==="sent")) ? wk : "person";', 'a draft or unsent work could be stamped as a pull');
   must('const keep=wk==="pull" && (draft||!rec.synced);', 'a pull\'s write of unsent work would take the puller\'s uid');
   must('wsGen++; s0SeenUid=null;', 'sign-out does not stop a running pull');
   if ((code.match(/,"pull"\)/g) || []).length !== 3) throw new Error('exactly three writes should pass "pull", found ' + (code.match(/,"pull"\)/g) || []).length);
   if ((code.match(/dbPut\([^)]*,"sent"\)/g) || []).length !== 2) throw new Error('exactly two writes should be stamped "sent"');
+  /* Fix round 1. */
+  must('const u=keep ? (rec.by||(stored&&stored.by)||null) : (uid!==undefined ? uid : s0Uid());', 'a uid the caller took is not what its write is stamped with');
+  must('if(autoPending){ try{ autosaveNow(); }catch(_){} }', 'sign-out lets the uid go before a waiting autosave is saved');
+  const body = (sig) => { const a = code.indexOf(sig); if (a < 0) throw new Error('missing: ' + sig);
+    const b = code.slice(a + sig.length).search(/\n(async )?function /); return code.slice(a, b < 0 ? undefined : a + sig.length + b); };
+  const pull = body('async function cloudPull(opts){');
+  if ((pull.match(/const gen=wsGen;/g) || []).length !== 1) throw new Error('cloudPull should note its generation exactly once');
+  if (!(pull.indexOf('const gen=wsGen;') < pull.indexOf('await '))) throw new Error('cloudPull notes its generation after a wait');
+  const save = body('function autosaveNow(){');
+  if (!(save.indexOf('const by=s0Uid();') >= 0 && save.indexOf('const by=s0Uid();') < save.indexOf('art.toBlob('))) throw new Error('autosaveNow does not take the uid before the encode');
+  if (save.indexOf('at:Date.now()},"person",by)') < 0) throw new Error('the autosave is not stamped with the uid it took');
 });

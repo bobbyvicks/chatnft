@@ -157,7 +157,7 @@ test.describe('stage 0: stamps', () => {
     await pullOne(page, { id: 'row-new', kind: 'trait', name: 'cap', layer: 'hats', status: 'wip', path: 'team1/c1/trait-cap-hats-wip.png',
       w: 16, h: 16, rarity: 1, updated_at: '2026-09-27T12:00:00+00:00' });
     const r = await findTrait(page, 'trait', 'cap', 'hats', 'wip');
-    expect(r.rowId, 'the pull did write this record (index.html:19729-19737)').toBe('row-new');
+    expect(r.rowId, 'the pull did write this record (its repair, through shelfCore.mergeRemoteShelfRecord)').toBe('row-new');
     expect([r.synced, r.wk, r.by, r.lid]).toEqual([false, 'person', 'u1', 'l_seed']);
   });
 
@@ -223,6 +223,61 @@ test.describe('stage 0: stamps', () => {
     });
     expect(seen).toEqual(['u1:true', 'u2:true']);
   });
+
+  /* The three stamps below were covered by nothing: each could be removed
+     with every test above still green (fix round 1). Each is calibrated by
+     removing that one stamp or carry, which fails this test alone. */
+  test('a weight or order sent on its own (cloudPatchOne) is stamped "sent" when the group confirms it', async ({ page }) => {
+    await session(page, 'u1');
+    await page.evaluate(() => { activeWs = 'team1'; dbp = null; dbpName = null; });
+    await seedTrait(page, { name: 'cap', layer: 'hats', status: 'wip', rowId: 'row-1', synced: false, unsent: 'meta', rarity: 3,
+      lid: 'l_seed', by: 'u1', wk: 'person' });
+    const ok = await page.evaluate(async () => {
+      const json = (o, st) => new Response(JSON.stringify(o), { status: st || 200, headers: { 'Content-Type': 'application/json' } });
+      const real = window.fetch;
+      window.fetch = async (u, io) => {
+        const s = String(u), m = (io && io.method) || 'GET';
+        if (s.indexOf('/rest/v1/traits?id=eq.row-1') >= 0 && m === 'PATCH') return json([{ id: 'row-1', updated_at: '2026-09-27T12:00:00+00:00' }]);
+        window.__unknown.push(m + ' ' + s.replace(/^https?:\/\/[^/]+/, ''));
+        return json({ code: 'UNROUTED' }, 501);
+      };
+      try { return await cloudPatchOne(await dbGet('t_cap_hats_wip')); } finally { window.fetch = real; }
+    });
+    expect(ok, 'the group confirmed the patch').toBe(true);
+    const r = await page.evaluate(async () => { const x = await dbGet('t_cap_hats_wip');
+      return { wk: x.wk, lid: x.lid, synced: x.synced, unsent: x.unsent === undefined ? '(none)' : x.unsent }; });
+    expect(r).toEqual({ wk: 'sent', lid: 'l_seed', synced: true, unsent: '(none)' });
+  });
+
+  test('a weight set on many traits at once (one shelf write, dbApplyShelfRecords) is the person\'s, and keeps the local id', async ({ page }) => {
+    await session(page, 'u1');
+    await seedTrait(page, { name: 'cap', layer: 'hats', status: 'wip', rarity: 1, lid: 'l_seed' });
+    const n = await page.evaluate(async () => setRarityMany([await dbGet('t_cap_hats_wip')], 5));
+    expect(n, 'one trait changed').toBe(1);
+    const r = await findTrait(page, 'trait', 'cap', 'hats', 'wip');
+    expect([r.rarity, r.wk, r.by, r.lid]).toEqual([5, 'person', 'u1', 'l_seed']);
+  });
+
+  test('renaming a trait in the editor gives it a new id and carries the local id, as it carries the row id', async ({ page }) => {
+    await session(page, 'u1');
+    const png = await page.evaluate(async () => {
+      const c = document.createElement('canvas'); c.width = 16; c.height = 16;
+      c.getContext('2d').fillRect(2, 2, 12, 12);
+      const b = await new Promise(r => c.toBlob(r, 'image/png'));
+      return Array.from(new Uint8Array(await b.arrayBuffer()));
+    });
+    await seedTrait(page, { name: 'cap', layer: 'hats', status: 'wip', rowId: 'row-1', lid: 'l_seed', bytes: png });
+    const ok = await page.evaluate(async () => {
+      await openTraitRecord(await dbGet('t_cap_hats_wip'));
+      if ($('tlayer').value !== 'hats') throw new Error('the editor opened the trait on ' + $('tlayer').value);
+      $('tname').value = 'hat';
+      return saveTraitNow();
+    });
+    expect(ok, 'the save went through').toBe(true);
+    expect(await findTrait(page, 'trait', 'cap', 'hats', 'wip'), 'the old id is gone').toBeNull();
+    const r = await findTrait(page, 'trait', 'hat', 'hats', 'wip');
+    expect([r.lid, r.rowId, r.wk, r.by]).toEqual(['l_seed', 'row-1', 'person', 'u1']);
+  });
 });
 
 /* SIGNING OUT DURING A PULL. Its own describe, waiting only for cloudPull,
@@ -262,6 +317,48 @@ const pullThenMaybeSignOut = (page, signOut) => page.evaluate(async (signOut) =>
   return out;
 }, signOut);
 
+/* The same pull, held earlier: while the server is still listing its rows.
+   cloudPull noted which project it was for only after that listing, so a
+   sign-out during it was noted as the project, and the pull wrote on into
+   the personal store (fix round 1, measured). The picture is not held. */
+const pullRowsHeldMaybeSignOut = (page, signOut) => page.evaluate(async (signOut) => {
+  const row = { id: 'row-1', kind: 'trait', name: 'cap', layer: 'hats', status: 'wip', path: 'team1/c1/trait-cap-hats-wip.png',
+    w: 16, h: 16, rarity: 1, updated_at: '2026-09-27T12:00:00+00:00' };
+  const json = (o, x, st) => new Response(JSON.stringify(o), { status: st || 200, headers: Object.assign({ 'Content-Type': 'application/json' }, x || {}) });
+  let open; const gate = new Promise(r => { open = r; });
+  window.__asked = false;
+  let held = false;
+  const real = window.fetch;
+  window.fetch = async (u, io) => {
+    const s = String(u), m = (io && io.method) || 'GET';
+    if (s.indexOf('/auth/v1/user') >= 0) return json({ id: 'u1' });
+    if (s.indexOf('/rpc/my_team') >= 0) return json('me');
+    if (s.indexOf('/rpc/team_member_names') >= 0) return json([]);
+    if (s.indexOf('/rest/v1/teams') >= 0) return json([{ id: 'me', name: 'Me', personal: true }, { id: 'team1', name: 'One', personal: false }]);
+    if (s.indexOf('/rest/v1/collections') >= 0) return json([{ id: 'c1', layers: ['hats'] }]);
+    if (s.indexOf('/rest/v1/traits?select=id') >= 0) return json([], { 'Content-Range': '0-0/1' });
+    if (s.indexOf('/rest/v1/traits?select=*') >= 0) {
+      if (!held) { held = true; window.__asked = true; await gate; }
+      return json([row], { 'Content-Range': '0-0/1' });
+    }
+    if (s.indexOf('/storage/v1/object/list/') >= 0) return json([]);
+    if (s.indexOf('/storage/v1/object/') >= 0 && m === 'GET') return new Response(new Blob([new Uint8Array([1])]), { status: 200 });
+    window.__unknown.push(m + ' ' + s.replace(/^https?:\/\/[^/]+/, ''));
+    return json({ code: 'UNROUTED' }, null, 501);
+  };
+  activeWs = 'team1'; cloudTeamId = null; dbp = null; dbpName = null;
+  const p = cloudPull({ quiet: true });
+  while (!window.__asked) await new Promise(r => setTimeout(r, 10));
+  if (signOut) cloudSignOut();
+  open();
+  try { await p; } catch (_) {}
+  window.fetch = real;
+  const names = async (ws) => { activeWs = ws; dbp = null; dbpName = null; return (await dbAll()).filter(i => i.kind === 'trait').map(i => i.name); };
+  const out = { group: await names('team1'), personal: await names(null) };
+  activeWs = null;
+  return out;
+}, signOut);
+
 test.describe('stage 0: signing out stops a running pull', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/index.html');
@@ -284,5 +381,76 @@ test.describe('stage 0: signing out stops a running pull', () => {
     const r = await pullThenMaybeSignOut(page, false);
     expect(r.group).toEqual(['cap']);
     expect(r.personal).toEqual([]);
+  });
+
+  test('signing out while a group pull is still listing its rows stops it: nothing lands in either store', async ({ page }) => {
+    const r = await pullRowsHeldMaybeSignOut(page, true);
+    expect(r.personal).toEqual([]);
+    expect(r.group).toEqual([]);
+  });
+
+  test('the control: the same pull, its rows held and released with nobody signing out, lands in the group\'s store', async ({ page }) => {
+    const r = await pullRowsHeldMaybeSignOut(page, false);
+    expect(r.group).toEqual(['cap']);
+    expect(r.personal).toEqual([]);
+  });
+});
+
+/* THE DRAWING SAVED AS A SESSION ENDS KEEPS ITS MAKER (fix round 1, Review
+   Focus 2). A session that ends - refused by the server, or signed out with
+   an autosave still waiting - saves the drawing on its way out. That save is
+   encoded first and written a task later, and by then nobody is signed in:
+   the draft was written with no owner, over one that had an owner (measured).
+   Each case has a control that differs only in the session ending. */
+const openDrawing = (page) => page.evaluate(() => {
+  const n = 16, dd = new Uint8ClampedArray(n * n * 4);
+  for (let i = 0; i < n * n; i++) { dd[i * 4] = 200; dd[i * 4 + 1] = 120; dd[i * 4 + 3] = 255; }
+  fileName = 'x.png';
+  startEditor(dd, n, n, n, n, palette(dd, n * n, 24, 64), false);
+  if (!ctx || draftId() !== AUTO_ID) throw new Error('the editor did not open a new drawing');
+});
+/* The drawing's draft once one has been written: polled, because the write
+   lands after an encode the page does not hand back. */
+const draftWhenWritten = (page) => page.evaluate(async () => {
+  for (let i = 0; i < 400; i++) {
+    const x = await dbGet(AUTO_ID);
+    if (x) return { by: x.by === undefined ? '(none)' : x.by, wk: x.wk };
+    await new Promise(r => setTimeout(r, 10));
+  }
+  return null;
+});
+
+test.describe('stage 0: the drawing saved as a session ends keeps its maker', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/index.html');
+    await page.waitForFunction(() => typeof s0Stamp === 'function' && typeof autosaveNow === 'function' && typeof sessionEnded === 'function');
+    await page.evaluate(async () => { activeWs = null; cloudTeamId = null; dbp = null; dbpName = null; groupCaughtUp = true; await dbClear(); });
+    await session(page, 'u1');
+    await page.evaluate(() => { s0SeenUid = 'u1'; });   /* as cloudRender leaves a verified sign-in */
+    await openDrawing(page);
+  });
+  test.afterEach(async ({ page }) => {
+    await page.evaluate(() => { activeWs = null; localStorage.removeItem('chatnft.session'); localStorage.removeItem('pb.uids'); });
+  });
+
+  test('a session the server refuses: the drawing saved on the way out keeps its maker', async ({ page }) => {
+    /* As every caller of sessionEnded does: the stored session is cleared first. */
+    await page.evaluate(() => { sbSaveSession(null); sessionEnded(); });
+    expect(await draftWhenWritten(page)).toEqual({ by: 'u1', wk: 'person' });
+  });
+
+  test('the control: the same drawing, saved while still signed in, is its maker\'s', async ({ page }) => {
+    await page.evaluate(() => { autosaveNow(); });
+    expect(await draftWhenWritten(page)).toEqual({ by: 'u1', wk: 'person' });
+  });
+
+  test('signing out with an autosave still waiting: the drawing keeps its maker', async ({ page }) => {
+    await page.evaluate(() => { autosave(); if (!autoPending) throw new Error('no autosave was waiting'); cloudSignOut(); });
+    expect(await draftWhenWritten(page)).toEqual({ by: 'u1', wk: 'person' });
+  });
+
+  test('the control: the same waiting autosave, landing while still signed in, is its maker\'s', async ({ page }) => {
+    await page.evaluate(() => { autosave(); if (!autoPending) throw new Error('no autosave was waiting'); });
+    expect(await draftWhenWritten(page)).toEqual({ by: 'u1', wk: 'person' });
   });
 });

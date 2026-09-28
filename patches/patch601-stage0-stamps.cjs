@@ -50,7 +50,19 @@
      starts, with the key, the trait and the size, and dbPut stamps the
      draft with it (dbPut's third argument; every other caller passes none
      and is stamped as before). cloudSignOut saves an autosave still waiting
-     before it lets the uid go, as sessionEnded does. */
+     before it lets the uid go, as sessionEnded does.
+
+   Fix round 2 (review, 2026-09-28), measured red on 7dc05fc first. An
+   autosave chooses its store when its write lands, a task after it starts,
+   so a sign-out or a project switch in between filed a group's drawing in
+   the store it moved to: the personal one, or the other group. It did so
+   for an autosave still waiting and for one already being written.
+   sessionEnded changes no store, and its save already landed right
+   (measured), so it is unchanged. s0FlushAutosave writes an autosave still
+   waiting and answers a promise for the write in flight, bounded by
+   S0_FLUSH_MS; cloudSignOut and wsSwitch wait for it before they change
+   activeWs, the uid or wsGen. With nothing waiting and nothing being
+   written, both go on at once, with no write and no wait, as before. */
 const s0 = require('./stage0-common.cjs');
 const doc = s0.start([['function s0CloseAll(name){', 'patch600 is not applied']]);
 
@@ -187,16 +199,69 @@ doc.swap('  activeWs=null; wsSave(null); cloudTeamId=null; sharedLayerSig=null;'
 
 doc.swap(['function cloudSignOut(){', '  sbSaveSession(null);'], [
   'function cloudSignOut(){',
-  '  /* STAGE 0: AN AUTOSAVE STILL WAITING IS SAVED NOW, while the person who',
-  '     drew it is the one signed in - autosaveNow takes the uid as it starts -',
-  '     rather than when its timer fires, after the lines below have let the',
-  '     uid go, stamped with nobody (measured, fix round 1). sessionEnded saves',
-  '     the same way. Only one that is waiting: saving unconditionally would',
-  '     add a write that does not happen today. Like the timer\'s, this write',
-  '     lands in the store activeWs names when it lands, which is after the',
-  '     line below that clears it. */',
-  '  if(autoPending){ try{ autosaveNow(); }catch(_){} }',
+  '  /* STAGE 0: A DRAWING\'S LAST SAVE LANDS WHERE IT WAS DRAWN, WITH ITS MAKER.',
+  '     An autosave still waiting is written now, and one being written is',
+  '     waited for, before anything below changes the store, the uid or wsGen.',
+  '     autosaveNow takes the uid as it starts: saved after the uid went, the',
+  '     drawing was stamped with nobody (fix round 1). A write lands in the',
+  '     store activeWs names when it lands: without the wait, a group\'s',
+  '     drawing was filed in the personal store (fix round 2). Both measured.',
+  '     Only a save that is waiting or being written: saving unconditionally',
+  '     would add a write that does not happen today. The wait is bounded',
+  '     (S0_FLUSH_MS, at s0FlushAutosave): an encode that never calls back',
+  '     holds sign-out up for 3 s, not for ever, and its write, if it ever',
+  '     lands, lands in the personal store as before. With nothing waiting and',
+  '     nothing being written - the common case - it signs out at once, with',
+  '     no write and no wait, as it always did. */',
+  '  const f=s0FlushAutosave();',
+  '  if(f) return f.then(cloudSignOutNow);',
+  '  cloudSignOutNow();',
+  '}',
+  'function cloudSignOutNow(){',
   '  sbSaveSession(null);',
+]);
+
+/* Fix round 2: the store a drawing's last save lands in. */
+doc.swap('function autosaveNow(){', [
+  '/* STAGE 0 (fix round 2): THE DRAWING\'S LAST SAVE, WRITTEN BEFORE THE STORE',
+  '   CHANGES. An autosave chooses its store when its write lands - dbPut reads',
+  '   activeWs then, a task after autosaveNow starts - so what is about to',
+  '   change activeWs waits for it first: cloudSignOut and wsSwitch.',
+  '   s0FlushAutosave writes an autosave still waiting, and answers a promise',
+  '   that settles once the write in flight has landed, or after S0_FLUSH_MS,',
+  '   so nothing waiting on it can hang on an encode that never calls back.',
+  '   It answers null when nothing is waiting or being written: the caller',
+  '   goes on at once, with no write and no wait. */',
+  'const S0_FLUSH_MS=3000;',
+  'let s0SaveInFlight=null;',
+  'function s0Saving(executor){',
+  '  const p=new Promise(executor);',
+  '  s0SaveInFlight=p;',
+  '  const clear=()=>{ if(s0SaveInFlight===p) s0SaveInFlight=null; };',
+  '  p.then(clear,clear);',
+  '  return p;',
+  '}',
+  'function s0FlushAutosave(){',
+  '  if(autoPending){ try{ autosaveNow(); }catch(_){ } }',
+  '  const p=s0SaveInFlight;',
+  '  if(!p) return null;',
+  '  return Promise.race([p, new Promise(r=>setTimeout(r,S0_FLUSH_MS))]).then(()=>{},()=>{});',
+  '}',
+  'function autosaveNow(){',
+]);
+doc.swap(['  return new Promise(done=>{', '    art.toBlob(b=>{'], [
+  '  /* STAGE 0: tracked while it is in flight (s0Saving, above). */',
+  '  return s0Saving(done=>{',
+  '    art.toBlob(b=>{',
+]);
+doc.swap(['async function wsSwitch(id){', '  if((id||null)===(activeWs||null)) return;', '  activeWs = id||null;'], [
+  'async function wsSwitch(id){',
+  '  if((id||null)===(activeWs||null)) return;',
+  '  /* STAGE 0: the drawing\'s last save lands in the project it was drawn in,',
+  '     not the one switched to (fix round 2, measured): written, and waited',
+  '     for, before activeWs moves. Nothing waiting: no write and no wait. */',
+  '  { const f=s0FlushAutosave(); if(f) await f; }',
+  '  activeWs = id||null;',
 ]);
 
 doc.swap(['  try{ autosaveNow(); }catch(_){}', '  authed=false;'], [
@@ -274,7 +339,10 @@ doc.finish(({ code, must }) => {
   if ((code.match(/dbPut\([^)]*,"sent"\)/g) || []).length !== 2) throw new Error('exactly two writes should be stamped "sent"');
   /* Fix round 1. */
   must('const u=keep ? (rec.by||(stored&&stored.by)||null) : (uid!==undefined ? uid : s0Uid());', 'a uid the caller took is not what its write is stamped with');
-  must('if(autoPending){ try{ autosaveNow(); }catch(_){} }', 'sign-out lets the uid go before a waiting autosave is saved');
+  /* Fix round 2 (it supersedes round 1's flush check). */
+  must('if(autoPending){ try{ autosaveNow(); }catch(_){ } }', 'a waiting autosave is not written before the store changes');
+  must('return Promise.race([p, new Promise(r=>setTimeout(r,S0_FLUSH_MS))])', 'the wait for a drawing\'s last save is not bounded');
+  must('  return s0Saving(done=>{', 'autosaveNow\'s write is not tracked while it is in flight');
   const body = (sig) => { const a = code.indexOf(sig); if (a < 0) throw new Error('missing: ' + sig);
     const b = code.slice(a + sig.length).search(/\n(async )?function /); return code.slice(a, b < 0 ? undefined : a + sig.length + b); };
   const pull = body('async function cloudPull(opts){');
@@ -283,4 +351,14 @@ doc.finish(({ code, must }) => {
   const save = body('function autosaveNow(){');
   if (!(save.indexOf('const by=s0Uid();') >= 0 && save.indexOf('const by=s0Uid();') < save.indexOf('art.toBlob('))) throw new Error('autosaveNow does not take the uid before the encode');
   if (save.indexOf('at:Date.now()},"person",by)') < 0) throw new Error('the autosave is not stamped with the uid it took');
+  /* Fix round 2: what changes the store waits for the drawing's last save
+     first, and with nothing to wait for goes on at once. */
+  if (!/const f=s0FlushAutosave\(\);\s*if\(f\) return f\.then\(cloudSignOutNow\);\s*cloudSignOutNow\(\);\s*\}/.test(body('function cloudSignOut(){')))
+    throw new Error('cloudSignOut does not wait for the last save, or waits when there is none');
+  const now = body('function cloudSignOutNow(){');
+  if (!(now.indexOf('sbSaveSession(null);') >= 0 && now.indexOf('sbSaveSession(null);') < now.indexOf('activeWs=null;') && now.indexOf('activeWs=null;') < now.indexOf('wsGen++;')))
+    throw new Error('the sign-out itself is not what cloudSignOut runs after the wait');
+  const sw = body('async function wsSwitch(id){');
+  if (!(sw.indexOf('const f=s0FlushAutosave(); if(f) await f;') >= 0 && sw.indexOf('const f=s0FlushAutosave(); if(f) await f;') < sw.indexOf('activeWs = id||null;')))
+    throw new Error('wsSwitch moves the store before the drawing\'s last save');
 });

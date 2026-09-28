@@ -453,4 +453,118 @@ test.describe('stage 0: the drawing saved as a session ends keeps its maker', ()
     await page.evaluate(() => { autosave(); if (!autoPending) throw new Error('no autosave was waiting'); });
     expect(await draftWhenWritten(page)).toEqual({ by: 'u1', wk: 'person' });
   });
+
+  /* Sign-out waits for a drawing's last save (fix round 2, below). These two
+     hold it to its limits: with nothing to save it is as immediate as it
+     always was, and a save that never finishes holds it up only so long. */
+  test('signing out with nothing waiting is immediate, as it always was: no write and no wait', async ({ page }) => {
+    const r = await page.evaluate(async () => {
+      /* Opening a drawing schedules its first autosave, so this one is let
+         land first: a drawing already saved, which is the common case. */
+      await autosaveNow();
+      if (autoPending) throw new Error('an autosave is still waiting');
+      const before = (await dbGet(AUTO_ID)).at;
+      const gen = wsGen;
+      cloudSignOut();
+      /* Read in the same task: nothing was waited for. */
+      const now = { session: localStorage.getItem('chatnft.session'), gen: wsGen - gen, uid: s0SeenUid };
+      await new Promise(res => setTimeout(res, 2000));
+      return { now, wroteAgain: (await dbGet(AUTO_ID)).at !== before };
+    });
+    expect(r).toEqual({ now: { session: null, gen: 1, uid: null }, wroteAgain: false });
+  });
+
+  test('a save that never finishes holds sign-out up for its bound, not for ever', async ({ page }) => {
+    const r = await page.evaluate(async () => {
+      art.toBlob = () => {};   /* an encode that never calls back */
+      autosave(); if (!autoPending) throw new Error('no autosave was waiting');
+      const t0 = performance.now();
+      cloudSignOut();
+      while (localStorage.getItem('chatnft.session') && performance.now() - t0 < 10000) await new Promise(res => setTimeout(res, 25));
+      return { signedOut: !localStorage.getItem('chatnft.session'), ms: Math.round(performance.now() - t0) };
+    });
+    console.log('a stalled save held sign-out for ' + r.ms + ' ms');
+    expect(r.signedOut, 'sign-out went ahead').toBe(true);
+    expect(r.ms, 'within the 3 s bound and a margin').toBeLessThan(4500);
+  });
+});
+
+/* A DRAWING'S LAST SAVE LANDS IN THE STORE IT WAS DRAWN IN (fix round 2). The
+   store an autosave writes to is chosen when the write lands, a task after it
+   starts, and a sign-out or a project switch in between moved activeWs
+   first: a group's drawing was filed in the personal store, or in the group
+   switched to (measured). sessionEnded changes no store, and its save
+   already lands right (measured), so it has no test here. A drawing on the
+   page of project `ws` (null: the personal page), its autosave left waiting -
+   or, with `saving`, already started - then `act`. After the autosave
+   timer's 1.5 s and a margin, answers whose draft each store holds. */
+const lastSaveLandsIn = (page, ws, act, saving) => page.evaluate(async ([ws, act, saving]) => {
+  const json = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  /* Left in place: what a switch starts runs on after it returns. */
+  window.fetch = async (u, io) => {
+    const s = String(u), m = (io && io.method) || 'GET';
+    if (s.indexOf('/auth/v1/user') >= 0) return json({ id: 'u1' });
+    if (s.indexOf('/rest/v1/teams') >= 0) return json([{ id: 'me', name: 'Me', personal: true },
+      { id: 'team1', name: 'One', personal: false }, { id: 'team2', name: 'Two', personal: false }]);
+    /* The group switched to: a collection, and nothing in it yet. */
+    if (s.indexOf('/rest/v1/collections?') >= 0 && m === 'GET') return json([{ id: 'c2', layers: ['hats'], updated_at: '2026-09-27T12:00:00+00:00' }]);
+    if (s.indexOf('/rest/v1/traits?select=') >= 0 && s.indexOf('collection_id=eq.c2') >= 0 && m === 'GET')
+      return new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json', 'Content-Range': '*/0' } });
+    window.__unknown.push(m + ' ' + s.replace(/^https?:\/\/[^/]+/, ''));
+    return new Response(JSON.stringify({ code: 'UNROUTED' }), { status: 501, headers: { 'Content-Type': 'application/json' } });
+  };
+  for (const s of [null, 'team1', 'team2']) { activeWs = s; dbp = null; dbpName = null; await dbClear(); }
+  activeWs = ws; dbp = null; dbpName = null;
+  const n = 16, dd = new Uint8ClampedArray(n * n * 4);
+  for (let i = 0; i < n * n; i++) { dd[i * 4] = 200; dd[i * 4 + 1] = 120; dd[i * 4 + 3] = 255; }
+  fileName = 'x.png';
+  startEditor(dd, n, n, n, n, palette(dd, n * n, 24, 64), false);
+  if (saving) autosaveNow();
+  else { autosave(); if (!autoPending) throw new Error('no autosave was waiting'); }
+  if (act === 'signOut') await cloudSignOut();
+  if (act === 'switch') await wsSwitch('team2');
+  await new Promise(res => setTimeout(res, 2500));
+  const read = async (s) => { activeWs = s; dbp = null; dbpName = null; const x = await dbGet(AUTO_ID); return x ? (x.by === undefined ? '(none)' : x.by) : null; };
+  const out = { team1: await read('team1'), team2: await read('team2'), personal: await read(null) };
+  activeWs = null; dbp = null; dbpName = null;
+  return out;
+}, [ws, act, !!saving]);
+
+test.describe('stage 0: a drawing\'s last save lands in the store it was drawn in', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/index.html');
+    await page.waitForFunction(() => typeof s0Stamp === 'function' && typeof autosaveNow === 'function' && typeof wsSwitch === 'function');
+    await page.evaluate(() => { window.__unknown = []; activeWs = null; cloudTeamId = null; dbp = null; dbpName = null; groupCaughtUp = true; });
+    await session(page, 'u1');
+    await page.evaluate(() => { s0SeenUid = 'u1'; });
+  });
+  test.afterEach(async ({ page }) => {
+    const unknown = await page.evaluate(() => window.__unknown || []);
+    await page.evaluate(() => { activeWs = null; localStorage.removeItem('chatnft.session'); localStorage.removeItem('pb.uids'); });
+    expect(unknown, 'every request had a named answer').toEqual([]);
+  });
+
+  test('signing out on a group page with an autosave waiting: the draft lands in the group\'s store, its maker\'s, and the personal store gets nothing', async ({ page }) => {
+    expect(await lastSaveLandsIn(page, 'team1', 'signOut')).toEqual({ team1: 'u1', team2: null, personal: null });
+  });
+
+  test('the control: the same on the personal page lands in the personal store, its maker\'s', async ({ page }) => {
+    expect(await lastSaveLandsIn(page, null, 'signOut')).toEqual({ team1: null, team2: null, personal: 'u1' });
+  });
+
+  test('signing out on a group page while an autosave is being written: it lands in the group\'s store too', async ({ page }) => {
+    expect(await lastSaveLandsIn(page, 'team1', 'signOut', true)).toEqual({ team1: 'u1', team2: null, personal: null });
+  });
+
+  test('the control: the same autosave being written, signing out on the personal page, lands in the personal store', async ({ page }) => {
+    expect(await lastSaveLandsIn(page, null, 'signOut', true)).toEqual({ team1: null, team2: null, personal: 'u1' });
+  });
+
+  test('switching from a group to another group with an autosave waiting: the draft lands in the group it was drawn in', async ({ page }) => {
+    expect(await lastSaveLandsIn(page, 'team1', 'switch')).toEqual({ team1: 'u1', team2: null, personal: null });
+  });
+
+  test('the control: the same waiting autosave on the group page, with no switch, lands in that group\'s store', async ({ page }) => {
+    expect(await lastSaveLandsIn(page, 'team1', 'none')).toEqual({ team1: 'u1', team2: null, personal: null });
+  });
 });

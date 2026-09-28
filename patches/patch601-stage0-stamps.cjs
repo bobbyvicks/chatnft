@@ -75,7 +75,23 @@
    - wsSwitch compares with the latest project asked for, so a switch back
      during the wait is not dropped and two to one project run once.
    - cloudPull's repair asks wsStill again after dbDel and after
-     draftsFollow, just before the next write. */
+     draftsFollow, just before the next write. (Superseded by round 4.)
+
+   Fix round 4 (re-review of round 3, 2026-09-28), each measured first.
+   - The repair writes the new id first, moves the drafts second and
+     removes the old id last, asking wsStill before each, so a stop between
+     two steps leaves the record twice, never nowhere. Round 3's order,
+     delete first, lost an unsent trait whose id collided with the server's
+     row (the comment it carried said a re-id repair was only ever of a
+     synced copy, and that was false). The next pull does not settle the
+     pair it leaves (measured; said at the loop).
+   - Sign-out clears the stored session before its wait, not after, and
+     the sign-in card takes no sign-in during the wait.
+   - A second switch to where a waiting switch is going is handed that
+     switch's own promise, so its caller goes on once the store has moved.
+   - The offline branch's comment no longer says its session is the auth
+     server's answer: a sign-in link's fragment is stored unchecked, so the
+     uid it registers is unverified. */
 const s0 = require('./stage0-common.cjs');
 const doc = s0.start([['function s0CloseAll(name){', 'patch600 is not applied']]);
 
@@ -217,11 +233,16 @@ doc.swap([
   '       past the deadline. The uid was known only from the stored session,',
   '       which a refusal clears before sessionEnded saves the drawing, and',
   '       that draft was written with no owner (measured). Taken from the same',
-  '       session the page is acting on. And put on this browser\'s list of',
-  '       accounts: that session is the auth server\'s answer to a sign-in on',
-  '       this browser, so the account did sign in here - only this page',
-  '       life\'s check is missing - and every uid a record carries must be on',
-  '       the list the new page reads (B1). */',
+  '       session the page is acting on, and put on this browser\'s list of',
+  '       accounts, because the stamps already carry it and every uid a record',
+  '       carries must be on the list the new page reads (B1).',
+  '       THAT UID IS UNVERIFIED (fix round 4). The stored session is not',
+  '       always the auth server\'s answer: a sign-in link\'s #access_token=',
+  '       fragment is stored unchecked (sbCaptureFromHash), and a made-up',
+  '       token whose subject is "someone-else", opened with no signal, put',
+  '       "someone-else" on the list (measured). Nothing reads pb.uids in',
+  '       stage 0; the next plan must treat a uid registered here, offline,',
+  '       as unverified. */',
   '    if(authed && !s0SeenUid){ s0SeenUid=s0Uid(); if(s0SeenUid) s0Register(s0SeenUid); }',
   '    return null;',
 ]);
@@ -262,18 +283,40 @@ doc.swap(['function cloudSignOut(){', '  sbSaveSession(null);'], [
   '     once, as they do with nothing to wait for - left up, a project picked',
   '     during the wait was switched to after the sign-out and carried to the',
   '     next account on this device (measured). A second press during the',
-  '     wait is the same sign-out, not another: it ran the sign-out twice. */',
+  '     wait is the same sign-out, not another: it ran the sign-out twice.',
+  '     THE STORED SESSION GOES AT ONCE TOO (fix round 4), after the flush',
+  '     has started the waiting save (which took its uid then) and before',
+  '     any wait. Kept through the wait, it was still stored for a tab',
+  '     closed during it, while the page already showed it signed out, and',
+  '     the clear after the wait undid a sign-in made during it (both',
+  '     measured, re-review of round 3). Not cleared again after the wait: a session',
+  '     stored meanwhile - a sign-in link, another tab - is someone signing',
+  '     in, and cloudRender, below, finds it.',
+  '     AND THE SIGN-IN CARD TAKES NO SIGN-IN UNTIL THE WAIT IS OVER (fix',
+  '     round 4). It is refused rather than let through and kept: until the',
+  '     wait ends the page is still the leaving account\'s - its project, its',
+  '     uid, its wsGen - so a sign-in then would start the next account on',
+  '     the leaving one\'s project, and the end of the wait would move it',
+  '     off it and say "Signed out" over it. Refusing costs the person at',
+  '     most S0_FLUSH_MS. inert takes the card out of reach of the pointer',
+  '     and the keyboard, whose Enter signs in without its button; gateBusy',
+  '     disables the buttons, as a sign-in in progress does, which also',
+  '     shows it and stops a scripted click. */',
   '  if(s0SignOutWait) return s0SignOutWait;',
   '  const f=s0FlushAutosave();',
+  '  sbSaveSession(null);',
   '  if(f){',
   '    gateShow(true);',
-  '    s0SignOutWait=f.then(()=>{ s0SignOutWait=null; cloudSignOutNow(); });',
+  '    const card=$("signin");',
+  '    card.inert=true; gateBusy(true);',
+  '    s0SignOutWait=f.then(()=>{ s0SignOutWait=null; try{ cloudSignOutNow(); }finally{ card.inert=false; gateBusy(false); } });',
   '    return s0SignOutWait;',
   '  }',
   '  cloudSignOutNow();',
   '}',
+  '/* The rest of the sign-out, which waits for the drawing\'s last save. The',
+  '   stored session is cleared before it, in cloudSignOut (fix round 4). */',
   'function cloudSignOutNow(){',
-  '  sbSaveSession(null);',
 ]);
 
 /* Fix round 2: the store a drawing's last save lands in. */
@@ -311,27 +354,44 @@ doc.swap(['  return new Promise(done=>{', '    art.toBlob(b=>{'], [
 ]);
 doc.swap(['async function wsSwitch(id){', '  if((id||null)===(activeWs||null)) return;', '  activeWs = id||null;'], [
   '/* The project the latest switch asked for, while switches wait for the',
-  '   drawing\'s last save (fix round 3); undefined when none is waiting. */',
-  'let s0WsWant;',
-  'async function wsSwitch(id){',
+  '   drawing\'s last save (fix round 3), and that switch\'s own promise (fix',
+  '   round 4); undefined and null when none is waiting. */',
+  'let s0WsWant, s0WsWanted=null;',
+  '/* s0Waited: only this function passes it, when it runs itself again after',
+  '   the wait (fix round 4); every other caller passes one argument. */',
+  'async function wsSwitch(id,s0Waited){',
   '  id=id||null;',
   '  /* STAGE 0 (fix round 3): already there, or already asked for. A switch',
   '     waiting below has not moved activeWs yet, so comparing with activeWs',
   '     dropped a switch back to it - away and straight back ended away - and',
-  '     let two switches to one project both run (both measured). */',
-  '  if(id===(s0WsWant!==undefined ? s0WsWant : (activeWs||null))) return;',
+  '     let two switches to one project both run (both measured).',
+  '     ALREADY ASKED FOR IS THE SAME SWITCH (fix round 4): its caller is',
+  '     handed that switch\'s own promise, so it goes on only once the store',
+  '     has moved. Returned at once, a second switch to where a waiting one',
+  '     was going resolved in 0 ms with activeWs still the old project, and',
+  '     the first finished later (measured) - and the callers that await a',
+  '     switch act on its having happened: wsLeave deletes the database it',
+  '     left, wsCreate and joinIfPending go on in the new project. */',
+  '  if(s0WsWant!==undefined){ if(id===s0WsWant) return s0WsWanted; }',
+  '  else if(id===(activeWs||null)) return;',
   '  /* STAGE 0: the drawing\'s last save lands in the project it was drawn in,',
   '     not the one switched to (fix round 2, measured): written, and waited',
   '     for, before activeWs moves. Nothing waiting: no write and no wait. Of',
   '     the switches that waited, only the latest goes on; one that ends where',
-  '     the page already is does nothing. */',
-  '  const f=s0FlushAutosave();',
+  '     the page already is does nothing. The one that goes on runs this',
+  '     function again, told it has waited (fix round 4), so that it has one',
+  '     promise for its whole run, which a duplicate is handed. */',
+  '  const f=s0Waited ? null : s0FlushAutosave();',
   '  if(f){',
   '    s0WsWant=id;',
-  '    await f;',
-  '    if(s0WsWant!==id) return;',
-  '    s0WsWant=undefined;',
-  '    if(id===(activeWs||null)) return;',
+  '    const mine=f.then(()=>{',
+  '      if(s0WsWant!==id) return;',
+  '      s0WsWant=undefined; s0WsWanted=null;',
+  '      if(id===(activeWs||null)) return;',
+  '      return wsSwitch(id,true);',
+  '    });',
+  '    s0WsWanted=mine;',
+  '    return mine;',
   '  }',
   '  activeWs = id||null;',
 ]);
@@ -357,27 +417,52 @@ doc.swap([
   '      try{ await dbPut(up,"sent"); }catch(_){} }',
 ]);
 doc.swap('      await dbPut(rp.record);', '      await dbPut(rp.record,"pull");');
-/* Fix round 3: the repair asks again after each of its waits. */
+/* Fix round 4 (it supersedes round 3's re-checks, which asked after the
+   delete): the repair writes the new id first, moves the drafts second and
+   removes the old id last, asking again just before each. */
 doc.swap([
+  '      if(rp.oldId!==rp.record.id){',
   '        await dbDel(rp.oldId);',
   '        try{ await draftsFollow([{from:rp.oldId, to:rp.record.id}]); }catch(_){}',
   '      }',
   '      await dbPut(rp.record,"pull");',
+  '      repaired++;',
 ], [
-  '        await dbDel(rp.oldId);',
-  '        /* STAGE 0 (fix round 3): asked again after each wait, just before',
-  '           each write. The check at the top of the loop is two waits old by',
-  '           here, and a sign-out in them filed the group\'s record in the',
-  '           personal store and moved the personal store\'s own draft of that',
-  '           id (both measured). Stopping after the delete leaves the group',
-  '           without its local copy of a record the server has (a re-id',
-  '           repair is only ever of a synced copy); the next pull brings it',
-  '           back. */',
+  '      /* STAGE 0 (fix round 4): WRITTEN FIRST, THE DRAWING MOVED SECOND, THE',
+  '         OLD ID REMOVED LAST, each only after asking again whether the pull',
+  '         is still for this project. A sign-out or a switch between any two',
+  '         steps then leaves the record twice - under its old id and its new',
+  '         one, with its drawing under one of them - and never under neither.',
+  '         Round 3 removed the old id first, and a stop straight after it',
+  '         left nothing: a re-id repair is NOT only of a synced copy. The',
+  '         branch that matches by name, layer and status repairs unsent work',
+  '         too, and those ids collide across the name/layer boundary - "cap"',
+  '         on "top_hats" and "cap_top" on "hats" are both t_cap_top_hats_wip -',
+  '         so a person\'s unsent trait was lost (measured, fix round 4).',
+  '         The first ask is the one at the top of the loop: nothing waits',
+  '         between it and this write. Each write\'s store is fixed when it is',
+  '         called, because dbPut and dbDel read activeWs (through db())',
+  '         before their first wait; so is draftsFollow\'s, unless the editor',
+  '         holds this trait - then it waits on editorFollows before it opens',
+  '         its store, and the ask before it does not cover that (measured,',
+  '         not closed here).',
+  '         A STOP LEAVES A PAIR THAT THE NEXT PULL DOES NOT SETTLE (measured,',
+  '         fix round 4). Both copies of a synced pair carry the row id, and',
+  '         the next pull repairs only the one its row-id map kept, the later',
+  '         by id: the old one, which it re-ids again and, finding the new id',
+  '         taken, names with "-2" ("cap-2"); or the new one, leaving the old',
+  '         as it is.',
+  '         An unsent pair it leaves as it is. Nothing is lost and no drawing',
+  '         is left without its trait; the second copy stays until a person',
+  '         removes it. */',
+  '      await dbPut(rp.record,"pull");',
+  '      repaired++;',
+  '      if(rp.oldId!==rp.record.id){',
   '        if(!wsStill(gen)) break;',
   '        try{ await draftsFollow([{from:rp.oldId, to:rp.record.id}]); }catch(_){}',
+  '        if(!wsStill(gen)) break;',
+  '        await dbDel(rp.oldId);',
   '      }',
-  '      if(!wsStill(gen)) break;',
-  '      await dbPut(rp.record,"pull");',
 ]);
 doc.swap('        await dbPut(rec); added++;', '        await dbPut(rec,"pull"); added++;');
 doc.swap('              await dbPut(Object.assign({},dr,{at:Math.max(Date.now(),(rec.at||0)+1)}));',
@@ -447,19 +532,40 @@ doc.finish(({ code, must }) => {
   if (save.indexOf('at:Date.now()},"person",by)') < 0) throw new Error('the autosave is not stamped with the uid it took');
   /* Fix round 2: what changes the store waits for the drawing's last save
      first, and with nothing to wait for goes on at once. */
-  /* (Round 3 changed cloudSignOut's shape; this check is round 3's.) */
-  if (!/if\(s0SignOutWait\) return s0SignOutWait;\s*const f=s0FlushAutosave\(\);\s*if\(f\)\{\s*gateShow\(true\);\s*s0SignOutWait=f\.then\(\(\)=>\{ s0SignOutWait=null; cloudSignOutNow\(\); \}\);\s*return s0SignOutWait;\s*\}\s*cloudSignOutNow\(\);\s*\}/.test(body('function cloudSignOut(){')))
-    throw new Error('cloudSignOut does not take the page down, wait for the last save once, or go on at once with none');
+  /* (Rounds 3 and 4 changed cloudSignOut's shape; this check is round 4's:
+     the session cleared before the wait, and the card refusing a sign-in
+     during it.) */
+  if (!/if\(s0SignOutWait\) return s0SignOutWait;\s*const f=s0FlushAutosave\(\);\s*sbSaveSession\(null\);\s*if\(f\)\{\s*gateShow\(true\);\s*const card=\$\("signin"\);\s*card\.inert=true; gateBusy\(true\);\s*s0SignOutWait=f\.then\(\(\)=>\{ s0SignOutWait=null; try\{ cloudSignOutNow\(\); \}finally\{ card\.inert=false; gateBusy\(false\); \} \}\);\s*return s0SignOutWait;\s*\}\s*cloudSignOutNow\(\);\s*\}/.test(body('function cloudSignOut(){')))
+    throw new Error('cloudSignOut does not clear the session first, take the page down and the card out of use, wait for the last save once, or go on at once with none');
   const now = body('function cloudSignOutNow(){');
-  if (!(now.indexOf('sbSaveSession(null);') >= 0 && now.indexOf('sbSaveSession(null);') < now.indexOf('activeWs=null;') && now.indexOf('activeWs=null;') < now.indexOf('wsGen++;')))
-    throw new Error('the sign-out itself is not what cloudSignOut runs after the wait');
-  const sw = body('async function wsSwitch(id){');
-  /* (Round 3 changed wsSwitch's shape; this check is round 3's.) */
-  if (!/if\(id===\(s0WsWant!==undefined \? s0WsWant : \(activeWs\|\|null\)\)\) return;\s*const f=s0FlushAutosave\(\);\s*if\(f\)\{\s*s0WsWant=id;\s*await f;\s*if\(s0WsWant!==id\) return;\s*s0WsWant=undefined;\s*if\(id===\(activeWs\|\|null\)\) return;\s*\}\s*activeWs = id\|\|null;/.test(sw))
-    throw new Error('wsSwitch moves the store before the drawing\'s last save, or does not go by the latest switch asked for');
+  /* (Round 4: the session is no longer cleared here, after the wait.) */
+  if (!(now.indexOf('sbSaveSession(') < 0 && now.indexOf('activeWs=null;') >= 0 && now.indexOf('activeWs=null;') < now.indexOf('wsGen++;')))
+    throw new Error('the sign-out itself is not what cloudSignOut runs after the wait, or it clears the session again');
+  const sw = body('async function wsSwitch(id,s0Waited){');
+  /* (Rounds 3 and 4 changed wsSwitch's shape; this check is round 4's: a
+     duplicate is handed the waiting switch's own promise, and the switch
+     that goes on after the wait runs this same function again, told it has
+     waited. The body stays in wsSwitch: groupcatchup.spec.js reads its
+     source for the catch-up call, and a first try at this round, which moved
+     the body out to its own function, failed that guard in the full run.) */
+  if (!/if\(s0WsWant!==undefined\)\{ if\(id===s0WsWant\) return s0WsWanted; \}\s*else if\(id===\(activeWs\|\|null\)\) return;\s*const f=s0Waited \? null : s0FlushAutosave\(\);\s*if\(f\)\{\s*s0WsWant=id;\s*const mine=f\.then\(\(\)=>\{\s*if\(s0WsWant!==id\) return;\s*s0WsWant=undefined; s0WsWanted=null;\s*if\(id===\(activeWs\|\|null\)\) return;\s*return wsSwitch\(id,true\);\s*\}\);\s*s0WsWanted=mine;\s*return mine;\s*\}\s*activeWs = id\|\|null;\s*wsGen\+\+;/.test(sw))
+    throw new Error('wsSwitch moves the store before the drawing\'s last save, does not go by the latest switch asked for, or does not hand a duplicate the switch in flight');
+  if (sw.indexOf('groupCatchUp()') < 0) throw new Error('wsSwitch no longer runs the catch-up itself');
+  const calls2 = code.replace('async function wsSwitch(id,s0Waited){', '').match(/wsSwitch\([^()]*,/g) || [];
+  if (calls2.length !== 1 || calls2[0] !== 'wsSwitch(id,') throw new Error('only wsSwitch itself may say a switch has waited: ' + calls2.join(' | '));
   /* Fix round 3: the offline and deadline branch knows its uid, and the
      repair asks again just before each of its writes. */
   must('if(authed && !s0SeenUid){ s0SeenUid=s0Uid(); if(s0SeenUid) s0Register(s0SeenUid); }', 'a session the page could not check has no uid');
-  if (!/await dbDel\(rp\.oldId\);\s*if\(!wsStill\(gen\)\) break;\s*try\{ await draftsFollow\(/.test(pull)) throw new Error('the repair moves drafts without asking again');
-  if (!/if\(!wsStill\(gen\)\) break;\s*await dbPut\(rp\.record,"pull"\);/.test(pull)) throw new Error('the repair writes without asking again');
+  /* (Round 3's two repair checks - an ask after the delete, and one before
+     the write - are superseded by round 4's order, checked here.) Fix round
+     4: the new id is written first, the drafts moved second, the old id
+     removed last, with an ask before each and no wait between an ask and
+     its write. */
+  const loop = pull.slice(pull.indexOf('for(const rp of repair){'), pull.indexOf('const PULL_AT_ONCE=8;'));
+  if (!/^for\(const rp of repair\)\{\s*if\(!wsStill\(gen\)\) break;/.test(loop)) throw new Error('the repair loop does not ask first');
+  const firstAsk = loop.indexOf('if(!wsStill(gen)) break;'), put = loop.indexOf('await dbPut(rp.record,"pull");');
+  if (put < 0 || /\bawait\b/.test(loop.slice(firstAsk, put))) throw new Error('the repair waits between its ask and its write');
+  if (!/await dbPut\(rp\.record,"pull"\);\s*repaired\+\+;\s*if\(rp\.oldId!==rp\.record\.id\)\{\s*if\(!wsStill\(gen\)\) break;\s*try\{ await draftsFollow\(\[\{from:rp\.oldId, to:rp\.record\.id\}\]\); \}catch\(_\)\{\}\s*if\(!wsStill\(gen\)\) break;\s*await dbDel\(rp\.oldId\);\s*\}/.test(loop))
+    throw new Error('the repair does not write, then move the drafts, then remove the old id, asking again before each');
+  if ((loop.match(/await dbDel\(/g) || []).length !== 1) throw new Error('the repair should remove the old id exactly once');
 });

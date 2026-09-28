@@ -408,6 +408,77 @@ const seedForRepair = async (page) => {
   await page.evaluate(() => { activeWs = null; dbp = null; dbpName = null; });
 };
 
+/* Fix round 4. THE REPAIR WRITES THE NEW ID FIRST, MOVES THE DRAWING SECOND
+   AND REMOVES THE OLD ID LAST, asking before each, so a stop between two
+   steps leaves the record twice and never nowhere. Round 3 removed the old
+   id first, and a stop straight after that left neither record - and a
+   re-id repair is not only of a synced copy: the branch that matches a row
+   by name, layer and status re-ids unsent work too, because ids collide
+   across the name/layer boundary. "cap" on "top_hats" (the server's row) and
+   "cap_top" on "hats" (this device's trait, never sent) are both
+   t_cap_top_hats_wip (measured, re-review of round 3). `hold` holds one
+   step AFTER it is issued - its store is chosen then - and a sign-out, or
+   none, comes while it is held: 'write' the new id, 'drafts' the drawing's
+   move, 'remove' the old id. The personal store holds a trait and a drawing
+   of its own under the same old id, so a step that ran in the wrong store
+   shows there. Records read as id[lid synced|unsent], drawings as id@at,
+   'moved' once the move re-stamped it. */
+const repairCases = {
+  unsent: { layers: ['hats', 'top_hats'], oldId: 't_cap_top_hats_wip', newId: 't_cap_top_top_hats_wip',
+    row: { id: 'row-9', kind: 'trait', name: 'cap', layer: 'top_hats', status: 'wip', path: 'team1/c1/trait-cap-top_hats-wip.png',
+      w: 16, h: 16, rarity: 1, updated_at: '2026-09-27T12:00:00+00:00' },
+    mine: { name: 'cap_top', layer: 'hats', status: 'wip', synced: false, lid: 'l_mine', by: 'u1', wk: 'person' } },
+  synced: { layers: ['hats', 'hair'], oldId: 't_cap_hats_wip', newId: 't_cap_hair_wip',
+    row: { id: 'row-1', kind: 'trait', name: 'cap', layer: 'hair', status: 'wip', path: 'team1/c1/trait-cap-hats-wip.png',
+      w: 16, h: 16, rarity: 1, updated_at: '2026-09-27T12:00:00+00:00' },
+    mine: { name: 'cap', layer: 'hats', status: 'wip', synced: true, rowId: 'row-1', rowAt: '2026-01-01T00:00:00+00:00',
+      path: 'team1/c1/trait-cap-hats-wip.png', lid: 'l_seed', by: 'u1', wk: 'pull' } },
+};
+const seedRepairCase = async (page, c) => {
+  await seedTrait(page, { id: c.oldId, name: c.mine.name, layer: c.mine.layer, status: 'wip', synced: false, lid: 'l_personal', by: 'u9', wk: 'person' });
+  await seedDraft(page, { traitId: c.oldId, at: 7, by: 'u9', wk: 'person' });   /* the personal store's own */
+  await page.evaluate(() => { activeWs = 'team1'; dbp = null; dbpName = null; });
+  await seedTrait(page, Object.assign({ id: c.oldId }, c.mine));
+  await seedDraft(page, { traitId: c.oldId, at: 9, by: 'u1', wk: 'person' });
+  await page.evaluate(() => { activeWs = null; dbp = null; dbpName = null; });
+};
+const repairStepHeld = (page, c, hold, signOut) => page.evaluate(async ([c, hold, signOut]) => {
+  const json = (o, x) => new Response(JSON.stringify(o), { status: 200, headers: Object.assign({ 'Content-Type': 'application/json' }, x || {}) });
+  const real = window.fetch;
+  window.fetch = async (u, io) => {
+    const s = String(u), m = (io && io.method) || 'GET';
+    if (s.indexOf('/auth/v1/user') >= 0) return json({ id: 'u1' });
+    if (s.indexOf('/rest/v1/collections') >= 0) return json([{ id: 'c1', layers: c.layers }]);
+    if (s.indexOf('/rest/v1/traits?select=id') >= 0) return json([], { 'Content-Range': '0-0/1' });
+    if (s.indexOf('/rest/v1/traits?select=*') >= 0) return json([c.row], { 'Content-Range': '0-0/1' });
+    if (s.indexOf('/storage/v1/object/list/') >= 0) return json([]);
+    window.__unknown.push(m + ' ' + s.replace(/^https?:\/\/[^/]+/, ''));
+    return new Response(JSON.stringify({ code: 'UNROUTED' }), { status: 501, headers: { 'Content-Type': 'application/json' } });
+  };
+  let open; const gate = new Promise(r => { open = r; });
+  let asked = false;
+  const put = dbPut, drafts = draftsFollow, del = dbDel;
+  if (hold === 'write') dbPut = (rec, wk, uid) => { const p = put(rec, wk, uid); if (wk === 'pull' && rec && rec.id === c.newId) { asked = true; return gate.then(() => p); } return p; };
+  if (hold === 'drafts') draftsFollow = (pairs) => { const p = drafts(pairs); asked = true; return gate.then(() => p); };
+  if (hold === 'remove') dbDel = (id) => { const p = del(id); if (id === c.oldId) { asked = true; return gate.then(() => p); } return p; };
+  activeWs = 'team1'; cloudTeamId = null; dbp = null; dbpName = null;
+  const p = cloudPull({ quiet: true });
+  for (let i = 0; i < 500 && !asked; i++) await new Promise(r => setTimeout(r, 10));
+  const reached = asked;
+  if (reached && signOut) cloudSignOut();
+  open();
+  try { await p; } catch (_) {}
+  dbPut = put; draftsFollow = drafts; dbDel = del;
+  window.fetch = real;
+  if (!reached) throw new Error('the repair never reached the step held (' + hold + ')');
+  const read = async (ws) => { activeWs = ws; dbp = null; dbpName = null;
+    return (await dbAll()).filter(i => i.kind === 'trait' || i.kind === 'autosave')
+      .map(i => i.kind === 'autosave' ? i.id + '@' + (i.at > 1e9 ? 'moved' : i.at) : i.id + '[' + i.lid + (i.synced ? ' synced' : ' unsent') + ']').sort(); };
+  const out = { group: await read('team1'), personal: await read(null) };
+  activeWs = null;
+  return out;
+}, [c, hold, signOut]);
+
 test.describe('stage 0: signing out stops a running pull', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/index.html');
@@ -462,6 +533,45 @@ test.describe('stage 0: signing out stops a running pull', () => {
     const r = await repairHeldMaybeSignOut(page, 'draftsFollow', false);
     expect(r.group).toEqual(['t_cap_hair_wip']);
     expect(r.personal).toEqual(['autosave.t_cap_hats_wip@7']);
+  });
+
+  /* Fix round 4: write, move, remove, each asked for (above repairCases). */
+  const personalUntouched = (c) => ['autosave.' + c.oldId + '@7', c.oldId + '[l_personal unsent]'];
+  const unsent = repairCases.unsent;
+  const unsentAfterStop = {
+    write: ['autosave.t_cap_top_hats_wip@9', 't_cap_top_hats_wip[l_mine unsent]', 't_cap_top_top_hats_wip[l_mine unsent]'],
+    drafts: ['autosave.t_cap_top_top_hats_wip@moved', 't_cap_top_hats_wip[l_mine unsent]', 't_cap_top_top_hats_wip[l_mine unsent]'],
+    remove: ['autosave.t_cap_top_top_hats_wip@moved', 't_cap_top_top_hats_wip[l_mine unsent]'],
+  };
+  for (const [hold, step] of [['write', 'writes the new id'], ['drafts', 'moves the drawing'], ['remove', 'removes the old id']]) {
+    test('a repair that re-ids unsent work (its id collides with the server\'s row), stopped after it ' + step + ': nothing is lost, and the personal store is untouched', async ({ page }) => {
+      await seedRepairCase(page, unsent);
+      const r = await repairStepHeld(page, unsent, hold, true);
+      expect(r).toEqual({ group: unsentAfterStop[hold], personal: personalUntouched(unsent) });
+    });
+
+    test('the control: the same repair, held after it ' + step + ' with nobody signing out, ends with the work and its drawing under the new id', async ({ page }) => {
+      await seedRepairCase(page, unsent);
+      const r = await repairStepHeld(page, unsent, hold, false);
+      expect(r).toEqual({ group: ['autosave.t_cap_top_top_hats_wip@moved', 't_cap_top_top_hats_wip[l_mine unsent]'], personal: personalUntouched(unsent) });
+    });
+  }
+
+  /* A synced trait, stopped after the write: the drawing is still with the
+     old id, which still exists. (Round 3's order left the drawing under an
+     id whose record it had deleted - orphaned once the next pull brought
+     the record back under the new one; measured, re-review of round 3.) */
+  test('a repair that moves a synced trait to another layer, stopped after it writes the new id: the trait under both ids, its drawing still with the old one, and the personal store untouched', async ({ page }) => {
+    await seedRepairCase(page, repairCases.synced);
+    const r = await repairStepHeld(page, repairCases.synced, 'write', true);
+    expect(r).toEqual({ group: ['autosave.t_cap_hats_wip@9', 't_cap_hair_wip[l_seed synced]', 't_cap_hats_wip[l_seed synced]'],
+      personal: personalUntouched(repairCases.synced) });
+  });
+
+  test('the control: the same synced repair, held after it writes the new id with nobody signing out, ends with the trait and its drawing under the new id', async ({ page }) => {
+    await seedRepairCase(page, repairCases.synced);
+    const r = await repairStepHeld(page, repairCases.synced, 'write', false);
+    expect(r).toEqual({ group: ['autosave.t_cap_hair_wip@moved', 't_cap_hair_wip[l_seed synced]'], personal: personalUntouched(repairCases.synced) });
   });
 });
 
@@ -547,10 +657,13 @@ test.describe('stage 0: the drawing saved as a session ends keeps its maker', ()
     const r = await page.evaluate(async () => {
       art.toBlob = () => {};   /* an encode that never calls back */
       autosave(); if (!autoPending) throw new Error('no autosave was waiting');
-      const t0 = performance.now();
+      const t0 = performance.now(), gen = wsGen;
       cloudSignOut();
-      while (localStorage.getItem('chatnft.session') && performance.now() - t0 < 10000) await new Promise(res => setTimeout(res, 25));
-      return { signedOut: !localStorage.getItem('chatnft.session'), ms: Math.round(performance.now() - t0) };
+      /* Watched by wsGen, which waits for the save. Not by the stored
+         session: since fix round 4 that goes before the wait, so this read
+         as signed out at once and could no longer fail. */
+      while (wsGen === gen && performance.now() - t0 < 10000) await new Promise(res => setTimeout(res, 25));
+      return { signedOut: wsGen !== gen && !localStorage.getItem('chatnft.session'), ms: Math.round(performance.now() - t0) };
     });
     console.log('a stalled save held sign-out for ' + r.ms + ' ms');
     expect(r.signedOut, 'sign-out went ahead').toBe(true);
@@ -709,16 +822,29 @@ test.describe('stage 0: a session the page could not check still has its uid', (
    second press does nothing more, and a switch compares with where the page
    is going, not where it still is (all measured before the fix). A group
    page on team1 with its account panel open, and - with `saving` - a
-   drawing whose closing save is being written, its encode slowed to
-   `slowMs`; with nothing saving, the drawing was saved and closed first. */
-const groupPageWithDrawing = (page, saving, slowMs) => page.evaluate(async ([saving, slowMs]) => {
-  window.__toasts = [];
+   drawing whose closing save is being written, its encode HELD until the
+   test calls releaseTheSave; with nothing saving, the drawing was saved and
+   closed first.
+   HELD, NOT SLOWED (fix round 4). The encode was slowed to 1.5 s or 0.8 s,
+   and each test's action had to arrive before it ended - a 100 ms sleep and
+   a round trip later - which nothing asserted: with the save landed first,
+   two tests failed as if the page had regressed and two passed testing
+   nothing (measured, re-review of round 3). So the save is held on a gate,
+   and each test asserts, in the same evaluate as its action, that the save
+   is still in flight and that the page is waiting for it. The stand-in also
+   answers a password sign-in, as account u2, counted in __tokenAsked. */
+const groupPageWithDrawing = (page, saving) => page.evaluate(async (saving) => {
+  window.__toasts = []; window.__who = 'u1'; window.__tokenAsked = 0;
   const shown = window.toast; window.toast = (m) => { window.__toasts.push(String(m)); try { shown(m); } catch (_) {} };
   const json = (o, x) => new Response(JSON.stringify(o), { status: 200, headers: Object.assign({ 'Content-Type': 'application/json' }, x || {}) });
   /* Left in place: a switch runs on after it returns. */
   window.fetch = async (u, io) => {
     const s = String(u), m = (io && io.method) || 'GET';
-    if (s.indexOf('/auth/v1/user') >= 0) return json({ id: 'u1' });
+    if (s.indexOf('/auth/v1/token?grant_type=password') >= 0 && m === 'POST') {
+      window.__tokenAsked++; window.__who = 'u2';
+      return json({ access_token: 'not-a-real-token-2', refresh_token: 'not-a-real-refresh-2', expires_in: 3600, user: { id: 'u2' } });
+    }
+    if (s.indexOf('/auth/v1/user') >= 0) return json({ id: window.__who });
     if (s.indexOf('/rpc/my_team') >= 0) return json('me');
     if (s.indexOf('/rpc/team_member_names') >= 0) return json([]);
     if (s.indexOf('/rest/v1/teams') >= 0) return json([{ id: 'me', name: 'Me', personal: true },
@@ -741,19 +867,42 @@ const groupPageWithDrawing = (page, saving, slowMs) => page.evaluate(async ([sav
   await autosaveNow();
   if (saving) {
     const encode = art.toBlob.bind(art);
-    art.toBlob = (cb, t) => encode(b => setTimeout(() => cb(b), slowMs), t);
-    closeEditor();   /* its closing save is now being written */
+    let open; const gate = new Promise(r => { open = r; });
+    window.__releaseSave = open;
+    art.toBlob = (cb, t) => encode(b => { gate.then(() => cb(b)); }, t);
+    closeEditor();   /* its closing save is now being written, and held */
+    if (!s0SaveInFlight) throw new Error('the closing save is not in flight');
   } else await closeEditor();
   $('acctpanel').hidden = true; acctToggle();
   await new Promise(r => setTimeout(r, 100));
   if ($('acctpanel').hidden || [...$('wssel').options].every(o => o.value !== 'team2')) throw new Error('the account panel is not open on a list with team2');
   window.__gen0 = wsGen;
-}, [!!saving, slowMs || 0]);
-/* Past the slowed encode (1.5 s at most here) and whatever a switch starts. */
+}, !!saving);
+/* Lets the held save land. Asked in the same evaluate: the page must still
+   be waiting for it - sign-out (`signOut`) or a switch (`switch`) - or the
+   3 s bound ended the wait first and the test would measure that instead. */
+const releaseTheSave = (page, waiting) => page.evaluate((waiting) => {
+  if (!s0SaveInFlight) throw new Error('the save landed before it was released');
+  if (waiting === 'signOut' && !s0SignOutWait) throw new Error('sign-out stopped waiting before the save was released');
+  if (waiting === 'switch' && s0WsWant === undefined) throw new Error('the switch stopped waiting before the save was released');
+  window.__releaseSave();
+}, waiting);
+/* A sign-in on the card, as a person makes one: the fields typed in, then
+   the button; if the button cannot be pressed, Enter in the password field,
+   which signs in without it. Short timeouts, so the attempt ends well inside
+   the 3 s bound. Whether it reached the server is __tokenAsked. */
+const signInOnTheCard = async (page) => {
+  try { await page.fill('#gateuser', 'u2user', { timeout: 300 }); } catch (_) {}
+  try { await page.fill('#gatepass', 'not-a-real-password', { timeout: 300 }); } catch (_) {}
+  try { await page.click('#gatein', { timeout: 300 }); return; } catch (_) {}
+  try { await page.press('#gatepass', 'Enter', { timeout: 300 }); } catch (_) {}
+};
+/* Past the held save's release and whatever a switch starts. */
 const afterTheWait = (page) => page.evaluate(async () => {
   await new Promise(r => setTimeout(r, 3000));
   return { session: !!localStorage.getItem('chatnft.session'), activeWs, storedWs: localStorage.getItem('chatnft.ws'), gen: wsGen - window.__gen0,
-    signedOut: window.__toasts.filter(t => t === 'Signed out').length, opened: window.__toasts.filter(t => t === 'Opened the group project').length };
+    signedOut: window.__toasts.filter(t => t === 'Signed out').length, opened: window.__toasts.filter(t => t === 'Opened the group project').length,
+    authed, uid: s0SeenUid, cardBack: !$('signin').inert && !$('gatein').disabled };
 });
 
 test.describe('stage 0: while sign-out or a switch waits for the drawing\'s save', () => {
@@ -773,60 +922,167 @@ test.describe('stage 0: while sign-out or a switch waits for the drawing\'s save
   };
 
   test('signing out while the drawing\'s save is being written: the account panel comes down at once, a pick in it is refused, and it ends on no group', async ({ page }) => {
-    await groupPageWithDrawing(page, true, 1500);
-    await page.$eval('#cloudout', (b) => b.click());
+    await groupPageWithDrawing(page, true);
+    await page.evaluate(() => {
+      if (!s0SaveInFlight) throw new Error('the save is not in flight');
+      $('cloudout').click();
+      if (!s0SignOutWait) throw new Error('sign-out is not waiting for the save');
+    });
     const picked = await pickTeam2(page);
+    await releaseTheSave(page, 'signOut');
     const r = await afterTheWait(page);
     expect({ picked, session: r.session, activeWs: r.activeWs, storedWs: r.storedWs }).toEqual({ picked: 'refused', session: false, activeWs: null, storedWs: null });
   });
 
   test('the control: the same with nothing being saved', async ({ page }) => {
     await groupPageWithDrawing(page, false);
-    await page.$eval('#cloudout', (b) => b.click());
+    await page.evaluate(() => {
+      if (s0SaveInFlight || autoPending) throw new Error('a save is waiting or in flight');
+      $('cloudout').click();
+    });
     const picked = await pickTeam2(page);
     const r = await afterTheWait(page);
     expect({ picked, session: r.session, activeWs: r.activeWs, storedWs: r.storedWs }).toEqual({ picked: 'refused', session: false, activeWs: null, storedWs: null });
   });
 
   test('a second sign-out during the wait does nothing more: one sign-out, one wsGen bump', async ({ page }) => {
-    await groupPageWithDrawing(page, true, 1500);
-    await page.evaluate(() => { cloudSignOut(); cloudSignOut(); });
+    await groupPageWithDrawing(page, true);
+    await page.evaluate(() => {
+      if (!s0SaveInFlight) throw new Error('the save is not in flight');
+      cloudSignOut(); cloudSignOut();
+      if (!s0SignOutWait) throw new Error('sign-out is not waiting for the save');
+    });
+    await releaseTheSave(page, 'signOut');
     const r = await afterTheWait(page);
     expect({ signedOut: r.signedOut, gen: r.gen, activeWs: r.activeWs }).toEqual({ signedOut: 1, gen: 1, activeWs: null });
   });
 
   test('the control: one press, with the same save being written, is one sign-out', async ({ page }) => {
-    await groupPageWithDrawing(page, true, 1500);
-    await page.evaluate(() => { cloudSignOut(); });
+    await groupPageWithDrawing(page, true);
+    await page.evaluate(() => {
+      if (!s0SaveInFlight) throw new Error('the save is not in flight');
+      cloudSignOut();
+      if (!s0SignOutWait) throw new Error('sign-out is not waiting for the save');
+    });
+    await releaseTheSave(page, 'signOut');
     const r = await afterTheWait(page);
     expect({ signedOut: r.signedOut, gen: r.gen, activeWs: r.activeWs }).toEqual({ signedOut: 1, gen: 1, activeWs: null });
   });
 
   test('switching away and straight back while the drawing\'s save is being written ends on the last choice, having never left', async ({ page }) => {
-    await groupPageWithDrawing(page, true, 800);
-    await page.evaluate(() => { wsSwitch('team2'); wsSwitch('team1'); });
+    await groupPageWithDrawing(page, true);
+    await page.evaluate(() => {
+      if (!s0SaveInFlight) throw new Error('the save is not in flight');
+      wsSwitch('team2'); wsSwitch('team1');
+      if (s0WsWant !== 'team1') throw new Error('the switches are not waiting for the save');
+    });
+    await releaseTheSave(page, 'switch');
     const r = await afterTheWait(page);
     expect({ activeWs: r.activeWs, storedWs: r.storedWs, gen: r.gen, opened: r.opened }).toEqual({ activeWs: 'team1', storedWs: 'team1', gen: 0, opened: 0 });
   });
 
   test('the control: away and back with nothing being saved ends on the last choice too, having switched twice', async ({ page }) => {
     await groupPageWithDrawing(page, false);
-    await page.evaluate(() => { wsSwitch('team2'); wsSwitch('team1'); });
+    await page.evaluate(() => {
+      if (s0SaveInFlight || autoPending) throw new Error('a save is waiting or in flight');
+      wsSwitch('team2'); wsSwitch('team1');
+    });
     const r = await afterTheWait(page);
     expect({ activeWs: r.activeWs, storedWs: r.storedWs, gen: r.gen, opened: r.opened }).toEqual({ activeWs: 'team1', storedWs: 'team1', gen: 2, opened: 2 });
   });
 
   test('two switches to one project while the save is being written run the switch once', async ({ page }) => {
-    await groupPageWithDrawing(page, true, 800);
-    await page.evaluate(() => { wsSwitch('team2'); wsSwitch('team2'); });
+    await groupPageWithDrawing(page, true);
+    await page.evaluate(() => {
+      if (!s0SaveInFlight) throw new Error('the save is not in flight');
+      wsSwitch('team2'); wsSwitch('team2');
+      if (s0WsWant !== 'team2') throw new Error('the switches are not waiting for the save');
+    });
+    await releaseTheSave(page, 'switch');
     const r = await afterTheWait(page);
     expect({ activeWs: r.activeWs, gen: r.gen, opened: r.opened }).toEqual({ activeWs: 'team2', gen: 1, opened: 1 });
   });
 
   test('the control: the same two switches with nothing being saved run it once', async ({ page }) => {
     await groupPageWithDrawing(page, false);
-    await page.evaluate(() => { wsSwitch('team2'); wsSwitch('team2'); });
+    await page.evaluate(() => {
+      if (s0SaveInFlight || autoPending) throw new Error('a save is waiting or in flight');
+      wsSwitch('team2'); wsSwitch('team2');
+    });
     const r = await afterTheWait(page);
     expect({ activeWs: r.activeWs, gen: r.gen, opened: r.opened }).toEqual({ activeWs: 'team2', gen: 1, opened: 1 });
+  });
+
+  /* Fix round 4. SIGN-OUT CLEARS THE STORED SESSION BEFORE IT WAITS, AND THE
+     CARD TAKES NO SIGN-IN UNTIL THE WAIT IS OVER. Kept through the wait, the
+     session outlived a tab closed in it, and the clear after the wait undid
+     a sign-in made during it (measured, re-review of round 3). The attempt
+     is made on the card itself, as a person makes it. */
+  test('signing out while the drawing\'s save is being written: the session is gone at once, and a sign-in on the card during the wait is refused, not undone', async ({ page }) => {
+    await groupPageWithDrawing(page, true);
+    const during = await page.evaluate(() => {
+      if (!s0SaveInFlight) throw new Error('the save is not in flight');
+      $('cloudout').click();
+      if (!s0SignOutWait) throw new Error('sign-out is not waiting for the save');
+      return !!localStorage.getItem('chatnft.session');
+    });
+    await signInOnTheCard(page);
+    const asked = await page.evaluate(() => window.__tokenAsked > 0);
+    await releaseTheSave(page, 'signOut');
+    const r = await afterTheWait(page);
+    expect({ sessionDuringTheWait: during, signInReachedTheServer: asked, session: r.session, authed: r.authed, uid: r.uid, cardBack: r.cardBack })
+      .toEqual({ sessionDuringTheWait: false, signInReachedTheServer: false, session: false, authed: false, uid: null, cardBack: true });
+  });
+
+  test('the control: with nothing being saved, sign-out is at once, and a sign-in on the card straight after it is taken and kept', async ({ page }) => {
+    await groupPageWithDrawing(page, false);
+    const during = await page.evaluate(() => {
+      if (s0SaveInFlight || autoPending) throw new Error('a save is waiting or in flight');
+      $('cloudout').click();
+      if (s0SignOutWait) throw new Error('sign-out waited');
+      return !!localStorage.getItem('chatnft.session');
+    });
+    await signInOnTheCard(page);
+    const asked = await page.evaluate(() => window.__tokenAsked > 0);
+    const r = await afterTheWait(page);
+    expect({ sessionDuringTheWait: during, signInReachedTheServer: asked, session: r.session, authed: r.authed, uid: r.uid, cardBack: r.cardBack })
+      .toEqual({ sessionDuringTheWait: false, signInReachedTheServer: true, session: true, authed: true, uid: 'u2', cardBack: true });
+  });
+
+  /* Fix round 4. A SWITCH TO WHERE A WAITING SWITCH IS GOING IS THAT SWITCH.
+     The second returned at once, 0 ms, with activeWs still team1, and the
+     first finished later (measured, re-review of round 3); every caller
+     that awaits a switch acts on its having happened. Each records activeWs
+     at the moment its promise settles. */
+  test('two awaited switches to one project while the save is being written both go on only once the store has moved, and the switch runs once', async ({ page }) => {
+    await groupPageWithDrawing(page, true);
+    const seen = await page.evaluate(async () => {
+      if (!s0SaveInFlight) throw new Error('the save is not in flight');
+      const seen = [];
+      const a = wsSwitch('team2').then(() => { seen.push(activeWs); });
+      const b = wsSwitch('team2').then(() => { seen.push(activeWs); });
+      if (s0WsWant !== 'team2') throw new Error('the switch is not waiting for the save');
+      await new Promise(r => setTimeout(r, 200));
+      if (!s0SaveInFlight || s0WsWant !== 'team2') throw new Error('the wait ended before the save was released');
+      window.__releaseSave();
+      await Promise.all([a, b]);
+      return seen;
+    });
+    const r = await afterTheWait(page);
+    expect({ seen, gen: r.gen, opened: r.opened }).toEqual({ seen: ['team2', 'team2'], gen: 1, opened: 1 });
+  });
+
+  test('the control: the same two awaited switches with nothing being saved both go on with the store moved, and the switch runs once', async ({ page }) => {
+    await groupPageWithDrawing(page, false);
+    const seen = await page.evaluate(async () => {
+      if (s0SaveInFlight || autoPending) throw new Error('a save is waiting or in flight');
+      const seen = [];
+      const a = wsSwitch('team2').then(() => { seen.push(activeWs); });
+      const b = wsSwitch('team2').then(() => { seen.push(activeWs); });
+      await Promise.all([a, b]);
+      return seen;
+    });
+    const r = await afterTheWait(page);
+    expect({ seen, gen: r.gen, opened: r.opened }).toEqual({ seen: ['team2', 'team2'], gen: 1, opened: 1 });
   });
 });

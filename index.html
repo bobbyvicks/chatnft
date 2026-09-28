@@ -18471,11 +18471,16 @@ async function cloudRender(){
        past the deadline. The uid was known only from the stored session,
        which a refusal clears before sessionEnded saves the drawing, and
        that draft was written with no owner (measured). Taken from the same
-       session the page is acting on. And put on this browser's list of
-       accounts: that session is the auth server's answer to a sign-in on
-       this browser, so the account did sign in here - only this page
-       life's check is missing - and every uid a record carries must be on
-       the list the new page reads (B1). */
+       session the page is acting on, and put on this browser's list of
+       accounts, because the stamps already carry it and every uid a record
+       carries must be on the list the new page reads (B1).
+       THAT UID IS UNVERIFIED (fix round 4). The stored session is not
+       always the auth server's answer: a sign-in link's #access_token=
+       fragment is stored unchecked (sbCaptureFromHash), and a made-up
+       token whose subject is "someone-else", opened with no signal, put
+       "someone-else" on the list (measured). Nothing reads pb.uids in
+       stage 0; the next plan must treat a uid registered here, offline,
+       as unverified. */
     if(authed && !s0SeenUid){ s0SeenUid=s0Uid(); if(s0SeenUid) s0Register(s0SeenUid); }
     return null;
   }
@@ -18546,18 +18551,40 @@ function cloudSignOut(){
      once, as they do with nothing to wait for - left up, a project picked
      during the wait was switched to after the sign-out and carried to the
      next account on this device (measured). A second press during the
-     wait is the same sign-out, not another: it ran the sign-out twice. */
+     wait is the same sign-out, not another: it ran the sign-out twice.
+     THE STORED SESSION GOES AT ONCE TOO (fix round 4), after the flush
+     has started the waiting save (which took its uid then) and before
+     any wait. Kept through the wait, it was still stored for a tab
+     closed during it, while the page already showed it signed out, and
+     the clear after the wait undid a sign-in made during it (both
+     measured, re-review of round 3). Not cleared again after the wait: a session
+     stored meanwhile - a sign-in link, another tab - is someone signing
+     in, and cloudRender, below, finds it.
+     AND THE SIGN-IN CARD TAKES NO SIGN-IN UNTIL THE WAIT IS OVER (fix
+     round 4). It is refused rather than let through and kept: until the
+     wait ends the page is still the leaving account's - its project, its
+     uid, its wsGen - so a sign-in then would start the next account on
+     the leaving one's project, and the end of the wait would move it
+     off it and say "Signed out" over it. Refusing costs the person at
+     most S0_FLUSH_MS. inert takes the card out of reach of the pointer
+     and the keyboard, whose Enter signs in without its button; gateBusy
+     disables the buttons, as a sign-in in progress does, which also
+     shows it and stops a scripted click. */
   if(s0SignOutWait) return s0SignOutWait;
   const f=s0FlushAutosave();
+  sbSaveSession(null);
   if(f){
     gateShow(true);
-    s0SignOutWait=f.then(()=>{ s0SignOutWait=null; cloudSignOutNow(); });
+    const card=$("signin");
+    card.inert=true; gateBusy(true);
+    s0SignOutWait=f.then(()=>{ s0SignOutWait=null; try{ cloudSignOutNow(); }finally{ card.inert=false; gateBusy(false); } });
     return s0SignOutWait;
   }
   cloudSignOutNow();
 }
+/* The rest of the sign-out, which waits for the drawing's last save. The
+   stored session is cleared before it, in cloudSignOut (fix round 4). */
 function cloudSignOutNow(){
-  sbSaveSession(null);
   gateShow(true);
   activeWs=null; wsSave(null); cloudTeamId=null; sharedLayerSig=null;
   /* STAGE 0: nobody is signed in now. A pull still running for the project
@@ -20028,22 +20055,41 @@ async function cloudPull(opts){
          differently, and the repair re-ids the local record to match. The
          draft goes with it, or a pull silently costs somebody their
          unsaved work. */
-      if(rp.oldId!==rp.record.id){
-        await dbDel(rp.oldId);
-        /* STAGE 0 (fix round 3): asked again after each wait, just before
-           each write. The check at the top of the loop is two waits old by
-           here, and a sign-out in them filed the group's record in the
-           personal store and moved the personal store's own draft of that
-           id (both measured). Stopping after the delete leaves the group
-           without its local copy of a record the server has (a re-id
-           repair is only ever of a synced copy); the next pull brings it
-           back. */
-        if(!wsStill(gen)) break;
-        try{ await draftsFollow([{from:rp.oldId, to:rp.record.id}]); }catch(_){}
-      }
-      if(!wsStill(gen)) break;
+      /* STAGE 0 (fix round 4): WRITTEN FIRST, THE DRAWING MOVED SECOND, THE
+         OLD ID REMOVED LAST, each only after asking again whether the pull
+         is still for this project. A sign-out or a switch between any two
+         steps then leaves the record twice - under its old id and its new
+         one, with its drawing under one of them - and never under neither.
+         Round 3 removed the old id first, and a stop straight after it
+         left nothing: a re-id repair is NOT only of a synced copy. The
+         branch that matches by name, layer and status repairs unsent work
+         too, and those ids collide across the name/layer boundary - "cap"
+         on "top_hats" and "cap_top" on "hats" are both t_cap_top_hats_wip -
+         so a person's unsent trait was lost (measured, fix round 4).
+         The first ask is the one at the top of the loop: nothing waits
+         between it and this write. Each write's store is fixed when it is
+         called, because dbPut and dbDel read activeWs (through db())
+         before their first wait; so is draftsFollow's, unless the editor
+         holds this trait - then it waits on editorFollows before it opens
+         its store, and the ask before it does not cover that (measured,
+         not closed here).
+         A STOP LEAVES A PAIR THAT THE NEXT PULL DOES NOT SETTLE (measured,
+         fix round 4). Both copies of a synced pair carry the row id, and
+         the next pull repairs only the one its row-id map kept, the later
+         by id: the old one, which it re-ids again and, finding the new id
+         taken, names with "-2" ("cap-2"); or the new one, leaving the old
+         as it is.
+         An unsent pair it leaves as it is. Nothing is lost and no drawing
+         is left without its trait; the second copy stays until a person
+         removes it. */
       await dbPut(rp.record,"pull");
       repaired++;
+      if(rp.oldId!==rp.record.id){
+        if(!wsStill(gen)) break;
+        try{ await draftsFollow([{from:rp.oldId, to:rp.record.id}]); }catch(_){}
+        if(!wsStill(gen)) break;
+        await dbDel(rp.oldId);
+      }
     }catch(_){}
   }
 
@@ -20453,27 +20499,44 @@ async function groupCatchUpRun(){
 }
 
 /* The project the latest switch asked for, while switches wait for the
-   drawing's last save (fix round 3); undefined when none is waiting. */
-let s0WsWant;
-async function wsSwitch(id){
+   drawing's last save (fix round 3), and that switch's own promise (fix
+   round 4); undefined and null when none is waiting. */
+let s0WsWant, s0WsWanted=null;
+/* s0Waited: only this function passes it, when it runs itself again after
+   the wait (fix round 4); every other caller passes one argument. */
+async function wsSwitch(id,s0Waited){
   id=id||null;
   /* STAGE 0 (fix round 3): already there, or already asked for. A switch
      waiting below has not moved activeWs yet, so comparing with activeWs
      dropped a switch back to it - away and straight back ended away - and
-     let two switches to one project both run (both measured). */
-  if(id===(s0WsWant!==undefined ? s0WsWant : (activeWs||null))) return;
+     let two switches to one project both run (both measured).
+     ALREADY ASKED FOR IS THE SAME SWITCH (fix round 4): its caller is
+     handed that switch's own promise, so it goes on only once the store
+     has moved. Returned at once, a second switch to where a waiting one
+     was going resolved in 0 ms with activeWs still the old project, and
+     the first finished later (measured) - and the callers that await a
+     switch act on its having happened: wsLeave deletes the database it
+     left, wsCreate and joinIfPending go on in the new project. */
+  if(s0WsWant!==undefined){ if(id===s0WsWant) return s0WsWanted; }
+  else if(id===(activeWs||null)) return;
   /* STAGE 0: the drawing's last save lands in the project it was drawn in,
      not the one switched to (fix round 2, measured): written, and waited
      for, before activeWs moves. Nothing waiting: no write and no wait. Of
      the switches that waited, only the latest goes on; one that ends where
-     the page already is does nothing. */
-  const f=s0FlushAutosave();
+     the page already is does nothing. The one that goes on runs this
+     function again, told it has waited (fix round 4), so that it has one
+     promise for its whole run, which a duplicate is handed. */
+  const f=s0Waited ? null : s0FlushAutosave();
   if(f){
     s0WsWant=id;
-    await f;
-    if(s0WsWant!==id) return;
-    s0WsWant=undefined;
-    if(id===(activeWs||null)) return;
+    const mine=f.then(()=>{
+      if(s0WsWant!==id) return;
+      s0WsWant=undefined; s0WsWanted=null;
+      if(id===(activeWs||null)) return;
+      return wsSwitch(id,true);
+    });
+    s0WsWanted=mine;
+    return mine;
   }
   activeWs = id||null;
   /* Anything already in flight for the old project stops here. */

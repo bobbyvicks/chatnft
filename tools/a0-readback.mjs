@@ -23,21 +23,45 @@ import { pathToFileURL } from 'node:url';
 const TABLES = "('public.collections'::regclass, 'public.traits'::regclass)";
 const A0_PAIRS = "(('collections', 'protocol'), ('collections', 'switching_at'), ('traits', 'replaces'))";
 
-/* The catalog of the two tables outside A0's own objects - columns (with
-   any grant of a column's own), constraints (by the columns they cover, so
-   Postgres 18's named NOT NULL rows are left out too), indexes, policies
-   (with their permissive flag, which pg_policies keeps apart from the
-   rest), triggers (with whether they are enabled, which pg_get_triggerdef
-   does not print), RLS flags and table ACLs - as one md5, so the post-read
-   can say nothing else moved. Indexes are not filtered: A0 adds none, so an
-   index on one of its columns moves this too. A new owner moves it through
-   the ACL, whose grantors change with the owner.
-   NOT COVERED: anything outside these two tables (a posts table apart,
-   which fingerprint_ok names), publication membership, reloptions, replica
-   identity, and a column's storage, collation and options. */
+/* The catalog of the two tables outside A0's own objects, as one md5, so
+   the post-read can say nothing else moved. COVERED, each shown able to say
+   no by a mutation in test/sql/a0-readback.test.mjs:
+     col  every column but A0's three: position (a column dropped and added
+          back reads the same otherwise, with its data gone), type, NOT NULL,
+          default, identity, collation, and a grant of the column's own
+     con  constraints, by the columns they cover, so A0's checks and
+          Postgres 18's named NOT NULL rows are left out
+     idx  indexes, unfiltered: A0 adds none, so one on its columns moves this
+     pol  policies, with the permissive flag pg_policies keeps apart
+     trg  triggers, with whether they are enabled (pg_get_triggerdef does
+          not print it)
+     rul  rules, with whether they are enabled
+     fn   the functions the policies, triggers, defaults, constraints and
+          rules depend on (today is_team_member and touch_updated_at, by the
+          policies and the triggers): body and EXECUTE grants - a policy's
+          text says nothing of what the function it calls does. A new owner
+          moves the grants' grantors, as for a table (measured; so it is not
+          seen on a function with no ACL of its own - is_team_member, the
+          security definer one, has one live: anon may not execute it).
+          Built-in functions are pinned, so pg_depend never lists them.
+     inh  inheritance, either way: a child of traits is read with it
+     pub  publication membership, with its columns and row filter
+     rel  persistence (logged or not), replica identity, RLS on and forced,
+          and the table ACL (a new owner moves it too: the grantors change)
+   NOT COVERED, each measured in PGlite as not moving it: storage
+   parameters (reloptions), a column's storage, compression, statistics
+   target and options, extended statistics objects, comments, CLUSTER ON.
+   None changes what a read or a write returns. Nor is anything outside the
+   two tables and the functions above: another table (posts apart, which
+   fingerprint_ok names), what those functions read (team_members), the
+   functions that write these tables (reorder_traits and the other RPCs), a
+   publication's own options, event triggers, default privileges. A column
+   cannot be made generated in place (measured: 55000), and one dropped and
+   added back moves col's position. */
 export const FINGERPRINT_SQL = `(select md5(string_agg(x, E'\\n' order by x collate "C")) from (
-  select 'col|' || c.relname || '|' || a.attname || '|' || format_type(a.atttypid, a.atttypmod)
+  select 'col|' || c.relname || '|' || a.attnum || '|' || a.attname || '|' || format_type(a.atttypid, a.atttypmod)
          || '|' || a.attnotnull || '|' || coalesce(pg_get_expr(d.adbin, d.adrelid), '')
+         || '|' || a.attidentity::text || '|' || a.attcollation::regcollation::text
          || '|' || coalesce(a.attacl::text, '') as x
     from pg_catalog.pg_attribute a
     join pg_catalog.pg_class c on c.oid = a.attrelid
@@ -61,7 +85,33 @@ export const FINGERPRINT_SQL = `(select md5(string_agg(x, E'\\n' order by x coll
   select 'trg|' || pg_get_triggerdef(t.oid) || '|' || t.tgenabled::text from pg_catalog.pg_trigger t
    where t.tgrelid in ${TABLES} and not t.tgisinternal
   union all
-  select 'rel|' || c.relname || '|' || c.relrowsecurity || '|' || c.relforcerowsecurity || '|' || coalesce(c.relacl::text, '')
+  select 'rul|' || pg_get_ruledef(r.oid) || '|' || r.ev_enabled::text from pg_catalog.pg_rewrite r
+   where r.ev_class in ${TABLES} and r.rulename <> '_RETURN'
+  union all
+  select 'fn|' || p.oid::regprocedure::text || '|' || coalesce(p.proacl::text, '') || '|'
+         || case when p.prokind in ('f', 'p') then pg_get_functiondef(p.oid) else p.prokind::text end
+    from pg_catalog.pg_proc p
+   where p.oid in (select dp.refobjid from pg_catalog.pg_depend dp
+                    where dp.refclassid = 'pg_catalog.pg_proc'::regclass
+                      and ((dp.classid = 'pg_catalog.pg_policy'::regclass
+                            and dp.objid in (select o.oid from pg_catalog.pg_policy o where o.polrelid in ${TABLES}))
+                        or (dp.classid = 'pg_catalog.pg_trigger'::regclass
+                            and dp.objid in (select o.oid from pg_catalog.pg_trigger o where o.tgrelid in ${TABLES}))
+                        or (dp.classid = 'pg_catalog.pg_attrdef'::regclass
+                            and dp.objid in (select o.oid from pg_catalog.pg_attrdef o where o.adrelid in ${TABLES}))
+                        or (dp.classid = 'pg_catalog.pg_constraint'::regclass
+                            and dp.objid in (select o.oid from pg_catalog.pg_constraint o where o.conrelid in ${TABLES}))
+                        or (dp.classid = 'pg_catalog.pg_rewrite'::regclass
+                            and dp.objid in (select o.oid from pg_catalog.pg_rewrite o where o.ev_class in ${TABLES}))))
+  union all
+  select 'inh|' || i.inhrelid::regclass::text || '|' || i.inhparent::regclass::text from pg_catalog.pg_inherits i
+   where i.inhrelid in ${TABLES} or i.inhparent in ${TABLES}
+  union all
+  select 'pub|' || t.pubname || '|' || t.tablename || '|' || coalesce(t.attnames::text, '') || '|' || coalesce(t.rowfilter, '')
+    from pg_catalog.pg_publication_tables t where t.schemaname = 'public' and t.tablename in ('collections', 'traits')
+  union all
+  select 'rel|' || c.relname || '|' || c.relpersistence::text || '|' || c.relreplident::text || '|' || c.relrowsecurity
+         || '|' || c.relforcerowsecurity || '|' || coalesce(c.relacl::text, '')
     from pg_catalog.pg_class c where c.oid in ${TABLES}
 ) f)`;
 

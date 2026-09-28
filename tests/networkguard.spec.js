@@ -46,11 +46,18 @@
         by itself, so only the rule can make the first one fail. It
         exercises only its own probe entry, so it cannot see a bypass of the
         *.supabase.co entries: 1, 2 and 2b are what would;
-     5. nothing replaces the guard: no file in the test directory sets
-        launchOptions or a proxy, and the config sets launchOptions only in
-        its top-level use. A spec's or a project's launchOptions REPLACES the
+     5. nothing replaces the guard, as far as a check of text and of the
+        config object can see. No file in the test directory writes
+        launchOptions or proxy as an object key in its source text, and the
+        config's exported object has launchOptions only at use.launchOptions
+        and no proxy. A spec's or a project's launchOptions REPLACES the
         guard's rather than merging with it (measured by review: the probe
-        loaded), and a proxy set on a context is not covered by it.
+        loaded), and a proxy set on a context is not covered by it. Test 5
+        does not see an assignment form (opts.launchOptions = {...}, then
+        test.use(opts)), a spec's own chromium.launch({ args }),
+        connectOptions or PW_TEST_CONNECT_WS_ENDPOINT, or a different
+        browserName. Review measured the first two passing it with the guard
+        gone.
 
    1, 2 and 2b are never run with the rule taken away to watch them fail:
    that run would be the leak itself. 4 shows the rule is in force at all;
@@ -180,7 +187,12 @@ test.describe('the suite cannot reach Supabase', () => {
    aside. A file fails if it sets launchOptions or proxy as an object key -
    `launchOptions: ...`, `{ launchOptions }`, or the name quoted - which is
    how test.use, test.extend, browser.newContext and a context option set
-   them. It is a text match: a key built at runtime would get past it.
+   them when the key is written out. It is a text match on that syntax. It
+   does not see an assignment (opts.launchOptions = ..., then
+   test.use(opts)) or any key built at runtime. It knows nothing of a
+   spec's own chromium.launch({ args }), of connectOptions or
+   PW_TEST_CONNECT_WS_ENDPOINT, or of a project's browserName (see
+   playwright.config.js).
 
    The config: the file this run was started with, imported, and every
    place in its object a key of either name appears. launchOptions must be

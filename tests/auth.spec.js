@@ -520,17 +520,21 @@ const LIVE_PASS = process.env.CHATNFT_PASS;
    tests/networkguard.spec.js), so with credentials set this test would wait
    out its 25 s poll for a sign-in that can never be sent, and fail without
    saying why. So before signing in it asks the browser for the project's
-   host, and skips, naming the guard, only if that name did not resolve.
+   host, and skips if that name did not resolve. The guard is the usual
+   cause, and the skip reason says so. But any failure to resolve skips it,
+   offline included, so the reason also says that with the guard removed on
+   purpose, the network or DNS is the thing to check.
 
    It decides by what the browser does, not by reading the config. An
    earlier version matched the rule's text in the launch arguments, and
    review measured it wrong both ways: it missed a stronger rule (MAP *
    ~NOTFOUND), and it was fooled by a later --host-resolver-rules that
    overrides the guard (the last one wins). With the guard removed on
-   purpose, the name resolves and this runs as before. The one request it
-   adds then is a no-cors GET of the project's root. */
-const GUARD_REASON = 'the Playwright config blocks *.supabase.co (Task 10a); '
-  + 'run this against the live project only with the guard removed on purpose';
+   purpose and the network up, the name resolves and this runs as before.
+   The one request it adds then is a no-cors GET of the project's root. */
+const GUARD_REASON = 'the project\'s name did not resolve in the browser. The usual cause is the '
+  + 'Playwright config\'s *.supabase.co guard (Task 10a); if the guard was removed on purpose, '
+  + 'check the network or DNS';
 
 /* What the browser did with one request: its network error if it failed
    before any answer, or "answered <status>". */

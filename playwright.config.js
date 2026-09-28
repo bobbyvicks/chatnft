@@ -70,9 +70,16 @@ export default defineConfig({
        was not applied at all by this headless Chromium, so it measured
        nothing. And a launchOptions set by a spec's test.use or by a
        project's use REPLACES this one rather than merging with it (measured
-       by review), so the guard is gone wherever that is done.
-       tests/networkguard.spec.js fails if any spec or project sets
-       launchOptions, or sets a proxy.
+       by review), so the guard is gone wherever that is done. Test 5 in
+       tests/networkguard.spec.js catches only part of this. It fails on a
+       launchOptions or proxy key written out as an object key in a spec's
+       source text, and on either key anywhere in this config's exported
+       object except launchOptions at use.launchOptions. It does not see an
+       assignment form (opts.launchOptions = {...}, then test.use(opts)), a
+       spec's own chromium.launch({ args }), a remote browser through
+       connectOptions or PW_TEST_CONNECT_WS_ENDPOINT, or a project with a
+       different browserName, which never gets this Chromium switch. Review
+       measured the first two passing test 5 with the guard gone.
 
        page.route handlers and window.fetch stubs are untouched: a route
        answers a request before any name is looked up, and a stub never

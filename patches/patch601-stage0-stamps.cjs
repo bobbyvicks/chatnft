@@ -103,7 +103,23 @@
    changed or everything done: round 4's ordered writes left a pair that
    the next pull turned into a second trait, "cap-2", or never settled
    (measured). The drawing no longer waits on the editor before its store
-   is chosen. draftsFollow is unchanged for its other callers. */
+   is chosen. draftsFollow is unchanged for its other callers.
+
+   Adjudication fix (after round 5; three-lens re-review, each measured
+   first).
+   - A: sbToken stores a renewed session only over the session it renewed.
+     Round 4 moved sign-out's session clear before its wait, and a renewal
+     in flight then stored the leaving account's session again and signed
+     the page back in.
+   - B: a tell names the store its writes and moves were made in, noted
+     when they happened; a committed re-id is told to its own store's tabs
+     even after a stop. It named the store current 150 ms later.
+   - C1: the pull's writes take the uid with their ask.
+   - C2: s0ReidTx writes only if the old id is still what the plan read;
+     another tab's change is not overwritten or duplicated.
+   - C3: the re-id first waits (bounded) for a save of that trait's drawing
+     in flight, whose key was fixed at the old id.
+   draftsFollow's own behaviour is unchanged but for its tell's store. */
 const s0 = require('./stage0-common.cjs');
 const doc = s0.start([['function s0CloseAll(name){', 'patch600 is not applied']]);
 
@@ -216,6 +232,63 @@ doc.swap([
   '    }',
 ]);
 
+/* Adjudication B: a tell names the store its write or move was for, noted
+   when it happened, not the store current when the tell is sent. */
+doc.swap('  if(id==null || String(id).indexOf("autosave.")!==0) tabsTell();', [
+  '  /* STAGE 0 (adjudication B): the store this write was for, noted now. The',
+  '     tell goes 150 ms later, and named the store current by then, so a',
+  '     write just before a sign-out or a switch was told to the store left',
+  '     for (measured). */',
+  '  if(id==null || String(id).indexOf("autosave.")!==0){ tabStores.add(wsDbName()); tabsTell(); }',
+]);
+doc.swap('let tabMoves=[];', [
+  'let tabMoves=[];',
+  '/* STAGE 0 (adjudication B): each move carries its store (db), and the',
+  '   stores written since the last message are noted as they are written. */',
+  'let tabStores=new Set();',
+]);
+doc.swap([
+  '    const moved=tabMoves; tabMoves=[];',
+  '    try{ tabChan.postMessage(moved.length ? {db:wsDbName(), moved:moved} : {db:wsDbName()}); }catch(_){ }',
+], [
+  '    const moved=tabMoves; tabMoves=[];',
+  '    /* STAGE 0 (adjudication B): one message per store, each naming the store',
+  '       its writes and moves were made in. With no store switched in the',
+  '       150 ms, that is the one message it always was. */',
+  '    const stores=tabStores; tabStores=new Set();',
+  '    const by=new Map();',
+  '    for(const s of stores) by.set(s,[]);',
+  '    for(const m of moved){ const k=m.db||wsDbName(); if(!by.has(k)) by.set(k,[]); by.get(k).push({from:m.from, to:m.to}); }',
+  '    if(!by.size) by.set(wsDbName(),[]);',
+  '    for(const [name,list] of by){ try{ tabChan.postMessage(list.length ? {db:name, moved:list} : {db:name}); }catch(_){ } }',
+]);
+doc.swap('  for(const m of ends) tabMoves.push({from:m.from, to:m.to});',
+  '  for(const m of ends) tabMoves.push({from:m.from, to:m.to, db:wsDbName()});   /* STAGE 0: its store, noted now (adjudication B) */');
+
+/* Adjudication A: a renewed session is stored only while the stored one is
+   still the one it renewed. */
+doc.swap([
+  '      const j=await r.json();',
+  '      sbSaveSession({access_token:j.access_token, refresh_token:j.refresh_token,',
+  '        expires_at:j.expires_at, user:j.user||s.user});',
+  '      return j.access_token;',
+], [
+  '      const j=await r.json();',
+  '      /* STAGE 0 (adjudication A): STORED ONLY OVER THE SESSION IT RENEWED. A',
+  '         renewal in flight when the person signed out stored the leaving',
+  '         account\'s session again, and the sign-out\'s closing cloudRender',
+  '         signed the page back in as that account while it said "Signed out"',
+  '         - or, with nothing waiting, the next load did (both measured). So',
+  '         the stored session is read again just before: gone, or another',
+  '         (a different refresh_token - someone else signed in, or another',
+  '         tab renewed it), and this answer is dropped. */',
+  '      const still=sbLoadSession();',
+  '      if(!still || still.refresh_token!==s.refresh_token) return null;',
+  '      sbSaveSession({access_token:j.access_token, refresh_token:j.refresh_token,',
+  '        expires_at:j.expires_at, user:j.user||s.user});',
+  '      return j.access_token;',
+]);
+
 /* Fix round 5: the pull's re-id, as one transaction (used in cloudPull's
    repair loop, below). */
 doc.swap('let shelfMoveBusy=false;', [
@@ -229,27 +302,45 @@ doc.swap('let shelfMoveBusy=false;', [
   '   not at all. d is a connection the caller already holds, and the',
   '   transaction is created here synchronously: the caller asks whether the',
   '   pull still owns the store and creates it in the same run. A fourth',
-  '   write path beside dbPut, dbApplyShelfRecords and draftsFollow. Answers',
-  '   whether a drawing moved. */',
-  'function s0ReidTx(d,oldId,rec){',
+  '   write path beside dbPut, dbApplyShelfRecords and draftsFollow.',
+  '   ONLY IF THE OLD ID IS STILL WHAT THE PLAN READ (adjudication C2). was',
+  '   is the record the pull planned from. Another tab of this group can',
+  '   change the record between that plan and this transaction - approve it',
+  '   (a new id, the old one gone), or reweight it unsent - and a put',
+  '   regardless left two records for one row, or silently wrote over the',
+  '   unsent weight (measured). So the old id is read first, here: absent, or',
+  '   not the same rowAt, synced and at as was, and nothing is put, moved or',
+  '   deleted - the next pull decides again. by: the uid the caller took with',
+  '   its ask, for the stamp (adjudication C1): read in the get\'s handler,',
+  '   after a sign-out, it was nobody\'s (measured). Answers null when it did',
+  '   nothing, else whether a drawing moved. */',
+  'function s0SameAsPlanned(cur,was){',
+  '  return !!cur && !!was && (cur.rowAt||null)===(was.rowAt||null) && !!cur.synced===!!was.synced && (cur.at||0)===(was.at||0);',
+  '}',
+  'function s0ReidTx(d,oldId,rec,was,by){',
   '  return new Promise((res,rej)=>{',
   '    const t=d.transaction(STORE,"readwrite"), s=t.objectStore(STORE);',
-  '    let moved=false;',
-  '    s.delete(oldId);',
-  '    const q=s.get(rec.id);',
-  '    q.onsuccess=()=>{ s.put(s0Stamp(rec,q.result,"pull")); };',
-  '    const dq=s.get(draftKey(oldId));',
-  '    dq.onsuccess=()=>{',
-  '      const got=dq.result;',
-  '      if(!got) return;',
-  '      /* Issued after the put above, so it reads the record just written. */',
-  '      const rq=s.get(rec.id);',
-  '      rq.onsuccess=()=>{',
-  '        const now=rq.result;',
-  '        const at=Math.max(Date.now(), (((now&&now.at)||0)+1));',
-  '        s.put(Object.assign({},got,{id:draftKey(rec.id), traitId:rec.id, at:at}));',
-  '        s.delete(draftKey(oldId));',
-  '        moved=true;',
+  '    let moved=null;',
+  '    const oq=s.get(oldId);',
+  '    oq.onsuccess=()=>{',
+  '      if(!s0SameAsPlanned(oq.result,was)) return;',
+  '      moved=false;',
+  '      s.delete(oldId);',
+  '      const q=s.get(rec.id);',
+  '      q.onsuccess=()=>{ s.put(s0Stamp(rec,q.result,"pull",by)); };',
+  '      const dq=s.get(draftKey(oldId));',
+  '      dq.onsuccess=()=>{',
+  '        const got=dq.result;',
+  '        if(!got) return;',
+  '        /* Issued after the put above, so it reads the record just written. */',
+  '        const rq=s.get(rec.id);',
+  '        rq.onsuccess=()=>{',
+  '          const now=rq.result;',
+  '          const at=Math.max(Date.now(), (((now&&now.at)||0)+1));',
+  '          s.put(Object.assign({},got,{id:draftKey(rec.id), traitId:rec.id, at:at}));',
+  '          s.delete(draftKey(oldId));',
+  '          moved=true;',
+  '        };',
   '      };',
   '    };',
   '    t.oncomplete=()=>res(moved); t.onerror=()=>rej(t.error); t.onabort=()=>rej(dbAborted(t));',
@@ -346,7 +437,12 @@ doc.swap(['function cloudSignOut(){', '  sbSaveSession(null);'], [
   '     the clear after the wait undid a sign-in made during it (both',
   '     measured, re-review of round 3). Not cleared again after the wait: a session',
   '     stored meanwhile - a sign-in link, another tab - is someone signing',
-  '     in, and cloudRender, below, finds it.',
+  '     in, and cloudRender, below, finds it. (Adjudication A: that was not',
+  '     true of a token renewal already in flight when sign-out began - it',
+  '     stored the leaving account\'s session again, and this page signed',
+  '     back in as that account, measured. sbToken now stores a renewal only',
+  '     over the session it renewed, so the stores left are a sign-in link\'s',
+  '     fragment and the sign-in card, this tab\'s or another\'s.)',
   '     AND THE SIGN-IN CARD TAKES NO SIGN-IN UNTIL THE WAIT IS OVER (fix',
   '     round 4). It is refused rather than let through and kept: until the',
   '     wait ends the page is still the leaving account\'s - its project, its',
@@ -387,12 +483,23 @@ doc.swap('function autosaveNow(){', [
   '   goes on at once, with no write and no wait. */',
   'const S0_FLUSH_MS=3000;',
   'let s0SaveInFlight=null;',
-  'function s0Saving(executor){',
+  '/* And each save in flight by the draft key it writes (adjudication C3),',
+  '   so a pull\'s re-id can wait for a save of the trait it moves. */',
+  'const s0SavesByKey=new Map();',
+  'function s0Saving(executor,key){',
   '  const p=new Promise(executor);',
   '  s0SaveInFlight=p;',
-  '  const clear=()=>{ if(s0SaveInFlight===p) s0SaveInFlight=null; };',
+  '  if(key) s0SavesByKey.set(key,p);',
+  '  const clear=()=>{ if(s0SaveInFlight===p) s0SaveInFlight=null; if(key&&s0SavesByKey.get(key)===p) s0SavesByKey.delete(key); };',
   '  p.then(clear,clear);',
   '  return p;',
+  '}',
+  '/* A promise that settles once the save in flight for this draft key has',
+  '   landed, or after S0_FLUSH_MS; null when none is in flight. */',
+  'function s0SaveOf(key){',
+  '  const p=s0SavesByKey.get(key);',
+  '  if(!p) return null;',
+  '  return Promise.race([p, new Promise(r=>setTimeout(r,S0_FLUSH_MS))]).then(()=>{},()=>{});',
   '}',
   'function s0FlushAutosave(){',
   '  if(autoPending){ try{ autosaveNow(); }catch(_){ } }',
@@ -403,9 +510,16 @@ doc.swap('function autosaveNow(){', [
   'function autosaveNow(){',
 ]);
 doc.swap(['  return new Promise(done=>{', '    art.toBlob(b=>{'], [
-  '  /* STAGE 0: tracked while it is in flight (s0Saving, above). */',
+  '  /* STAGE 0: tracked while it is in flight (s0Saving, above), with the',
+  '     draft key it writes (adjudication C3). */',
   '  return s0Saving(done=>{',
   '    art.toBlob(b=>{',
+]);
+doc.swap(['    },"image/png");', '  });', '}', '/* The debounced path.'], [
+  '    },"image/png");',
+  '  },key);',
+  '}',
+  '/* The debounced path.',
 ]);
 doc.swap(['async function wsSwitch(id){', '  if((id||null)===(activeWs||null)) return;', '  activeWs = id||null;'], [
   '/* The project the latest switch asked for, while switches wait for the',
@@ -499,31 +613,57 @@ doc.swap([
   '         collide across the name/layer boundary ("cap" on "top_hats" and',
   '         "cap_top" on "hats" are both t_cap_top_hats_wip).',
   '         THE STORE IS THE PULL\'S. db() gives the connection; then, with no',
-  '         wait between, the pull asks whether it is still for this project',
-  '         and s0ReidTx creates the transaction on that connection. Only once',
-  '         it has committed, and the pull is still for this project, are the',
-  '         other tabs told of the move and the editor let follow it: told',
-  '         after a stop, they were told of the wrong store. And the drawing',
-  '         no longer waits on the editor before its store is chosen, which',
-  '         left a window where a stop moved the personal store\'s own drawing',
-  '         (measured, rounds 3 and 4). */',
+  '         wait between, the pull asks whether it is still for this project,',
+  '         takes the uid it stamps with (adjudication C1), and s0ReidTx',
+  '         creates the transaction on that connection. And the drawing no',
+  '         longer waits on the editor before its store is chosen, which left',
+  '         a window where a stop moved the personal store\'s own drawing',
+  '         (measured, rounds 3 and 4).',
+  '         FIRST, A SAVE OF THIS TRAIT\'S DRAWING STILL IN FLIGHT LANDS',
+  '         (adjudication C3). autosaveNow fixes its key before its encode, so',
+  '         a closing save landing after the move wrote the latest strokes',
+  '         under the old id, which no trait has any more (measured). Waited',
+  '         for, bounded by S0_FLUSH_MS as sign-out\'s wait is, so the',
+  '         transaction moves it.',
+  '         A PLAN ANOTHER TAB HAS OVERTAKEN is skipped: s0ReidTx answers null',
+  '         and does nothing, and the next pull decides again (adjudication',
+  '         C2, at s0ReidTx).',
+  '         THE MOVE IS TOLD TO ITS OWN STORE\'S TABS, whatever happens next',
+  '         (adjudication B): noted with d.name, the store it was made in, the',
+  '         moment it has committed. The tell goes 150 ms later and used to',
+  '         name whatever store was current by then, so a stop in those',
+  '         150 ms told the personal store\'s tabs of the group\'s move - an',
+  '         editor there jumped, and a drawing was lost - and never told the',
+  '         group\'s (measured). The ask after it now guards only what is this',
+  '         page\'s own: its touches, and its editor following the move. */',
   '      if(rp.oldId!==rp.record.id){',
+  '        { const saving=s0SaveOf(draftKey(rp.oldId)); if(saving) await saving; }',
   '        const d=await db();',
   '        if(!wsStill(gen)) break;',
-  '        await s0ReidTx(d,rp.oldId,rp.record);',
+  '        const by=s0Uid();',
+  '        const moved=await s0ReidTx(d,rp.oldId,rp.record,rp.was,by);',
+  '        if(moved===null){ skipped++; continue; }',
   '        repaired++;',
+  '        tabMoves.push({from:rp.oldId, to:rp.record.id, db:d.name}); tabsTell();',
   '        if(!wsStill(gen)) break;',
   '        touch(rp.oldId); touch(rp.record.id);',
-  '        tabMoves.push({from:rp.oldId, to:rp.record.id}); tabsTell();',
   '        if(openRec&&openRec.id===rp.oldId){ try{ await editorFollows(openRec,rp.record.id); }catch(_){} }',
   '        continue;',
   '      }',
-  '      await dbPut(rp.record,"pull");',
+  '      /* STAGE 0 (adjudication C1): the uid taken with the ask at the top of',
+  '         the loop - nothing waits between them - not when the write lands. */',
+  '      await dbPut(rp.record,"pull",s0Uid());',
   '      repaired++;',
 ]);
-doc.swap('        await dbPut(rec); added++;', '        await dbPut(rec,"pull"); added++;');
+/* (Adjudication C1 passes the uid taken with the ask to both.) */
+doc.swap('        await dbPut(rec); added++;', [
+  '        /* STAGE 0 (adjudication C1): whose copy this is, taken with the ask',
+  '           above - nothing waits between them - not when the write lands. */',
+  '        const s0By=s0Uid();',
+  '        await dbPut(rec,"pull",s0By); added++;',
+]);
 doc.swap('              await dbPut(Object.assign({},dr,{at:Math.max(Date.now(),(rec.at||0)+1)}));',
-  '              await dbPut(Object.assign({},dr,{at:Math.max(Date.now(),(rec.at||0)+1)}),"pull");   /* STAGE 0: keeps its maker */');
+  '              await dbPut(Object.assign({},dr,{at:Math.max(Date.now(),(rec.at||0)+1)}),"pull",s0By);   /* STAGE 0: keeps its maker (a pull\'s draft write ignores the uid) */');
 
 /* Fix round 1: the pull notes its project before its first wait. */
 doc.swap(['async function cloudPull(opts){', '  opts=opts||{};'], [
@@ -574,9 +714,12 @@ doc.finish(({ code, must }) => {
   /* (Round 5: the pull's re-id is now a fourth write stamped "pull", in
      s0ReidTx, so the brief's count of every ',"pull")' is taken over by a
      count of dbPut's and a check on that one.) */
-  if ((code.match(/dbPut\([^;]*,"pull"\)/g) || []).length !== 3) throw new Error('exactly three dbPut writes should pass "pull", found ' + (code.match(/dbPut\([^;]*,"pull"\)/g) || []).length);
-  if ((code.match(/,"pull"\)/g) || []).length !== 4) throw new Error('exactly four writes should be stamped "pull" (three dbPut, one re-id)');
-  must('q.onsuccess=()=>{ s.put(s0Stamp(rec,q.result,"pull")); };', 'the re-id\'s record is not stamped as a pull\'s write');
+  /* (Adjudication C1: each pull's write also passes the uid taken with its
+     ask, so round 5's two counts are taken over by these.) */
+  const pullPuts = code.match(/dbPut\([^;]*,"pull",(s0Uid\(\)|s0By)\)/g) || [];
+  if (pullPuts.length !== 3) throw new Error('exactly three dbPut writes should pass "pull" and the uid taken with their ask, found ' + pullPuts.length);
+  if ((code.match(/,"pull"[,)]/g) || []).length !== 4) throw new Error('exactly four writes should be stamped "pull" (three dbPut, one re-id), found ' + (code.match(/,"pull"[,)]/g) || []).length);
+  must('q.onsuccess=()=>{ s.put(s0Stamp(rec,q.result,"pull",by)); };', 'the re-id\'s record is not stamped as a pull\'s write with the uid taken with its ask');
   if ((code.match(/dbPut\([^)]*,"sent"\)/g) || []).length !== 2) throw new Error('exactly two writes should be stamped "sent"');
   /* Fix round 1. */
   must('const u=keep ? (rec.by||(stored&&stored.by)||null) : (uid!==undefined ? uid : s0Uid());', 'a uid the caller took is not what its write is stamped with');
@@ -626,13 +769,35 @@ doc.finish(({ code, must }) => {
      between the loop's first ask and it. */
   const loop = pull.slice(pull.indexOf('for(const rp of repair){'), pull.indexOf('const PULL_AT_ONCE=8;'));
   if (!/^for\(const rp of repair\)\{\s*if\(!wsStill\(gen\)\) break;/.test(loop)) throw new Error('the repair loop does not ask first');
-  if (!/if\(rp\.oldId!==rp\.record\.id\)\{\s*const d=await db\(\);\s*if\(!wsStill\(gen\)\) break;\s*await s0ReidTx\(d,rp\.oldId,rp\.record\);\s*repaired\+\+;\s*if\(!wsStill\(gen\)\) break;\s*touch\(rp\.oldId\); touch\(rp\.record\.id\);\s*tabMoves\.push\(\{from:rp\.oldId, to:rp\.record\.id\}\); tabsTell\(\);\s*if\(openRec&&openRec\.id===rp\.oldId\)\{ try\{ await editorFollows\(openRec,rp\.record\.id\); \}catch\(_\)\{\} \}\s*continue;\s*\}\s*await dbPut\(rp\.record,"pull"\);\s*repaired\+\+;/.test(loop))
-    throw new Error('a re-id is not one transaction created in the same run as its ask, told only after a second ask');
+  /* (Superseded by the adjudication's shape, next.) Adjudication: the save
+     of this trait in flight first (C3); the uid taken with the ask (C1); a
+     plan another tab overtook skipped (C2); the move told to its own store
+     before the second ask (B). */
+  if (!/if\(rp\.oldId!==rp\.record\.id\)\{\s*\{ const saving=s0SaveOf\(draftKey\(rp\.oldId\)\); if\(saving\) await saving; \}\s*const d=await db\(\);\s*if\(!wsStill\(gen\)\) break;\s*const by=s0Uid\(\);\s*const moved=await s0ReidTx\(d,rp\.oldId,rp\.record,rp\.was,by\);\s*if\(moved===null\)\{ skipped\+\+; continue; \}\s*repaired\+\+;\s*tabMoves\.push\(\{from:rp\.oldId, to:rp\.record\.id, db:d\.name\}\); tabsTell\(\);\s*if\(!wsStill\(gen\)\) break;\s*touch\(rp\.oldId\); touch\(rp\.record\.id\);\s*if\(openRec&&openRec\.id===rp\.oldId\)\{ try\{ await editorFollows\(openRec,rp\.record\.id\); \}catch\(_\)\{\} \}\s*continue;\s*\}\s*await dbPut\(rp\.record,"pull",s0Uid\(\)\);\s*repaired\+\+;/.test(loop))
+    throw new Error('a re-id does not wait for its trait\'s save, ask, take the uid and create its transaction in one run, skip an overtaken plan, and tell its own store');
   if (/draftsFollow\(|dbDel\(/.test(loop)) throw new Error('the repair still moves drafts or removes ids outside its transaction');
   const firstAsk = loop.indexOf('if(!wsStill(gen)) break;'), reid = loop.indexOf('if(rp.oldId!==rp.record.id){');
   if (reid < 0 || /\bawait\b/.test(loop.slice(firstAsk, reid))) throw new Error('the repair waits between its first ask and its write');
-  const tx = body('function s0ReidTx(d,oldId,rec){');
-  if (!/^function s0ReidTx\(d,oldId,rec\)\{\s*return new Promise\(\(res,rej\)=>\{\s*const t=d\.transaction\(STORE,"readwrite"\)/.test(tx)) throw new Error('s0ReidTx does not create its transaction synchronously, first');
+  const tx = body('function s0ReidTx(d,oldId,rec,was,by){');
+  if (!/^function s0ReidTx\(d,oldId,rec,was,by\)\{\s*return new Promise\(\(res,rej\)=>\{\s*const t=d\.transaction\(STORE,"readwrite"\)/.test(tx)) throw new Error('s0ReidTx does not create its transaction synchronously, first');
+  /* Adjudication C2: the old id read in the transaction and compared with
+     the plan before anything is written. */
+  if (!/let moved=null;\s*const oq=s\.get\(oldId\);\s*oq\.onsuccess=\(\)=>\{\s*if\(!s0SameAsPlanned\(oq\.result,was\)\) return;\s*moved=false;\s*s\.delete\(oldId\);/.test(tx))
+    throw new Error('s0ReidTx writes without first checking the old id is still what the plan read');
+  must('function s0SameAsPlanned(cur,was){', 'the plan check is missing');
+  must('  return !!cur && !!was && (cur.rowAt||null)===(was.rowAt||null) && !!cur.synced===!!was.synced && (cur.at||0)===(was.at||0);', 'the plan check does not compare rowAt, synced and at');
+  /* Adjudication C3: saves tracked by key, and a bounded wait for one. */
+  must('  if(key) s0SavesByKey.set(key,p);', 'a save in flight is not recorded by its draft key');
+  must('  },key);', 'autosaveNow does not say which draft key its save writes');
+  /* Adjudication B: each tell names the store it was for. */
+  must('  if(id==null || String(id).indexOf("autosave.")!==0){ tabStores.add(wsDbName()); tabsTell(); }', 'a write\'s store is not noted with it');
+  must('  for(const m of ends) tabMoves.push({from:m.from, to:m.to, db:wsDbName()});', 'draftsFollow\'s moves do not carry their store');
+  must('    for(const [name,list] of by){ try{ tabChan.postMessage(list.length ? {db:name, moved:list} : {db:name}); }catch(_){ } }', 'the tell is not one message per store');
+  if (/postMessage\([^)]*wsDbName\(\)/.test(code)) throw new Error('a tell still names the store current when it is sent');
+  /* Adjudication A: a renewal stored only over the session it renewed. */
+  const tok = body('async function sbToken(){');
+  if (!/const still=sbLoadSession\(\);\s*if\(!still \|\| still\.refresh_token!==s\.refresh_token\) return null;\s*sbSaveSession\(\{access_token:j\.access_token/.test(tok))
+    throw new Error('a renewed session is stored without checking it is still the one renewed');
   if ((tx.match(/\.transaction\(/g) || []).length !== 1 || /\bawait\b|\.then\(/.test(tx)) throw new Error('s0ReidTx is not exactly one transaction with no wait');
   for (const s of ['s.delete(oldId);', 'const dq=s.get(draftKey(oldId));', 'const at=Math.max(Date.now(), (((now&&now.at)||0)+1));',
     's.put(Object.assign({},got,{id:draftKey(rec.id), traitId:rec.id, at:at}));', 's.delete(draftKey(oldId));'])

@@ -50,7 +50,12 @@ const session = (page, uid, token) => page.evaluate(([uid, token]) => {
     refresh_token: 'not-a-real-refresh', expires_at: Math.floor(Date.now() / 1000) + 3600, user: uid ? { id: uid } : null }));
 }, [uid, token || null]);
 
-/* A stand-in server for a pull: one row, and its picture. */
+/* A stand-in server for a pull: one row, and its picture. The row is listed
+   on the first page only (offset=0), as a server lists it. Every stand-in
+   here that lists rows does the same (adjudication after round 5): they
+   answered every page with the row, so a pull saw it once per page, 500
+   times, and wrote it once only because its first write marked the old id
+   touched and the pull then skipped the other 499 copies (measured). */
 const pullOne = (page, row, ws) => page.evaluate(async ([row, ws]) => {
   const json = (o, x, st) => new Response(JSON.stringify(o), { status: st || 200, headers: Object.assign({ 'Content-Type': 'application/json' }, x || {}) });
   const real = window.fetch;
@@ -62,7 +67,7 @@ const pullOne = (page, row, ws) => page.evaluate(async ([row, ws]) => {
     if (s.indexOf('/rest/v1/teams') >= 0) return json([{ id: 'team1', name: 'One', personal: true }]);
     if (s.indexOf('/rest/v1/collections') >= 0) return json([{ id: 'c1', layers: ['hats', 'hair', 'unsorted'] }]);
     if (s.indexOf('/rest/v1/traits?select=id') >= 0) return json([], { 'Content-Range': '0-0/1' });
-    if (s.indexOf('/rest/v1/traits?select=*') >= 0) return json([row], { 'Content-Range': '0-0/1' });
+    if (s.indexOf('/rest/v1/traits?select=*') >= 0) return json(/[?&]offset=0(&|$)/.test(s) ? [row] : [], { 'Content-Range': '0-0/1' });
     if (s.indexOf('/storage/v1/object/list/') >= 0) return json([]);
     if (s.indexOf('/storage/v1/object/') >= 0 && m === 'GET') return new Response(new Blob([new Uint8Array([1, 2, 3])]), { status: 200 });
     window.__unknown.push(m + ' ' + s.replace(/^https?:\/\/[^/]+/, ''));
@@ -169,6 +174,9 @@ test.describe('stage 0: stamps', () => {
       w: 16, h: 16, rarity: 1, updated_at: '2026-09-27T12:00:00+00:00' });
     const r = await findTrait(page, 'trait', 'cap', 'hair', 'wip');
     expect([r.wk, r.lid]).toEqual(['pull', 'l_seed']);
+    /* Added (adjudication after round 5): the move leaves one trait, not the
+       old copy beside the new one. */
+    expect(await page.evaluate(async () => (await dbAll()).filter(i => i.kind === 'trait').length), 'the store holds exactly one trait after the pull').toBe(1);
   });
 
   test('a send confirmation is stamped "sent"', async ({ page }) => {
@@ -298,7 +306,7 @@ const pullThenMaybeSignOut = (page, signOut) => page.evaluate(async (signOut) =>
     if (s.indexOf('/rest/v1/teams') >= 0) return json([{ id: 'me', name: 'Me', personal: true }, { id: 'team1', name: 'One', personal: false }]);
     if (s.indexOf('/rest/v1/collections') >= 0) return json([{ id: 'c1', layers: ['hats'] }]);
     if (s.indexOf('/rest/v1/traits?select=id') >= 0) return json([], { 'Content-Range': '0-0/1' });
-    if (s.indexOf('/rest/v1/traits?select=*') >= 0) return json([row], { 'Content-Range': '0-0/1' });
+    if (s.indexOf('/rest/v1/traits?select=*') >= 0) return json(/[?&]offset=0(&|$)/.test(s) ? [row] : [], { 'Content-Range': '0-0/1' });
     if (s.indexOf('/storage/v1/object/list/') >= 0) return json([]);
     if (s.indexOf('/storage/v1/object/') >= 0 && m === 'GET') { window.__asked = true; await gate; return new Response(new Blob([new Uint8Array([1])]), { status: 200 }); }
     window.__unknown.push(m + ' ' + s.replace(/^https?:\/\/[^/]+/, ''));
@@ -339,7 +347,7 @@ const pullRowsHeldMaybeSignOut = (page, signOut) => page.evaluate(async (signOut
     if (s.indexOf('/rest/v1/traits?select=id') >= 0) return json([], { 'Content-Range': '0-0/1' });
     if (s.indexOf('/rest/v1/traits?select=*') >= 0) {
       if (!held) { held = true; window.__asked = true; await gate; }
-      return json([row], { 'Content-Range': '0-0/1' });
+      return json(/[?&]offset=0(&|$)/.test(s) ? [row] : [], { 'Content-Range': '0-0/1' });
     }
     if (s.indexOf('/storage/v1/object/list/') >= 0) return json([]);
     if (s.indexOf('/storage/v1/object/') >= 0 && m === 'GET') return new Response(new Blob([new Uint8Array([1])]), { status: 200 });
@@ -387,7 +395,12 @@ const pullRowsHeldMaybeSignOut = (page, signOut) => page.evaluate(async (signOut
                 the repair makes in the group's store, so a stop between
                 separate writes would land between them;
      'editor' - the editor holds the trait, and editorFollows is held before
-                it runs, the stop coming while it is held.
+                it runs, the stop coming while it is held;
+     'during' - the moment that transaction is created, before any of its
+                requests run (adjudication C1);
+     'after20' - 20 ms after it completes, inside the tell's 150 ms
+                (adjudication B).
+   `newBy` is whose the record at the new id is.
    `stop` signs out, or not (the control). With `nextPull` the page signs
    back in and pulls again, nothing held. The stand-in lists the row on the
    first page only, as a server does: answering every page, it made a pull
@@ -443,11 +456,15 @@ const reidStopped = (page, c, where, stop, nextPull) => page.evaluate(async ([c,
   const same = sameRepair, getDb = db, follows = editorFollows, tx = IDBDatabase.prototype.transaction;
   sameRepair = (a, b) => { armed = true; return same(a, b); };
   if (where === 'before') db = () => { const p = getDb(); if (armed) { armed = false; reached = true; return gate.then(() => p); } return p; };
-  if (where === 'after') IDBDatabase.prototype.transaction = function (names, mode, ...rest) {
+  /* 'during': the stop comes the moment the transaction is created, before
+     any of its requests run; 'after20': 20 ms after it completes, inside
+     the tell's 150 ms (adjudication after round 5). */
+  if (where === 'after' || where === 'during' || where === 'after20') IDBDatabase.prototype.transaction = function (names, mode, ...rest) {
     const t = tx.call(this, names, mode, ...rest);
     if (armed && mode === 'readwrite' && this.name === 'chatnft.ws.team1') {
       armed = false; reached = true;
-      t.addEventListener('complete', () => { if (stop) cloudSignOut(); });
+      if (where === 'during') { if (stop) cloudSignOut(); }
+      else t.addEventListener('complete', () => { if (!stop) return; if (where === 'after20') setTimeout(() => cloudSignOut(), 20); else cloudSignOut(); });
     }
     return t;
   };
@@ -458,8 +475,9 @@ const reidStopped = (page, c, where, stop, nextPull) => page.evaluate(async ([c,
     editorFollows = async (was, to) => { reached = true; await gate; return follows(was, to); };
   }
   activeWs = 'team1'; cloudTeamId = null; dbp = null; dbpName = null;
+  const gen0 = wsGen;
   const p = cloudPull({ quiet: true });
-  if (where !== 'after') {
+  if (where === 'before' || where === 'editor') {
     for (let i = 0; i < 500 && !reached; i++) await new Promise(r => setTimeout(r, 10));
     if (reached && stop) cloudSignOut();
     open();
@@ -467,7 +485,8 @@ const reidStopped = (page, c, where, stop, nextPull) => page.evaluate(async ([c,
   try { await p; } catch (_) {}
   await new Promise(r => setTimeout(r, 400));   /* past tabsTell's 150 ms */
   sameRepair = same; db = getDb; editorFollows = follows; IDBDatabase.prototype.transaction = tx; tabChan.postMessage = post;
-  const out = { reached, before, group: await read('team1'), personal: await read(null), told };
+  const out = { reached, stopped: wsGen !== gen0, before, group: await read('team1'), personal: await read(null), told };
+  { activeWs = 'team1'; dbp = null; dbpName = null; const x = await dbGet(c.newId); out.newBy = x ? (x.by === undefined ? '(none)' : x.by) : '(no record)'; }
   if (where === 'editor') out.editorOn = openRec && openRec.id;
   if (nextPull) {
     localStorage.setItem('chatnft.session', JSON.stringify({ access_token: 'not-a-real-token', refresh_token: 'not-a-real-refresh',
@@ -545,11 +564,16 @@ test.describe('stage 0: signing out stops a running pull', () => {
         .toEqual({ reached: true, before: asSeeded(c), group: asSeeded(c), personal: personalUntouched(c), told: [], afterNextPull: whole(c) });
     });
 
-    test('a re-id of ' + what + ', stopped just after its transaction: whole, in the group\'s store only, and told to no tab', async ({ page }) => {
+    /* SUPERSEDED (adjudication B): round 5's "... stopped just after its
+       transaction: whole, in the group's store only, and told to no tab",
+       which asserted told: []. Ruled: a committed move is told to its own
+       store's tabs even after a stop - left untold, the group's other tabs
+       never learned of it. The stores are asserted as before. */
+    test('a re-id of ' + what + ', stopped just after its transaction: whole, in the group\'s store only, and told to the group\'s tabs only', async ({ page }) => {
       await seedRepairCase(page, c);
       const r = await reidStopped(page, c, 'after', true);
       expect({ reached: r.reached, group: r.group, personal: r.personal, told: r.told })
-        .toEqual({ reached: true, group: whole(c), personal: personalUntouched(c), told: [] });
+        .toEqual({ reached: true, group: whole(c), personal: personalUntouched(c), told: [{ db: 'chatnft.ws.team1', moved: [{ from: c.oldId, to: c.newId }] }] });
     });
 
     test('the control: a re-id of ' + what + ', nobody stopping: whole, and told to this project\'s tabs', async ({ page }) => {
@@ -571,6 +595,9 @@ test.describe('stage 0: signing out stops a running pull', () => {
     const r = await reidStopped(page, c, 'editor', true);
     expect({ reached: r.reached, group: r.group, personal: r.personal, editorOn: r.editorOn })
       .toEqual({ reached: true, group: whole(c), personal: personalUntouched(c), editorOn: c.oldId });
+    /* Added (adjudication B): it captured told and never asserted it. The
+       stop comes after the move was told, inside the tell's 150 ms. */
+    expect(r.told, 'the move is told to the group\'s store, and nothing to the personal one').toEqual([{ db: 'chatnft.ws.team1', moved: [{ from: c.oldId, to: c.newId }] }]);
   });
 
   test('the control: the editor holding the trait, nobody stopping: it follows the re-id to the new id', async ({ page }) => {
@@ -579,6 +606,198 @@ test.describe('stage 0: signing out stops a running pull', () => {
     const r = await reidStopped(page, c, 'editor', false);
     expect({ reached: r.reached, group: r.group, personal: r.personal, editorOn: r.editorOn })
       .toEqual({ reached: true, group: whole(c), personal: personalUntouched(c), editorOn: c.newId });
+  });
+
+  /* Adjudication B. A STOP INSIDE THE TELL'S 150 MS. The tell named the
+     store current when its timer fired, so a sign-out 20 ms after the
+     commit told the personal store's tabs of the group's move - an editor
+     there jumped, and a drawing was lost - and never told the group's
+     (measured, re-review of rounds 4-5). */
+  test('a re-id of a synced trait, a sign-out 20 ms after its transaction: the move is told to the group\'s store, and nothing to the personal one', async ({ page }) => {
+    const c = repairCases.synced;
+    await seedRepairCase(page, c);
+    const r = await reidStopped(page, c, 'after20', true);
+    expect({ reached: r.reached, stopped: r.stopped, group: r.group, personal: r.personal, told: r.told })
+      .toEqual({ reached: true, stopped: true, group: whole(c), personal: personalUntouched(c), told: [{ db: 'chatnft.ws.team1', moved: [{ from: c.oldId, to: c.newId }] }] });
+  });
+
+  /* Adjudication C1. WHOSE COPY, TAKEN WITH THE ASK. The re-id stamped the
+     record in its get's handler, which read the uid then: a sign-out after
+     the transaction was created left the group's synced copy with no owner
+     (measured). */
+  test('a re-id of a synced trait, a sign-out the moment its transaction is created: the copy is still its puller\'s', async ({ page }) => {
+    const c = repairCases.synced;
+    await seedRepairCase(page, c);
+    const r = await reidStopped(page, c, 'during', true);
+    expect({ reached: r.reached, stopped: r.stopped, group: r.group, personal: r.personal, newBy: r.newBy })
+      .toEqual({ reached: true, stopped: true, group: whole(c), personal: personalUntouched(c), newBy: 'u1' });
+  });
+
+  /* Adjudication C2. TWO TABS OF ONE GROUP. This tab's pull plans a re-id
+     (the server moved row-1 from hats to hair) and is held just before its
+     transaction; meanwhile another tab of the same group approves the trait
+     (a new id, unsent) or reweights it with its send failing (unsent). The
+     re-id deleted the old id and put its plan regardless: two records for
+     one row, or the unsent weight silently gone (measured). It now does
+     nothing when the old id is no longer what it planned from, and the
+     next pull decides again. */
+  const twoTabs = async (page, context, what) => {
+    const B = await context.newPage();
+    await B.route(/\.supabase\.co\//, (route) => {
+      pastTheStandIns.push(route.request().method() + ' ' + route.request().url().replace(/^https?:\/\/[^/]+/, ''));
+      return route.abort();
+    });
+    /* The other tab opens signed out, so its start asks nothing: the stored
+       session is shared, and with it the start asked /auth/v1/user before
+       any stand-in was in place (measured). It is put back once B is up. */
+    const session = await page.evaluate(() => { const s = localStorage.getItem('chatnft.session'); localStorage.removeItem('chatnft.session'); return s; });
+    await B.goto('/index.html');
+    await B.waitForFunction(() => typeof cloudPull === 'function' && typeof setTraitStatus === 'function' && typeof setRarity === 'function');
+    await page.evaluate((s) => localStorage.setItem('chatnft.session', s), session);
+    const standIn = () => {
+      const row = { id: 'row-1', kind: 'trait', name: 'cap', layer: 'hair', status: 'wip', path: 'team1/c1/trait-cap-hats-wip.png', w: 16, h: 16, rarity: 1, updated_at: '2026-09-27T12:00:00+00:00' };
+      const json = (x, h) => new Response(JSON.stringify(x), { status: 200, headers: Object.assign({ 'Content-Type': 'application/json' }, h || {}) });
+      window.__unknown = window.__unknown || [];
+      window.fetch = async (u, io) => {
+        const s = String(u), m = (io && io.method) || 'GET';
+        if (s.indexOf('/auth/v1/user') >= 0) return json({ id: 'u1' });
+        if (s.indexOf('/rest/v1/collections') >= 0) return json([{ id: 'c1', layers: ['hats', 'hair'] }]);
+        if (s.indexOf('/rest/v1/traits?select=id') >= 0) return json([], { 'Content-Range': '0-0/1' });
+        if (s.indexOf('/rest/v1/traits?select=*') >= 0) return json(/[?&]offset=0(&|$)/.test(s) ? [row] : [], { 'Content-Range': '0-0/1' });
+        if (s.indexOf('/storage/v1/object/list/') >= 0) return json([]);
+        /* The other tab's sends fail, as on a dropped connection, so its change
+           stays unsent: its reweight's PATCH, and its approval's upload. */
+        if (window.__patchFails && m === 'PATCH') throw new TypeError('Failed to fetch');
+        if (window.__uploadFails && m === 'POST' && s.indexOf('/storage/v1/object/') >= 0) throw new TypeError('Failed to fetch');
+        window.__unknown.push(m + ' ' + s.replace(/^https?:\/\/[^/]+/, ''));
+        return new Response('{}', { status: 501, headers: { 'Content-Type': 'application/json' } });
+      };
+    };
+    await page.evaluate(async () => {
+      activeWs = 'team1'; dbp = null; dbpName = null; groupCaughtUp = true;
+      const d = await db();
+      await new Promise((res, rej) => { const t = d.transaction('items', 'readwrite');
+        t.objectStore('items').put({ id: 't_cap_hats_wip', kind: 'trait', name: 'cap', layer: 'hats', status: 'wip', w: 16, h: 16, at: 1, rarity: 1,
+          blob: new Blob([new Uint8Array(16)]), synced: true, rowId: 'row-1', rowAt: '2026-01-01T00:00:00+00:00', path: 'team1/c1/trait-cap-hats-wip.png',
+          lid: 'l_seed', by: 'u1', wk: 'pull' });
+        t.oncomplete = () => res(); t.onerror = () => rej(t.error); });
+    });
+    await B.evaluate(() => { window.__unknown = []; authed = true; groupCaughtUp = true; activeWs = 'team1'; dbp = null; dbpName = null; });
+    await page.evaluate(standIn); await B.evaluate(standIn);
+    /* This tab's pull, held just before its re-id's transaction. */
+    await page.evaluate(() => {
+      window.__held = false;
+      let open; const gate = new Promise(r => { open = r; }); window.__open = open;
+      const same = sameRepair, getDb = db; let armed = false;
+      window.__restore = () => { sameRepair = same; db = getDb; };
+      sameRepair = (x, y) => { armed = true; return same(x, y); };
+      db = () => { const p = getDb(); if (armed) { armed = false; window.__held = true; return gate.then(() => p); } return p; };
+      activeWs = 'team1'; cloudTeamId = null; dbp = null; dbpName = null;
+      window.__pull = cloudPull({ quiet: true }).catch(e => 'pull error ' + e);
+    });
+    await page.waitForFunction(() => window.__held, null, { timeout: 10000 });
+    const other = what === 'none' ? null : await B.evaluate(async (what) => {
+      const r = await dbGet('t_cap_hats_wip');
+      if (what === 'approve') { window.__uploadFails = true; await setTraitStatus(r, 'approved'); }
+      if (what === 'weight') { window.__patchFails = true; await setRarity(r, 5); }
+      return (await dbAll()).filter(i => i.kind === 'trait').map(i => i.id + (i.synced ? '' : ' unsent')).sort();
+    }, what);
+    const read = () => page.evaluate(async () => { activeWs = 'team1'; dbp = null; dbpName = null;
+      return (await dbAll()).filter(i => i.kind === 'trait').map(i => i.id + '[' + i.rowId + ' ' + i.status + ' ' + i.rarity + (i.synced ? ' synced' : ' unsent') + ' ' + i.lid + ']').sort(); });
+    await page.evaluate(async () => { window.__open(); await window.__pull; window.__restore(); await new Promise(r => setTimeout(r, 300)); });
+    const afterThisPull = await read();
+    await page.evaluate(async () => { activeWs = 'team1'; cloudTeamId = null; dbp = null; dbpName = null; await cloudPull({ quiet: true }); });
+    const afterTheNext = await read();
+    const otherUnknown = await B.evaluate(() => window.__unknown.slice());
+    await page.evaluate(() => { activeWs = null; });
+    await B.close();
+    return { other, afterThisPull, afterTheNext, otherUnknown };
+  };
+
+  test('another tab of the group approves the trait while this tab\'s pull is about to re-id it: nothing lost, nothing duplicated', async ({ page, context }) => {
+    const r = await twoTabs(page, context, 'approve');
+    expect(r).toEqual({ other: ['t_cap_hats_approved unsent'], otherUnknown: [],
+      afterThisPull: ['t_cap_hats_approved[row-1 approved 1 unsent l_seed]'], afterTheNext: ['t_cap_hats_approved[row-1 approved 1 unsent l_seed]'] });
+  });
+
+  test('another tab of the group reweights the trait, unsent, while this tab\'s pull is about to re-id it: the weight is kept', async ({ page, context }) => {
+    const r = await twoTabs(page, context, 'weight');
+    expect(r).toEqual({ other: ['t_cap_hats_wip unsent'], otherUnknown: [],
+      afterThisPull: ['t_cap_hats_wip[row-1 wip 5 unsent l_seed]'], afterTheNext: ['t_cap_hats_wip[row-1 wip 5 unsent l_seed]'] });
+  });
+
+  test('the control: two tabs, the other doing nothing: the re-id goes ahead', async ({ page, context }) => {
+    const r = await twoTabs(page, context, 'none');
+    expect(r).toEqual({ other: null, otherUnknown: [],
+      afterThisPull: ['t_cap_hair_wip[row-1 wip 1 synced l_seed]'], afterTheNext: ['t_cap_hair_wip[row-1 wip 1 synced l_seed]'] });
+  });
+
+  /* Adjudication C3. A CLOSING SAVE OF THE TRAIT BEING RE-ID'D, STILL IN
+     FLIGHT. autosaveNow fixes its key, the old id's, before its encode; one
+     landing after the move wrote the latest strokes under an id no trait
+     has (measured). The re-id waits for it now, bounded. The save here
+     lands 200 ms into the pull, as a real encode lands while a pull runs;
+     the control lets it land before the pull. Drawings read as
+     id@new|@9, and ' - NO TRAIT' when no trait has their id. */
+  const closingSaveAcrossPull = (page, inFlight) => page.evaluate(async (inFlight) => {
+    s0SeenUid = 'u1'; groupCaughtUp = true;
+    activeWs = 'team1'; dbp = null; dbpName = null;
+    const d = await db();
+    await new Promise((res, rej) => { const t = d.transaction('items', 'readwrite'), s = t.objectStore('items');
+      s.put({ id: 't_cap_hats_wip', kind: 'trait', name: 'cap', layer: 'hats', status: 'wip', w: 16, h: 16, at: 1, rarity: 1, blob: new Blob([new Uint8Array(16)]),
+        synced: true, rowId: 'row-1', rowAt: '2026-01-01T00:00:00+00:00', path: 'team1/c1/trait-cap-hats-wip.png', lid: 'l_seed', by: 'u1', wk: 'pull' });
+      s.put({ id: 'autosave.t_cap_hats_wip', kind: 'autosave', traitId: 't_cap_hats_wip', name: 'g.png', w: 16, h: 16, at: 9, by: 'u1', wk: 'person', blob: new Blob([new Uint8Array(16)]) });
+      t.oncomplete = () => res(); t.onerror = () => rej(t.error); });
+    const row = { id: 'row-1', kind: 'trait', name: 'cap', layer: 'hair', status: 'wip', path: 'team1/c1/trait-cap-hats-wip.png', w: 16, h: 16, rarity: 1, updated_at: '2026-09-27T12:00:00+00:00' };
+    const json = (x, h) => new Response(JSON.stringify(x), { status: 200, headers: Object.assign({ 'Content-Type': 'application/json' }, h || {}) });
+    const real = window.fetch;
+    window.fetch = async (u, io) => {
+      const s = String(u), m = (io && io.method) || 'GET';
+      if (s.indexOf('/auth/v1/user') >= 0) return json({ id: 'u1' });
+      if (s.indexOf('/rest/v1/collections') >= 0) return json([{ id: 'c1', layers: ['hats', 'hair'] }]);
+      if (s.indexOf('/rest/v1/traits?select=id') >= 0) return json([], { 'Content-Range': '0-0/1' });
+      if (s.indexOf('/rest/v1/traits?select=*') >= 0) return json(/[?&]offset=0(&|$)/.test(s) ? [row] : [], { 'Content-Range': '0-0/1' });
+      if (s.indexOf('/storage/v1/object/list/') >= 0) return json([]);
+      window.__unknown.push(m + ' ' + s.replace(/^https?:\/\/[^/]+/, ''));
+      return new Response('{}', { status: 501, headers: { 'Content-Type': 'application/json' } });
+    };
+    /* The editor holds the group's trait, drawn on since it was opened. */
+    const n = 16, dd = new Uint8ClampedArray(n * n * 4);
+    for (let i = 0; i < n * n; i++) { dd[i * 4] = 200; dd[i * 4 + 1] = 120; dd[i * 4 + 3] = 255; }
+    fileName = 'cap.png';
+    startEditor(dd, n, n, n, n, palette(dd, n * n, 24, 64), false);
+    openRec = await dbGet('t_cap_hats_wip');
+    savedSig = 'drawn on since it was opened';
+    let release = null;
+    if (inFlight) {
+      const encode = art.toBlob.bind(art);
+      const gate = new Promise(r => { release = r; });
+      art.toBlob = (cb, t) => encode(b => { gate.then(() => cb(b)); }, t);
+    }
+    const key = draftId();
+    const closing = closeEditor();   /* its closing save starts now, keyed to the old id */
+    const savingAtClose = !!s0SaveInFlight;
+    if (!inFlight) await closing;
+    activeWs = 'team1'; cloudTeamId = null; dbp = null; dbpName = null;
+    const pulling = cloudPull({ quiet: true });
+    if (inFlight) setTimeout(() => release(), 200);
+    await pulling;
+    await closing;
+    await new Promise(r => setTimeout(r, 300));
+    window.fetch = real;
+    activeWs = 'team1'; dbp = null; dbpName = null;
+    const all = await dbAll();
+    activeWs = null;
+    return { key, savingAtClose, group: all.filter(i => i.kind === 'trait' || i.kind === 'autosave')
+      .map(i => i.kind === 'autosave' ? i.id + '@' + (i.at === 9 ? '9' : 'new') + (all.some(t => t.kind === 'trait' && t.id === i.traitId) ? '' : ' - NO TRAIT') : i.id).sort() };
+  }, inFlight);
+
+  test('a closing save of the trait being re-id\'d, still in flight when the pull moves it: the latest drawing goes with it', async ({ page }) => {
+    expect(await closingSaveAcrossPull(page, true)).toEqual({ key: 'autosave.t_cap_hats_wip', savingAtClose: true, group: ['autosave.t_cap_hair_wip@new', 't_cap_hair_wip'] });
+  });
+
+  test('the control: the same closing save, landed before the pull: the drawing goes with the trait', async ({ page }) => {
+    expect(await closingSaveAcrossPull(page, false)).toEqual({ key: 'autosave.t_cap_hats_wip', savingAtClose: true, group: ['autosave.t_cap_hair_wip@new', 't_cap_hair_wip'] });
   });
 });
 
@@ -675,6 +894,9 @@ test.describe('stage 0: the drawing saved as a session ends keeps its maker', ()
     console.log('a stalled save held sign-out for ' + r.ms + ' ms');
     expect(r.signedOut, 'sign-out went ahead').toBe(true);
     expect(r.ms, 'within the 3 s bound and a margin').toBeLessThan(4500);
+    /* Added (adjudication after round 5), so the title's first half can fail
+       too: it did hold sign-out up for the bound. */
+    expect(r.ms, 'held for the bound').toBeGreaterThanOrEqual(2900);
   });
 });
 
@@ -847,6 +1069,12 @@ const groupPageWithDrawing = (page, saving) => page.evaluate(async (saving) => {
   /* Left in place: a switch runs on after it returns. */
   window.fetch = async (u, io) => {
     const s = String(u), m = (io && io.method) || 'GET';
+    /* A token renewal, held on __refreshGate when a test sets it (adjudication A). */
+    if (s.indexOf('/auth/v1/token?grant_type=refresh_token') >= 0 && m === 'POST') {
+      window.__refreshAsked = (window.__refreshAsked || 0) + 1;
+      await (window.__refreshGate || null);
+      return json({ access_token: 'not-a-real-token-renewed', refresh_token: 'not-a-real-refresh-renewed', expires_at: Math.floor(Date.now() / 1000) + 3600, user: { id: 'u1' } });
+    }
     if (s.indexOf('/auth/v1/token?grant_type=password') >= 0 && m === 'POST') {
       window.__tokenAsked++; window.__who = 'u2';
       return json({ access_token: 'not-a-real-token-2', refresh_token: 'not-a-real-refresh-2', expires_in: 3600, user: { id: 'u2' } });
@@ -1125,5 +1353,56 @@ test.describe('stage 0: while sign-out or a switch waits for the drawing\'s save
     });
     expect({ out: r.out, activeWs: r.activeWs, heldForTheBound: r.ms >= 2900, withinIt: r.ms < 4500 })
       .toEqual({ out: 'went', activeWs: 'team2', heldForTheBound: false, withinIt: true });
+  });
+
+  /* Adjudication A. A TOKEN RENEWAL IN FLIGHT ACROSS A SIGN-OUT. Round 4
+     cleared the stored session before sign-out's wait and not after it, and
+     sbToken stored a renewal whatever was stored by then: a renewal in
+     flight when the person pressed Sign out stored the leaving account's
+     session again, and the page signed back in as that account while it
+     said "Signed out" - or, with nothing waiting, the next load did
+     (measured, re-review of rounds 4-5). sbToken now stores a renewal only
+     over the session it renewed. The stored token is made to expire within
+     the minute, so sbToken renews it, and the renewal is held until the
+     sign-out has begun. */
+  const renewalAcrossSignOut = (page, signOut) => page.evaluate(async (signOut) => {
+    let open; window.__refreshGate = new Promise(r => { open = r; });
+    window.__refreshAsked = 0;
+    localStorage.setItem('chatnft.session', JSON.stringify({ access_token: 'not-a-real-token', refresh_token: 'not-a-real-refresh',
+      expires_at: Math.floor(Date.now() / 1000) + 30, user: { id: 'u1' } }));
+    const renewal = sbToken();
+    for (let i = 0; i < 100 && !window.__refreshAsked; i++) await new Promise(r => setTimeout(r, 10));
+    const inFlight = window.__refreshAsked === 1;
+    if (signOut) cloudSignOut();
+    const waiting = !!s0SignOutWait;
+    open();
+    const got = await renewal;
+    let stored = null; try { stored = JSON.parse(localStorage.getItem('chatnft.session') || 'null'); } catch (_) {}
+    return { inFlight, waiting, got, storedAfterIt: stored && stored.access_token };
+  }, signOut);
+
+  test('a token renewal in flight across a sign-out waiting for the drawing\'s save: it ends signed out, with nothing stored', async ({ page }) => {
+    await groupPageWithDrawing(page, true);
+    const r = await renewalAcrossSignOut(page, true);
+    await releaseTheSave(page, 'signOut');
+    const after = await afterTheWait(page);
+    expect({ inFlight: r.inFlight, waiting: r.waiting, got: r.got, storedAfterIt: r.storedAfterIt, session: after.session, authed: after.authed, uid: after.uid })
+      .toEqual({ inFlight: true, waiting: true, got: null, storedAfterIt: null, session: false, authed: false, uid: null });
+  });
+
+  test('a token renewal in flight across a sign-out with nothing waiting: nothing is stored after it', async ({ page }) => {
+    await groupPageWithDrawing(page, false);
+    const r = await renewalAcrossSignOut(page, true);
+    const after = await afterTheWait(page);
+    expect({ inFlight: r.inFlight, waiting: r.waiting, got: r.got, storedAfterIt: r.storedAfterIt, session: after.session, authed: after.authed })
+      .toEqual({ inFlight: true, waiting: false, got: null, storedAfterIt: null, session: false, authed: false });
+  });
+
+  test('the control: a token renewal with no sign-out stores the renewed session', async ({ page }) => {
+    await groupPageWithDrawing(page, false);
+    const r = await renewalAcrossSignOut(page, false);
+    const after = await afterTheWait(page);
+    expect({ inFlight: r.inFlight, got: r.got, storedAfterIt: r.storedAfterIt, session: after.session, authed: after.authed })
+      .toEqual({ inFlight: true, got: 'not-a-real-token-renewed', storedAfterIt: 'not-a-real-token-renewed', session: true, authed: true });
   });
 });

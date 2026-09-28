@@ -71,7 +71,10 @@ const open = (page, o) => page.evaluate(async (o) => {
      counted here as the put of its new id and the delete of its old one -
      the writes dbPut and dbDel made before. */
   const realReid = (typeof s0ReidTx === 'function') ? s0ReidTx : null;
-  if (realReid) s0ReidTx = (d, oldId, rec) => { if (rec && String(rec.id).indexOf('t_') === 0) puts++; if (String(oldId).indexOf('t_') === 0) dels++; return realReid(d, oldId, rec); };
+  /* Every argument passed on (adjudication after round 5): taking three, it
+     dropped the plan the re-id checks against, and the re-id then did
+     nothing - measured, the move was never written. */
+  if (realReid) s0ReidTx = (d, oldId, rec, ...rest) => { if (rec && String(rec.id).indexOf('t_') === 0) puts++; if (String(oldId).indexOf('t_') === 0) dels++; return realReid(d, oldId, rec, ...rest); };
   try { await groupCatchUp(); } finally { window.dbPut = realPut; window.dbDel = realDel; if (realReid) s0ReidTx = realReid; }
   const first = (await dbAll()).find(i => i.kind === 'trait' && i.rowId === 'row-0');
   return { puts, dels, note: document.getElementById('cloudnote').textContent,

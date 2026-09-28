@@ -84,14 +84,26 @@
      delete first, lost an unsent trait whose id collided with the server's
      row (the comment it carried said a re-id repair was only ever of a
      synced copy, and that was false). The next pull does not settle the
-     pair it leaves (measured; said at the loop).
+     pair it leaves (measured). (Superseded by round 5.)
    - Sign-out clears the stored session before its wait, not after, and
      the sign-in card takes no sign-in during the wait.
    - A second switch to where a waiting switch is going is handed that
      switch's own promise, so its caller goes on once the store has moved.
    - The offline branch's comment no longer says its session is the auth
      server's answer: a sign-in link's fragment is stored unchecked, so the
-     uid it registers is unverified. */
+     uid it registers is unverified.
+
+   Fix round 5 (ruling on round 4's open question, 2026-09-28). The pull's
+   re-id is one IndexedDB transaction, s0ReidTx (beside
+   dbApplyShelfRecords): the old id deleted, the record put under the new
+   one stamped as a pull's write, and the drawing moved by draftsFollow's
+   rule. It is created in the same run as the ask before it, on the
+   connection db() gave; only after it commits, and a second ask, are the
+   other tabs told and the editor let follow. A stop now leaves nothing
+   changed or everything done: round 4's ordered writes left a pair that
+   the next pull turned into a second trait, "cap-2", or never settled
+   (measured). The drawing no longer waits on the editor before its store
+   is chosen. draftsFollow is unchanged for its other callers. */
 const s0 = require('./stage0-common.cjs');
 const doc = s0.start([['function s0CloseAll(name){', 'patch600 is not applied']]);
 
@@ -202,6 +214,49 @@ doc.swap([
   '      if(s0Stamps(record)){ const q=s.get(record.id); q.onsuccess=()=>{ s.put(s0Stamp(record,q.result,wk)); }; }',
   '      else s.put(record);',
   '    }',
+]);
+
+/* Fix round 5: the pull's re-id, as one transaction (used in cloudPull's
+   repair loop, below). */
+doc.swap('let shelfMoveBusy=false;', [
+  '/* STAGE 0 (fix round 5): ONE RE-ID, ONE TRANSACTION. cloudPull\'s repair',
+  '   gives a record a new id: the old id deleted, the record put under the',
+  '   new one, stamped as dbPut stamps a pull\'s write, and the old id\'s',
+  '   drawing moved to the new id by draftsFollow\'s rule - its at past the',
+  '   record it lands on, read in this same transaction, and traitId the new',
+  '   id; spread, so it keeps its stamps. All in one readwrite transaction on',
+  '   STORE, as dbApplyShelfRecords does a shelf move, so it happens whole or',
+  '   not at all. d is a connection the caller already holds, and the',
+  '   transaction is created here synchronously: the caller asks whether the',
+  '   pull still owns the store and creates it in the same run. A fourth',
+  '   write path beside dbPut, dbApplyShelfRecords and draftsFollow. Answers',
+  '   whether a drawing moved. */',
+  'function s0ReidTx(d,oldId,rec){',
+  '  return new Promise((res,rej)=>{',
+  '    const t=d.transaction(STORE,"readwrite"), s=t.objectStore(STORE);',
+  '    let moved=false;',
+  '    s.delete(oldId);',
+  '    const q=s.get(rec.id);',
+  '    q.onsuccess=()=>{ s.put(s0Stamp(rec,q.result,"pull")); };',
+  '    const dq=s.get(draftKey(oldId));',
+  '    dq.onsuccess=()=>{',
+  '      const got=dq.result;',
+  '      if(!got) return;',
+  '      /* Issued after the put above, so it reads the record just written. */',
+  '      const rq=s.get(rec.id);',
+  '      rq.onsuccess=()=>{',
+  '        const now=rq.result;',
+  '        const at=Math.max(Date.now(), (((now&&now.at)||0)+1));',
+  '        s.put(Object.assign({},got,{id:draftKey(rec.id), traitId:rec.id, at:at}));',
+  '        s.delete(draftKey(oldId));',
+  '        moved=true;',
+  '      };',
+  '    };',
+  '    t.oncomplete=()=>res(moved); t.onerror=()=>rej(t.error); t.onabort=()=>rej(dbAborted(t));',
+  '  });',
+  '}',
+  '',
+  'let shelfMoveBusy=false;',
 ]);
 
 doc.swap(['  authed=inn;', '  gateShow(!inn);'], [
@@ -417,9 +472,11 @@ doc.swap([
   '      try{ await dbPut(up,"sent"); }catch(_){} }',
 ]);
 doc.swap('      await dbPut(rp.record);', '      await dbPut(rp.record,"pull");');
-/* Fix round 4 (it supersedes round 3's re-checks, which asked after the
-   delete): the repair writes the new id first, moves the drafts second and
-   removes the old id last, asking again just before each. */
+/* Fix round 5 (it supersedes round 4's order - write, move the drawing,
+   remove - and round 3's asks after the delete): a re-id is one
+   transaction, s0ReidTx, created in the same run as the ask before it; the
+   other tabs and the editor are told only after it commits, and only if
+   the pull is still for this project. */
 doc.swap([
   '      if(rp.oldId!==rp.record.id){',
   '        await dbDel(rp.oldId);',
@@ -428,41 +485,41 @@ doc.swap([
   '      await dbPut(rp.record,"pull");',
   '      repaired++;',
 ], [
-  '      /* STAGE 0 (fix round 4): WRITTEN FIRST, THE DRAWING MOVED SECOND, THE',
-  '         OLD ID REMOVED LAST, each only after asking again whether the pull',
-  '         is still for this project. A sign-out or a switch between any two',
-  '         steps then leaves the record twice - under its old id and its new',
-  '         one, with its drawing under one of them - and never under neither.',
-  '         Round 3 removed the old id first, and a stop straight after it',
-  '         left nothing: a re-id repair is NOT only of a synced copy. The',
-  '         branch that matches by name, layer and status repairs unsent work',
-  '         too, and those ids collide across the name/layer boundary - "cap"',
-  '         on "top_hats" and "cap_top" on "hats" are both t_cap_top_hats_wip -',
-  '         so a person\'s unsent trait was lost (measured, fix round 4).',
-  '         The first ask is the one at the top of the loop: nothing waits',
-  '         between it and this write. Each write\'s store is fixed when it is',
-  '         called, because dbPut and dbDel read activeWs (through db())',
-  '         before their first wait; so is draftsFollow\'s, unless the editor',
-  '         holds this trait - then it waits on editorFollows before it opens',
-  '         its store, and the ask before it does not cover that (measured,',
-  '         not closed here).',
-  '         A STOP LEAVES A PAIR THAT THE NEXT PULL DOES NOT SETTLE (measured,',
-  '         fix round 4). Both copies of a synced pair carry the row id, and',
-  '         the next pull repairs only the one its row-id map kept, the later',
-  '         by id: the old one, which it re-ids again and, finding the new id',
-  '         taken, names with "-2" ("cap-2"); or the new one, leaving the old',
-  '         as it is.',
-  '         An unsent pair it leaves as it is. Nothing is lost and no drawing',
-  '         is left without its trait; the second copy stays until a person',
-  '         removes it. */',
+  '      /* STAGE 0 (fix round 5): A RE-ID IS ONE TRANSACTION (s0ReidTx): the',
+  '         old id deleted, the record put under the new one and the old id\'s',
+  '         drawing moved to it, together. A stop lands before it - nothing',
+  '         changed, and the next pull repairs from the same state - or after',
+  '         it - done. There is no pair to settle and nothing lost.',
+  '         Round 4 made these three writes in an order, and a stop between',
+  '         two left the record under both ids: the next pull re-id\'d the old',
+  '         copy again as "cap-2" - two records for one row, and removing',
+  '         either removes the row on the server - or left it (measured).',
+  '         Round 3 deleted first, and a stop after the delete lost unsent',
+  '         work: a re-id repair is not only of a synced copy, because ids',
+  '         collide across the name/layer boundary ("cap" on "top_hats" and',
+  '         "cap_top" on "hats" are both t_cap_top_hats_wip).',
+  '         THE STORE IS THE PULL\'S. db() gives the connection; then, with no',
+  '         wait between, the pull asks whether it is still for this project',
+  '         and s0ReidTx creates the transaction on that connection. Only once',
+  '         it has committed, and the pull is still for this project, are the',
+  '         other tabs told of the move and the editor let follow it: told',
+  '         after a stop, they were told of the wrong store. And the drawing',
+  '         no longer waits on the editor before its store is chosen, which',
+  '         left a window where a stop moved the personal store\'s own drawing',
+  '         (measured, rounds 3 and 4). */',
+  '      if(rp.oldId!==rp.record.id){',
+  '        const d=await db();',
+  '        if(!wsStill(gen)) break;',
+  '        await s0ReidTx(d,rp.oldId,rp.record);',
+  '        repaired++;',
+  '        if(!wsStill(gen)) break;',
+  '        touch(rp.oldId); touch(rp.record.id);',
+  '        tabMoves.push({from:rp.oldId, to:rp.record.id}); tabsTell();',
+  '        if(openRec&&openRec.id===rp.oldId){ try{ await editorFollows(openRec,rp.record.id); }catch(_){} }',
+  '        continue;',
+  '      }',
   '      await dbPut(rp.record,"pull");',
   '      repaired++;',
-  '      if(rp.oldId!==rp.record.id){',
-  '        if(!wsStill(gen)) break;',
-  '        try{ await draftsFollow([{from:rp.oldId, to:rp.record.id}]); }catch(_){}',
-  '        if(!wsStill(gen)) break;',
-  '        await dbDel(rp.oldId);',
-  '      }',
 ]);
 doc.swap('        await dbPut(rec); added++;', '        await dbPut(rec,"pull"); added++;');
 doc.swap('              await dbPut(Object.assign({},dr,{at:Math.max(Date.now(),(rec.at||0)+1)}));',
@@ -514,7 +571,12 @@ doc.finish(({ code, must }) => {
   must('rec.wk=(!draft&&!keep&&(wk==="pull"||wk==="sent")) ? wk : "person";', 'a draft or unsent work could be stamped as a pull');
   must('const keep=wk==="pull" && (draft||!rec.synced);', 'a pull\'s write of unsent work would take the puller\'s uid');
   must('wsGen++; s0SeenUid=null;', 'sign-out does not stop a running pull');
-  if ((code.match(/,"pull"\)/g) || []).length !== 3) throw new Error('exactly three writes should pass "pull", found ' + (code.match(/,"pull"\)/g) || []).length);
+  /* (Round 5: the pull's re-id is now a fourth write stamped "pull", in
+     s0ReidTx, so the brief's count of every ',"pull")' is taken over by a
+     count of dbPut's and a check on that one.) */
+  if ((code.match(/dbPut\([^;]*,"pull"\)/g) || []).length !== 3) throw new Error('exactly three dbPut writes should pass "pull", found ' + (code.match(/dbPut\([^;]*,"pull"\)/g) || []).length);
+  if ((code.match(/,"pull"\)/g) || []).length !== 4) throw new Error('exactly four writes should be stamped "pull" (three dbPut, one re-id)');
+  must('q.onsuccess=()=>{ s.put(s0Stamp(rec,q.result,"pull")); };', 'the re-id\'s record is not stamped as a pull\'s write');
   if ((code.match(/dbPut\([^)]*,"sent"\)/g) || []).length !== 2) throw new Error('exactly two writes should be stamped "sent"');
   /* Fix round 1. */
   must('const u=keep ? (rec.by||(stored&&stored.by)||null) : (uid!==undefined ? uid : s0Uid());', 'a uid the caller took is not what its write is stamped with');
@@ -556,16 +618,23 @@ doc.finish(({ code, must }) => {
   /* Fix round 3: the offline and deadline branch knows its uid, and the
      repair asks again just before each of its writes. */
   must('if(authed && !s0SeenUid){ s0SeenUid=s0Uid(); if(s0SeenUid) s0Register(s0SeenUid); }', 'a session the page could not check has no uid');
-  /* (Round 3's two repair checks - an ask after the delete, and one before
-     the write - are superseded by round 4's order, checked here.) Fix round
-     4: the new id is written first, the drafts moved second, the old id
-     removed last, with an ask before each and no wait between an ask and
-     its write. */
+  /* (Round 3's two repair checks, and round 4's order - write, move the
+     drafts, remove - are superseded by round 5's single transaction,
+     checked here.) Fix round 5: a re-id is s0ReidTx, created in the same
+     run as the ask before it; tabs and the editor only after it commits and
+     a second ask; a same-id repair is the plain write it was, with no wait
+     between the loop's first ask and it. */
   const loop = pull.slice(pull.indexOf('for(const rp of repair){'), pull.indexOf('const PULL_AT_ONCE=8;'));
   if (!/^for\(const rp of repair\)\{\s*if\(!wsStill\(gen\)\) break;/.test(loop)) throw new Error('the repair loop does not ask first');
-  const firstAsk = loop.indexOf('if(!wsStill(gen)) break;'), put = loop.indexOf('await dbPut(rp.record,"pull");');
-  if (put < 0 || /\bawait\b/.test(loop.slice(firstAsk, put))) throw new Error('the repair waits between its ask and its write');
-  if (!/await dbPut\(rp\.record,"pull"\);\s*repaired\+\+;\s*if\(rp\.oldId!==rp\.record\.id\)\{\s*if\(!wsStill\(gen\)\) break;\s*try\{ await draftsFollow\(\[\{from:rp\.oldId, to:rp\.record\.id\}\]\); \}catch\(_\)\{\}\s*if\(!wsStill\(gen\)\) break;\s*await dbDel\(rp\.oldId\);\s*\}/.test(loop))
-    throw new Error('the repair does not write, then move the drafts, then remove the old id, asking again before each');
-  if ((loop.match(/await dbDel\(/g) || []).length !== 1) throw new Error('the repair should remove the old id exactly once');
+  if (!/if\(rp\.oldId!==rp\.record\.id\)\{\s*const d=await db\(\);\s*if\(!wsStill\(gen\)\) break;\s*await s0ReidTx\(d,rp\.oldId,rp\.record\);\s*repaired\+\+;\s*if\(!wsStill\(gen\)\) break;\s*touch\(rp\.oldId\); touch\(rp\.record\.id\);\s*tabMoves\.push\(\{from:rp\.oldId, to:rp\.record\.id\}\); tabsTell\(\);\s*if\(openRec&&openRec\.id===rp\.oldId\)\{ try\{ await editorFollows\(openRec,rp\.record\.id\); \}catch\(_\)\{\} \}\s*continue;\s*\}\s*await dbPut\(rp\.record,"pull"\);\s*repaired\+\+;/.test(loop))
+    throw new Error('a re-id is not one transaction created in the same run as its ask, told only after a second ask');
+  if (/draftsFollow\(|dbDel\(/.test(loop)) throw new Error('the repair still moves drafts or removes ids outside its transaction');
+  const firstAsk = loop.indexOf('if(!wsStill(gen)) break;'), reid = loop.indexOf('if(rp.oldId!==rp.record.id){');
+  if (reid < 0 || /\bawait\b/.test(loop.slice(firstAsk, reid))) throw new Error('the repair waits between its first ask and its write');
+  const tx = body('function s0ReidTx(d,oldId,rec){');
+  if (!/^function s0ReidTx\(d,oldId,rec\)\{\s*return new Promise\(\(res,rej\)=>\{\s*const t=d\.transaction\(STORE,"readwrite"\)/.test(tx)) throw new Error('s0ReidTx does not create its transaction synchronously, first');
+  if ((tx.match(/\.transaction\(/g) || []).length !== 1 || /\bawait\b|\.then\(/.test(tx)) throw new Error('s0ReidTx is not exactly one transaction with no wait');
+  for (const s of ['s.delete(oldId);', 'const dq=s.get(draftKey(oldId));', 'const at=Math.max(Date.now(), (((now&&now.at)||0)+1));',
+    's.put(Object.assign({},got,{id:draftKey(rec.id), traitId:rec.id, at:at}));', 's.delete(draftKey(oldId));'])
+    if (tx.indexOf(s) < 0) throw new Error('s0ReidTx does not ' + s);
 });

@@ -4532,6 +4532,43 @@ async function dbApplyShelfRecords(deleteIds,records,wk){
   });
 }
 
+/* STAGE 0 (fix round 5): ONE RE-ID, ONE TRANSACTION. cloudPull's repair
+   gives a record a new id: the old id deleted, the record put under the
+   new one, stamped as dbPut stamps a pull's write, and the old id's
+   drawing moved to the new id by draftsFollow's rule - its at past the
+   record it lands on, read in this same transaction, and traitId the new
+   id; spread, so it keeps its stamps. All in one readwrite transaction on
+   STORE, as dbApplyShelfRecords does a shelf move, so it happens whole or
+   not at all. d is a connection the caller already holds, and the
+   transaction is created here synchronously: the caller asks whether the
+   pull still owns the store and creates it in the same run. A fourth
+   write path beside dbPut, dbApplyShelfRecords and draftsFollow. Answers
+   whether a drawing moved. */
+function s0ReidTx(d,oldId,rec){
+  return new Promise((res,rej)=>{
+    const t=d.transaction(STORE,"readwrite"), s=t.objectStore(STORE);
+    let moved=false;
+    s.delete(oldId);
+    const q=s.get(rec.id);
+    q.onsuccess=()=>{ s.put(s0Stamp(rec,q.result,"pull")); };
+    const dq=s.get(draftKey(oldId));
+    dq.onsuccess=()=>{
+      const got=dq.result;
+      if(!got) return;
+      /* Issued after the put above, so it reads the record just written. */
+      const rq=s.get(rec.id);
+      rq.onsuccess=()=>{
+        const now=rq.result;
+        const at=Math.max(Date.now(), (((now&&now.at)||0)+1));
+        s.put(Object.assign({},got,{id:draftKey(rec.id), traitId:rec.id, at:at}));
+        s.delete(draftKey(oldId));
+        moved=true;
+      };
+    };
+    t.oncomplete=()=>res(moved); t.onerror=()=>rej(t.error); t.onabort=()=>rej(dbAborted(t));
+  });
+}
+
 let shelfMoveBusy=false;
 async function commitShelfMove(spec){
   /* SAID, NOT SILENT. This returned false without a word, which was fine
@@ -20055,41 +20092,41 @@ async function cloudPull(opts){
          differently, and the repair re-ids the local record to match. The
          draft goes with it, or a pull silently costs somebody their
          unsaved work. */
-      /* STAGE 0 (fix round 4): WRITTEN FIRST, THE DRAWING MOVED SECOND, THE
-         OLD ID REMOVED LAST, each only after asking again whether the pull
-         is still for this project. A sign-out or a switch between any two
-         steps then leaves the record twice - under its old id and its new
-         one, with its drawing under one of them - and never under neither.
-         Round 3 removed the old id first, and a stop straight after it
-         left nothing: a re-id repair is NOT only of a synced copy. The
-         branch that matches by name, layer and status repairs unsent work
-         too, and those ids collide across the name/layer boundary - "cap"
-         on "top_hats" and "cap_top" on "hats" are both t_cap_top_hats_wip -
-         so a person's unsent trait was lost (measured, fix round 4).
-         The first ask is the one at the top of the loop: nothing waits
-         between it and this write. Each write's store is fixed when it is
-         called, because dbPut and dbDel read activeWs (through db())
-         before their first wait; so is draftsFollow's, unless the editor
-         holds this trait - then it waits on editorFollows before it opens
-         its store, and the ask before it does not cover that (measured,
-         not closed here).
-         A STOP LEAVES A PAIR THAT THE NEXT PULL DOES NOT SETTLE (measured,
-         fix round 4). Both copies of a synced pair carry the row id, and
-         the next pull repairs only the one its row-id map kept, the later
-         by id: the old one, which it re-ids again and, finding the new id
-         taken, names with "-2" ("cap-2"); or the new one, leaving the old
-         as it is.
-         An unsent pair it leaves as it is. Nothing is lost and no drawing
-         is left without its trait; the second copy stays until a person
-         removes it. */
+      /* STAGE 0 (fix round 5): A RE-ID IS ONE TRANSACTION (s0ReidTx): the
+         old id deleted, the record put under the new one and the old id's
+         drawing moved to it, together. A stop lands before it - nothing
+         changed, and the next pull repairs from the same state - or after
+         it - done. There is no pair to settle and nothing lost.
+         Round 4 made these three writes in an order, and a stop between
+         two left the record under both ids: the next pull re-id'd the old
+         copy again as "cap-2" - two records for one row, and removing
+         either removes the row on the server - or left it (measured).
+         Round 3 deleted first, and a stop after the delete lost unsent
+         work: a re-id repair is not only of a synced copy, because ids
+         collide across the name/layer boundary ("cap" on "top_hats" and
+         "cap_top" on "hats" are both t_cap_top_hats_wip).
+         THE STORE IS THE PULL'S. db() gives the connection; then, with no
+         wait between, the pull asks whether it is still for this project
+         and s0ReidTx creates the transaction on that connection. Only once
+         it has committed, and the pull is still for this project, are the
+         other tabs told of the move and the editor let follow it: told
+         after a stop, they were told of the wrong store. And the drawing
+         no longer waits on the editor before its store is chosen, which
+         left a window where a stop moved the personal store's own drawing
+         (measured, rounds 3 and 4). */
+      if(rp.oldId!==rp.record.id){
+        const d=await db();
+        if(!wsStill(gen)) break;
+        await s0ReidTx(d,rp.oldId,rp.record);
+        repaired++;
+        if(!wsStill(gen)) break;
+        touch(rp.oldId); touch(rp.record.id);
+        tabMoves.push({from:rp.oldId, to:rp.record.id}); tabsTell();
+        if(openRec&&openRec.id===rp.oldId){ try{ await editorFollows(openRec,rp.record.id); }catch(_){} }
+        continue;
+      }
       await dbPut(rp.record,"pull");
       repaired++;
-      if(rp.oldId!==rp.record.id){
-        if(!wsStill(gen)) break;
-        try{ await draftsFollow([{from:rp.oldId, to:rp.record.id}]); }catch(_){}
-        if(!wsStill(gen)) break;
-        await dbDel(rp.oldId);
-      }
     }catch(_){}
   }
 

@@ -359,70 +359,41 @@ const pullRowsHeldMaybeSignOut = (page, signOut) => page.evaluate(async (signOut
   return out;
 }, signOut);
 
-/* A pull whose repair moves a trait to another layer (the server filed it
-   under hair; this group's store has it under hats), held at one of the
-   repair's own waits - `hold` is 'draftsFollow' (held before it runs) or
-   'dbDel' (held after the old copy's delete has started) - and a sign-out,
-   or none, while it is held (fix round 3). The personal store holds a draft
-   of its own under the same old id, which nothing here may touch. */
-const repairHeldMaybeSignOut = (page, hold, signOut) => page.evaluate(async ([hold, signOut]) => {
-  const row = { id: 'row-1', kind: 'trait', name: 'cap', layer: 'hair', status: 'wip', path: 'team1/c1/trait-cap-hats-wip.png',
-    w: 16, h: 16, rarity: 1, updated_at: '2026-09-27T12:00:00+00:00' };
-  const json = (o, x) => new Response(JSON.stringify(o), { status: 200, headers: Object.assign({ 'Content-Type': 'application/json' }, x || {}) });
-  const real = window.fetch;
-  window.fetch = async (u, io) => {
-    const s = String(u), m = (io && io.method) || 'GET';
-    if (s.indexOf('/auth/v1/user') >= 0) return json({ id: 'u1' });
-    if (s.indexOf('/rpc/my_team') >= 0) return json('me');
-    if (s.indexOf('/rpc/team_member_names') >= 0) return json([]);
-    if (s.indexOf('/rest/v1/teams') >= 0) return json([{ id: 'me', name: 'Me', personal: true }, { id: 'team1', name: 'One', personal: false }]);
-    if (s.indexOf('/rest/v1/collections') >= 0) return json([{ id: 'c1', layers: ['hats', 'hair'] }]);
-    if (s.indexOf('/rest/v1/traits?select=id') >= 0) return json([], { 'Content-Range': '0-0/1' });
-    if (s.indexOf('/rest/v1/traits?select=*') >= 0) return json([row], { 'Content-Range': '0-0/1' });
-    if (s.indexOf('/storage/v1/object/list/') >= 0) return json([]);
-    window.__unknown.push(m + ' ' + s.replace(/^https?:\/\/[^/]+/, ''));
-    return new Response(JSON.stringify({ code: 'UNROUTED' }), { status: 501, headers: { 'Content-Type': 'application/json' } });
-  };
-  let open; const gate = new Promise(r => { open = r; });
-  let asked = false;
-  if (hold === 'draftsFollow') { const f = draftsFollow; draftsFollow = async (p) => { asked = true; await gate; return f(p); }; }
-  if (hold === 'dbDel') { const f = dbDel; dbDel = (id) => { const p = f(id); asked = true; return gate.then(() => p); }; }
-  activeWs = 'team1'; cloudTeamId = null; dbp = null; dbpName = null;
-  const p = cloudPull({ quiet: true });
-  while (!asked) await new Promise(r => setTimeout(r, 10));
-  if (signOut) cloudSignOut();
-  open();
-  try { await p; } catch (_) {}
-  window.fetch = real;
-  const read = async (ws) => { activeWs = ws; dbp = null; dbpName = null;
-    return (await dbAll()).filter(i => i.kind === 'trait' || i.kind === 'autosave').map(i => i.id + (i.kind === 'autosave' ? '@' + i.at : '')).sort(); };
-  const out = { group: await read('team1'), personal: await read(null) };
-  activeWs = null;
-  return out;
-}, [hold, signOut]);
-const seedForRepair = async (page) => {
-  await seedDraft(page, { traitId: 't_cap_hats_wip', at: 7, by: 'u9', wk: 'person' });   /* the personal store's own */
-  await page.evaluate(() => { activeWs = 'team1'; dbp = null; dbpName = null; });
-  await seedTrait(page, { name: 'cap', layer: 'hats', status: 'wip', rowId: 'row-1', rowAt: '2026-01-01T00:00:00+00:00',
-    synced: true, path: 'team1/c1/trait-cap-hats-wip.png', lid: 'l_seed' });
-  await page.evaluate(() => { activeWs = null; dbp = null; dbpName = null; });
-};
+/* SUPERSEDED (round 5): round 3's repairHeldMaybeSignOut and seedForRepair,
+   which held the repair at draftsFollow or at dbDel. A re-id no longer
+   calls either - it is one transaction now - so those holds reach nothing.
+   What their three tests asserted is asserted by round 5's, below. */
 
-/* Fix round 4. THE REPAIR WRITES THE NEW ID FIRST, MOVES THE DRAWING SECOND
-   AND REMOVES THE OLD ID LAST, asking before each, so a stop between two
-   steps leaves the record twice and never nowhere. Round 3 removed the old
-   id first, and a stop straight after that left neither record - and a
-   re-id repair is not only of a synced copy: the branch that matches a row
-   by name, layer and status re-ids unsent work too, because ids collide
-   across the name/layer boundary. "cap" on "top_hats" (the server's row) and
-   "cap_top" on "hats" (this device's trait, never sent) are both
-   t_cap_top_hats_wip (measured, re-review of round 3). `hold` holds one
-   step AFTER it is issued - its store is chosen then - and a sign-out, or
-   none, comes while it is held: 'write' the new id, 'drafts' the drawing's
-   move, 'remove' the old id. The personal store holds a trait and a drawing
-   of its own under the same old id, so a step that ran in the wrong store
-   shows there. Records read as id[lid synced|unsent], drawings as id@at,
-   'moved' once the move re-stamped it. */
+/* THE REPAIR'S RE-ID IS ONE TRANSACTION (fix round 5). A record the server
+   files under another id is deleted under its old id, put under the new one
+   and its drawing moved, in one IndexedDB transaction, so a stop lands
+   before it (nothing changed) or after it (all of it done).
+   SUPERSEDED (round 5): round 4's repairStepHeld held each of three
+   separate writes - the new id, the drawing, the old id - and its tests
+   pinned the record under both ids after a stop. Separate writes left a
+   permanent duplicate: the next pull turned it into a second trait, "cap-2",
+   or never settled it (measured, round 4).
+   The cases are round 4's. `unsent` is a trait this device never sent whose
+   id collides with the server's row across the name/layer boundary - "cap"
+   on "top_hats" (the server's) and "cap_top" on "hats" (this device's) are
+   both t_cap_top_hats_wip (measured, re-review of round 3). `synced` is a
+   synced trait the server moved from hats to hair. The personal store holds
+   a trait and a drawing of its own under the same old id, so anything done
+   in the wrong store shows there.
+   `where` the stop comes:
+     'before' - the repair's db() is held (armed by its sameRepair call, the
+                last thing before it) and the stop comes while it is held;
+     'after'  - from the complete event of the first readwrite transaction
+                the repair makes in the group's store, so a stop between
+                separate writes would land between them;
+     'editor' - the editor holds the trait, and editorFollows is held before
+                it runs, the stop coming while it is held.
+   `stop` signs out, or not (the control). With `nextPull` the page signs
+   back in and pulls again, nothing held. The stand-in lists the row on the
+   first page only, as a server does: answering every page, it made a pull
+   see the row once per page, 500 times (measured, round 5). Records read as
+   id[lid synced|unsent], drawings as id@at ('moved' once re-stamped);
+   `told` is what the other tabs were told, on the page's BroadcastChannel. */
 const repairCases = {
   unsent: { layers: ['hats', 'top_hats'], oldId: 't_cap_top_hats_wip', newId: 't_cap_top_top_hats_wip',
     row: { id: 'row-9', kind: 'trait', name: 'cap', layer: 'top_hats', status: 'wip', path: 'team1/c1/trait-cap-top_hats-wip.png',
@@ -442,7 +413,7 @@ const seedRepairCase = async (page, c) => {
   await seedDraft(page, { traitId: c.oldId, at: 9, by: 'u1', wk: 'person' });
   await page.evaluate(() => { activeWs = null; dbp = null; dbpName = null; });
 };
-const repairStepHeld = (page, c, hold, signOut) => page.evaluate(async ([c, hold, signOut]) => {
+const reidStopped = (page, c, where, stop, nextPull) => page.evaluate(async ([c, where, stop, nextPull]) => {
   const json = (o, x) => new Response(JSON.stringify(o), { status: 200, headers: Object.assign({ 'Content-Type': 'application/json' }, x || {}) });
   const real = window.fetch;
   window.fetch = async (u, io) => {
@@ -450,34 +421,66 @@ const repairStepHeld = (page, c, hold, signOut) => page.evaluate(async ([c, hold
     if (s.indexOf('/auth/v1/user') >= 0) return json({ id: 'u1' });
     if (s.indexOf('/rest/v1/collections') >= 0) return json([{ id: 'c1', layers: c.layers }]);
     if (s.indexOf('/rest/v1/traits?select=id') >= 0) return json([], { 'Content-Range': '0-0/1' });
-    if (s.indexOf('/rest/v1/traits?select=*') >= 0) return json([c.row], { 'Content-Range': '0-0/1' });
+    if (s.indexOf('/rest/v1/traits?select=*') >= 0) return json(/[?&]offset=0(&|$)/.test(s) ? [c.row] : [], { 'Content-Range': '0-0/1' });
     if (s.indexOf('/storage/v1/object/list/') >= 0) return json([]);
     window.__unknown.push(m + ' ' + s.replace(/^https?:\/\/[^/]+/, ''));
     return new Response(JSON.stringify({ code: 'UNROUTED' }), { status: 501, headers: { 'Content-Type': 'application/json' } });
   };
-  let open; const gate = new Promise(r => { open = r; });
-  let asked = false;
-  const put = dbPut, drafts = draftsFollow, del = dbDel;
-  if (hold === 'write') dbPut = (rec, wk, uid) => { const p = put(rec, wk, uid); if (wk === 'pull' && rec && rec.id === c.newId) { asked = true; return gate.then(() => p); } return p; };
-  if (hold === 'drafts') draftsFollow = (pairs) => { const p = drafts(pairs); asked = true; return gate.then(() => p); };
-  if (hold === 'remove') dbDel = (id) => { const p = del(id); if (id === c.oldId) { asked = true; return gate.then(() => p); } return p; };
-  activeWs = 'team1'; cloudTeamId = null; dbp = null; dbpName = null;
-  const p = cloudPull({ quiet: true });
-  for (let i = 0; i < 500 && !asked; i++) await new Promise(r => setTimeout(r, 10));
-  const reached = asked;
-  if (reached && signOut) cloudSignOut();
-  open();
-  try { await p; } catch (_) {}
-  dbPut = put; draftsFollow = drafts; dbDel = del;
-  window.fetch = real;
-  if (!reached) throw new Error('the repair never reached the step held (' + hold + ')');
   const read = async (ws) => { activeWs = ws; dbp = null; dbpName = null;
     return (await dbAll()).filter(i => i.kind === 'trait' || i.kind === 'autosave')
       .map(i => i.kind === 'autosave' ? i.id + '@' + (i.at > 1e9 ? 'moved' : i.at) : i.id + '[' + i.lid + (i.synced ? ' synced' : ' unsent') + ']').sort(); };
-  const out = { group: await read('team1'), personal: await read(null) };
+  const before = await read('team1');
+  /* The setup's own tell goes first: the dbClear before each test arms
+     tabsTell's 150 ms timer, which named the store current when it fired -
+     the personal one, after a stop - and read as the repair's (measured). */
+  for (let i = 0; i < 100 && tabTellTimer; i++) await new Promise(r => setTimeout(r, 10));
+  if (tabTellTimer) throw new Error('a tell from the setup is still pending');
+  const told = [];
+  const post = tabChan.postMessage.bind(tabChan);
+  tabChan.postMessage = (m) => { told.push(JSON.parse(JSON.stringify(m))); return post(m); };
+  let open; const gate = new Promise(r => { open = r; });
+  let armed = false, reached = false;
+  const same = sameRepair, getDb = db, follows = editorFollows, tx = IDBDatabase.prototype.transaction;
+  sameRepair = (a, b) => { armed = true; return same(a, b); };
+  if (where === 'before') db = () => { const p = getDb(); if (armed) { armed = false; reached = true; return gate.then(() => p); } return p; };
+  if (where === 'after') IDBDatabase.prototype.transaction = function (names, mode, ...rest) {
+    const t = tx.call(this, names, mode, ...rest);
+    if (armed && mode === 'readwrite' && this.name === 'chatnft.ws.team1') {
+      armed = false; reached = true;
+      t.addEventListener('complete', () => { if (stop) cloudSignOut(); });
+    }
+    return t;
+  };
+  if (where === 'editor') {
+    activeWs = 'team1'; dbp = null; dbpName = null;
+    openRec = await dbGet(c.oldId);
+    if (!openRec) throw new Error('the editor holds nothing');
+    editorFollows = async (was, to) => { reached = true; await gate; return follows(was, to); };
+  }
+  activeWs = 'team1'; cloudTeamId = null; dbp = null; dbpName = null;
+  const p = cloudPull({ quiet: true });
+  if (where !== 'after') {
+    for (let i = 0; i < 500 && !reached; i++) await new Promise(r => setTimeout(r, 10));
+    if (reached && stop) cloudSignOut();
+    open();
+  }
+  try { await p; } catch (_) {}
+  await new Promise(r => setTimeout(r, 400));   /* past tabsTell's 150 ms */
+  sameRepair = same; db = getDb; editorFollows = follows; IDBDatabase.prototype.transaction = tx; tabChan.postMessage = post;
+  const out = { reached, before, group: await read('team1'), personal: await read(null), told };
+  if (where === 'editor') out.editorOn = openRec && openRec.id;
+  if (nextPull) {
+    localStorage.setItem('chatnft.session', JSON.stringify({ access_token: 'not-a-real-token', refresh_token: 'not-a-real-refresh',
+      expires_at: Math.floor(Date.now() / 1000) + 3600, user: { id: 'u1' } }));
+    authed = true; gateShow(false);
+    activeWs = 'team1'; cloudTeamId = null; dbp = null; dbpName = null;
+    try { await cloudPull({ quiet: true }); } catch (_) {}
+    out.afterNextPull = await read('team1');
+  }
+  window.fetch = real;
   activeWs = null;
   return out;
-}, [c, hold, signOut]);
+}, [c, where, stop, !!nextPull]);
 
 test.describe('stage 0: signing out stops a running pull', () => {
   test.beforeEach(async ({ page }) => {
@@ -515,63 +518,67 @@ test.describe('stage 0: signing out stops a running pull', () => {
     expect(r.personal).toEqual([]);
   });
 
-  /* Fix round 3: the repair waits twice between its check and its write. */
-  test('signing out while a pull\'s repair moves a trait to another layer: the group\'s record does not land in the personal store', async ({ page }) => {
-    await seedForRepair(page);
-    const r = await repairHeldMaybeSignOut(page, 'draftsFollow', true);
-    expect(r.personal.filter(id => id.indexOf('autosave.') !== 0), 'no trait in the personal store').toEqual([]);
-  });
-
-  test('signing out while the repair is removing the old copy: the personal store\'s own draft is not moved either', async ({ page }) => {
-    await seedForRepair(page);
-    const r = await repairHeldMaybeSignOut(page, 'dbDel', true);
-    expect(r.personal).toEqual(['autosave.t_cap_hats_wip@7']);
-  });
-
-  test('the control: the same repair, nobody signing out, moves the trait in the group\'s store and leaves the personal draft alone', async ({ page }) => {
-    await seedForRepair(page);
-    const r = await repairHeldMaybeSignOut(page, 'draftsFollow', false);
-    expect(r.group).toEqual(['t_cap_hair_wip']);
-    expect(r.personal).toEqual(['autosave.t_cap_hats_wip@7']);
-  });
-
-  /* Fix round 4: write, move, remove, each asked for (above repairCases). */
+  /* SUPERSEDED (round 5), round 3's three repair tests - "signing out while
+     a pull's repair moves a trait to another layer: the group's record does
+     not land in the personal store", "signing out while the repair is
+     removing the old copy: the personal store's own draft is not moved
+     either", and their control. They held draftsFollow and dbDel, which a
+     re-id no longer calls. What they asserted - nothing of the group's in
+     the personal store, and the personal store's own drawing left alone - is
+     asserted below for every stop.
+     SUPERSEDED (round 5), round 4's eight - "a repair that re-ids unsent
+     work ..., stopped after it writes the new id / moves the drawing /
+     removes the old id: nothing is lost ...", the synced stop after the
+     write, and their four controls. They pinned the record under both ids
+     after a stop: separate writes left a permanent duplicate (measured,
+     round 4). */
   const personalUntouched = (c) => ['autosave.' + c.oldId + '@7', c.oldId + '[l_personal unsent]'];
-  const unsent = repairCases.unsent;
-  const unsentAfterStop = {
-    write: ['autosave.t_cap_top_hats_wip@9', 't_cap_top_hats_wip[l_mine unsent]', 't_cap_top_top_hats_wip[l_mine unsent]'],
-    drafts: ['autosave.t_cap_top_top_hats_wip@moved', 't_cap_top_hats_wip[l_mine unsent]', 't_cap_top_top_hats_wip[l_mine unsent]'],
-    remove: ['autosave.t_cap_top_top_hats_wip@moved', 't_cap_top_top_hats_wip[l_mine unsent]'],
-  };
-  for (const [hold, step] of [['write', 'writes the new id'], ['drafts', 'moves the drawing'], ['remove', 'removes the old id']]) {
-    test('a repair that re-ids unsent work (its id collides with the server\'s row), stopped after it ' + step + ': nothing is lost, and the personal store is untouched', async ({ page }) => {
-      await seedRepairCase(page, unsent);
-      const r = await repairStepHeld(page, unsent, hold, true);
-      expect(r).toEqual({ group: unsentAfterStop[hold], personal: personalUntouched(unsent) });
+  const asSeeded = (c) => ['autosave.' + c.oldId + '@9', c.oldId + '[' + c.mine.lid + (c.mine.synced ? ' synced' : ' unsent') + ']'];
+  const whole = (c) => ['autosave.' + c.newId + '@moved', c.newId + '[' + c.mine.lid + (c.mine.synced ? ' synced' : ' unsent') + ']'];
+  for (const [key, what] of [['unsent', 'unsent work whose id collides with the server\'s row'], ['synced', 'a synced trait the server moved to another layer']]) {
+    const c = repairCases[key];
+
+    test('a re-id of ' + what + ', stopped just before its transaction: the store exactly as it was, and the next pull makes it whole', async ({ page }) => {
+      await seedRepairCase(page, c);
+      const r = await reidStopped(page, c, 'before', true, true);
+      expect({ reached: r.reached, before: r.before, group: r.group, personal: r.personal, told: r.told, afterNextPull: r.afterNextPull })
+        .toEqual({ reached: true, before: asSeeded(c), group: asSeeded(c), personal: personalUntouched(c), told: [], afterNextPull: whole(c) });
     });
 
-    test('the control: the same repair, held after it ' + step + ' with nobody signing out, ends with the work and its drawing under the new id', async ({ page }) => {
-      await seedRepairCase(page, unsent);
-      const r = await repairStepHeld(page, unsent, hold, false);
-      expect(r).toEqual({ group: ['autosave.t_cap_top_top_hats_wip@moved', 't_cap_top_top_hats_wip[l_mine unsent]'], personal: personalUntouched(unsent) });
+    test('a re-id of ' + what + ', stopped just after its transaction: whole, in the group\'s store only, and told to no tab', async ({ page }) => {
+      await seedRepairCase(page, c);
+      const r = await reidStopped(page, c, 'after', true);
+      expect({ reached: r.reached, group: r.group, personal: r.personal, told: r.told })
+        .toEqual({ reached: true, group: whole(c), personal: personalUntouched(c), told: [] });
+    });
+
+    test('the control: a re-id of ' + what + ', nobody stopping: whole, and told to this project\'s tabs', async ({ page }) => {
+      await seedRepairCase(page, c);
+      const r = await reidStopped(page, c, 'after', false);
+      expect({ reached: r.reached, group: r.group, personal: r.personal, told: r.told })
+        .toEqual({ reached: true, group: whole(c), personal: personalUntouched(c), told: [{ db: 'chatnft.ws.team1', moved: [{ from: c.oldId, to: c.newId }] }] });
     });
   }
 
-  /* A synced trait, stopped after the write: the drawing is still with the
-     old id, which still exists. (Round 3's order left the drawing under an
-     id whose record it had deleted - orphaned once the next pull brought
-     the record back under the new one; measured, re-review of round 3.) */
-  test('a repair that moves a synced trait to another layer, stopped after it writes the new id: the trait under both ids, its drawing still with the old one, and the personal store untouched', async ({ page }) => {
-    await seedRepairCase(page, repairCases.synced);
-    const r = await repairStepHeld(page, repairCases.synced, 'write', true);
-    expect(r).toEqual({ group: ['autosave.t_cap_hats_wip@9', 't_cap_hair_wip[l_seed synced]', 't_cap_hats_wip[l_seed synced]'],
-      personal: personalUntouched(repairCases.synced) });
+  /* The editor holding the trait. Its drawing used to move only after the
+     editor had followed, in whatever store was named by then, so a stop
+     during the follow moved the personal store's own drawing away from its
+     trait (measured, rounds 3 and 4). It moves inside the transaction now,
+     and the editor follows after. */
+  test('the editor holding the trait, a stop while it follows the re-id: the personal store\'s own drawing stays with its trait, and the group\'s drawing is at the new id', async ({ page }) => {
+    const c = repairCases.synced;
+    await seedRepairCase(page, c);
+    const r = await reidStopped(page, c, 'editor', true);
+    expect({ reached: r.reached, group: r.group, personal: r.personal, editorOn: r.editorOn })
+      .toEqual({ reached: true, group: whole(c), personal: personalUntouched(c), editorOn: c.oldId });
   });
 
-  test('the control: the same synced repair, held after it writes the new id with nobody signing out, ends with the trait and its drawing under the new id', async ({ page }) => {
-    await seedRepairCase(page, repairCases.synced);
-    const r = await repairStepHeld(page, repairCases.synced, 'write', false);
-    expect(r).toEqual({ group: ['autosave.t_cap_hair_wip@moved', 't_cap_hair_wip[l_seed synced]'], personal: personalUntouched(repairCases.synced) });
+  test('the control: the editor holding the trait, nobody stopping: it follows the re-id to the new id', async ({ page }) => {
+    const c = repairCases.synced;
+    await seedRepairCase(page, c);
+    const r = await reidStopped(page, c, 'editor', false);
+    expect({ reached: r.reached, group: r.group, personal: r.personal, editorOn: r.editorOn })
+      .toEqual({ reached: true, group: whole(c), personal: personalUntouched(c), editorOn: c.newId });
   });
 });
 
@@ -1084,5 +1091,39 @@ test.describe('stage 0: while sign-out or a switch waits for the drawing\'s save
     });
     const r = await afterTheWait(page);
     expect({ seen, gen: r.gen, opened: r.opened }).toEqual({ seen: ['team2', 'team2'], gen: 1, opened: 1 });
+  });
+
+  /* Fix round 5 (round 4's probe, made a spec). A SWITCH WHOSE DRAWING'S
+     SAVE NEVER FINISHES GOES AHEAD AFTER ITS 3 S BOUND. The switch that goes
+     on after the wait runs wsSwitch again, told it has waited; asked to
+     flush again, it found the same stuck save and waited again, and was
+     still waiting after 10 s (measured, round 4). The save here is held and
+     never released. */
+  test('a switch whose drawing\'s save never finishes goes ahead after its 3 s bound', async ({ page }) => {
+    await groupPageWithDrawing(page, true);
+    const r = await page.evaluate(async () => {
+      if (!s0SaveInFlight) throw new Error('the save is not in flight');
+      const t0 = performance.now();
+      const p = wsSwitch('team2');
+      if (s0WsWant !== 'team2') throw new Error('the switch is not waiting for the save');
+      const out = await Promise.race([p.then(() => 'went'), new Promise(res => setTimeout(() => res('still waiting'), 10000))]);
+      return { out, activeWs, ms: Math.round(performance.now() - t0) };
+    });
+    console.log('a stalled save held a switch for ' + r.ms + ' ms');
+    expect({ out: r.out, activeWs: r.activeWs, heldForTheBound: r.ms >= 2900, withinIt: r.ms < 4500 })
+      .toEqual({ out: 'went', activeWs: 'team2', heldForTheBound: true, withinIt: true });
+  });
+
+  test('the control: with no save waiting, the same switch goes ahead at once', async ({ page }) => {
+    await groupPageWithDrawing(page, false);
+    const r = await page.evaluate(async () => {
+      if (s0SaveInFlight || autoPending) throw new Error('a save is waiting or in flight');
+      const t0 = performance.now();
+      const p = wsSwitch('team2');
+      const out = await Promise.race([p.then(() => 'went'), new Promise(res => setTimeout(() => res('still waiting'), 10000))]);
+      return { out, activeWs, ms: Math.round(performance.now() - t0) };
+    });
+    expect({ out: r.out, activeWs: r.activeWs, heldForTheBound: r.ms >= 2900, withinIt: r.ms < 4500 })
+      .toEqual({ out: 'went', activeWs: 'team2', heldForTheBound: false, withinIt: true });
   });
 });

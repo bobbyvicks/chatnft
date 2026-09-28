@@ -61,9 +61,18 @@ const open = (page, o) => page.evaluate(async (o) => {
   };
   let puts = 0, dels = 0;
   const realPut = dbPut, realDel = dbDel;
-  window.dbPut = (r) => { if (r && String(r.id).indexOf('t_') === 0) puts++; return realPut(r); };
+  /* Every argument passed on: taking only the record dropped the pull's
+     "pull" stamp (Task 10 round 5, measured - nothing asserted here read it). */
+  window.dbPut = (r, ...args) => { if (r && String(r.id).indexOf('t_') === 0) puts++; return realPut(r, ...args); };
   window.dbDel = (id) => { if (String(id).indexOf('t_') === 0) dels++; return realDel(id); };
-  try { await groupCatchUp(); } finally { window.dbPut = realPut; window.dbDel = realDel; }
+  /* A MOVE TO ANOTHER ID IS ONE TRANSACTION, s0ReidTx, since Task 10 round 5:
+     the old id deleted, the record put under the new one and its drawing
+     moved, atomically. It does not go through dbPut or dbDel, so it is
+     counted here as the put of its new id and the delete of its old one -
+     the writes dbPut and dbDel made before. */
+  const realReid = (typeof s0ReidTx === 'function') ? s0ReidTx : null;
+  if (realReid) s0ReidTx = (d, oldId, rec) => { if (rec && String(rec.id).indexOf('t_') === 0) puts++; if (String(oldId).indexOf('t_') === 0) dels++; return realReid(d, oldId, rec); };
+  try { await groupCatchUp(); } finally { window.dbPut = realPut; window.dbDel = realDel; if (realReid) s0ReidTx = realReid; }
   const first = (await dbAll()).find(i => i.kind === 'trait' && i.rowId === 'row-0');
   return { puts, dels, note: document.getElementById('cloudnote').textContent,
     first: first ? { id: first.id, layer: first.layer, order: first.shelfOrder, rarity: first.rarity, rowAt: first.rowAt } : null };

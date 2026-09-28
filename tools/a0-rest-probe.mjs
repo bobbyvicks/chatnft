@@ -31,21 +31,28 @@
    PostgREST refuses before any SQL runs, and insert-a0 sends a value no
    uuid column can hold, and none of the columns a row must have. And they are not
    sent at all if the live capture shows that anon may insert into traits
-   through a permissive policy (anonMayInsert), or cannot say whether it
-   may: then a refusal would rest on the body alone. Nothing is sent for a
+   (anonMayInsert: the INSERT privilege, with RLS off or a permissive
+   policy letting anon in), or cannot say whether it may: then a refusal
+   would rest on the body alone. Nothing is sent for a
    stage other than before or after. The owner's approval names them (Task 7
    Step 5). */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { PROJECT_REF, loadLiveCatalog } from '../test/sql/catalog.mjs';
 
-/* true when the capture shows anon holding INSERT on traits AND a
-   permissive INSERT or ALL policy on traits naming anon or public. A
-   capture with no row for the privilege cannot say, so it throws. */
+/* true when the capture shows anon holding INSERT on traits AND either row
+   level security off on traits (then no policy is consulted, and the
+   privilege alone lets anon in) or a permissive INSERT or ALL policy on
+   traits naming anon or public. A capture with no row for the privilege,
+   or none for RLS on traits, cannot say, so it throws. */
 export function anonMayInsert(rows) {
   const priv = rows.find(r => r.k === 'priv|traits|anon|INSERT');
   if (!priv || typeof priv.has !== 'boolean')
     throw new Error('the capture has no priv|traits|anon|INSERT row, so it cannot say whether anon may insert into traits');
+  const rls = rows.find(r => r.k === 'rls|traits');
+  if (!rls || typeof rls.on !== 'boolean')
+    throw new Error('the capture has no rls|traits row with a boolean on, so it cannot say whether a policy guards traits');
+  if (!rls.on) return priv.has;
   const open = rows.some(r => r.k.startsWith('pol|public.traits|') && r.permissive === 'PERMISSIVE'
     && (r.cmd === 'INSERT' || r.cmd === 'ALL') && /(^|[{,])(anon|public)([,}]|$)/.test(String(r.roles)));
   return priv.has && open;

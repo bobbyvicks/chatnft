@@ -91,8 +91,9 @@ test('the probe keeps no copy of the page\'s values: it reads a rotated key, and
   assert.throws(() => pageSupabase(PAGE.split(JSON.stringify(SB_URL)).join('"https://aaaaaaaaaaaaaaaaaaaa.supabase.co"')), /not the project/);
 });
 
-const CLOSED = [{ k: 'priv|traits|anon|INSERT', has: true },
+const CLOSED = [{ k: 'priv|traits|anon|INSERT', has: true }, { k: 'rls|traits', on: true, forced: false },
   { k: 'pol|public.traits|traits_team', permissive: 'PERMISSIVE', cmd: 'ALL', roles: '{authenticated}' }];
+const RLS_OFF = CLOSED.map(r => r.k === 'rls|traits' ? Object.assign({}, r, { on: false }) : r);
 const OPEN = CLOSED.concat([{ k: 'pol|public.traits|open', permissive: 'PERMISSIVE', cmd: 'INSERT', roles: '{anon}' }]);
 test('the POSTs are refused when the capture shows anon may insert into traits - and allowed when it does not', () => {
   assert.equal(anonMayInsert(CLOSED), false, 'the control: a members-only policy lets no anonymous row in');
@@ -105,9 +106,20 @@ test('the POSTs are refused when the capture shows anon may insert into traits -
   assert.throws(() => anonMayInsert(OPEN.filter(r => r.k !== 'priv|traits|anon|INSERT')), /cannot say/,
     'a capture without the privilege row cannot say no, so it refuses rather than allow');
 });
+/* With row level security off no policy is consulted: the privilege alone
+   lets anon in, whatever the policies say. */
+test('with row level security off on traits, the privilege alone decides - and a capture that cannot say about RLS refuses', () => {
+  assert.equal(anonMayInsert(RLS_OFF), true, 'a members-only policy guards nothing when RLS is off');
+  assert.equal(anonMayInsert(RLS_OFF.map(r => r.k === 'priv|traits|anon|INSERT' ? { k: r.k, has: false } : r)), false,
+    'without the privilege anon is refused anyway');
+  assert.equal(anonMayInsert(CLOSED), false, 'the control: the same capture with RLS on');
+  assert.throws(() => anonMayInsert(CLOSED.filter(r => r.k !== 'rls|traits')), /rls\|traits.*cannot say/);
+  assert.throws(() => anonMayInsert(CLOSED.map(r => r.k === 'rls|traits' ? { k: r.k, on: 'true' } : r)), /rls\|traits.*cannot say/);
+});
 test('today\'s capture holds the rows anonMayInsert reads, and they let the POSTs be sent', () => {
   const rows = loadLiveCatalog().rows;
   assert.equal(rows.filter(r => r.k === 'priv|traits|anon|INSERT').length, 1);
+  assert.deepEqual(rows.filter(r => r.k === 'rls|traits').map(r => r.on), [true], 'one rls|traits row, and RLS is on');
   assert.ok(rows.some(r => r.k.startsWith('pol|public.traits|')), 'the policies on traits are captured under the key anonMayInsert looks for');
   assert.equal(anonMayInsert(rows), false);
 });
@@ -120,6 +132,7 @@ test('the CLI sends nothing for a stage it does not know, or when the capture sh
   assert.equal(await main([], { fetchImpl: fake, captureRows: () => CLOSED, ...quiet }), 2);
   assert.equal(await main(['before'], { fetchImpl: fake, captureRows: () => OPEN, ...quiet }), 2);
   assert.equal(await main(['before'], { fetchImpl: fake, captureRows: () => CLOSED.slice(1), ...quiet }), 2, 'a capture that cannot say');
+  assert.equal(await main(['before'], { fetchImpl: fake, captureRows: () => RLS_OFF, ...quiet }), 2, 'RLS off on traits');
   assert.equal(sent.length, 0, 'nothing was sent');
   /* The control: a known stage and a closed capture do send. Every answer
      here is 400 42703, so the inserts do not read as before: exit 1. */

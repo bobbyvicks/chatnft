@@ -572,15 +572,17 @@ test.describe('stage 0: signing out stops a running pull', () => {
     test('a re-id of ' + what + ', stopped just after its transaction: whole, in the group\'s store only, and told to the group\'s tabs only', async ({ page }) => {
       await seedRepairCase(page, c);
       const r = await reidStopped(page, c, 'after', true);
-      expect({ reached: r.reached, group: r.group, personal: r.personal, told: r.told })
-        .toEqual({ reached: true, group: whole(c), personal: personalUntouched(c), told: [{ db: 'chatnft.ws.team1', moved: [{ from: c.oldId, to: c.newId }] }] });
+      /* (Final adjudication touch: `stopped` asserted, so this test and its
+         control differ by one asserted field.) */
+      expect({ reached: r.reached, stopped: r.stopped, group: r.group, personal: r.personal, told: r.told })
+        .toEqual({ reached: true, stopped: true, group: whole(c), personal: personalUntouched(c), told: [{ db: 'chatnft.ws.team1', moved: [{ from: c.oldId, to: c.newId }] }] });
     });
 
     test('the control: a re-id of ' + what + ', nobody stopping: whole, and told to this project\'s tabs', async ({ page }) => {
       await seedRepairCase(page, c);
       const r = await reidStopped(page, c, 'after', false);
-      expect({ reached: r.reached, group: r.group, personal: r.personal, told: r.told })
-        .toEqual({ reached: true, group: whole(c), personal: personalUntouched(c), told: [{ db: 'chatnft.ws.team1', moved: [{ from: c.oldId, to: c.newId }] }] });
+      expect({ reached: r.reached, stopped: r.stopped, group: r.group, personal: r.personal, told: r.told })
+        .toEqual({ reached: true, stopped: false, group: whole(c), personal: personalUntouched(c), told: [{ db: 'chatnft.ws.team1', moved: [{ from: c.oldId, to: c.newId }] }] });
     });
   }
 
@@ -655,7 +657,10 @@ test.describe('stage 0: signing out stops a running pull', () => {
     await B.waitForFunction(() => typeof cloudPull === 'function' && typeof setTraitStatus === 'function' && typeof setRarity === 'function');
     await page.evaluate((s) => localStorage.setItem('chatnft.session', s), session);
     const standIn = () => {
-      const row = { id: 'row-1', kind: 'trait', name: 'cap', layer: 'hair', status: 'wip', path: 'team1/c1/trait-cap-hats-wip.png', w: 16, h: 16, rarity: 1, updated_at: '2026-09-27T12:00:00+00:00' };
+      /* (Final adjudication touch: the row is window.__row, so a test can have
+         the server hold a new weight for the next pull; and a PATCH can be
+         answered - the weight sent - or held and then failed.) */
+      window.__row = window.__row || { id: 'row-1', kind: 'trait', name: 'cap', layer: 'hair', status: 'wip', path: 'team1/c1/trait-cap-hats-wip.png', w: 16, h: 16, rarity: 1, updated_at: '2026-09-27T12:00:00+00:00' };
       const json = (x, h) => new Response(JSON.stringify(x), { status: 200, headers: Object.assign({ 'Content-Type': 'application/json' }, h || {}) });
       window.__unknown = window.__unknown || [];
       window.fetch = async (u, io) => {
@@ -663,7 +668,12 @@ test.describe('stage 0: signing out stops a running pull', () => {
         if (s.indexOf('/auth/v1/user') >= 0) return json({ id: 'u1' });
         if (s.indexOf('/rest/v1/collections') >= 0) return json([{ id: 'c1', layers: ['hats', 'hair'] }]);
         if (s.indexOf('/rest/v1/traits?select=id') >= 0) return json([], { 'Content-Range': '0-0/1' });
-        if (s.indexOf('/rest/v1/traits?select=*') >= 0) return json(/[?&]offset=0(&|$)/.test(s) ? [row] : [], { 'Content-Range': '0-0/1' });
+        if (s.indexOf('/rest/v1/traits?select=*') >= 0) return json(/[?&]offset=0(&|$)/.test(s) ? [window.__row] : [], { 'Content-Range': '0-0/1' });
+        if (m === 'PATCH' && s.indexOf('/rest/v1/traits?id=eq.row-1') >= 0 && window.__patchMode === 'sent')
+          return json([Object.assign({}, window.__row, { rarity: 5, updated_at: '2026-09-27T13:00:00+00:00' })]);
+        if (m === 'PATCH' && s.indexOf('/rest/v1/traits?id=eq.row-1') >= 0 && window.__patchMode === 'held') {
+          window.__patchHeld = true; await window.__patchGate; throw new TypeError('Failed to fetch');
+        }
         if (s.indexOf('/storage/v1/object/list/') >= 0) return json([]);
         /* The other tab's sends fail, as on a dropped connection, so its change
            stays unsent: its reweight's PATCH, and its approval's upload. */
@@ -700,18 +710,33 @@ test.describe('stage 0: signing out stops a running pull', () => {
       const r = await dbGet('t_cap_hats_wip');
       if (what === 'approve') { window.__uploadFails = true; await setTraitStatus(r, 'approved'); }
       if (what === 'weight') { window.__patchFails = true; await setRarity(r, 5); }
+      if (what === 'weight-sent') { window.__patchMode = 'sent'; await setRarity(r, 5); }
+      if (what === 'weight-late') {
+        window.__patchMode = 'held'; let o; window.__patchGate = new Promise(res => { o = res; }); window.__patchOpen = o;
+        window.__b = setRarity(r, 5);
+        for (let i = 0; i < 300 && !window.__patchHeld; i++) await new Promise(res => setTimeout(res, 10));
+        if (!window.__patchHeld) throw new Error('the other tab\'s PATCH is not held');
+      }
       return (await dbAll()).filter(i => i.kind === 'trait').map(i => i.id + (i.synced ? '' : ' unsent')).sort();
     }, what);
     const read = () => page.evaluate(async () => { activeWs = 'team1'; dbp = null; dbpName = null;
       return (await dbAll()).filter(i => i.kind === 'trait').map(i => i.id + '[' + i.rowId + ' ' + i.status + ' ' + i.rarity + (i.synced ? ' synced' : ' unsent') + ' ' + i.lid + ']').sort(); });
     await page.evaluate(async () => { window.__open(); await window.__pull; window.__restore(); await new Promise(r => setTimeout(r, 300)); });
     const afterThisPull = await read();
+    let afterTheOtherFailed;
+    if (what === 'weight-late') {
+      await B.evaluate(async () => { window.__patchOpen(); await window.__b; await new Promise(r => setTimeout(r, 200)); });
+      afterTheOtherFailed = await read();
+    }
+    /* The server holds the weight the other tab sent, for the next pull. */
+    if (what === 'weight-sent') await page.evaluate(() => { window.__row = Object.assign({}, window.__row, { rarity: 5, updated_at: '2026-09-27T13:00:00+00:00' }); });
     await page.evaluate(async () => { activeWs = 'team1'; cloudTeamId = null; dbp = null; dbpName = null; await cloudPull({ quiet: true }); });
     const afterTheNext = await read();
     const otherUnknown = await B.evaluate(() => window.__unknown.slice());
     await page.evaluate(() => { activeWs = null; });
     await B.close();
-    return { other, afterThisPull, afterTheNext, otherUnknown };
+    return afterTheOtherFailed === undefined ? { other, afterThisPull, afterTheNext, otherUnknown }
+      : { other, afterThisPull, afterTheOtherFailed, afterTheNext, otherUnknown };
   };
 
   test('another tab of the group approves the trait while this tab\'s pull is about to re-id it: nothing lost, nothing duplicated', async ({ page, context }) => {
@@ -726,6 +751,23 @@ test.describe('stage 0: signing out stops a running pull', () => {
       afterThisPull: ['t_cap_hats_wip[row-1 wip 5 unsent l_seed]'], afterTheNext: ['t_cap_hats_wip[row-1 wip 5 unsent l_seed]'] });
   });
 
+  /* Final adjudication touch. THE ORDERINGS THE PLAN CHECK MISSED. It
+     compared rowAt, synced and at, and a reweight's first write changes
+     none of them: the re-id wrote the plan's weight over it (measured). It
+     compares every field a merge compares, and at, now. */
+  test('another tab reweights the trait and its send is answered before this tab\'s re-id: the re-id is skipped, and the next pull settles it at that weight', async ({ page, context }) => {
+    const r = await twoTabs(page, context, 'weight-sent');
+    expect(r).toEqual({ other: ['t_cap_hats_wip'], otherUnknown: [],
+      afterThisPull: ['t_cap_hats_wip[row-1 wip 5 synced l_seed]'], afterTheNext: ['t_cap_hair_wip[row-1 wip 5 synced l_seed]'] });
+  });
+
+  test('another tab reweights the trait and its send, held across this tab\'s re-id, then fails: one record for the row, unsent at that weight', async ({ page, context }) => {
+    const r = await twoTabs(page, context, 'weight-late');
+    expect(r).toEqual({ other: ['t_cap_hats_wip'], otherUnknown: [],
+      afterThisPull: ['t_cap_hats_wip[row-1 wip 5 synced l_seed]'], afterTheOtherFailed: ['t_cap_hats_wip[row-1 wip 5 unsent l_seed]'],
+      afterTheNext: ['t_cap_hats_wip[row-1 wip 5 unsent l_seed]'] });
+  });
+
   test('the control: two tabs, the other doing nothing: the re-id goes ahead', async ({ page, context }) => {
     const r = await twoTabs(page, context, 'none');
     expect(r).toEqual({ other: null, otherUnknown: [],
@@ -737,9 +779,17 @@ test.describe('stage 0: signing out stops a running pull', () => {
      landing after the move wrote the latest strokes under an id no trait
      has (measured). The re-id waits for it now, bounded. The save here
      lands 200 ms into the pull, as a real encode lands while a pull runs;
-     the control lets it land before the pull. Drawings read as
-     id@new|@9, and ' - NO TRAIT' when no trait has their id. */
-  const closingSaveAcrossPull = (page, inFlight) => page.evaluate(async (inFlight) => {
+     the control lets it land before the pull.
+     SUPERSEDED (final adjudication touch): drawings were read as id@new|@9,
+     by their at alone, and the re-id re-stamps any drawing it moves, so a
+     closing save lost with the seed drawing moved in its place still read
+     '@new'. They read by their content now: id@name - 'g.png' the seed,
+     'cap.png' the closing save - and ' - NO TRAIT' when no trait has their
+     id; traits as id[weight]. `inFlightAtReid` is whether the closing save
+     was still in flight when the pull reached the re-id (its sameRepair
+     call). With `reweight`, this tab reweights the trait while the re-id
+     waits for the save (final adjudication touch). */
+  const closingSaveAcrossPull = (page, inFlight, reweight) => page.evaluate(async ([inFlight, reweight]) => {
     s0SeenUid = 'u1'; groupCaughtUp = true;
     activeWs = 'team1'; dbp = null; dbpName = null;
     const d = await db();
@@ -758,6 +808,7 @@ test.describe('stage 0: signing out stops a running pull', () => {
       if (s.indexOf('/rest/v1/traits?select=id') >= 0) return json([], { 'Content-Range': '0-0/1' });
       if (s.indexOf('/rest/v1/traits?select=*') >= 0) return json(/[?&]offset=0(&|$)/.test(s) ? [row] : [], { 'Content-Range': '0-0/1' });
       if (s.indexOf('/storage/v1/object/list/') >= 0) return json([]);
+      if (m === 'PATCH' && s.indexOf('/rest/v1/traits?id=eq.row-1') >= 0) return json([Object.assign({}, row, { rarity: 5, updated_at: '2026-09-27T13:00:00+00:00' })]);
       window.__unknown.push(m + ' ' + s.replace(/^https?:\/\/[^/]+/, ''));
       return new Response('{}', { status: 501, headers: { 'Content-Type': 'application/json' } });
     };
@@ -778,26 +829,104 @@ test.describe('stage 0: signing out stops a running pull', () => {
     const closing = closeEditor();   /* its closing save starts now, keyed to the old id */
     const savingAtClose = !!s0SaveInFlight;
     if (!inFlight) await closing;
+    /* The pull's re-id is reached at its sameRepair call; whether the closing
+       save is still in flight is noted there. The re-id's wait for it is seen
+       at s0SaveOf. */
+    let inFlightAtReid = null, waiting = false;
+    const same = sameRepair, saveOf = s0SaveOf;
+    sameRepair = (a, b) => { if (inFlightAtReid === null) inFlightAtReid = !!s0SaveInFlight; return same(a, b); };
+    s0SaveOf = (k) => { const p = saveOf(k); if (p) waiting = true; return p; };
     activeWs = 'team1'; cloudTeamId = null; dbp = null; dbpName = null;
     const pulling = cloudPull({ quiet: true });
-    if (inFlight) setTimeout(() => release(), 200);
+    if (inFlight && !reweight) setTimeout(() => release(), 200);
+    if (inFlight && reweight) {
+      for (let i = 0; i < 300 && !waiting; i++) await new Promise(r => setTimeout(r, 10));
+      if (!waiting) throw new Error('the re-id never waited for the save');
+      await setRarity(await dbGet('t_cap_hats_wip'), 5);   /* this tab's own change, during the wait */
+      release();
+    }
     await pulling;
     await closing;
     await new Promise(r => setTimeout(r, 300));
+    sameRepair = same; s0SaveOf = saveOf;
     window.fetch = real;
     activeWs = 'team1'; dbp = null; dbpName = null;
     const all = await dbAll();
     activeWs = null;
-    return { key, savingAtClose, group: all.filter(i => i.kind === 'trait' || i.kind === 'autosave')
-      .map(i => i.kind === 'autosave' ? i.id + '@' + (i.at === 9 ? '9' : 'new') + (all.some(t => t.kind === 'trait' && t.id === i.traitId) ? '' : ' - NO TRAIT') : i.id).sort() };
-  }, inFlight);
+    return { key, savingAtClose, inFlightAtReid, group: all.filter(i => i.kind === 'trait' || i.kind === 'autosave')
+      .map(i => i.kind === 'autosave' ? i.id + '@' + i.name + (all.some(t => t.kind === 'trait' && t.id === i.traitId) ? '' : ' - NO TRAIT') : i.id + '[' + i.rarity + ']').sort() };
+  }, [inFlight, !!reweight]);
 
   test('a closing save of the trait being re-id\'d, still in flight when the pull moves it: the latest drawing goes with it', async ({ page }) => {
-    expect(await closingSaveAcrossPull(page, true)).toEqual({ key: 'autosave.t_cap_hats_wip', savingAtClose: true, group: ['autosave.t_cap_hair_wip@new', 't_cap_hair_wip'] });
+    expect(await closingSaveAcrossPull(page, true)).toEqual({ key: 'autosave.t_cap_hats_wip', savingAtClose: true, inFlightAtReid: true, group: ['autosave.t_cap_hair_wip@cap.png', 't_cap_hair_wip[1]'] });
   });
 
   test('the control: the same closing save, landed before the pull: the drawing goes with the trait', async ({ page }) => {
-    expect(await closingSaveAcrossPull(page, false)).toEqual({ key: 'autosave.t_cap_hats_wip', savingAtClose: true, group: ['autosave.t_cap_hair_wip@new', 't_cap_hair_wip'] });
+    expect(await closingSaveAcrossPull(page, false)).toEqual({ key: 'autosave.t_cap_hats_wip', savingAtClose: true, inFlightAtReid: false, group: ['autosave.t_cap_hair_wip@cap.png', 't_cap_hair_wip[1]'] });
+  });
+
+  /* Final adjudication touch. THIS TAB'S OWN CHANGE DURING THE WAIT. The re-id
+     waits for the closing save after the loop asked touchedSince, and did not
+     ask again: a reweight made here during the wait was written over
+     (measured). It asks again after the wait now. (The plan check - every
+     field a merge compares - sees this reweight too.) Its control is the
+     in-flight test above: the same wait, no reweight, the re-id goes ahead. */
+  test('this tab reweights the trait while the re-id waits for its closing save: the weight survives', async ({ page }) => {
+    expect(await closingSaveAcrossPull(page, true, true)).toEqual({ key: 'autosave.t_cap_hats_wip', savingAtClose: true, inFlightAtReid: true, group: ['autosave.t_cap_hats_wip@cap.png', 't_cap_hats_wip[5]'] });
+  });
+
+  /* Final adjudication touch. WHOSE COPY, ON THE PULL'S OTHER WRITES. C1
+     passed the uid taken with the ask to the same-id repair and to a
+     download too, and no spec failed without it. A sign-out right after the
+     write is called - before its stamp is taken in its get's handler - must
+     leave the copy its puller's. */
+  const pullWriteSignedOut = (page, which) => page.evaluate(async (which) => {
+    activeWs = 'team1'; dbp = null; dbpName = null; groupCaughtUp = true;
+    if (which === 'repair') {
+      const d = await db();
+      await new Promise((res, rej) => { const t = d.transaction('items', 'readwrite');
+        t.objectStore('items').put({ id: 't_cap_hats_wip', kind: 'trait', name: 'cap', layer: 'hats', status: 'wip', w: 16, h: 16, at: 1, rarity: 1, blob: new Blob([new Uint8Array(16)]),
+          synced: true, rowId: 'row-1', rowAt: '2026-01-01T00:00:00+00:00', path: 'team1/c1/trait-cap-hats-wip.png', lid: 'l_seed', by: 'u1', wk: 'pull' });
+        t.oncomplete = () => res(); t.onerror = () => rej(t.error); });
+    }
+    /* repair: the same trait, reweighted on the server (same id); download: a trait new here. */
+    const row = which === 'repair'
+      ? { id: 'row-1', kind: 'trait', name: 'cap', layer: 'hats', status: 'wip', path: 'team1/c1/trait-cap-hats-wip.png', w: 16, h: 16, rarity: 4, updated_at: '2026-09-27T12:00:00+00:00' }
+      : { id: 'row-2', kind: 'trait', name: 'hat', layer: 'hats', status: 'wip', path: 'team1/c1/trait-hat-hats-wip.png', w: 16, h: 16, rarity: 1, updated_at: '2026-09-27T12:00:00+00:00' };
+    const id = which === 'repair' ? 't_cap_hats_wip' : 't_hat_hats_wip';
+    const json = (x, h) => new Response(JSON.stringify(x), { status: 200, headers: Object.assign({ 'Content-Type': 'application/json' }, h || {}) });
+    const real = window.fetch;
+    window.fetch = async (u, io) => {
+      const s = String(u), m = (io && io.method) || 'GET';
+      if (s.indexOf('/auth/v1/user') >= 0) return json({ id: 'u1' });
+      if (s.indexOf('/rest/v1/collections') >= 0) return json([{ id: 'c1', layers: ['hats'] }]);
+      if (s.indexOf('/rest/v1/traits?select=id') >= 0) return json([], { 'Content-Range': '0-0/1' });
+      if (s.indexOf('/rest/v1/traits?select=*') >= 0) return json(/[?&]offset=0(&|$)/.test(s) ? [row] : [], { 'Content-Range': '0-0/1' });
+      if (s.indexOf('/storage/v1/object/list/') >= 0) return json([]);
+      if (s.indexOf('/storage/v1/object/') >= 0 && m === 'GET') return new Response(new Blob([new Uint8Array([1, 2, 3])]), { status: 200 });
+      window.__unknown.push(m + ' ' + s.replace(/^https?:\/\/[^/]+/, ''));
+      return new Response('{}', { status: 501, headers: { 'Content-Type': 'application/json' } });
+    };
+    let signedOutAt = false;
+    const put = dbPut;
+    dbPut = (rec, wk, uid) => { const p = put(rec, wk, uid); if (!signedOutAt && wk === 'pull' && rec && rec.id === id) { signedOutAt = true; cloudSignOut(); } return p; };
+    const gen0 = wsGen;
+    activeWs = 'team1'; cloudTeamId = null; dbp = null; dbpName = null;
+    try { await cloudPull({ quiet: true }); } catch (_) {}
+    await new Promise(r => setTimeout(r, 300));
+    dbPut = put; window.fetch = real;
+    activeWs = 'team1'; dbp = null; dbpName = null;
+    const x = await dbGet(id);
+    activeWs = null;
+    return { signedOutAtTheWrite: signedOutAt, stopped: wsGen !== gen0, by: x ? (x.by === undefined ? '(none)' : x.by) : '(no record)', wk: x && x.wk };
+  }, which);
+
+  test('a pull\'s repair of a synced trait under its own id, a sign-out at the write: the copy is still its puller\'s', async ({ page }) => {
+    expect(await pullWriteSignedOut(page, 'repair')).toEqual({ signedOutAtTheWrite: true, stopped: true, by: 'u1', wk: 'pull' });
+  });
+
+  test('a pull\'s download of a trait new here, a sign-out at the write: the copy is still its puller\'s', async ({ page }) => {
+    expect(await pullWriteSignedOut(page, 'download')).toEqual({ signedOutAtTheWrite: true, stopped: true, by: 'u1', wk: 'pull' });
   });
 });
 
@@ -1404,5 +1533,202 @@ test.describe('stage 0: while sign-out or a switch waits for the drawing\'s save
     const after = await afterTheWait(page);
     expect({ inFlight: r.inFlight, got: r.got, storedAfterIt: r.storedAfterIt, session: after.session, authed: after.authed })
       .toEqual({ inFlight: true, got: 'not-a-real-token-renewed', storedAfterIt: 'not-a-real-token-renewed', session: true, authed: true });
+  });
+
+  /* Final adjudication touch. A WRITE TELLS ITS OWN STORE. touch() notes the
+     store a write was for as it happens; the tell goes 150 ms later, and
+     named whatever store was current by then - so a write followed at once
+     by a switch told the store switched to. No spec failed without the note
+     (re-review of the adjudication fix). */
+  test('a write, then a switch within the tell\'s 150 ms: the write is told to its own store', async ({ page }) => {
+    await groupPageWithDrawing(page, false);
+    const r = await page.evaluate(async () => {
+      if (s0SaveInFlight || autoPending) throw new Error('a save is waiting or in flight');
+      for (let i = 0; i < 100 && tabTellTimer; i++) await new Promise(res => setTimeout(res, 10));
+      if (tabTellTimer) throw new Error('a tell from the setup is still pending');
+      const told = [];
+      const post = tabChan.postMessage.bind(tabChan);
+      tabChan.postMessage = (m) => { told.push(JSON.parse(JSON.stringify(m))); return post(m); };
+      const from = activeWs;
+      await dbPut({ id: 't_note_hats_wip', kind: 'trait', name: 'note', layer: 'hats', status: 'wip', w: 16, h: 16, at: 1, blob: new Blob([new Uint8Array(4)]) });
+      const t0 = performance.now();
+      const switching = wsSwitch(null);
+      const switchedWithin = activeWs === null && performance.now() - t0 < 150;
+      await switching;
+      await new Promise(res => setTimeout(res, 400));
+      tabChan.postMessage = post;
+      return { from, switchedWithin, told };
+    });
+    expect(r).toEqual({ from: 'team1', switchedWithin: true, told: [{ db: 'chatnft.ws.team1' }] });
+  });
+});
+
+/* Final adjudication touch. A RENEWAL OR A REFUSAL THAT ANSWERS AFTER THE
+   STORED SESSION CHANGED. Its own describe: both pages open with nothing
+   stored, so neither's start asks anything before its stand-in is in place.
+   The stand-in names each token, holds a renewal on __renewGate and the
+   account check of u1's token on __userGate when asked to, and signs u2 in
+   on the card. */
+const authStandIn = () => {
+  window.__unknown = []; window.__toasts = []; window.__renewAsked = 0; window.__userAsked = 0;
+  const shown = window.toast; window.toast = (m) => { window.__toasts.push(String(m)); try { shown(m); } catch (_) {} };
+  let open; window.__renewGate = new Promise(r => { open = r; }); window.__renewOpen = open;
+  const json = (o, x, st) => new Response(JSON.stringify(o), { status: st || 200, headers: Object.assign({ 'Content-Type': 'application/json' }, x || {}) });
+  window.fetch = async (u, io) => {
+    const s = String(u), m = (io && io.method) || 'GET';
+    const auth = (io && io.headers && (io.headers.Authorization || io.headers.authorization)) || '';
+    if (s.indexOf('/auth/v1/token?grant_type=refresh_token') >= 0 && m === 'POST') {
+      window.__renewAsked++; await window.__renewGate;
+      if (window.__renewStatus && window.__renewStatus !== 200) return json({ error: 'invalid_grant', error_description: 'Invalid Refresh Token' }, null, window.__renewStatus);
+      return json({ access_token: window.__renewAT, refresh_token: window.__renewRT, expires_at: Math.floor(Date.now() / 1000) + 3600, user: { id: 'u1' } });
+    }
+    if (s.indexOf('/auth/v1/token?grant_type=password') >= 0 && m === 'POST')
+      return json({ access_token: 'tok-u2', refresh_token: 'rt-u2', expires_in: 3600, user: { id: 'u2' } });
+    if (s.indexOf('/auth/v1/user') >= 0) {
+      if (window.__userGate && auth.indexOf('tok-u1') >= 0) { window.__userAsked++; const st = await window.__userGate; if (st !== 200) return json({ msg: 'invalid JWT' }, null, st); }
+      return json({ id: auth.indexOf('tok-u2') >= 0 ? 'u2' : 'u1' });
+    }
+    if (s.indexOf('/rpc/my_team') >= 0) return json('me');
+    if (s.indexOf('/rpc/team_member_names') >= 0) return json([]);
+    if (s.indexOf('/rest/v1/teams') >= 0) return json([{ id: 'me', name: 'Me', personal: true }]);
+    if (s.indexOf('/rest/v1/collections') >= 0 && m === 'GET') return json([{ id: 'c1', layers: ['hats'] }]);
+    if (s.indexOf('/rest/v1/traits?select=') >= 0 && m === 'GET') return json([], { 'Content-Range': '*/0' });
+    if (s.indexOf('/storage/v1/object/list/') >= 0) return json([]);
+    window.__unknown.push(m + ' ' + s.replace(/^https?:\/\/[^/]+/, ''));
+    return json({ code: 'UNROUTED' }, null, 501);
+  };
+};
+/* Where the page ends: signed in as whom, what is stored, and whether it
+   shows itself offline or signed out. */
+const authState = () => {
+  let st = null; try { st = JSON.parse(localStorage.getItem('chatnft.session') || 'null'); } catch (_) {}
+  return { authed, uid: s0SeenUid, stored: st && st.access_token, offline: $('cloudnote').textContent === CLOUD_UNREACHABLE,
+    pushShown: !$('cloudpush').hidden, gateShown: !$('signin').hidden };
+};
+/* One tab: u1 signed in; then the late answer - a renewal (`what` 'renew')
+   or u1's account check ('user') held - and, with `newSignIn`, a sign-out
+   and u2 signing in on the card while it is held; then it answers
+   `status`. */
+const lateAnswer = (page, what, status, newSignIn) => page.evaluate(async ([what, status, newSignIn, authStandInSrc, authStateSrc]) => {
+  (new Function('return (' + authStandInSrc + ')'))()();
+  const state = new Function('return (' + authStateSrc + ')')();
+  window.__renewAT = 'tok-u1-renewed'; window.__renewRT = 'rt-u1-renewed'; window.__renewStatus = status;
+  activeWs = null; wsSave(null);
+  localStorage.setItem('chatnft.session', JSON.stringify({ access_token: 'tok-u1', refresh_token: 'rt-u1', expires_at: Math.floor(Date.now() / 1000) + 3600, user: { id: 'u1' } }));
+  await cloudRender();
+  const first = { authed, uid: s0SeenUid };
+  let pending;
+  if (what === 'renew') {
+    /* Within a minute of expiry: the next request renews, and it is held. */
+    localStorage.setItem('chatnft.session', JSON.stringify({ access_token: 'tok-u1', refresh_token: 'rt-u1', expires_at: Math.floor(Date.now() / 1000) + 30, user: { id: 'u1' } }));
+    pending = sbToken();
+    for (let i = 0; i < 100 && !window.__renewAsked; i++) await new Promise(r => setTimeout(r, 10));
+  } else {
+    /* The account check inside a start of the page (cloudRender), as the
+       account panel's toggle or a reload makes it: what it answers is what
+       the page then shows. */
+    let open; window.__userGate = new Promise(r => { open = r; }); window.__userOpen = open;
+    pending = cloudRender();
+    for (let i = 0; i < 100 && !window.__userAsked; i++) await new Promise(r => setTimeout(r, 10));
+  }
+  const held = what === 'renew' ? window.__renewAsked === 1 : window.__userAsked === 1;
+  let afterSignIn = null;
+  if (newSignIn) {
+    cloudSignOut();
+    $('gateuser').value = 'someone2@example.invalid'; $('gatepass').value = 'not-a-real-pass';
+    await gateSignIn();
+    afterSignIn = { authed, uid: s0SeenUid };
+  }
+  if (what === 'renew') window.__renewOpen(); else window.__userOpen(status);
+  let got; try { got = await pending; } catch (_) {}
+  await new Promise(r => setTimeout(r, 300));
+  /* got: the renewal's answer, or whom the start that held the account check
+     rendered (null when it rendered nobody). */
+  return { first, held, afterSignIn, got: what === 'renew' ? got : (got && got.id ? got.id : null), end: state(), signedOutToast: window.__toasts.some(t => /signed out on this device/.test(t)), unknown: window.__unknown.slice() };
+}, [what, status, !!newSignIn, authStandIn.toString(), authState.toString()]);
+
+test.describe('stage 0: a renewal or a refusal that answers after the session changed', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/index.html');
+    await page.waitForFunction(() => typeof cloudRender === 'function' && typeof sbToken === 'function' && typeof gateSignIn === 'function' && typeof s0Stamp === 'function');
+  });
+  test.afterEach(async ({ page }) => {
+    await page.evaluate(() => { activeWs = null; localStorage.removeItem('chatnft.session'); localStorage.removeItem('pb.uids'); });
+  });
+
+  /* ANOTHER TAB OF THE SAME ACCOUNT RENEWED FIRST. Two tabs restored together
+     with the stored token in its last minute each renew it; one answer lands
+     first and is stored. sbToken (adjudication A) dropped the second tab's
+     answer and returned nothing, so that tab said "Cannot reach the server
+     just now" and hid Save to cloud over a valid session (measured). It now
+     answers the stored session's token when it is the same account's. */
+  test('two tabs of one account renew together: the second ends signed in, not offline', async ({ page, context }) => {
+    const B = await context.newPage();
+    await B.route(/\.supabase\.co\//, (route) => {
+      pastTheStandIns.push(route.request().method() + ' ' + route.request().url().replace(/^https?:\/\/[^/]+/, ''));
+      return route.abort();
+    });
+    await B.goto('/index.html');
+    await B.waitForFunction(() => typeof cloudRender === 'function' && typeof sbToken === 'function');
+    for (const [p, at, rt] of [[page, 'tok-A', 'rt-1'], [B, 'tok-B', 'rt-1b']])
+      await p.evaluate(([src, at, rt]) => { (new Function('return (' + src + ')'))()(); window.__renewAT = at; window.__renewRT = rt; activeWs = null; }, [authStandIn.toString(), at, rt]);
+    await page.evaluate(() => { wsSave(null);
+      localStorage.setItem('chatnft.session', JSON.stringify({ access_token: 'tok-0', refresh_token: 'rt-0', expires_at: Math.floor(Date.now() / 1000) + 30, user: { id: 'u1' } })); });
+    /* Both start at once, as two restored tabs do; this one's renewal answers first. */
+    await page.evaluate(() => { window.__render = cloudRender().then(u => u ? u.id : null, e => 'threw ' + e); });
+    await B.evaluate(() => { window.__render = cloudRender().then(u => u ? u.id : null, e => 'threw ' + e); });
+    await page.waitForFunction(() => window.__renewAsked === 1, null, { timeout: 5000 });
+    await B.waitForFunction(() => window.__renewAsked === 1, null, { timeout: 5000 });
+    const first = await page.evaluate(async () => { window.__renewOpen(); return await window.__render; });
+    const second = await B.evaluate(async () => { window.__renewOpen(); return await window.__render; });
+    await B.waitForTimeout(300);
+    const end = await B.evaluate(new Function('return (' + authState.toString() + ')')());
+    const unknown = await B.evaluate(() => window.__unknown.slice());
+    await B.close();
+    expect({ first, second, end, unknown })
+      .toEqual({ first: 'u1', second: 'u1', end: { authed: true, uid: 'u1', stored: 'tok-A', offline: false, pushShown: true, gateShown: false }, unknown: [] });
+  });
+
+  /* And another account's session stored meanwhile is never answered for this
+     one: the leaving account's renewal, answering after u2 signed in, is
+     dropped - nothing stored over u2's, and u2's token not handed to u1's
+     request. */
+  test('the leaving account\'s renewal answering after another account signed in: dropped, and the new account stays', async ({ page }) => {
+    const r = await lateAnswer(page, 'renew', 200, true);
+    expect({ held: r.held, afterSignIn: r.afterSignIn, got: r.got === undefined ? '(undefined)' : r.got, end: r.end, unknown: r.unknown })
+      .toEqual({ held: true, afterSignIn: { authed: true, uid: 'u2' }, got: null,
+        end: { authed: true, uid: 'u2', stored: 'tok-u2', offline: false, pushShown: true, gateShown: false }, unknown: [] });
+  });
+
+  /* A REFUSAL CLEARS ONLY THE SESSION IT REFUSED (the mirror of A). A late
+     400 on the leaving account's renewal, or a late 401 on its account
+     check, cleared whatever was stored - after a newer sign-in, the new
+     account's session - and signed that account out (measured). */
+  test('a late refusal of the leaving account\'s renewal, after a new sign-in: the new account stays signed in', async ({ page }) => {
+    const r = await lateAnswer(page, 'renew', 400, true);
+    expect({ first: r.first, held: r.held, afterSignIn: r.afterSignIn, end: r.end, signedOutToast: r.signedOutToast, unknown: r.unknown })
+      .toEqual({ first: { authed: true, uid: 'u1' }, held: true, afterSignIn: { authed: true, uid: 'u2' },
+        end: { authed: true, uid: 'u2', stored: 'tok-u2', offline: false, pushShown: true, gateShown: false }, signedOutToast: false, unknown: [] });
+  });
+
+  test('the control: the same refused renewal, with no new sign-in, still signs out', async ({ page }) => {
+    const r = await lateAnswer(page, 'renew', 400, false);
+    expect({ held: r.held, end: { authed: r.end.authed, stored: r.end.stored, gateShown: r.end.gateShown }, signedOutToast: r.signedOutToast, unknown: r.unknown })
+      .toEqual({ held: true, end: { authed: false, stored: null, gateShown: true }, signedOutToast: true, unknown: [] });
+  });
+
+  test('a late refusal of the leaving account\'s account check, after a new sign-in: the new account stays signed in', async ({ page }) => {
+    const r = await lateAnswer(page, 'user', 401, true);
+    /* got: the start that held the check renders the account stored now (it
+       asks again), rather than "could not ask". */
+    expect({ first: r.first, held: r.held, afterSignIn: r.afterSignIn, got: r.got, end: r.end, signedOutToast: r.signedOutToast, unknown: r.unknown })
+      .toEqual({ first: { authed: true, uid: 'u1' }, held: true, afterSignIn: { authed: true, uid: 'u2' }, got: 'u2',
+        end: { authed: true, uid: 'u2', stored: 'tok-u2', offline: false, pushShown: true, gateShown: false }, signedOutToast: false, unknown: [] });
+  });
+
+  test('the control: the same refused account check, with no new sign-in, still signs out', async ({ page }) => {
+    const r = await lateAnswer(page, 'user', 401, false);
+    expect({ held: r.held, end: { authed: r.end.authed, stored: r.end.stored, gateShown: r.end.gateShown }, signedOutToast: r.signedOutToast, unknown: r.unknown })
+      .toEqual({ held: true, end: { authed: false, stored: null, gateShown: true }, signedOutToast: true, unknown: [] });
   });
 });

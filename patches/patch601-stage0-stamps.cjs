@@ -119,7 +119,18 @@
      another tab's change is not overwritten or duplicated.
    - C3: the re-id first waits (bounded) for a save of that trait's drawing
      in flight, whose key was fixed at the old id.
-   draftsFollow's own behaviour is unchanged but for its tell's store. */
+   draftsFollow's own behaviour is unchanged but for its tell's store.
+
+   Final adjudication touch (re-review of the adjudication fix, measured).
+   - A's own regression: another tab of the same account renewing first
+     left this tab falsely offline. sbToken still never stores over a
+     session that changed in flight, but answers the stored session's token
+     when it is the same account's (s0SessionUid) and fresh.
+   - A's mirror: a refusal clears the stored session only if it is still the
+     one refused - sbToken by its refresh token, sbAuthState by the access
+     token sent (asking once more of the session stored now otherwise).
+   - C2's plan check compares sameRepair's fields and at.
+   - The re-id asks touchedSince again after waiting for the save. */
 const s0 = require('./stage0-common.cjs');
 const doc = s0.start([['function s0CloseAll(name){', 'patch600 is not applied']]);
 
@@ -150,8 +161,13 @@ doc.swap([
   '   from the sign-in link carries before anything has been verified. */',
   'function s0Uid(){',
   '  if(s0SeenUid) return s0SeenUid;',
+  '  return s0SessionUid(sbLoadSession());',
+  '}',
+  '/* Whose a session is: its user, else its access token\'s subject. Also how',
+  '   sbToken tells whether a session stored meanwhile is the same account\'s',
+  '   (final adjudication touch). */',
+  'function s0SessionUid(s){',
   '  try{',
-  '    const s=sbLoadSession();',
   '    if(s&&s.user&&s.user.id) return String(s.user.id);',
   '    const p=(s&&s.access_token) ? String(s.access_token).split(".") : [];',
   '    if(p.length===3){',
@@ -279,15 +295,48 @@ doc.swap([
   '         account\'s session again, and the sign-out\'s closing cloudRender',
   '         signed the page back in as that account while it said "Signed out"',
   '         - or, with nothing waiting, the next load did (both measured). So',
-  '         the stored session is read again just before: gone, or another',
-  '         (a different refresh_token - someone else signed in, or another',
-  '         tab renewed it), and this answer is dropped. */',
+  '         the stored session is read again just before, and this answer is',
+  '         never stored over one that changed while it was in flight.',
+  '         WHAT IS ANSWERED THEN DEPENDS ON WHAT IS STORED (final adjudication',
+  '         touch). Gone - signed out - or another account\'s: null. The same',
+  '         account\'s, renewed first by another tab: its access token, while',
+  '         it is outside its last minute. Answered null there too, this tab',
+  '         said "Cannot reach the server" and hid Save to cloud over a valid',
+  '         session (measured, two tabs restored together). */',
   '      const still=sbLoadSession();',
-  '      if(!still || still.refresh_token!==s.refresh_token) return null;',
+  '      if(!still) return null;',
+  '      if(still.refresh_token!==s.refresh_token){',
+  '        const same=!!s0SessionUid(still) && s0SessionUid(still)===s0SessionUid(s);',
+  '        return (same && still.access_token && still.expires_at && Date.now() < (still.expires_at*1000 - 60000)) ? still.access_token : null;',
+  '      }',
   '      sbSaveSession({access_token:j.access_token, refresh_token:j.refresh_token,',
   '        expires_at:j.expires_at, user:j.user||s.user});',
   '      return j.access_token;',
 ]);
+/* Final adjudication touch: a refusal clears only the session it refused. */
+doc.swap('        if(r.status===400||r.status===401||r.status===403){ sbSaveSession(null); sessionEnded(); }', [
+  '        /* STAGE 0 (final adjudication touch): ONLY THE SESSION REFUSED. A',
+  '           refusal of an older renewal arriving after a newer sign-in cleared',
+  '           the new session and signed its account out (measured). So only',
+  '           while the stored session still carries the refresh token refused. */',
+  '        if(r.status===400||r.status===401||r.status===403){',
+  '          const now=sbLoadSession();',
+  '          if(now && now.refresh_token===s.refresh_token){ sbSaveSession(null); sessionEnded(); }',
+  '        }',
+]);
+doc.swap('    if(r.status===401||r.status===403){ sbSaveSession(null); sessionEnded(); return {state:"out"}; }', [
+  '    /* STAGE 0 (final adjudication touch): ONLY THE SESSION REFUSED, as in',
+  '       sbToken - a late refusal of the token sent, after a newer sign-in, signed',
+  '       the new account out. If what is stored now is not the token that was',
+  '       refused, the answer is about a session that has gone: the question is',
+  '       asked again, once, of the session stored now. */',
+  '    if(r.status===401||r.status===403){',
+  '      const now=sbLoadSession();',
+  '      if(now && now.access_token===t){ sbSaveSession(null); sessionEnded(); return {state:"out"}; }',
+  '      return again ? {state:"unknown"} : sbAuthState(true);',
+  '    }',
+]);
+doc.swap('async function sbAuthState(){', 'async function sbAuthState(again){');
 
 /* Fix round 5: the pull's re-id, as one transaction (used in cloudPull's
    repair loop, below). */
@@ -314,8 +363,12 @@ doc.swap('let shelfMoveBusy=false;', [
   '   its ask, for the stamp (adjudication C1): read in the get\'s handler,',
   '   after a sign-out, it was nobody\'s (measured). Answers null when it did',
   '   nothing, else whether a drawing moved. */',
+  '/* (Final adjudication touch: every field a merge compares - sameRepair\'s -',
+  '   and at. rowAt, synced and at alone missed another tab\'s reweight, which',
+  '   changes none of them, and the re-id wrote the plan\'s weight over it',
+  '   (measured).) */',
   'function s0SameAsPlanned(cur,was){',
-  '  return !!cur && !!was && (cur.rowAt||null)===(was.rowAt||null) && !!cur.synced===!!was.synced && (cur.at||0)===(was.at||0);',
+  '  return !!cur && !!was && sameRepair(cur,was) && (cur.at||0)===(was.at||0);',
   '}',
   'function s0ReidTx(d,oldId,rec,was,by){',
   '  return new Promise((res,rej)=>{',
@@ -640,6 +693,10 @@ doc.swap([
   '        { const saving=s0SaveOf(draftKey(rp.oldId)); if(saving) await saving; }',
   '        const d=await db();',
   '        if(!wsStill(gen)) break;',
+  '        /* STAGE 0 (final adjudication touch): and asked again whether this',
+  '           tab changed the record, now that the loop\'s own ask is a wait old:',
+  '           a reweight during the wait for the save was written over. */',
+  '        if(touchedSince(rp.oldId,seqAt)){ skipped++; continue; }',
   '        const by=s0Uid();',
   '        const moved=await s0ReidTx(d,rp.oldId,rp.record,rp.was,by);',
   '        if(moved===null){ skipped++; continue; }',
@@ -773,7 +830,7 @@ doc.finish(({ code, must }) => {
      of this trait in flight first (C3); the uid taken with the ask (C1); a
      plan another tab overtook skipped (C2); the move told to its own store
      before the second ask (B). */
-  if (!/if\(rp\.oldId!==rp\.record\.id\)\{\s*\{ const saving=s0SaveOf\(draftKey\(rp\.oldId\)\); if\(saving\) await saving; \}\s*const d=await db\(\);\s*if\(!wsStill\(gen\)\) break;\s*const by=s0Uid\(\);\s*const moved=await s0ReidTx\(d,rp\.oldId,rp\.record,rp\.was,by\);\s*if\(moved===null\)\{ skipped\+\+; continue; \}\s*repaired\+\+;\s*tabMoves\.push\(\{from:rp\.oldId, to:rp\.record\.id, db:d\.name\}\); tabsTell\(\);\s*if\(!wsStill\(gen\)\) break;\s*touch\(rp\.oldId\); touch\(rp\.record\.id\);\s*if\(openRec&&openRec\.id===rp\.oldId\)\{ try\{ await editorFollows\(openRec,rp\.record\.id\); \}catch\(_\)\{\} \}\s*continue;\s*\}\s*await dbPut\(rp\.record,"pull",s0Uid\(\)\);\s*repaired\+\+;/.test(loop))
+  if (!/if\(rp\.oldId!==rp\.record\.id\)\{\s*\{ const saving=s0SaveOf\(draftKey\(rp\.oldId\)\); if\(saving\) await saving; \}\s*const d=await db\(\);\s*if\(!wsStill\(gen\)\) break;\s*if\(touchedSince\(rp\.oldId,seqAt\)\)\{ skipped\+\+; continue; \}\s*const by=s0Uid\(\);\s*const moved=await s0ReidTx\(d,rp\.oldId,rp\.record,rp\.was,by\);\s*if\(moved===null\)\{ skipped\+\+; continue; \}\s*repaired\+\+;\s*tabMoves\.push\(\{from:rp\.oldId, to:rp\.record\.id, db:d\.name\}\); tabsTell\(\);\s*if\(!wsStill\(gen\)\) break;\s*touch\(rp\.oldId\); touch\(rp\.record\.id\);\s*if\(openRec&&openRec\.id===rp\.oldId\)\{ try\{ await editorFollows\(openRec,rp\.record\.id\); \}catch\(_\)\{\} \}\s*continue;\s*\}\s*await dbPut\(rp\.record,"pull",s0Uid\(\)\);\s*repaired\+\+;/.test(loop))
     throw new Error('a re-id does not wait for its trait\'s save, ask, take the uid and create its transaction in one run, skip an overtaken plan, and tell its own store');
   if (/draftsFollow\(|dbDel\(/.test(loop)) throw new Error('the repair still moves drafts or removes ids outside its transaction');
   const firstAsk = loop.indexOf('if(!wsStill(gen)) break;'), reid = loop.indexOf('if(rp.oldId!==rp.record.id){');
@@ -785,7 +842,8 @@ doc.finish(({ code, must }) => {
   if (!/let moved=null;\s*const oq=s\.get\(oldId\);\s*oq\.onsuccess=\(\)=>\{\s*if\(!s0SameAsPlanned\(oq\.result,was\)\) return;\s*moved=false;\s*s\.delete\(oldId\);/.test(tx))
     throw new Error('s0ReidTx writes without first checking the old id is still what the plan read');
   must('function s0SameAsPlanned(cur,was){', 'the plan check is missing');
-  must('  return !!cur && !!was && (cur.rowAt||null)===(was.rowAt||null) && !!cur.synced===!!was.synced && (cur.at||0)===(was.at||0);', 'the plan check does not compare rowAt, synced and at');
+  /* (Final adjudication touch supersedes the rowAt/synced/at check.) */
+  must('  return !!cur && !!was && sameRepair(cur,was) && (cur.at||0)===(was.at||0);', 'the plan check does not compare every field a merge compares, and at');
   /* Adjudication C3: saves tracked by key, and a bounded wait for one. */
   must('  if(key) s0SavesByKey.set(key,p);', 'a save in flight is not recorded by its draft key');
   must('  },key);', 'autosaveNow does not say which draft key its save writes');
@@ -796,8 +854,19 @@ doc.finish(({ code, must }) => {
   if (/postMessage\([^)]*wsDbName\(\)/.test(code)) throw new Error('a tell still names the store current when it is sent');
   /* Adjudication A: a renewal stored only over the session it renewed. */
   const tok = body('async function sbToken(){');
-  if (!/const still=sbLoadSession\(\);\s*if\(!still \|\| still\.refresh_token!==s\.refresh_token\) return null;\s*sbSaveSession\(\{access_token:j\.access_token/.test(tok))
-    throw new Error('a renewed session is stored without checking it is still the one renewed');
+  /* (Final adjudication touch: the same account's session, renewed first by
+     another tab, is answered rather than dropped.) */
+  if (!/const still=sbLoadSession\(\);\s*if\(!still\) return null;\s*if\(still\.refresh_token!==s\.refresh_token\)\{\s*const same=!!s0SessionUid\(still\) && s0SessionUid\(still\)===s0SessionUid\(s\);\s*return \(same && still\.access_token && still\.expires_at && Date\.now\(\) < \(still\.expires_at\*1000 - 60000\)\) \? still\.access_token : null;\s*\}\s*sbSaveSession\(\{access_token:j\.access_token/.test(tok))
+    throw new Error('a renewed session is stored without checking it is still the one renewed, or the same account\'s renewal by another tab is not answered');
+  /* Final adjudication touch: a refusal clears only the session it refused. */
+  if (!/if\(r\.status===400\|\|r\.status===401\|\|r\.status===403\)\{\s*const now=sbLoadSession\(\);\s*if\(now && now\.refresh_token===s\.refresh_token\)\{ sbSaveSession\(null\); sessionEnded\(\); \}\s*\}/.test(tok))
+    throw new Error('a refused renewal clears a session it did not refuse');
+  const auth = body('async function sbAuthState(again){');
+  if (!/if\(r\.status===401\|\|r\.status===403\)\{\s*const now=sbLoadSession\(\);\s*if\(now && now\.access_token===t\)\{ sbSaveSession\(null\); sessionEnded\(\); return \{state:"out"\}; \}\s*return again \? \{state:"unknown"\} : sbAuthState\(true\);\s*\}/.test(auth))
+    throw new Error('a refused /auth/v1/user clears a session it did not refuse');
+  if (/sbSaveSession\(null\); sessionEnded\(\);/.test(auth.replace('if(now && now.access_token===t){ sbSaveSession(null); sessionEnded();', '')))
+    throw new Error('sbAuthState clears a session somewhere without checking it is the one refused');
+  must('function s0SessionUid(s){', 'there is no way to tell whose a session is');
   if ((tx.match(/\.transaction\(/g) || []).length !== 1 || /\bawait\b|\.then\(/.test(tx)) throw new Error('s0ReidTx is not exactly one transaction with no wait');
   for (const s of ['s.delete(oldId);', 'const dq=s.get(draftKey(oldId));', 'const at=Math.max(Date.now(), (((now&&now.at)||0)+1));',
     's.put(Object.assign({},got,{id:draftKey(rec.id), traitId:rec.id, at:at}));', 's.delete(draftKey(oldId));'])

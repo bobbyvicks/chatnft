@@ -4427,8 +4427,13 @@ let s0SeenUid=null;
    from the sign-in link carries before anything has been verified. */
 function s0Uid(){
   if(s0SeenUid) return s0SeenUid;
+  return s0SessionUid(sbLoadSession());
+}
+/* Whose a session is: its user, else its access token's subject. Also how
+   sbToken tells whether a session stored meanwhile is the same account's
+   (final adjudication touch). */
+function s0SessionUid(s){
   try{
-    const s=sbLoadSession();
     if(s&&s.user&&s.user.id) return String(s.user.id);
     const p=(s&&s.access_token) ? String(s.access_token).split(".") : [];
     if(p.length===3){
@@ -4569,8 +4574,12 @@ async function dbApplyShelfRecords(deleteIds,records,wk){
    its ask, for the stamp (adjudication C1): read in the get's handler,
    after a sign-out, it was nobody's (measured). Answers null when it did
    nothing, else whether a drawing moved. */
+/* (Final adjudication touch: every field a merge compares - sameRepair's -
+   and at. rowAt, synced and at alone missed another tab's reweight, which
+   changes none of them, and the re-id wrote the plan's weight over it
+   (measured).) */
 function s0SameAsPlanned(cur,was){
-  return !!cur && !!was && (cur.rowAt||null)===(was.rowAt||null) && !!cur.synced===!!was.synced && (cur.at||0)===(was.at||0);
+  return !!cur && !!was && sameRepair(cur,was) && (cur.at||0)===(was.at||0);
 }
 function s0ReidTx(d,oldId,rec,was,by){
   return new Promise((res,rej)=>{
@@ -18399,7 +18408,14 @@ async function sbToken(){
          "you are signed out" is exactly what makes someone need a fresh email
          after every hiccup. */
       if(!r.ok){
-        if(r.status===400||r.status===401||r.status===403){ sbSaveSession(null); sessionEnded(); }
+        /* STAGE 0 (final adjudication touch): ONLY THE SESSION REFUSED. A
+           refusal of an older renewal arriving after a newer sign-in cleared
+           the new session and signed its account out (measured). So only
+           while the stored session still carries the refresh token refused. */
+        if(r.status===400||r.status===401||r.status===403){
+          const now=sbLoadSession();
+          if(now && now.refresh_token===s.refresh_token){ sbSaveSession(null); sessionEnded(); }
+        }
         return null;
       }
       const j=await r.json();
@@ -18408,11 +18424,20 @@ async function sbToken(){
          account's session again, and the sign-out's closing cloudRender
          signed the page back in as that account while it said "Signed out"
          - or, with nothing waiting, the next load did (both measured). So
-         the stored session is read again just before: gone, or another
-         (a different refresh_token - someone else signed in, or another
-         tab renewed it), and this answer is dropped. */
+         the stored session is read again just before, and this answer is
+         never stored over one that changed while it was in flight.
+         WHAT IS ANSWERED THEN DEPENDS ON WHAT IS STORED (final adjudication
+         touch). Gone - signed out - or another account's: null. The same
+         account's, renewed first by another tab: its access token, while
+         it is outside its last minute. Answered null there too, this tab
+         said "Cannot reach the server" and hid Save to cloud over a valid
+         session (measured, two tabs restored together). */
       const still=sbLoadSession();
-      if(!still || still.refresh_token!==s.refresh_token) return null;
+      if(!still) return null;
+      if(still.refresh_token!==s.refresh_token){
+        const same=!!s0SessionUid(still) && s0SessionUid(still)===s0SessionUid(s);
+        return (same && still.access_token && still.expires_at && Date.now() < (still.expires_at*1000 - 60000)) ? still.access_token : null;
+      }
       sbSaveSession({access_token:j.access_token, refresh_token:j.refresh_token,
         expires_at:j.expires_at, user:j.user||s.user});
       return j.access_token;
@@ -18459,7 +18484,7 @@ function sbCaptureFromHash(){
    clears the session ONLY on a definitive 400, 401 or 403, so a session that
    is still in storage after sbToken came back empty means the question never
    got an answer. */
-async function sbAuthState(){
+async function sbAuthState(again){
   const s=sbLoadSession();
   if(!s||!s.access_token) return {state:"out"};
   const t=await sbToken();
@@ -18467,7 +18492,16 @@ async function sbAuthState(){
   try{
     const r=await fetch(SB_URL+"/auth/v1/user",{headers:{apikey:SB_KEY,Authorization:"Bearer "+t}});
     /* The server saying no is the only thing that signs anyone out here. */
-    if(r.status===401||r.status===403){ sbSaveSession(null); sessionEnded(); return {state:"out"}; }
+    /* STAGE 0 (final adjudication touch): ONLY THE SESSION REFUSED, as in
+       sbToken - a late refusal of the token sent, after a newer sign-in, signed
+       the new account out. If what is stored now is not the token that was
+       refused, the answer is about a session that has gone: the question is
+       asked again, once, of the session stored now. */
+    if(r.status===401||r.status===403){
+      const now=sbLoadSession();
+      if(now && now.access_token===t){ sbSaveSession(null); sessionEnded(); return {state:"out"}; }
+      return again ? {state:"unknown"} : sbAuthState(true);
+    }
     /* A 500, a 429, a gateway page: the server did not answer the question. */
     if(!r.ok) return {state:"unknown"};
     const u=await r.json();
@@ -20193,6 +20227,10 @@ async function cloudPull(opts){
         { const saving=s0SaveOf(draftKey(rp.oldId)); if(saving) await saving; }
         const d=await db();
         if(!wsStill(gen)) break;
+        /* STAGE 0 (final adjudication touch): and asked again whether this
+           tab changed the record, now that the loop's own ask is a wait old:
+           a reweight during the wait for the save was written over. */
+        if(touchedSince(rp.oldId,seqAt)){ skipped++; continue; }
         const by=s0Uid();
         const moved=await s0ReidTx(d,rp.oldId,rp.record,rp.was,by);
         if(moved===null){ skipped++; continue; }

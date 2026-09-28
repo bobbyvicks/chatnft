@@ -31,6 +31,31 @@ export default defineConfig({
     deviceScaleFactor: 1,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
+    /* NOTHING THE SUITE OPENS CAN REACH SUPABASE. No test was meant to reach
+       the live project, and nothing enforced it: some specs replace
+       window.fetch or route only some requests, and whatever got past them
+       went to the real network. Measured in the live project's edge logs
+       (read-only, 2026-09-27 10:05Z to 2026-09-28 10:05Z): from at least
+       2026-09-27 14:09Z, HeadlessChrome pages on 127.0.0.1 ports 5771, 5783,
+       5793, 5794, 5797 and 5799 reached it, suite-wide. It refused all of it -
+       GET /auth/v1/user 403 (bad_jwt, "token is malformed") 22 times, POST
+       /rest/v1/rpc/my_team 401 once - and the rest were OPTIONS preflights
+       to /auth/v1/user, /rest/v1/rpc/my_team, /rest/v1/teams and
+       /rest/v1/traits. No data was read or written from a test port.
+
+       So every *.supabase.co name now fails to resolve inside the browser,
+       and nothing is sent. page.route handlers and window.fetch stubs are
+       untouched: both answer a request before it is sent, so no name is
+       looked up for it (tests/networkguard.spec.js pins that too).
+
+       The rule is Chromium's (--host-resolver-rules). A WebKit or Firefox
+       project added below would not have it, and would need its own guard.
+
+       pb-guard-probe.localhost exists only so tests/networkguard.spec.js can
+       prove the rule is in force without any external traffic: Chromium
+       resolves every *.localhost name to loopback by itself, so that name
+       failing while pb-guard-open.localhost still loads is the rule's doing. */
+    launchOptions: { args: ['--host-resolver-rules=MAP *.supabase.co ~NOTFOUND, MAP pb-guard-probe.localhost ~NOTFOUND'] },
   },
   projects: [{ name: 'chromium', use: { browserName: 'chromium' } }],
   webServer: {

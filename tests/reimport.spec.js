@@ -380,6 +380,7 @@ test.describe('re-importing a folder you already imported', () => {
       window.fetch = (u, o) => {
         const s = String(u), m = (o && o.method) || 'GET';
         if (s.indexOf('/auth/v1/user') >= 0) { window.__n.user++; return Promise.resolve(json({ id: 'u-me' })); }
+        if (s.indexOf('select=id,protocol,switching_at') >= 0) return Promise.resolve(json([]));
         if (s.indexOf('/rest/v1/collections') >= 0) { window.__n.collections++; return Promise.resolve(json([{ id: 'c1', layers: [] }])); }
         if (s.indexOf('/rpc/my_team') >= 0) return Promise.resolve(json('team1'));
         if (s.indexOf('/storage/v1/object/traits/') >= 0 && m === 'POST') {

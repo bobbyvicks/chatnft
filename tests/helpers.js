@@ -368,3 +368,92 @@ export async function seedDraft(page, d) {
   for (const k of ['by', 'wk']) if (d[k] !== undefined) rec[k] = d[k];
   return putRaw(page, rec);
 }
+
+/* ==== a stand-in Supabase for the stage-0 specs ====
+
+   Installed as window.fetch, with a session for `uid`, on the group `ws`
+   (null: the personal page). Options:
+     row: 'fields' (default) | 'missing' (a row without protocol and
+       switching_at, as every stub from before stage 0 answers) | 'none' ([]);
+     protocol (1), switching (null, or an ISO time), protoStatus (200),
+     protoHang (false: true makes the protocol read never answer, until
+       the page gives up on it);
+     after: the same keys, for the second and later protocol reads;
+     insert: {status, body} to answer the trait insert with (default: 201);
+     deleted: the rows a DELETE on traits answers (default []);
+     keepState: true leaves s0State as it is (default: reset), for a spec
+       about what one tab remembers across accounts.
+   Every request is logged in window.__s0.log as "METHOD path", every body
+   sent in window.__s0.bodies, and protocol reads are counted in
+   window.__s0.reads. A request it does not name is recorded in
+   window.__s0.unknown (also window.__unknown) and answered 501 - never a
+   silent [] (design E2: unknown fetches throw); every spec using this
+   asserts that list is empty after each test. It sets the reload guard for
+   this store and account, so no spec but stage0reload.spec.js reloads the
+   page. */
+export const S0_SWITCHING = 'This project is being updated: your change is kept here and will be sent after it';
+export const S0_SWITCHED = 'BuildaNFT was updated: reload to send what you saved';
+
+export async function armStage0(page, o = {}) {
+  await page.evaluate((o) => {
+    try { authed = true; } catch (_) {}
+    try { gateShow(false); } catch (_) {}
+    try { s0SeenUid = null; } catch (_) {}
+    activeWs = o.ws === undefined ? 'team7' : o.ws;
+    cloudTeamId = null; dbp = null; dbpName = null; groupCaughtUp = true;
+    /* In a try: the rollback spec runs this on the page before stage 0, which has no s0State. */
+    if (!o.keepState) { try { s0State = { db: null, uid: null, protocol: 1, switching: false, ok: false, at: 0 }; } catch (_) {} }
+    const uid = o.uid || 'u1';
+    localStorage.setItem('chatnft.session', JSON.stringify({ access_token: 'not-a-real-token', refresh_token: 'not-a-real-refresh',
+      expires_at: Math.floor(Date.now() / 1000) + 3600, user: { id: uid } }));
+    try { sessionStorage.setItem('pb.s0.reloaded.' + wsDbName() + '.' + uid, '1'); } catch (_) {}
+    const S = window.__s0 = { log: [], bodies: [], reads: 0, unknown: [] };
+    window.__unknown = S.unknown;
+    const pick = () => (S.reads > 1 && o.after) ? Object.assign({}, o, o.after) : o;
+    const json = (x, st, h) => new Response(JSON.stringify(x), { status: st || 200, headers: Object.assign({ 'Content-Type': 'application/json' }, h || {}) });
+    window.__s0real = window.__s0real || window.fetch;
+    window.fetch = async (u, io) => {
+      const s = String(u), m = (io && io.method) || 'GET', path = s.replace(/^https?:\/\/[^/]+/, '');
+      S.log.push(m + ' ' + path);
+      if (io && typeof io.body === 'string') S.bodies.push({ m, path, body: io.body });
+      if (s.indexOf('select=id,protocol,switching_at') >= 0) {
+        S.reads++;
+        const p = pick();
+        if (p.protoHang) return new Promise((_, rej) => {
+          const sg = io && io.signal;
+          if (sg) sg.addEventListener('abort', () => rej(new DOMException('aborted', 'AbortError')));
+        });
+        if (p.protoStatus && p.protoStatus !== 200) return json({ code: 'XX000', message: 'down' }, p.protoStatus);
+        if (p.row === 'none') return json([]);
+        if (p.row === 'missing') return json([{ id: 'c1' }]);
+        return json([{ id: 'c1', protocol: p.protocol === undefined ? 1 : p.protocol, switching_at: p.switching || null }]);
+      }
+      if (s.indexOf('/auth/v1/user') >= 0) return json({ id: uid });
+      if (s.indexOf('/rest/v1/rpc/my_team') >= 0) return json('me');
+      if (s.indexOf('/rest/v1/rpc/team_member_names') >= 0) return json([]);
+      if (s.indexOf('/rest/v1/rpc/reorder_traits') >= 0) return json(null);
+      if (s.indexOf('/rest/v1/rpc/leave_team') >= 0) return json(null);
+      if (s.indexOf('/rest/v1/teams') >= 0) return json([{ id: 'me', name: 'Me', personal: true }, { id: 'team7', name: 'Seven', personal: false }]);
+      if (s.indexOf('/rest/v1/collections') >= 0) return json([{ id: 'c1', layers: ['hats', 'unsorted'] }]);
+      if (s.indexOf('/storage/v1/object/list/') >= 0) return json([]);
+      if (s.indexOf('/storage/v1/object/') >= 0) {
+        if (m === 'GET') return new Response(new Blob([new Uint8Array([1])]), { status: 200 });
+        if (m === 'DELETE') return json([]);
+        return json({ Key: 'traits/x' });
+      }
+      if (s.indexOf('/rest/v1/traits') >= 0 && m === 'POST') {
+        if (o.insert) return json(o.insert.body, o.insert.status);
+        const b = JSON.parse(io.body)[0];
+        return json([Object.assign({ id: 'row-new', updated_at: '2026-09-27T12:00:00+00:00' }, b)], 201);
+      }
+      if (s.indexOf('/rest/v1/traits') >= 0 && m === 'PATCH') {
+        const id = decodeURIComponent((s.match(/id=eq\.([^&]+)/) || [])[1] || 'row-1');
+        return json([{ id, updated_at: '2026-09-27T12:00:00+00:00' }]);
+      }
+      if (s.indexOf('/rest/v1/traits') >= 0 && m === 'DELETE') return json(o.deleted || []);
+      if (s.indexOf('/rest/v1/traits') >= 0) return json([], 200, { 'Content-Range': '0-0/0' });
+      S.unknown.push(m + ' ' + path);
+      return json({ code: 'UNROUTED', message: 'armStage0 has no answer for ' + m + ' ' + path }, 501);
+    };
+  }, o);
+}

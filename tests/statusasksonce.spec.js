@@ -28,6 +28,7 @@ const press = (page, o) => page.evaluate(async (o) => {
   window.fetch = async (u, io) => {
     const s = String(u), m = (io && io.method) || 'GET';
     if (s.indexOf('/auth/v1/user') >= 0) { S.log.push('user'); return o.authDown ? Promise.reject(new TypeError('Failed to fetch')) : json({ id: 'u1' }); }
+    if (s.indexOf('select=id,protocol,switching_at') >= 0) { S.log.push('protocol'); return json([]); }
     if (s.indexOf('/rest/v1/collections') >= 0) { S.log.push('collection'); return json([{ id: 'c1', layers: ['hats'] }]); }
     if (s.indexOf('/storage/v1/object/traits') >= 0) { S.log.push('storage-' + m); return json({}); }
     if (s.indexOf('/rest/v1/traits') >= 0 && m === 'POST') {
@@ -69,6 +70,9 @@ test.describe('a status press in a group', () => {
     console.log('requests: ' + r.log.join(', '));
     expect(r.log.filter(x => x === 'user').length).toBe(1);
     expect(r.log.filter(x => x === 'collection').length).toBe(1);
+    /* Stage 0 reads the protocol before the upload, and the removal that
+       follows within two seconds uses the same read (design D1). */
+    expect(r.log.filter(x => x === 'protocol').length).toBe(1);
   });
 
   test('the control: the move still happens - the new row is there and the old one gone', async ({ page }) => {

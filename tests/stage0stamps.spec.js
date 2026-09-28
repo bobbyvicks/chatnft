@@ -246,6 +246,9 @@ test.describe('stage 0: stamps', () => {
       window.fetch = async (u, io) => {
         const s = String(u), m = (io && io.method) || 'GET';
         if (s.indexOf('/rest/v1/traits?id=eq.row-1') >= 0 && m === 'PATCH') return json([{ id: 'row-1', updated_at: '2026-09-27T12:00:00+00:00' }]);
+        /* Stage 0 part 3 (patch602): cloudPatchOne reads the project's
+           protocol before it patches. No row: protocol 1, nothing held. */
+        if (s.indexOf('select=id,protocol,switching_at') >= 0) return json([]);
         window.__unknown.push(m + ' ' + s.replace(/^https?:\/\/[^/]+/, ''));
         return json({ code: 'UNROUTED' }, 501);
       };

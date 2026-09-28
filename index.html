@@ -1687,6 +1687,11 @@ footer .mono{color:var(--ink);}
   background:var(--good); color:#052b1c; font-weight:600; font-size:13px; padding:9px 17px;
   border-radius:999px; opacity:0; pointer-events:none; transition:opacity .18s,transform .18s; z-index:30;}
 .toast.show{opacity:1; transform:translateX(-50%) translateY(0);}
+/* STAGE 0: above everything, the editor included - it says why nothing is being sent. */
+.s0bar{position:fixed; left:0; right:0; top:0; z-index:60; padding:calc(8px + var(--sat)) calc(16px + var(--sar)) 8px calc(16px + var(--sal));
+  background:var(--bad); color:#fff; font-weight:600; font-size:13px; line-height:1.4; text-align:center;}
+.s0bar[hidden]{display:none;}
+.s0bar button{margin-left:10px; font:inherit; padding:3px 12px; border-radius:999px; border:1px solid #fff; background:transparent; color:#fff; cursor:pointer;}
 
 @media (max-width:820px){
   /* No room beside a rail that is most of the width, so a pop-out goes
@@ -3427,6 +3432,10 @@ footer .mono{color:var(--ink);}
      and the region announceShelf writes to lives inside #proj, which is
      display:none on five of the six pages. -->
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
+<!-- STAGE 0 (auto cloud save design, D1): why this page is saving on the device
+     only. On every page and over the editor; hidden while nothing is held.
+     The Reload button shows only when reloading is the answer. -->
+<div class="s0bar" id="s0bar" role="alert" hidden><span id="s0text"></span> <button type="button" id="s0reload" hidden>Reload</button></div>
 
 <script>
 "use strict";
@@ -4379,6 +4388,12 @@ async function editorFollowsElsewhere(moved){
   return true;
 }
 if(tabChan) tabChan.onmessage=(e)=>{
+  /* STAGE 0 (B1): the new page's migration flag, {db, uid, migrating:true}.
+     Only the account signed in here obeys it (s0FlagSet reads the flag
+     itself), and it is never a redraw. "Signed in here" is the uid this
+     tab is pinned to or the stored session's, whose token its sends
+     carry (the controller's audit, Finding 4; see s0FlagSet). */
+  if(e&&e.data&&e.data.migrating){ if(e.data.db===wsDbName()&&(e.data.uid===s0Uid()||e.data.uid===s0SessionUid(sbLoadSession()))) s0Show(); return; }
   if(!e||!e.data||e.data.db!==wsDbName()) return;
   if(e.data.moved) editorFollowsElsewhere(e.data.moved).catch(()=>{});
   if(tabRedrawTimer) return;
@@ -4697,6 +4712,7 @@ async function commitShelfMove(spec){
 
     toast(shared.reason==='duplicate'
       ? 'Move cancelled because the shared shelf changed'
+      : shared.reason==='held' ? s0Words(s0Held()||'switched')+' - the old order is back'
       : 'Move did not sync, so the old order was restored');
     return false;
   }
@@ -5737,8 +5753,9 @@ async function renderShelf(viewOnly){
       x.title='Remove reference';
       /* ASKS FIRST. See the trait tile below for why this is here now. */
       x.onclick=async ev=>{ ev.stopPropagation();
+        if(await s0Refuse()) return;
         if(!confirm('Remove the reference "'+t.name+'"?')) return;
-        const gone=await dbDelShared(t); renderShelf(); toast(gone ? ('Removed '+t.name) : ('Removed '+t.name+' here, but the group still has it - it will come back')); };
+        const gone=await dbDelShared(t); renderShelf(); toast(gone==="held" ? s0Words(s0Held()||"switched") : gone ? ('Removed '+t.name) : ('Removed '+t.name+' here, but the group still has it - it will come back')); };
       el.appendChild(x); rg.appendChild(el);
     }
     rw.appendChild(rg); body.appendChild(rw);
@@ -5965,8 +5982,9 @@ async function renderShelf(viewOnly){
          purpose. The rule above now shows it permanently on a touch screen,
          beside the artwork, on a shelf being scrolled with a thumb. */
       x.onclick=async ev=>{ ev.stopPropagation();
+        if(await s0Refuse()) return;
         if(!confirm('Remove "'+t.name+'" from '+(t.layer||"unsorted")+'?')) return;
-        const gone=await dbDelShared(t); visibility.show(key); renderShelf(); toast(gone ? ('Removed '+t.name) : ('Removed '+t.name+' here, but the group still has it - it will come back')); };
+        const gone=await dbDelShared(t); visibility.show(key); renderShelf(); toast(gone==="held" ? s0Words(s0Held()||"switched") : gone ? ('Removed '+t.name) : ('Removed '+t.name+' here, but the group still has it - it will come back')); };
       el.appendChild(x);
       /* STRAIGHT INTO THE FIXER. Beside the remove button rather than on
          the tile body, which already opens the editor - two different
@@ -6571,6 +6589,8 @@ $('shelfshowall').onclick=()=>{
   currentShelfVisibility().showAll(); renderShelf(); announceShelf('All traits are visible.');
 };
 $('clearproj').onclick=async()=>{
+  /* STAGE 0 (D1): Clear waits while this project is held. */
+  if(await s0Refuse()) return;
   if(!confirm('Remove every saved trait and the reference from this browser?')) return;
   /* NOT dbClear(). That empties the whole store, and four settings records
      live in it - the rules, the layer list, the grid and the autosave. None of
@@ -12422,6 +12442,10 @@ async function carryDecided(from,toId){
    the whole truth about the layers it touches, and a fixer save is not one. */
 async function bulkImport(files,opts){
   const inPlace=!!(opts&&opts.inPlace);
+  /* STAGE 0 (D1): a folder import waits while this project is held. A fixer
+     save comes through here in place and is kept: its sends are held one
+     by one, and its records stay unsent. */
+  if(!inPlace&&await s0Refuse()) return;
   const note=$("bulknote");
   const all=[...files];
   const pngs=all.filter(f=>/\.png$/i.test(f.name));
@@ -15025,6 +15049,8 @@ async function shareRules(){
     const c=u?await cloudCollection(u):null;
     const h=c?await sbHeaders({"Content-Type":"application/json"}):null;
     if(c&&h){
+      /* STAGE 0 (D1): held, the rules and answers stay here. */
+      if(await s0Blocked()) throw new Error("held");
       /* READ, MERGE, THEN WRITE. The PATCH below writes the whole list of
          answers, and it used to write it blind: a teammate whose copy
          predated your answer sent theirs over yours, and everybody's next
@@ -15046,6 +15072,7 @@ async function shareRules(){
         headers:h, body:JSON.stringify({rules:RULES, decide_order:DECIDE_ORDER,
           decisions:DECISIONS, empty_chance:emptyChance, rules_at:rulesAt})});
       shared=r.ok;
+      if(!r.ok&&r.status!==401) await s0Recheck();
     }
   }catch(_){ shared=false; }
   /* Taken again after the merge: what was sent is what is remembered. */
@@ -16264,9 +16291,12 @@ async function saveLayers(){
     const c=u?await cloudCollection(u):null;
     const h=c?await sbHeaders({"Content-Type":"application/json"}):null;
     if(c&&h){
+      /* STAGE 0 (D1): held, the list stays here and "not shared yet" says so. */
+      if(await s0Blocked()) throw new Error("held");
       const r=await fetch(SB_URL+"/rest/v1/collections?id=eq."+c.id,{method:"PATCH",
         headers:h, body:JSON.stringify({layers:LAYERS})});
       shared=r.ok;
+      if(!r.ok&&r.status!==401) await s0Recheck();
     }
   }catch(_){ shared=false; }
   /* Remembered only when it actually arrived, so a failed send is retried by
@@ -16668,6 +16698,8 @@ function planRows(items,layer,wip){
    A boolean collapsed the last two, and they want opposite handling. */
 async function cloudRarity(rec){
   if(!activeWs || !rec || !rec.rowId) return "nogroup";
+  /* STAGE 0 (D1): held, the weight stays here, and setRarity marks it unsent. */
+  if(await s0Blocked()) return "unreachable";
   try{
     /* return=representation, so a PATCH that matched no row - the row is
        gone - is not read as sent. It answers 200 with nothing in it. */
@@ -16685,6 +16717,7 @@ async function cloudRarity(rec){
        every failure here used to read as "could not reach the group",
        because nothing looked at the reason. A 400 with a check-constraint
        body is not a network problem and must not be reported as one. */
+    if(r && r.status!==401 && await s0Recheck()) return "unreachable";
     let why=""; try{ why=await r.text(); }catch(_){ }
     if(r && r.status===400 && /rarity/i.test(why)){
       toast("The group will not take a rarity of "+rec.rarity
@@ -16705,6 +16738,8 @@ async function cloudRarity(rec){
 async function cloudPatchOne(rec,ctx,seq){
   const readAt=(typeof seq==="number")?seq:touchSeq;
   if(!rec||!rec.rowId) return false;
+  /* STAGE 0 (D1): held, nothing is patched; the caller's upload is held too. */
+  if(await s0Blocked()) return false;
   try{
     const h=(ctx&&ctx.h)||await sbHeaders({"Content-Type":"application/json"});
     if(!h) return false;
@@ -16712,7 +16747,7 @@ async function cloudPatchOne(rec,ctx,seq){
       {method:"PATCH", headers:Object.assign({Prefer:"return=representation"},h),
        body:JSON.stringify({rarity:(typeof rec.rarity==="number"?rec.rarity:1),
          shelf_order:(typeof rec.shelfOrder==="number"?rec.shelfOrder:null)})});
-    if(!r.ok) return false;
+    if(!r.ok){ if(r.status!==401) await s0Recheck(); return false; }
     let rows=[]; try{ rows=await r.json(); }catch(_){ rows=[]; }
     if(!Array.isArray(rows)||rows.length!==1) return false;
     /* Edited while this was in flight: the edit is newer than what was
@@ -16784,7 +16819,10 @@ async function setRarityMany(recs,w){
   if(!activeWs){ for(const r of onServer) if(r.synced) behind.push(r); }
   else {
     let refused=false;
-    for(let i=0;i<onServer.length;i+=RARITY_BATCH){
+    /* STAGE 0 (D1): held, nothing is patched, and every synced row is behind. */
+    const s0h=await s0Blocked();
+    if(s0h) for(const r of onServer) if(r.synced) behind.push(r);
+    for(let i=0;!s0h&&i<onServer.length;i+=RARITY_BATCH){
       const part=onServer.slice(i,i+RARITY_BATCH);
       let got=null, status=0, body="";
       try{
@@ -16797,6 +16835,7 @@ async function setRarityMany(recs,w){
           else { try{ body=await r.text(); }catch(_){ } }
         }
       }catch(_){ got=null; }
+      if(status>=400&&status!==401&&await s0Recheck()){ for(const r of part) if(r.synced) behind.push(r); continue; }
       if(status===400 && /rarity/i.test(body)){ refused=true; continue; }
       const answered=new Set((Array.isArray(got)?got:[]).map(x=>x&&x.id));
       for(const r of part) if(!answered.has(r.rowId) && r.synced) behind.push(r);
@@ -18183,6 +18222,8 @@ async function readProjectFile(file){
   }
 }
 async function importProject(file){
+  /* STAGE 0 (D1): importing a project file waits while this project is held. */
+  if(await s0Refuse()) return;
   let doc=null;
   try{ doc=await readProjectFile(file); }
   catch(_){ toast("That is not a project file"); return; }
@@ -18381,6 +18422,7 @@ function sessionEnded(){
   try{ autosaveNow(); }catch(_){}
   authed=false;
   s0SeenUid=null;   /* STAGE 0: nobody verified is signed in now */
+  s0Show();   /* STAGE 0 (D1): and the bar, which was theirs, goes. */
   const who=$("cloudwho"); if(who) who.textContent="not signed in";
   for(const id of ["cloudpush","cloudpull","cloudout","cloudclear","teaminvite","setpass","setname"]){
     const e=$(id); if(e) e.hidden=true;
@@ -18727,6 +18769,7 @@ function cloudSignOutNow(){
      personal store, marked synced and with no owner, while the group's
      own record stays unsent (measured, fix round 1). */
   wsGen++; s0SeenUid=null;
+  s0Show();   /* STAGE 0 (D1): the bar was the account's that just left. */
   /* The invite leaves with the person who signed out. Without this, the
      ordinary shared-device case still hands their pending invite to
      whoever sits down next - only now with a question rather than in
@@ -18764,6 +18807,167 @@ async function cloudTeam(){
    any of them was saved, and a load judged the device against the wrong
    one (patch591). Every lookup of a team's project uses these words. */
 const TEAM_PROJECT_PICK="&order=created_at.asc,id.asc&limit=1";
+/* ==== stage 0: the protocol read (auto cloud save design, D1) ====
+
+   Today's page, well ahead of the switch. It reads two small columns of
+   this project's collection - protocol and switching_at, added by Change
+   A0 - in a request of its own, a few bytes where the whole row holds the
+   rules and answers:
+     - before every pull and every send batch. Save to cloud, a pull, Clear,
+       an import, Leave and Remove from server always read afresh; one save,
+       weight, move or removal reads unless a read finished in the last
+       S0_REUSE_MS, so one status change (an upload, then a removal) is one;
+     - after any refused upload or row write, before saying what happened;
+     - every two minutes while the page is visible and signed in, on a
+       token that needs no renewal.
+   An error, a missing field, no project row or no answer within
+   S0_READ_MS counts as protocol 1 and not switching. One exception: a
+   store this tab has read as protocol 2, for the account signed in, stays
+   on 2, because the switch is one way (design E1). Keyed by store AND
+   account: pixelbench is every account's personal store (B1).
+
+   It saves on the device only - sending, pulling, removing, clearing,
+   importing and leaving nothing - in three cases (D1):
+     - this account's migration flag is set for this store (B1);
+     - switching_at is set;
+     - protocol is 2.
+   Drawings, trait saves, fixer saves, weights and status changes are kept
+   here, marked unsent by the failure paths this page already has, and the
+   new page's straggler pass sends them after the reload. */
+const S0_POLL_MS=120000, S0_REUSE_MS=2000;
+let S0_READ_MS=5000;   /* a let, so a spec can shorten it */
+const S0_SWITCHING="This project is being updated: your change is kept here and will be sent after it";
+const S0_SWITCHED="BuildaNFT was updated: reload to send what you saved";
+let s0State={db:null, uid:null, protocol:1, switching:false, ok:false, at:0};
+let s0Flight=null, s0FlightKey=null;
+function s0Mine(dbn,uid){ return s0State.db===dbn&&s0State.uid===uid; }
+async function s0ReadNow(signal){
+  let team=null;
+  try{ team=activeWs||cloudTeamId||await cloudTeam(); }catch(_){ team=null; }
+  if(!team) return null;
+  const h=await sbHeaders();
+  if(!h) return null;
+  try{
+    const r=await fetch(SB_URL+"/rest/v1/collections?select=id,protocol,switching_at&team_id=eq."
+      +encodeURIComponent(team)+TEAM_PROJECT_PICK,{headers:h, signal:signal});
+    if(!r.ok) return null;
+    const rows=await r.json();
+    if(!Array.isArray(rows)) return null;
+    const row=rows[0];
+    if(!row) return {protocol:1, switching:false};
+    return {protocol:(typeof row.protocol==="number"&&row.protocol>=2) ? row.protocol : 1,
+      switching:typeof row.switching_at==="string"&&row.switching_at!==""};
+  }catch(_){ return null; }
+}
+/* A read that hangs - a captive portal, bad Wi-Fi - would hold every save,
+   Clear and import behind it. The whole read gives up after S0_READ_MS,
+   counts as an error, and its request is cancelled. */
+function s0Read(){
+  const ctl=(typeof AbortController==="function") ? new AbortController() : null;
+  let timer=null;
+  const late=new Promise(res=>{ timer=setTimeout(()=>res(null),S0_READ_MS); });
+  return Promise.race([s0ReadNow(ctl?ctl.signal:undefined),late]).then(got=>{
+    clearTimeout(timer);
+    if(got===null&&ctl){ try{ ctl.abort(); }catch(_){ } }
+    return got;
+  });
+}
+async function s0Check(force){
+  const dbn=wsDbName(), uid=s0Uid()||null, key=dbn+"|"+(uid||"");
+  if(s0Flight&&s0FlightKey===key) return s0Flight;
+  if(!force&&s0Mine(dbn,uid)&&Date.now()-s0State.at<S0_REUSE_MS) return s0State;
+  if(!sbLoadSession()) return s0State;
+  s0FlightKey=key;
+  const p=(async()=>{
+    const got=await s0Read();
+    if(wsDbName()!==dbn||(s0Uid()||null)!==uid) return s0State;
+    const mine=s0Mine(dbn,uid);
+    const wasHeld=mine&&(s0State.protocol>=2||s0State.switching);
+    const seen=(mine&&s0State.protocol>=2) ? s0State.protocol : 1;
+    s0State={db:dbn, uid:uid, protocol:Math.max(seen, got?got.protocol:1), switching:!!(got&&got.switching), ok:!!got, at:Date.now()};
+    s0Show();
+    /* A switch called off (abort_switch clears switching_at): what was kept
+       here while it ran is sent now, in a group, as the bar promised - the
+       way the online event sends it. Only on a read that answered, and
+       never under a flag (s0Held reads it).
+       NOT WHILE THE PAGE IS LEAVING (the controller's audit, Finding 2).
+       Sign-out and a switch wait, bounded, for the drawing's last save
+       before they move the store, the uid and wsGen (s0SignOutWait,
+       s0WsWant), and a read that lands in that wait passes the check
+       above. Resent then, it pushed for the project being left while the
+       move waited, and on a sign-out it said "Sign in first" over it
+       (both measured); a push the move overtakes writes its
+       confirmations into the store moved to (reasoned, the push-in-
+       flight class).
+       The state is still written - a sender in the wait needs it. What
+       was kept stays unsent, and no later read sends it: s0State is one
+       slot, keyed by store and account, so after the move, and after a
+       move back, nothing reads as having been held. The online event or
+       a Save to cloud press sends it. */
+    if(wasHeld&&got&&!s0Held()&&activeWs&&s0WsWant===undefined&&!s0SignOutWait) Promise.resolve().then(()=>groupResend()).catch(()=>{});
+    return s0State;
+  })();
+  s0Flight=p;
+  try{ return await p; } finally{ if(s0Flight===p) s0Flight=null; }
+}
+/* This account's migration flag, for this store (B1). "This account" is
+   two uids when they differ (the controller's audit, Finding 4): the one
+   this tab is pinned to (s0Uid: a verified start, or an unchecked one),
+   and the stored session's, whose token every send carries. The page has
+   no storage listener, so another tab that signs A out and B in leaves
+   this tab on A while it sends with B's token; B's flag holds it. */
+function s0FlagSet(){
+  for(const u of [s0Uid(), s0SessionUid(sbLoadSession())]){
+    if(!u) continue;
+    try{ if(localStorage.getItem("pb.migrating."+wsDbName()+"."+u)!==null) return true; }catch(_){ }
+  }
+  return false;
+}
+function s0Held(){
+  if(s0FlagSet()) return "migrating";
+  if(!s0Mine(wsDbName(),s0Uid()||null)) return null;
+  if(s0State.protocol>=2) return "switched";
+  if(s0State.switching) return "switching";
+  return null;
+}
+function s0Words(why){ return why==="switching" ? S0_SWITCHING : S0_SWITCHED; }
+function s0Inline(why){ const w=s0Words(why); return w.charAt(0).toLowerCase()+w.slice(1); }
+async function s0Blocked(){ try{ await s0Check(false); }catch(_){ } return !!s0Held(); }
+/* After a refusal, before it is reported: read again. A P0001 is Change
+   B's guard ("project switched: reload"); when the read cannot say, it is
+   taken as switching - kept here and sent after - never as a refusal. */
+async function s0Recheck(code){
+  try{ await s0Check(true); }catch(_){ }
+  if(!s0Held()&&code==="P0001"){
+    const dbn=wsDbName(), uid=s0Uid()||null;
+    s0State={db:dbn, uid:uid, protocol:(s0Mine(dbn,uid) ? s0State.protocol : 1), switching:true, ok:false, at:Date.now()};
+    s0Show();
+  }
+  return !!s0Held();
+}
+/* Before Clear, an import, Leave and Remove from server: a fresh read; if
+   held, it says so and the action does nothing. true when refused. */
+async function s0Refuse(){
+  try{ await s0Check(true); }catch(_){ }
+  const why=s0Held();
+  if(!why) return false;
+  s0Show();
+  toast(s0Words(why));
+  return true;
+}
+/* The bar, on every page and over the editor; and the fixer's save line. */
+function s0Show(){
+  const why=s0Held(), text=why ? s0Words(why) : "";
+  const bar=$("s0bar"), t=$("s0text");
+  if(bar) bar.hidden=!why;
+  if(t) t.textContent=text;
+  const fx=$("fixsaveout");
+  if(fx){
+    const ours=fx.textContent===S0_SWITCHING||fx.textContent===S0_SWITCHED;
+    if(why&&(!fx.textContent||ours)) fx.textContent=text;
+    else if(!why&&ours) fx.textContent="";
+  }
+}
 async function cloudCollection(u){
   /* Its two fetches were the only unguarded ones on this path - cloudTeam and
      sbUser both catch - and a throw here escaped commitShelfMove entirely. */
@@ -18939,6 +19143,8 @@ async function relightUnsynced(){
   return n;
 }
 async function clearCloudNow(){
+  /* STAGE 0 (D1): removing from the server waits while this project is held. */
+  if(await s0Refuse()) return;
   const note=$("cloudnote");
   const say=m=>{ if(note) note.textContent=m; };
   const u=await sbUser();
@@ -19195,6 +19401,8 @@ function cloudAlsoOld(why){
 }
 function cloudWhyNot(why){
   const r=why&&why.reason;
+  /* STAGE 0: held back on purpose, and kept here (D1). */
+  if(r==="held") return s0Inline(s0Held()||"switched")+".";
   if(r==="signedout")
     return "you are signed out on this device. Sign in, then press Save to cloud.";
   if(r==="notallowed")
@@ -19274,6 +19482,9 @@ async function cloudSyncOne(rec,ctx,why,seq){
   if(!u) return outOrOffline();
   const team=ctx.team||await cloudTeam(); if(!team) return outOrOffline();
   const c=ctx.c||await cloudCollection(u); if(!c) return say("collection");
+  /* STAGE 0 (D1): nothing is sent while this project is held. Every caller
+     already keeps a record that did not go up as unsent. */
+  if(await s0Blocked()) return say("held");
   const p=cloudPath(team,c,rec);
   try{
     const hb=ctx.hb||await sbHeaders({"Content-Type":"image/png","x-upsert":"true"});
@@ -19293,13 +19504,17 @@ async function cloudSyncOne(rec,ctx,why,seq){
         /* Split for the same reason as the row insert below: a 401 is a
            sign-in problem and a 403 is a membership one, and neither is
            retried - both are definitive. */
-        if(up.status===403) return say("notallowed",up.status);
+        if(up.status===403) return (await s0Recheck()) ? say("held",up.status) : say("notallowed",up.status);
         if(up.status===401) return say("signedout",up.status);
       }catch(_){ up=null; }
       if(attempt<PULL_TRIES-1) await new Promise(r=>setTimeout(r,250*(attempt+1)));
     }
     if(!up) return say("unreachable");
-    if(!up.ok) return say(cloudLater(up.status)?"unreachable":"refused",up.status);
+    if(!up.ok){
+      /* STAGE 0 (D1): a refusal is read again before it is reported. */
+      if(up.status!==401&&await s0Recheck()) return say("held",up.status);
+      return say(cloudLater(up.status)?"unreachable":"refused",up.status);
+    }
     const h=ctx.h||await sbHeaders({"Content-Type":"application/json"});
     if(!h) return outOrOffline();
     /* Identified the same way the local store identifies it - name, layer and
@@ -19375,6 +19590,11 @@ async function cloudSyncOne(rec,ctx,why,seq){
        is the request carrying no identity the server accepts, which is a
        thing to fix by signing in - and being sent to a person instead of
        to the sign-in box is a slow way to find that out. */
+    if(!adopted && !r.ok && r.status!==401){
+      /* STAGE 0 (D1): read again before saying what happened. */
+      let code=null; try{ code=(await r.clone().json()).code||null; }catch(_){ code=null; }
+      if(await s0Recheck(code)) return say("held",r.status);
+    }
     if(!adopted && !r.ok) return say(r.status===403 ? "notallowed"
       : r.status===401 ? "signedout"
       : cloudLater(r.status) ? "unreachable" : "refused", r.status);
@@ -19417,6 +19637,8 @@ async function cloudDropOne(rec,ctx){
      the old row is one this device removed on purpose - remembered for
      Save to cloud. null still: nothing was removed yet. */
   if(!activeWs){ await goneAdd(rec); return null; }
+  /* STAGE 0 (D1): a removal is not sent while this project is held. */
+  if(await s0Blocked()) return null;
   /* ctx: the user, team and collection the caller already has - see
      cloudMoveOne. Every other caller passes nothing and asks here. */
   const u=(ctx&&ctx.u)||await sbUser(); if(!u) return null;
@@ -19458,7 +19680,7 @@ async function cloudDropOne(rec,ctx){
       }catch(_){ r=null; }
       if(attempt<PULL_TRIES-1) await new Promise(x=>setTimeout(x,250*(attempt+1)));
     }
-    if(!r||!r.ok) return null;
+    if(!r||!r.ok){ if(r&&r.status!==401) await s0Recheck(); return null; }
     let removed=[];
     if(r.ok){ try{ removed=await r.json(); }catch(_){ removed=[]; } }
     /* Only the images belonging to rows that actually went. Deleting a path
@@ -19523,6 +19745,9 @@ async function goneForget(keys){
   try{ await dbPut({id:GONE_ID, kind:"settings", rows:list, at:Date.now()}); }catch(_){}
 }
 async function dbDelShared(rec){
+  /* STAGE 0 (D1): a removal waits while this project is held. Nothing leaves
+     this device's store either, and the tile says why. */
+  if(await s0Blocked()) return "held";
   /* THE ROW ID THE STORE HOLDS (patch593). A card drawn before a group
      send landed carries the id that send replaced; the delete by it
      matched nothing and the trait came back on the next load. */
@@ -19623,6 +19848,8 @@ async function cloudMoveOne(oldRec,newRec,why){
    appear in this payload, so moving a card can never rewrite the artwork. */
 async function cloudSendShelfPlan(updates){
   if(!activeWs) return {ok:true};
+  /* STAGE 0 (D1): held, the order is not sent; commitShelfMove puts the old one back. */
+  if(await s0Blocked()) return {ok:false,reason:"held"};
   const u=await sbUser();
   if(!u) return {ok:false,reason:"auth"};
   const c=await cloudCollection(u);
@@ -19639,6 +19866,7 @@ async function cloudSendShelfPlan(updates){
     });
     if(r.ok) return {ok:true};
     let detail={}; try{ detail=await r.json(); }catch(_){}
+    if(r.status!==401&&await s0Recheck(detail&&detail.code)) return {ok:false,reason:"held"};
     return {ok:false,reason:(r.status===409||detail.code==="23505")?"duplicate":"server"};
   }catch(_){ return {ok:false,reason:"network"}; }
 }
@@ -19666,7 +19894,8 @@ let pushRunning=false, pushStopAsked=false;
 function pushWhy(reasons){
   let best=null, n=0;
   for(const k in reasons) if(reasons[k]>n){ n=reasons[k]; best=k; }
-  return best==="signedout" ? "you are signed out on this device"
+  return best==="held" ? s0Inline(s0Held()||"switched")
+    : best==="signedout" ? "you are signed out on this device"
     : best==="notallowed" ? "this account may not write here"
     : best==="refused" ? "the server refused them"
     : best==="collection" ? "the collection on the server could not be opened"
@@ -19685,6 +19914,9 @@ async function lineStillAnswers(path){
   try{ return !!(await pullBlob(path,h,{})); }catch(_){ return false; }
 }
 async function cloudPush(){
+  /* STAGE 0: the project this push is for, noted before its first wait (the
+     controller's audit, Finding 5; used after the protocol read below). */
+  const s0PushGen=wsGen;
   /* THREE answers, not two. "Could not ask" is not "you are signed out", and
      telling a signed-in person to sign in is an instruction to do the one
      thing that risks losing local work. */
@@ -19696,6 +19928,23 @@ async function cloudPush(){
   if(!c){ toast("Could not open your collection on the server"); return; }
   const team=await cloudTeam();
   if(!team){ toast("Could not open your team"); return; }
+  /* STAGE 0 (D1): a batch reads afresh before it sends anything; a held
+     project sends nothing, and what is unsent stays marked so. */
+  await s0Check(true);
+  /* A MOVE BEFORE OR DURING THE READ (the controller's audit, Finding 5).
+     c and team above are the project this push began in. A switch with
+     nothing waiting moves the store at once, s0Check leaves the state
+     alone when the store changed under its read, and the hold below was
+     then judged for the store switched to, with no read: its traits were
+     sent into this project's collection (measured). The push stops here,
+     before pushRunning is set, so nothing needs undoing. It covers a
+     sign-out too (cloudSignOutNow bumps wsGen), and the end of the run,
+     which reads activeWs late: the personal page's stale-row DELETE,
+     cloudSweep and the layers PATCH would otherwise run against the
+     project left. A move after this line, mid-upload, stays with the
+     push-in-flight class Task 10 left open. */
+  if(!wsStill(s0PushGen)) return;
+  { const why=s0Held(); if(why){ s0Show(); toast(s0Words(why)); return; } }
   let items=[];
   /* Taken before the read: anything written after it is read again before
      it is sent. */
@@ -20024,6 +20273,9 @@ async function cloudPull(opts){
   if(who.state==="unknown"){ toast(CLOUD_OFFLINE_TOAST); return; }
   if(who.state!=="in"){ toast("Sign in first"); return; }
   const u=who.user;
+  /* STAGE 0 (D1): a pull reads afresh first, and a held project pulls nothing. */
+  await s0Check(true);
+  { const why=s0Held(); if(why){ s0Show(); if(!opts.quiet) toast(s0Words(why)); return; } }
   const c=await cloudCollection(u);
   if(!c){ toast("Nothing on the server yet"); return; }
   const h=await sbHeaders();
@@ -20697,6 +20949,7 @@ async function wsSwitch(id,s0Waited){
     return mine;
   }
   activeWs = id||null;
+  s0Show();   /* STAGE 0 (D1): the bar is about the project shown, not the one left. */
   /* Anything already in flight for the old project stops here. */
   wsGen++;
   wsSave(activeWs);
@@ -22053,6 +22306,20 @@ async function groupResend(){
   try{ await groupResending; } finally{ groupResending=null; }
 }
 addEventListener('online',()=>{ groupResend(); });
+/* STAGE 0 (D1): the protocol, every two minutes while this page is visible
+   and signed in. Nothing without a session: a signed-out page talks to
+   nobody (privacy.spec.js). And only on a token that needs no renewal
+   (sbToken renews within 60 s of expiry): a renewal refused here would put
+   the sign-in wall over whatever the person is doing, for a check they did
+   not ask for. Their next action renews it, as today, and reads first. */
+setInterval(()=>{
+  try{
+    const s=sbLoadSession();
+    if(document.visibilityState!=="visible"||!authed||!s) return;
+    if(!(s.expires_at&&Date.now()<s.expires_at*1000-60000)) return;
+    s0Check(true).catch(()=>{});
+  }catch(_){ }
+},S0_POLL_MS);
 /* Read the sign-in fragment BEFORE the first render, so someone arriving from
    the email sees themselves signed in rather than the form again. */
 /* A recovery link carries a session, so without this it reads as an ordinary
@@ -25988,6 +26255,8 @@ async function fixSaveFiles(files,say){
       +" had no folder, so they are in unsorted":"")
     +(r&&r.skipped?" \u00b7 "+r.skipped+" could not be saved":"")
     +(r&&r.notShared?" \u00b7 "+r.notShared+" here only, not sent to the group":"")
+    /* STAGE 0 (D1): and why, while the project is held. */
+    +(s0Held()?" \u00b7 "+s0Words(s0Held()):"")
     +". Open the project to see them.");
   return wrote;
 }

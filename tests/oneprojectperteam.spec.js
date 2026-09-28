@@ -32,6 +32,7 @@ const armServer = (o) => {
   const real = window.__realFetch || (window.__realFetch = window.fetch);
   window.fetch = async (u, opt) => {
     const s = String(u), method = (opt && opt.method) || 'GET';
+    if (s.indexOf('select=id,protocol,switching_at') >= 0) return json([]);
     window.__req.push(method + ' ' + s.replace(/^https?:\/\/[^/]+/, ''));
     if (s.indexOf('/auth/v1/user') >= 0) return json({ id: 'u1' });
     if (s.indexOf('/rpc/my_team') >= 0) return json('team1');

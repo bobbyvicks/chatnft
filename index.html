@@ -4390,8 +4390,76 @@ function touchedSince(id,seq){ return id!=null && (touchedAt.get(String(id))||0)
 function dbAborted(t){ return t.error || new DOMException("The write was aborted","AbortError"); }
 function storeFull(e){ return !!e && (e.name==="QuotaExceededError" || /quota/i.test(String(e.message||""))); }
 const STORE_FULL="this device is out of storage space";
-async function dbPut(rec){ touch(rec&&rec.id); const d=await db(); return new Promise((res,rej)=>{
-  const t=d.transaction(STORE,'readwrite'); t.objectStore(STORE).put(rec);
+/* STAGE 0 (design B1 and D1): WHOSE RECORD, AND WHAT KIND OF WRITE.
+   Every trait, reference and draft this page writes carries:
+     by   the uid it belongs to: the one signed in when a person wrote it,
+          left off when none is known; a pull's write of something unsent
+          keeps the uid it already had;
+     wk   "person" for a change a person made, "pull" for a copy a pull wrote
+          that the server has (synced), "sent" for the write that marks a
+          change as having reached the server;
+     lid  (traits and references) a local id given at the first write and
+          carried by every path that gives the record a new id, as rowId is.
+   The new page reads them: a pull is dropped, a person's unsent change
+   becomes an op, and a record stamped with another account waits for that
+   account. A record from before stage 0 has none of the three. A draft is
+   always "person": it is somebody's drawing, whoever re-stamped it. */
+const S0_UIDS="pb.uids";
+let s0SeenUid=null;
+/* The account signed in: the one cloudRender verified; else the stored
+   session's user; else the subject of its access token, which a session
+   from the sign-in link carries before anything has been verified. */
+function s0Uid(){
+  if(s0SeenUid) return s0SeenUid;
+  try{
+    const s=sbLoadSession();
+    if(s&&s.user&&s.user.id) return String(s.user.id);
+    const p=(s&&s.access_token) ? String(s.access_token).split(".") : [];
+    if(p.length===3){
+      const b=p[1].replace(/-/g,"+").replace(/_/g,"/");
+      const claims=JSON.parse(atob(b+"===".slice((b.length+3)%4)));
+      if(claims&&claims.sub) return String(claims.sub);
+    }
+  }catch(_){ }
+  return null;
+}
+/* Every uid that signs in on this browser (B1), with when it first and
+   last did, in localStorage. */
+function s0Register(uid){
+  if(!uid) return;
+  try{
+    let m={}; try{ m=JSON.parse(localStorage.getItem(S0_UIDS)||"{}")||{}; }catch(_){ m={}; }
+    if(typeof m!=="object"||Array.isArray(m)) m={};
+    const now=Date.now(), e=(m[uid]&&typeof m[uid]==="object") ? m[uid] : {first:now};
+    e.last=now; m[uid]=e;
+    localStorage.setItem(S0_UIDS,JSON.stringify(m));
+  }catch(_){ }
+}
+function s0NewLid(){
+  try{ if(typeof crypto==="object"&&typeof crypto.randomUUID==="function") return "l_"+crypto.randomUUID(); }catch(_){ }
+  return "l_"+Date.now().toString(36)+"_"+Math.random().toString(36).slice(2,12);
+}
+function s0Stamps(rec){ return !!rec && (rec.kind==="trait"||rec.kind==="ref"||rec.kind==="autosave"); }
+/* stored: what the store held under this id, read in the same transaction
+   (null when the caller did not need it read). */
+function s0Stamp(rec,stored,wk){
+  const draft=rec.kind==="autosave";
+  if(!draft && !rec.lid) rec.lid=(stored&&stored.lid)||s0NewLid();
+  /* A pull writing something unsent - a draft it re-times, or the server's
+     row merged into a record whose picture never went up - is neither a
+     pull's copy nor the signed-in account's act: it keeps whose it was. */
+  const keep=wk==="pull" && (draft||!rec.synced);
+  const u=keep ? (rec.by||(stored&&stored.by)||null) : s0Uid();
+  if(u) rec.by=u; else delete rec.by;
+  rec.wk=(!draft&&!keep&&(wk==="pull"||wk==="sent")) ? wk : "person";
+  return rec;
+}
+async function dbPut(rec,wk){ touch(rec&&rec.id); const d=await db(); return new Promise((res,rej)=>{
+  const t=d.transaction(STORE,'readwrite'), s=t.objectStore(STORE);
+  /* A person's draft needs nothing from what it replaces: stamped as it goes. */
+  if(s0Stamps(rec)&&rec.kind==="autosave"&&wk!=="pull") s.put(s0Stamp(rec,null,wk));
+  else if(s0Stamps(rec)){ const q=s.get(rec.id); q.onsuccess=()=>{ s.put(s0Stamp(rec,q.result,wk)); }; }
+  else s.put(rec);
   t.oncomplete=()=>res(); t.onerror=()=>rej(t.error); t.onabort=()=>rej(dbAborted(t)); }); }
 /* ONE RECORD, BY KEY. dbAll reads every row in the project including every
    picture, and several places wanted a single record and paid that price -
@@ -4441,14 +4509,21 @@ function syncShelfVisibilityControls(){
 /* Reordering several cards is one IndexedDB transaction. A cross-layer move
    changes the local id, so all old identities are removed before the updated
    records are put back. Either the whole shelf changes or none of it does. */
-async function dbApplyShelfRecords(deleteIds,records){
+async function dbApplyShelfRecords(deleteIds,records,wk){
   for(const id of deleteIds) touch(id);
   for(const r of records) touch(r&&r.id);
   const d=await db();
   return new Promise((res,rej)=>{
     const t=d.transaction(STORE,'readwrite'), s=t.objectStore(STORE);
     for(const id of new Set(deleteIds.filter(Boolean))) s.delete(id);
-    for(const record of records) s.put(record);
+    /* STAGE 0: stamped as dbPut stamps. Read after the deletes above, so a
+       record put back under its own id reads as absent - and keeps the
+       local id it carries, because every caller builds it by spreading
+       the record it read. */
+    for(const record of records){
+      if(s0Stamps(record)){ const q=s.get(record.id); q.onsuccess=()=>{ s.put(s0Stamp(record,q.result,wk)); }; }
+      else s.put(record);
+    }
     t.oncomplete=()=>res(); t.onerror=()=>rej(t.error); t.onabort=()=>rej(t.error);
   });
 }
@@ -6169,6 +6244,8 @@ async function saveTraitNow(){
     if(base){
       if(typeof base.rarity==="number") rec.rarity=base.rarity;
       if(base.rowId) rec.rowId=base.rowId;
+      /* STAGE 0: the local id goes wherever the row id goes (design B1). */
+      if(base.lid) rec.lid=base.lid;
       /* AND THE QUEUE ENTRY. The record key carries the name, so a rename
          makes a different record - which is exactly the thing a review pass
          must survive. Entry 12 is still entry 12 after it is renamed. */
@@ -12486,6 +12563,7 @@ async function bulkImport(files,opts){
                       ? prev.shelfOrder : shelfCore.nextShelfOrder(shelfItems,layer)};
         if(prev&&typeof prev.rarity==="number") trec.rarity=prev.rarity;
         if(prev&&prev.rowId) trec.rowId=prev.rowId;
+        if(prev&&prev.lid) trec.lid=prev.lid;   /* STAGE 0: as rowId (B1) */
         /* A file re-imported under the same name, layer and status has the same
            id and REPLACES its trait - which is how an edit on disk reaches the
            project. Counted separately so the report can say so. The
@@ -16515,7 +16593,7 @@ async function cloudPatchOne(rec,ctx,seq){
        sent, stays unsent, and the next push sends it. */
     if(rec.id && touchedSince(rec.id,readAt)) return true;
     const up=Object.assign({},rec,{synced:true, rowAt:rows[0].updated_at||rec.rowAt||null}); delete up.unsent;
-    try{ await dbPut(up); }catch(_){}
+    try{ await dbPut(up,"sent"); }catch(_){}
     return true;
   }catch(_){ return false; }
 }
@@ -18176,6 +18254,7 @@ function sessionEnded(){
   if(!authed) return;
   try{ autosaveNow(); }catch(_){}
   authed=false;
+  s0SeenUid=null;   /* STAGE 0: nobody verified is signed in now */
   const who=$("cloudwho"); if(who) who.textContent="not signed in";
   for(const id of ["cloudpush","cloudpull","cloudout","cloudclear","teaminvite","setpass","setname"]){
     const e=$(id); if(e) e.hidden=true;
@@ -18367,6 +18446,11 @@ async function cloudRender(){
   /* Set BEFORE gateShow, because gateShow(false) reveals a page whose
      controls ask mayUse() the moment they are touched. */
   authed=inn;
+  /* STAGE 0 (B1): the account signed in, for the stamps, and added to the
+     browser's list of accounts. "Could not ask" returned above, leaving
+     whatever was known. */
+  s0SeenUid=(inn&&u&&u.id) ? String(u.id) : null;
+  if(s0SeenUid) s0Register(s0SeenUid);
   gateShow(!inn);
   if(inn) bootLocal();
   if(inn) joinIfPending();
@@ -18398,6 +18482,11 @@ function cloudSignOut(){
   sbSaveSession(null);
   gateShow(true);
   activeWs=null; wsSave(null); cloudTeamId=null; sharedLayerSig=null;
+  /* STAGE 0: nobody is signed in now, and anything still running for the
+     project just left - a pull downloading - stops: wsStill() is how its
+     writes ask, and only wsSwitch bumped this before, so a pull that
+     outlived a sign-out wrote the group's rows into the personal store. */
+  wsGen++; s0SeenUid=null;
   /* The invite leaves with the person who signed out. Without this, the
      ordinary shared-device case still hands their pending invite to
      whoever sits down next - only now with a question rather than in
@@ -19071,7 +19160,7 @@ async function cloudSyncOne(rec,ctx,why,seq){
     }
     else if((adopted||r.ok) && rec.id){ const up=Object.assign({},rec,
       {synced:true, rowId:madeId, path:p, rowAt:madeAt}); delete up.unsent;
-      try{ await dbPut(up); }catch(_){} }
+      try{ await dbPut(up,"sent"); }catch(_){} }
     return true;
   }catch(_){ return say("unreachable"); }
 }
@@ -19853,7 +19942,7 @@ async function cloudPull(opts){
         await dbDel(rp.oldId);
         try{ await draftsFollow([{from:rp.oldId, to:rp.record.id}]); }catch(_){}
       }
-      await dbPut(rp.record);
+      await dbPut(rp.record,"pull");
       repaired++;
     }catch(_){}
   }
@@ -19913,7 +20002,7 @@ async function cloudPull(opts){
            else". Asked here rather than at plan time, because the plan is
            minutes old by the end of a cold pull and this covers both. */
         if(touchedSince(w.id,seqAt)||touchedSince(w.base,seqAt)){ skipped++; done++; say(); continue; }
-        await dbPut(rec); added++;
+        await dbPut(rec,"pull"); added++;
         /* A DRAWING HERE, NOT YET SAVED, of the trait just replaced. It was
            older than the new record, so the next open would not offer it -
            measured, the teammate's pixels and no draft bar. Kept, stamped
@@ -19922,7 +20011,7 @@ async function cloudPull(opts){
           try{
             const dr=await dbGet(draftKey(w.id));
             if(dr && dr.blob){
-              await dbPut(Object.assign({},dr,{at:Math.max(Date.now(),(rec.at||0)+1)}));
+              await dbPut(Object.assign({},dr,{at:Math.max(Date.now(),(rec.at||0)+1)}),"pull");   /* STAGE 0: keeps its maker */
               draftsKept.push(w.name);
             }
           }catch(_){ }

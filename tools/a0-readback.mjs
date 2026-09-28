@@ -85,7 +85,12 @@ export function preSql() {
 const lit = v => (v === null || v === undefined) ? 'null' : "'" + String(v).replace(/'/g, "''") + "'";
 const count = x => { const v = Number(x); if (!Number.isInteger(v) || v < 0) throw new Error('not a count: ' + x); return v; };
 
-/* a0_columns_ungranted: A0 grants nothing, so none of its three columns
+/* protocol_ok, switching_ok, replaces_ok: each column exactly as A0 writes
+   it, and neither generated nor an identity - a generated protocol has a
+   default that prints 1 and refuses every write to protocol, which Change A
+   must make. (An identity protocol has no default, so hasdef already refuses
+   it; the other two types cannot be identities.)
+   a0_columns_ungranted: A0 grants nothing, so none of its three columns
    carries an ACL of its own (a table's grants live in relacl, which the
    fingerprint covers; a column's own grant lives in attacl). */
 export function postSql(pre) {
@@ -94,7 +99,7 @@ export function postSql(pre) {
 col as (
   select c.relname, a.attname::text as attname, format_type(a.atttypid, a.atttypmod) as typ,
          a.attnotnull as nn, a.atthasdef as hasdef, pg_get_expr(d.adbin, d.adrelid) as def,
-         a.attacl::text as acl
+         a.attacl::text as acl, a.attgenerated::text as gen, a.attidentity::text as ident
     from pg_catalog.pg_attribute a
     join pg_catalog.pg_class c on c.oid = a.attrelid
     left join pg_catalog.pg_attrdef d on d.adrelid = a.attrelid and d.adnum = a.attnum
@@ -111,11 +116,11 @@ chk as (
   select
     (to_regclass('public.team_members') is not null and to_regclass('public.posts') is null) as fingerprint_ok,
     (select count(*) = 1 from col where relname = 'collections' and attname = 'protocol'
-       and typ = 'smallint' and nn and hasdef and def = '1') as protocol_ok,
+       and typ = 'smallint' and nn and hasdef and def = '1' and gen = '' and ident = '') as protocol_ok,
     (select count(*) = 1 from col where relname = 'collections' and attname = 'switching_at'
-       and typ = 'timestamp with time zone' and not nn and not hasdef) as switching_ok,
+       and typ = 'timestamp with time zone' and not nn and not hasdef and gen = '' and ident = '') as switching_ok,
     (select count(*) = 1 from col where relname = 'traits' and attname = 'replaces'
-       and typ = 'uuid' and not nn and not hasdef) as replaces_ok,
+       and typ = 'uuid' and not nn and not hasdef and gen = '' and ident = '') as replaces_ok,
     ((select count(*) = 1 from con where relname = 'collections' and 'protocol' = any(cols))
       and (select count(*) = 1 from con where relname = 'collections' and cols = array['protocol']
              and conname = 'collections_protocol_check' and contype = 'c' and convalidated

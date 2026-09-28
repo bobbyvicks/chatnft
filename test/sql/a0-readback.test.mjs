@@ -100,6 +100,9 @@ const COLS = '\n        constraint collections_switching_at_check check (switchi
 const MUTATIONS = [
   { name: 'protocol without NOT NULL', from: 'protocol smallint not null default 1', to: 'protocol smallint default 1', parts: ['protocol_ok'] },
   { name: 'protocol as integer', from: 'protocol smallint not null default 1', to: 'protocol integer not null default 1', parts: ['protocol_ok'] },
+  /* Has a default that prints 1, and refuses every write to protocol - which Change A must make. */
+  { name: 'protocol generated from a constant', from: 'protocol smallint not null default 1', to: 'protocol smallint not null generated always as (1) stored', parts: ['protocol_ok'] },
+  { name: 'protocol as an identity column', from: 'protocol smallint not null default 1', to: 'protocol smallint generated always as identity', parts: ['protocol_ok'] },
   { name: 'a check that lets 2 through', from: 'check (protocol = 1)', to: 'check (protocol in (1, 2))', parts: ['protocol_check_ok'] },
   { name: 'switching_at without its time zone', from: 'switching_at timestamptz', to: 'switching_at timestamp', parts: ['switching_ok'] },
   { name: 'a foreign key on replaces', from: 'add column replaces uuid;', to: 'add column replaces uuid references public.traits(id);', parts: ['replaces_free'] },

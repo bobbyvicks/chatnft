@@ -71,6 +71,36 @@ test('applied a second time it raises nothing and changes nothing', async () => 
   assert.deepEqual(await catalogSnapshot(db), before);
 });
 
+/* The file's header says a second run "takes no lock at all". Changing
+   nothing does not show that: without its count guard the collections
+   statement still changes nothing (add column if not exists skips), yet
+   takes ACCESS EXCLUSIVE on collections to find that out. PGlite is one
+   connection, so nothing here waits on a lock, but a transaction can read
+   its own locks in pg_locks, and the first run is the control that the
+   read sees them. */
+test('applied a second time it takes no lock on either table - where the first run locks both', async () => {
+  const LOCKS = `select c.relname || ' ' || l.mode as held
+      from pg_catalog.pg_locks l join pg_catalog.pg_class c on c.oid = l.relation
+     where l.relation in ('public.collections'::regclass, 'public.traits'::regclass)
+       and l.pid = pg_backend_pid() order by 1`;
+  const locksHeldBy = async (d, sql) => {
+    let held;
+    await d.transaction(async tx => {
+      await tx.exec('set local role pb_owner');
+      await tx.exec(sql);
+      held = (await tx.query(LOCKS)).rows.map(r => r.held);
+    });
+    return held;
+  };
+  const sql = readFileSync(a0File(), 'utf8');
+  assert.deepEqual(await locksHeldBy(db, sql), []);
+  const fresh = await makeDb({ through: 'before-a0' });
+  try {
+    assert.deepEqual(await locksHeldBy(fresh, sql), ['collections AccessExclusiveLock', 'traits AccessExclusiveLock'],
+      'the control: the first run\'s ALTERs are seen by the same read');
+  } finally { await fresh.close(); }
+});
+
 test('a member cannot set protocol 2 - and can still write the layers', async () => {
   assert.equal(await sqlCode(asUser(db, U1, tx => tx.query('update public.collections set protocol = 2 where id = $1', [C1]))), '23514');
   const r = await one(asUser(db, U1, tx => tx.query(`update public.collections set layers = '["hats"]'::jsonb where id = $1 returning protocol`, [C1])));

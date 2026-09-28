@@ -69,11 +69,14 @@ test('an rpc answers the function\'s value, as the caller', async () => {
   assert.match(JSON.parse(r.body), /^[0-9a-f-]{36}$/);
 });
 
+/* CHANGED from the plan text (fix round 1, finding 3): the upload's path was
+   'a/b.png'. Live's storage policy lets a member write only under a team they
+   belong to, and so does the stand-in now, so the path starts with T1. */
 test('auth answers the user for a known token and 401 otherwise; storage keeps an upload', async () => {
   assert.deepEqual(JSON.parse((await pg.handle({ method: 'GET', url: SB + '/auth/v1/user', headers: as('tok-1'), body: null })).body), { id: U1 });
   assert.equal((await pg.handle({ method: 'GET', url: SB + '/auth/v1/user', headers: as('nope'), body: null })).status, 401);
-  const up = await pg.handle({ method: 'POST', url: SB + '/storage/v1/object/traits/a/b.png', headers: as('tok-1'), body: Buffer.from([1, 2, 3]) });
-  assert.equal(up.status, 200); assert.equal(pg.storage.get('a/b.png').length, 3);
+  const up = await pg.handle({ method: 'POST', url: SB + '/storage/v1/object/traits/' + T1 + '/b.png', headers: as('tok-1'), body: Buffer.from([1, 2, 3]) });
+  assert.equal(up.status, 200); assert.equal(pg.storage.get(T1 + '/b.png').length, 3);
 });
 
 test('anything else is recorded as unrouted and answered 501', async () => {
@@ -149,4 +152,73 @@ test('an error thrown outside SQL is answered 500 and recorded as unmapped, neve
   const bare = makePostgrest(db, { users: { 'tok-1': U1 } });
   const r = await bare.handle({ method: 'DELETE', url: SB + '/storage/v1/object/traits', headers: as('tok-1'), body: '{not json' });
   assert.equal(r.status, 500); assert.equal(bare.unmapped.length, 1); assert.deepEqual(bare.unrouted, []);
+});
+
+/* ADDED in fix round 1 (finding 1): live PostgREST answers 401 to a token it
+   cannot verify. Serving it as anon answered a GET 200 [] - an expired
+   session read as "you have nothing". The counted db proves no SQL ran, and
+   its anon control proves the count can move. */
+test('an unknown bearer token is refused 401, recorded, and runs no SQL; no Authorization header is still anon', async () => {
+  let calls = 0;
+  const counted = { query: (...a) => { calls++; return db.query(...a); }, transaction: (...a) => { calls++; return db.transaction(...a); } };
+  const s = makePostgrest(counted, { users: { 'tok-1': U1 } });
+  const read = (h) => ({ method: 'GET', url: SB + '/rest/v1/collections?select=id&team_id=eq.' + T1, headers: h, body: null });
+  const g = await s.handle(read(as('expired')));
+  assert.equal(g.status, 401, 'a GET with a token nobody issued: ' + g.status + ' ' + g.body);
+  const p = await s.handle({ method: 'POST', url: SB + '/rest/v1/traits', headers: as('expired'), body: body([row({ name: 'ghost' })]) });
+  assert.equal(p.status, 401, 'a POST with a token nobody issued');
+  assert.equal(calls, 0, 'no SQL ran for either');
+  assert.equal(s.unrouted.length, 2, 'both are recorded');
+  const anon = await s.handle(read(as(null)));
+  assert.deepEqual([anon.status, JSON.parse(anon.body)], [200, []], 'no Authorization header is anon');
+  assert.ok(calls > 0, 'the anon read did run SQL');
+  const member = await s.handle(read(as('tok-1')));
+  assert.deepEqual([member.status, JSON.parse(member.body)], [200, [{ id: C1 }]]);
+  assert.equal(s.unrouted.length, 2, 'neither control is recorded');
+});
+
+/* ADDED in fix round 1 (finding 2): PGlite orders text in C collation, live
+   in en_US.UTF-8. Such an order is still answered - the page sends one on
+   every signed-in load - and recorded as approximated. */
+test('an order on a text column is answered and recorded as approximated; on a boolean, uuid or timestamp it is not', async () => {
+  const before = pg.approximated.length, unr = pg.unrouted.length;
+  const t = await pg.handle({ method: 'GET', url: SB + '/rest/v1/teams?select=id,name,personal&order=personal.desc,name.asc', headers: as('tok-1'), body: null });
+  assert.equal(t.status, 200); assert.ok(JSON.parse(t.body).some(x => x.id === T1));
+  assert.deepEqual(pg.approximated.slice(before), ['GET teams order name']);
+  for (const url of ['/rest/v1/traits?select=id&order=id.asc', '/rest/v1/collections?select=id&order=created_at.asc,id.asc']) {
+    const r = await pg.handle({ method: 'GET', url: SB + url, headers: as('tok-1'), body: null });
+    assert.equal(r.status, 200, url);
+  }
+  assert.equal(pg.approximated.length, before + 1, 'uuid and timestamp orders are not recorded');
+  assert.equal(pg.unrouted.length, unr);
+});
+
+/* ADDED in fix round 1 (finding 3): live's "traits insert team" and "traits
+   delete team" policies let a member write only under a team they belong to
+   (public.is_team_path(name)). Each refusal is the same request as a success,
+   one field away. */
+test('storage: a member uploads and deletes under their own team; a non-member, anon, and a non-team path are refused and recorded', async () => {
+  const U2 = '00000000-0000-4000-8000-000000000002', T2 = '00000000-0000-4000-8000-0000000000a2';
+  await seedTeam(db, { uid: U2, team: T2 });
+  const s = makePostgrest(db, { users: { 'tok-1': U1, 'tok-2': U2 } });
+  const up = (h, name) => s.handle({ method: 'POST', url: SB + '/storage/v1/object/traits/' + name, headers: h, body: Buffer.from([7]) });
+  const del = (h, names) => s.handle({ method: 'DELETE', url: SB + '/storage/v1/object/traits', headers: h, body: body({ prefixes: names }) });
+  const refused = async (p, what) => {
+    const n = s.unrouted.length, r = await p;
+    assert.equal(r.status, 403, what + ': ' + r.status + ' ' + r.body);
+    assert.equal(s.unrouted.length, n + 1, what + ' is recorded');
+  };
+  const mine = T1 + '/' + C1 + '/trait-x.png';
+  await refused(up(as('tok-2'), mine), 'a non-member upload');
+  await refused(up(as(null), mine), 'an anon upload');
+  await refused(up(as('tok-1'), 'a/b.png'), 'an upload whose first segment is not a team');
+  assert.equal(s.storage.has(mine), false, 'a refused upload stores nothing');
+  const ok = await up(as('tok-1'), mine);
+  assert.equal(ok.status, 200, 'the member\'s own upload'); assert.equal(s.storage.get(mine).length, 1);
+  await refused(del(as('tok-2'), [mine]), 'a non-member delete');
+  await refused(del(as(null), [mine]), 'an anon delete');
+  assert.equal(s.storage.has(mine), true, 'a refused delete removes nothing');
+  const gone = await del(as('tok-1'), [mine]);
+  assert.equal(gone.status, 200, 'the member\'s own delete'); assert.equal(s.storage.has(mine), false);
+  assert.equal(s.unrouted.length, 5, 'only the five refusals are recorded'); assert.deepEqual(s.unmapped, []);
 });

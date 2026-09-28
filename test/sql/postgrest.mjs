@@ -6,10 +6,20 @@
    `unrouted` and is answered 501; a SQL error whose code has no entry in the
    status table goes into `unmapped` and is answered 500. Each spec asserts
    both lists are empty, so a request this does not understand is a failure,
-   never a silent []. Storage is a Map: no buckets, policies or eTags (plan
-   2's storage fake, design A4, replaces it). No Content-Range or counts.
-   `order=` sorts as PostgREST does, by each column's own collation, with
-   no COLLATE added: it stands in for the live API. A SQL test whose result
+   never a silent []. Storage is a Map: no buckets or eTags (plan 2's
+   storage fake, design A4, replaces it). No Content-Range or counts.
+
+   CHANGED (fix round 1, finding 2): the plan text said `order=` sorts as
+   PostgREST does, by each column's own collation. It does not. PGlite's
+   database collation is C (datcollate, measured); live's is en_US.UTF-8
+   (supabase/fixtures/live-catalog-2026-09-28.json, row meta|collation). So
+   an order on a text column - teams' order=personal.desc,name.asc, sent on
+   every signed-in load - sorts here in C: 'B' before 'a', '_z' before 'a'.
+   Such a request is still answered, and recorded in `approximated`. Page
+   specs should seed names whose C and en_US orders agree: lower-case
+   letters only is the safe choice, since capitals, spaces and punctuation
+   are where the two part (only C is measurable here). An order inside a SQL
+   function is not seen by this and sorts in C too. A SQL test whose result
    depends on text order says COLLATE "C" itself (design E4).
 
    CHANGED from the plan text (Task 6): "everything else" now includes what
@@ -23,7 +33,18 @@
    (PGRST204) or function (PGRST202) - take their status from the table like
    any SQL error; PGRST202 has no entry, so an rpc the replay lacks is
    unmapped, not a guessed 404. Anything handle() throws is answered 500 and
-   recorded as unmapped. */
+   recorded as unmapped.
+
+   CHANGED (fix round 1): an Authorization header naming a token `users` does
+   not know is refused 401 and recorded in `unrouted`, and runs no SQL - live
+   refuses a JWT it cannot verify, and serving it as anon answered 200 [].
+   No Authorization header at all is anon. Storage writes are checked with
+   live's own policy predicate, public.is_team_path(name), run as the caller
+   ("traits insert team", "traits delete team"): an upload or delete by anon
+   or outside the caller's teams is refused 403 and recorded in `unrouted`,
+   and nothing is stored or removed. Live's bulk delete skips an object the
+   policy hides and answers 200; here the whole request is refused, so a
+   spec cannot rest on it unnoticed. */
 import { POSTGREST_STATUS } from './postgrest-status.mjs';
 import { asUser, asAnon } from './harness.mjs';
 
@@ -34,12 +55,16 @@ const PREFER_OK = new Set(['return=representation', 'return=minimal']);
 const ACCEPT_OK = new Set(['*/*', 'application/json']);
 
 export function makePostgrest(db, { users = {}, statuses = POSTGREST_STATUS } = {}) {
-  const unrouted = [], unmapped = [], storage = new Map(), cols = new Map();
+  const unrouted = [], unmapped = [], approximated = [], storage = new Map(), cols = new Map(), textCols = new Map();
 
   async function columns(table) {
     if (!cols.has(table)) {
       const r = await db.query("select column_name, udt_name from information_schema.columns where table_schema = 'public' and table_name = $1", [table]);
       cols.set(table, new Map(r.rows.map(x => [x.column_name, x.udt_name])));
+      /* The columns whose order depends on a collation: pg_attribute says so
+         directly (attcollation is zero for a type that has none). */
+      const t = await db.query('select attname from pg_catalog.pg_attribute where attrelid = to_regclass($1) and attnum > 0 and not attisdropped and attcollation <> 0', ['public.' + q(table)]);
+      textCols.set(table, new Set(t.rows.map(x => x.attname)));
     }
     return cols.get(table);
   }
@@ -86,14 +111,16 @@ export function makePostgrest(db, { users = {}, statuses = POSTGREST_STATUS } = 
     }
     return parts.length ? ' where ' + parts.join(' and ') : '';
   }
-  function orderBy(params) {
+  function orderBy(params, method, table) {
     const o = params.get('order');
     if (!o) return '';
-    return ' order by ' + o.split(',').map(p => {
+    const by = o.split(',').map(p => {
       const [c, dir, nulls] = p.split('.');
       if (nulls !== undefined || !IDENT.test(c) || (dir && dir !== 'asc' && dir !== 'desc')) throw Object.assign(new Error('order ' + o), { code: 'UNROUTED' });
-      return q(c) + (dir ? ' ' + dir : '');
-    }).join(', ');
+      return [c, q(c) + (dir ? ' ' + dir : '')];
+    });
+    for (const [c] of by) if (textCols.get(table).has(c)) approximated.push(method + ' ' + table + ' order ' + c);
+    return ' order by ' + by.map(x => x[1]).join(', ');
   }
   function page(params) {
     let s = '';
@@ -118,7 +145,7 @@ export function makePostgrest(db, { users = {}, statuses = POSTGREST_STATUS } = 
         for (const c of sel) if (c !== '*' && !IDENT.test(c)) return unroute(method, 'select ' + c);
         const args = [];
         const inner = 'select ' + sel.map(c => c === '*' ? '*' : q(c)).join(', ') + ' from public.' + q(table)
-          + where(params, known, args) + orderBy(params) + page(params);
+          + where(params, known, args) + orderBy(params, method, table) + page(params);
         return json(200, value(await run(uid, tx => tx.query("select coalesce(json_agg(t), '[]'::json)::text as j from (" + inner + ') t', args))));
       }
       if (method === 'POST') {
@@ -185,8 +212,24 @@ export function makePostgrest(db, { users = {}, statuses = POSTGREST_STATUS } = 
     const h = {};
     for (const [k, v] of Object.entries(headers || {})) h[k.toLowerCase()] = v;
     const uid = uidOf(h);
-    try { return await route(method, url, h, body, uid); }
+    try {
+      if (h['authorization'] !== undefined && !uid) {
+        unrouted.push(method + ' ' + new URL(url).pathname + ' unknown bearer token');
+        return json(401, { code: 'UNKNOWN_TOKEN', message: 'the stand-in knows no user for this token' });
+      }
+      return await route(method, url, h, body, uid);
+    }
     catch (e) { return fail(e, uid ? 'authenticated' : 'anon'); }
+  }
+  /* Live's storage policy predicate, as the caller. Anon may write nothing. */
+  async function mayWrite(uid, name) {
+    if (!uid) return false;
+    const r = await asUser(db, uid, tx => tx.query('select public.is_team_path($1) as ok', [String(name)]));
+    return r.rows[0].ok === true;
+  }
+  function refuse(method, what, uid) {
+    unrouted.push(method + ' ' + what + (uid ? ' not under a team of ' + uid : ' as anon') + ': storage refused');
+    return json(403, { statusCode: '403', error: 'Unauthorized', message: 'refused by the stand-in' });
   }
   async function route(method, url, h, body, uid) {
     const u = new URL(url), path = u.pathname;
@@ -196,16 +239,19 @@ export function makePostgrest(db, { users = {}, statuses = POSTGREST_STATUS } = 
     if ((m = /^\/rest\/v1\/rpc\/([^/]+)$/.exec(path)) && method === 'POST') return rpc(m[1], u.searchParams, body, uid);
     if ((m = /^\/rest\/v1\/([^/]+)$/.exec(path)) && IDENT.test(m[1])) return rest(method, m[1], u.searchParams, h, body, uid);
     if ((m = /^\/storage\/v1\/object\/traits\/(.+)$/.exec(path)) && method === 'POST') {
-      if (!uid) return json(403, { statusCode: '403', error: 'Unauthorized' });
-      storage.set(decodeURIComponent(m[1]), Buffer.isBuffer(body) ? body : Buffer.from(body || ''));
-      return json(200, { Key: 'traits/' + decodeURIComponent(m[1]) });
+      const name = decodeURIComponent(m[1]);
+      if (!(await mayWrite(uid, name))) return refuse(method, path, uid);
+      storage.set(name, Buffer.isBuffer(body) ? body : Buffer.from(body || ''));
+      return json(200, { Key: 'traits/' + name });
     }
     if (path === '/storage/v1/object/traits' && method === 'DELETE') {
       const b = parse(body) || {};
-      for (const p of b.prefixes || []) storage.delete(p);
+      const names = b.prefixes || [];
+      for (const p of names) if (!(await mayWrite(uid, p))) return refuse(method, path + ' ' + p, uid);
+      for (const p of names) storage.delete(p);
       return json(200, []);
     }
     return unroute(method, path);
   }
-  return { handle, unrouted, unmapped, storage };
+  return { handle, unrouted, unmapped, approximated, storage };
 }

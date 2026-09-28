@@ -18,8 +18,16 @@
 
      1. an unrouted request to the page's own project fails at name
         resolution;
-     2. so does one to any other *.supabase.co host (a made-up one: no real
-        project's name belongs in this file);
+     2. so does one to another *.supabase.co host, realtime.supabase.co:
+        Supabase's own infrastructure host, not anyone's project (no other
+        project's name belongs in this file). Before the browser asks for it,
+        the test asserts through Node's resolver, which Chromium's rule does
+        not touch, that the name resolves in public DNS. So the browser
+        failing to resolve it is the rule's doing, not the name's. This test
+        first used a made-up name, guard-check.supabase.co. Measured
+        2026-09-28, that name is NXDOMAIN (nslookup: "Non-existent domain";
+        Node's lookup: ENOTFOUND), so the browser could not resolve it with
+        or without the rule, and the test passed either way;
      3. the same request as 1, answered by page.route, still works: a spec's
         own stand-in is untouched, because it answers before any name is
         looked up. It is 1's control, and differs from it by the route (and
@@ -32,9 +40,11 @@
 
    1 and 2 are never run with the rule taken away to watch them fail: that
    run would be the leak itself. 4 is how the rule is shown to be able to
-   fail, and that the *.supabase.co pattern holds for the real project is
-   also read from the live project's logs. */
+   fail, and 2's DNS precondition is how 2 is shown to mean something. That
+   the *.supabase.co pattern holds for the real project is also read from
+   the live project's logs. */
 import { test, expect } from '@playwright/test';
+import dns from 'node:dns';
 
 const SUPABASE_URL = /^https:\/\/[a-z0-9]+\.supabase\.co$/;
 
@@ -92,7 +102,13 @@ test.describe('the suite cannot reach Supabase', () => {
   });
 
   test('any other *.supabase.co host fails the same way', async ({ page }) => {
-    expect(await attempt(page, 'https://guard-check.supabase.co/', { mode: 'no-cors' }),
+    const host = 'realtime.supabase.co';
+    let unresolved = null;
+    try { await dns.promises.lookup(host); } catch (e) { unresolved = e.code || String(e); }
+    expect(unresolved, host + ' must resolve in public DNS, or the browser failing to resolve it proves '
+      + 'nothing about the rule: pick another *.supabase.co host that does resolve (never a project) and '
+      + 'put it here').toBeNull();
+    expect(await attempt(page, 'https://' + host + '/', { mode: 'no-cors' }),
       'the name never resolves, so nothing is sent').toEqual(REFUSED);
   });
 

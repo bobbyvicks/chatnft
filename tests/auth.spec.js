@@ -515,8 +515,22 @@ test.describe('a pending invite belongs to whoever clicked the link', () => {
 const LIVE_USER = process.env.CHATNFT_USER;
 const LIVE_PASS = process.env.CHATNFT_PASS;
 
+/* And not while the suite's network guard is on. playwright.config.js makes
+   every *.supabase.co name fail to resolve in the browser (Task 10a, see
+   tests/networkguard.spec.js), so with credentials set this test would wait
+   out its 25 s poll for a sign-in that can never be sent, and fail without
+   saying why. It skips instead, naming the guard, and only while the guard's
+   rule is in the launch arguments: take the rule out on purpose and this
+   runs as before. */
+const GUARDED = (launchOptions) => ((launchOptions && launchOptions.args) || [])
+  .some(a => /^--host-resolver-rules=.*\*\.supabase\.co ~NOTFOUND/.test(a));
+
 test.describe('against the live project', () => {
   test.skip(!LIVE_USER || !LIVE_PASS, 'set CHATNFT_USER and CHATNFT_PASS to run this');
+  /* Playwright reads which fixtures a callback needs from its destructured
+     first argument, so it has to stay destructured. */
+  test.skip(({ launchOptions }) => !!(LIVE_USER && LIVE_PASS) && GUARDED(launchOptions),
+    'the Playwright config blocks *.supabase.co (Task 10a); run this against the live project only with the guard removed on purpose');
 
   test('the real account signs in and the gate opens', async ({ page }) => {
     await page.goto('/index.html');

@@ -77,4 +77,32 @@ test.describe('stage 0: the open lock', () => {
     expect(got.tracked, 'the handle it read through is tracked').toBe(true);
     expect(got.holdIsNull, 'and that handle holds no lock').toBe(true);
   });
+
+  test('a store the browser will not open rejects db(), and leaves no open lock held', async ({ page }) => {
+    /* Storage denied, an opaque origin: indexedDB.open throws rather than
+       firing onerror. Before stage 0 that throw rejected db(); with the lock
+       taken first it rejected nothing, every caller waited forever, and the
+       tab kept open:<store> with no connection behind it (measured). */
+    const got = await page.evaluate(async () => {
+      dbp = null; dbpName = null;
+      const denied = new DOMException('The operation is insecure.', 'SecurityError');
+      indexedDB.open = function () { throw denied; };
+      return Promise.race([
+        db().then(() => ({ how: 'resolved' }), (e) => ({ how: 'rejected', name: e && e.name, same: e === denied })),
+        new Promise(res => setTimeout(() => res({ how: 'still pending after 3s' }), 3000)),
+      ]);
+    });
+    expect(got.how, 'db() rejects rather than waiting forever').toBe('rejected');
+    expect(got.name).toBe('SecurityError');
+    expect(got.same, 'with the error the open threw').toBe(true);
+    /* Polled, as the releases in the first three tests are: the lock is let
+       go as db() rejects, and goes a turn later - a query made inside the
+       rejection handler itself still lists it (measured, 3 of 3). */
+    await expect.poll(() => page.evaluate(async () => (await navigator.locks.query()).held
+      .filter(l => l.name.indexOf('open:') === 0).map(l => l.name + ' ' + l.mode)),
+      { message: 'and no open: lock is left held' }).toEqual([]);
+    const free = await page.evaluate(() =>
+      navigator.locks.request('open:pixelbench', { mode: 'exclusive', ifAvailable: true }, (l) => !!l));
+    expect(free, 'the store\'s lock is free for an exclusive request').toBe(true);
+  });
 });

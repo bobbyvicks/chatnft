@@ -19,6 +19,15 @@
    is still read once, as db() is called - dbPut relies on that (the comment
    above wsGen, 4212-4224).
 
+   A store the browser will not open at all (indexedDB.open throws: storage
+   denied, an opaque origin) still rejects db() with that error, as it did
+   before, and lets its lock go. The first version of this patch opened
+   inside the lock's callback with no catch, so the throw rejected nothing:
+   db() never settled and the tab kept open:<store> (measured - a thrown
+   SecurityError gave "rejected" before, "still pending after 3s" with the
+   lock held after). Fixed here, not in a later patch, so this file stays
+   the record of what the page carries (controller ruling, 2026-09-28).
+
    Nothing reads the locks yet: patch605's Leave is the first. */
 const s0 = require('./stage0-common.cjs');
 const doc = s0.start([]);
@@ -107,11 +116,20 @@ doc.swap([
   '    dbpName=name;',
   '    /* STAGE 0: the open lock first, then the open (design D1). */',
   '    s0Hold(name).then(hold=>{',
-  '      const r=indexedDB.open(name,1);',
-  '      r.onupgradeneeded=()=>{ const d=r.result;',
-  "        if(!d.objectStoreNames.contains(STORE)) d.createObjectStore(STORE,{keyPath:'id'}); };",
-  '      r.onsuccess=()=>res(s0Track(name,r.result,hold));',
-  '      r.onerror=()=>{ if(hold&&hold.release){ try{ hold.release(); }catch(_){} } rej(r.error); };',
+  '      /* A store the browser will not open at all - storage denied, an opaque',
+  '         origin - throws here instead of firing onerror. Before stage 0 that',
+  '         throw rejected db(); inside this callback it would reject nothing,',
+  '         so every caller would wait forever and the lock would stay held. */',
+  '      try{',
+  '        const r=indexedDB.open(name,1);',
+  '        r.onupgradeneeded=()=>{ const d=r.result;',
+  "          if(!d.objectStoreNames.contains(STORE)) d.createObjectStore(STORE,{keyPath:'id'}); };",
+  '        r.onsuccess=()=>res(s0Track(name,r.result,hold));',
+  '        r.onerror=()=>{ if(hold&&hold.release){ try{ hold.release(); }catch(_){} } rej(r.error); };',
+  '      }catch(e){',
+  '        if(hold&&hold.release){ try{ hold.release(); }catch(_){} }',
+  '        rej(e);',
+  '      }',
   '    });',
   '  });',
   '  return dbp;',
@@ -124,4 +142,9 @@ doc.finish(({ code, must }) => {
   must('r.onsuccess=()=>res(s0Track(name,r.result,hold));', 'an opened store is not tracked');
   must('async function s0CloseAllGone(name){', 'nothing can wait for this tab\'s locks to go');
   if ((code.match(/indexedDB\.open\(/g) || []).length !== 1) throw new Error('db() should be the only place a store is opened');
+  /* A store that cannot be opened still rejects db(), with its lock let go. */
+  const at = code.indexOf('function db(){');
+  const dbBody = code.slice(at, code.indexOf('\nfunction ', at + 1));
+  if (!/\}catch\(e\)\{\s*if\(hold&&hold\.release\)\{ try\{ hold\.release\(\); \}catch\(_\)\{\} \}\s*rej\(e\);/.test(dbBody))
+    throw new Error('db() no longer rejects, with its lock let go, when the open throws');
 });

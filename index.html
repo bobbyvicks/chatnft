@@ -4291,11 +4291,20 @@ function db(){
     dbpName=name;
     /* STAGE 0: the open lock first, then the open (design D1). */
     s0Hold(name).then(hold=>{
-      const r=indexedDB.open(name,1);
-      r.onupgradeneeded=()=>{ const d=r.result;
-        if(!d.objectStoreNames.contains(STORE)) d.createObjectStore(STORE,{keyPath:'id'}); };
-      r.onsuccess=()=>res(s0Track(name,r.result,hold));
-      r.onerror=()=>{ if(hold&&hold.release){ try{ hold.release(); }catch(_){} } rej(r.error); };
+      /* A store the browser will not open at all - storage denied, an opaque
+         origin - throws here instead of firing onerror. Before stage 0 that
+         throw rejected db(); inside this callback it would reject nothing,
+         so every caller would wait forever and the lock would stay held. */
+      try{
+        const r=indexedDB.open(name,1);
+        r.onupgradeneeded=()=>{ const d=r.result;
+          if(!d.objectStoreNames.contains(STORE)) d.createObjectStore(STORE,{keyPath:'id'}); };
+        r.onsuccess=()=>res(s0Track(name,r.result,hold));
+        r.onerror=()=>{ if(hold&&hold.release){ try{ hold.release(); }catch(_){} } rej(r.error); };
+      }catch(e){
+        if(hold&&hold.release){ try{ hold.release(); }catch(_){} }
+        rej(e);
+      }
     });
   });
   return dbp;

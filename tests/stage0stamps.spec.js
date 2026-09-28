@@ -359,6 +359,55 @@ const pullRowsHeldMaybeSignOut = (page, signOut) => page.evaluate(async (signOut
   return out;
 }, signOut);
 
+/* A pull whose repair moves a trait to another layer (the server filed it
+   under hair; this group's store has it under hats), held at one of the
+   repair's own waits - `hold` is 'draftsFollow' (held before it runs) or
+   'dbDel' (held after the old copy's delete has started) - and a sign-out,
+   or none, while it is held (fix round 3). The personal store holds a draft
+   of its own under the same old id, which nothing here may touch. */
+const repairHeldMaybeSignOut = (page, hold, signOut) => page.evaluate(async ([hold, signOut]) => {
+  const row = { id: 'row-1', kind: 'trait', name: 'cap', layer: 'hair', status: 'wip', path: 'team1/c1/trait-cap-hats-wip.png',
+    w: 16, h: 16, rarity: 1, updated_at: '2026-09-27T12:00:00+00:00' };
+  const json = (o, x) => new Response(JSON.stringify(o), { status: 200, headers: Object.assign({ 'Content-Type': 'application/json' }, x || {}) });
+  const real = window.fetch;
+  window.fetch = async (u, io) => {
+    const s = String(u), m = (io && io.method) || 'GET';
+    if (s.indexOf('/auth/v1/user') >= 0) return json({ id: 'u1' });
+    if (s.indexOf('/rpc/my_team') >= 0) return json('me');
+    if (s.indexOf('/rpc/team_member_names') >= 0) return json([]);
+    if (s.indexOf('/rest/v1/teams') >= 0) return json([{ id: 'me', name: 'Me', personal: true }, { id: 'team1', name: 'One', personal: false }]);
+    if (s.indexOf('/rest/v1/collections') >= 0) return json([{ id: 'c1', layers: ['hats', 'hair'] }]);
+    if (s.indexOf('/rest/v1/traits?select=id') >= 0) return json([], { 'Content-Range': '0-0/1' });
+    if (s.indexOf('/rest/v1/traits?select=*') >= 0) return json([row], { 'Content-Range': '0-0/1' });
+    if (s.indexOf('/storage/v1/object/list/') >= 0) return json([]);
+    window.__unknown.push(m + ' ' + s.replace(/^https?:\/\/[^/]+/, ''));
+    return new Response(JSON.stringify({ code: 'UNROUTED' }), { status: 501, headers: { 'Content-Type': 'application/json' } });
+  };
+  let open; const gate = new Promise(r => { open = r; });
+  let asked = false;
+  if (hold === 'draftsFollow') { const f = draftsFollow; draftsFollow = async (p) => { asked = true; await gate; return f(p); }; }
+  if (hold === 'dbDel') { const f = dbDel; dbDel = (id) => { const p = f(id); asked = true; return gate.then(() => p); }; }
+  activeWs = 'team1'; cloudTeamId = null; dbp = null; dbpName = null;
+  const p = cloudPull({ quiet: true });
+  while (!asked) await new Promise(r => setTimeout(r, 10));
+  if (signOut) cloudSignOut();
+  open();
+  try { await p; } catch (_) {}
+  window.fetch = real;
+  const read = async (ws) => { activeWs = ws; dbp = null; dbpName = null;
+    return (await dbAll()).filter(i => i.kind === 'trait' || i.kind === 'autosave').map(i => i.id + (i.kind === 'autosave' ? '@' + i.at : '')).sort(); };
+  const out = { group: await read('team1'), personal: await read(null) };
+  activeWs = null;
+  return out;
+}, [hold, signOut]);
+const seedForRepair = async (page) => {
+  await seedDraft(page, { traitId: 't_cap_hats_wip', at: 7, by: 'u9', wk: 'person' });   /* the personal store's own */
+  await page.evaluate(() => { activeWs = 'team1'; dbp = null; dbpName = null; });
+  await seedTrait(page, { name: 'cap', layer: 'hats', status: 'wip', rowId: 'row-1', rowAt: '2026-01-01T00:00:00+00:00',
+    synced: true, path: 'team1/c1/trait-cap-hats-wip.png', lid: 'l_seed' });
+  await page.evaluate(() => { activeWs = null; dbp = null; dbpName = null; });
+};
+
 test.describe('stage 0: signing out stops a running pull', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/index.html');
@@ -393,6 +442,26 @@ test.describe('stage 0: signing out stops a running pull', () => {
     const r = await pullRowsHeldMaybeSignOut(page, false);
     expect(r.group).toEqual(['cap']);
     expect(r.personal).toEqual([]);
+  });
+
+  /* Fix round 3: the repair waits twice between its check and its write. */
+  test('signing out while a pull\'s repair moves a trait to another layer: the group\'s record does not land in the personal store', async ({ page }) => {
+    await seedForRepair(page);
+    const r = await repairHeldMaybeSignOut(page, 'draftsFollow', true);
+    expect(r.personal.filter(id => id.indexOf('autosave.') !== 0), 'no trait in the personal store').toEqual([]);
+  });
+
+  test('signing out while the repair is removing the old copy: the personal store\'s own draft is not moved either', async ({ page }) => {
+    await seedForRepair(page);
+    const r = await repairHeldMaybeSignOut(page, 'dbDel', true);
+    expect(r.personal).toEqual(['autosave.t_cap_hats_wip@7']);
+  });
+
+  test('the control: the same repair, nobody signing out, moves the trait in the group\'s store and leaves the personal draft alone', async ({ page }) => {
+    await seedForRepair(page);
+    const r = await repairHeldMaybeSignOut(page, 'draftsFollow', false);
+    expect(r.group).toEqual(['t_cap_hair_wip']);
+    expect(r.personal).toEqual(['autosave.t_cap_hats_wip@7']);
   });
 });
 
@@ -566,5 +635,198 @@ test.describe('stage 0: a drawing\'s last save lands in the store it was drawn i
 
   test('the control: the same waiting autosave on the group page, with no switch, lands in that group\'s store', async ({ page }) => {
     expect(await lastSaveLandsIn(page, 'team1', 'none')).toEqual({ team1: 'u1', team2: null, personal: null });
+  });
+});
+
+/* A SESSION THE PAGE COULD NOT CHECK STILL HAS ITS UID (fix round 3). A page
+   that opens with no signal treats the stored session as signed in
+   (cloudRender's offline and deadline branch) but never learned whose it
+   was, so the uid came only from the stored session - which every refusal
+   clears before sessionEnded saves the drawing: that draft was written with
+   no owner (measured). The same drawing and refusal after a verified boot
+   is the control. Also pinned: the uid is on this browser's list of
+   accounts either way. */
+const bootDrawThenRefuse = (page, verified) => page.evaluate(async (verified) => {
+  const json = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  /* Left in place: what the signed-in start leaves running asks after it returns. */
+  window.fetch = verified
+    ? async (u, io) => {
+      const s = String(u), m = (io && io.method) || 'GET';
+      if (s.indexOf('/auth/v1/user') >= 0) return json({ id: 'u1' });
+      if (s.indexOf('/rest/v1/teams') >= 0) return json([{ id: 'me', name: 'Me', personal: true }]);
+      if (s.indexOf('/rpc/my_team') >= 0) return json('me');
+      if (s.indexOf('/rest/v1/collections?') >= 0 && m === 'GET') return json([{ id: 'c1', updated_at: '2026-09-27T12:00:00+00:00' }]);
+      if (s.indexOf('/rest/v1/traits?select=') >= 0 && m === 'GET')
+        return new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json', 'Content-Range': '*/0' } });
+      window.__unknown.push(m + ' ' + s.replace(/^https?:\/\/[^/]+/, ''));
+      return new Response(JSON.stringify({ code: 'UNROUTED' }), { status: 501, headers: { 'Content-Type': 'application/json' } });
+    }
+    : async () => { throw new TypeError('Failed to fetch'); };   /* no signal */
+  localStorage.setItem('chatnft.session', JSON.stringify({ access_token: 'not-a-real-token', refresh_token: 'not-a-real-refresh',
+    expires_at: Math.floor(Date.now() / 1000) + 3600, user: { id: 'u1' } }));
+  await cloudRender();
+  if (!authed) throw new Error('the page did not treat the session as signed in');
+  const n = 16, dd = new Uint8ClampedArray(n * n * 4);
+  for (let i = 0; i < n * n; i++) { dd[i * 4] = 200; dd[i * 4 + 1] = 120; dd[i * 4 + 3] = 255; }
+  fileName = 'x.png';
+  startEditor(dd, n, n, n, n, palette(dd, n * n, 24, 64), false);
+  await autosaveNow();
+  const before = await dbGet(AUTO_ID);
+  if (!before || before.by !== 'u1') throw new Error('the drawing was not its maker\'s before the refusal: ' + (before && before.by));
+  /* The refusal, as every caller of sessionEnded makes it: the stored session first. */
+  sbSaveSession(null); sessionEnded();
+  let after = null;
+  for (let i = 0; i < 400; i++) { const x = await dbGet(AUTO_ID); if (x && x.at !== before.at) { after = x; break; } await new Promise(r => setTimeout(r, 10)); }
+  let listed = []; try { listed = Object.keys(JSON.parse(localStorage.getItem('pb.uids') || '{}')); } catch (_) {}
+  return { by: after ? (after.by === undefined ? '(none)' : after.by) : 'not saved again', listed };
+}, verified);
+
+test.describe('stage 0: a session the page could not check still has its uid', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/index.html');
+    await page.waitForFunction(() => typeof s0Stamp === 'function' && typeof cloudRender === 'function');
+    await page.evaluate(async () => { window.__unknown = []; activeWs = null; cloudTeamId = null; dbp = null; dbpName = null; groupCaughtUp = true;
+      localStorage.removeItem('pb.uids'); await dbClear(); if (authed || s0SeenUid) throw new Error('the page started signed in'); });
+  });
+  test.afterEach(async ({ page }) => {
+    const unknown = await page.evaluate(() => window.__unknown || []);
+    await page.evaluate(() => { activeWs = null; localStorage.removeItem('chatnft.session'); localStorage.removeItem('pb.uids'); });
+    expect(unknown, 'every request had a named answer').toEqual([]);
+  });
+
+  test('opened with no signal, then refused: the drawing saved on the way out keeps its maker', async ({ page }) => {
+    expect(await bootDrawThenRefuse(page, false)).toEqual({ by: 'u1', listed: ['u1'] });
+  });
+
+  test('the control: the same after a verified start', async ({ page }) => {
+    expect(await bootDrawThenRefuse(page, true)).toEqual({ by: 'u1', listed: ['u1'] });
+  });
+});
+
+/* WHILE SIGN-OUT OR A SWITCH WAITS FOR THE DRAWING'S SAVE (fix round 3). The
+   wait is only for what the save depends on - the store, the uid, wsGen. The
+   account panel comes down at once, as it does with nothing to wait for, a
+   second press does nothing more, and a switch compares with where the page
+   is going, not where it still is (all measured before the fix). A group
+   page on team1 with its account panel open, and - with `saving` - a
+   drawing whose closing save is being written, its encode slowed to
+   `slowMs`; with nothing saving, the drawing was saved and closed first. */
+const groupPageWithDrawing = (page, saving, slowMs) => page.evaluate(async ([saving, slowMs]) => {
+  window.__toasts = [];
+  const shown = window.toast; window.toast = (m) => { window.__toasts.push(String(m)); try { shown(m); } catch (_) {} };
+  const json = (o, x) => new Response(JSON.stringify(o), { status: 200, headers: Object.assign({ 'Content-Type': 'application/json' }, x || {}) });
+  /* Left in place: a switch runs on after it returns. */
+  window.fetch = async (u, io) => {
+    const s = String(u), m = (io && io.method) || 'GET';
+    if (s.indexOf('/auth/v1/user') >= 0) return json({ id: 'u1' });
+    if (s.indexOf('/rpc/my_team') >= 0) return json('me');
+    if (s.indexOf('/rpc/team_member_names') >= 0) return json([]);
+    if (s.indexOf('/rest/v1/teams') >= 0) return json([{ id: 'me', name: 'Me', personal: true },
+      { id: 'team1', name: 'One', personal: false }, { id: 'team2', name: 'Two', personal: false }]);
+    if (s.indexOf('/rest/v1/collections') >= 0 && m === 'GET') return json([{ id: 'c1', layers: ['hats'] }]);
+    if (s.indexOf('/rest/v1/traits?select=') >= 0 && m === 'GET')
+      return new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json', 'Content-Range': '*/0' } });
+    if (s.indexOf('/storage/v1/object/list/') >= 0) return json([]);
+    window.__unknown.push(m + ' ' + s.replace(/^https?:\/\/[^/]+/, ''));
+    return new Response(JSON.stringify({ code: 'UNROUTED' }), { status: 501, headers: { 'Content-Type': 'application/json' } });
+  };
+  for (const s of [null, 'team1', 'team2']) { activeWs = s; dbp = null; dbpName = null; await dbClear(); }
+  activeWs = 'team1'; wsSave('team1'); dbp = null; dbpName = null; groupCaughtUp = true;
+  await cloudRender();
+  await new Promise(r => setTimeout(r, 300));
+  const n = 16, dd = new Uint8ClampedArray(n * n * 4);
+  for (let i = 0; i < n * n; i++) { dd[i * 4] = 200; dd[i * 4 + 1] = 120; dd[i * 4 + 3] = 255; }
+  fileName = 'x.png';
+  startEditor(dd, n, n, n, n, palette(dd, n * n, 24, 64), false);
+  await autosaveNow();
+  if (saving) {
+    const encode = art.toBlob.bind(art);
+    art.toBlob = (cb, t) => encode(b => setTimeout(() => cb(b), slowMs), t);
+    closeEditor();   /* its closing save is now being written */
+  } else await closeEditor();
+  $('acctpanel').hidden = true; acctToggle();
+  await new Promise(r => setTimeout(r, 100));
+  if ($('acctpanel').hidden || [...$('wssel').options].every(o => o.value !== 'team2')) throw new Error('the account panel is not open on a list with team2');
+  window.__gen0 = wsGen;
+}, [!!saving, slowMs || 0]);
+/* Past the slowed encode (1.5 s at most here) and whatever a switch starts. */
+const afterTheWait = (page) => page.evaluate(async () => {
+  await new Promise(r => setTimeout(r, 3000));
+  return { session: !!localStorage.getItem('chatnft.session'), activeWs, storedWs: localStorage.getItem('chatnft.ws'), gen: wsGen - window.__gen0,
+    signedOut: window.__toasts.filter(t => t === 'Signed out').length, opened: window.__toasts.filter(t => t === 'Opened the group project').length };
+});
+
+test.describe('stage 0: while sign-out or a switch waits for the drawing\'s save', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/index.html');
+    await page.waitForFunction(() => typeof s0Stamp === 'function' && typeof wsSwitch === 'function' && typeof closeEditor === 'function');
+    await page.evaluate(() => { window.__unknown = []; activeWs = null; cloudTeamId = null; dbp = null; dbpName = null; groupCaughtUp = true; });
+    await session(page, 'u1');
+  });
+  test.afterEach(async ({ page }) => {
+    const unknown = await page.evaluate(() => window.__unknown || []);
+    await page.evaluate(() => { activeWs = null; localStorage.removeItem('chatnft.session'); localStorage.removeItem('chatnft.ws'); localStorage.removeItem('pb.uids'); });
+    expect(unknown, 'every request had a named answer').toEqual([]);
+  });
+  const pickTeam2 = async (page) => {
+    try { await page.selectOption('#wssel', 'team2', { timeout: 800 }); return 'picked'; } catch (_) { return 'refused'; }
+  };
+
+  test('signing out while the drawing\'s save is being written: the account panel comes down at once, a pick in it is refused, and it ends on no group', async ({ page }) => {
+    await groupPageWithDrawing(page, true, 1500);
+    await page.$eval('#cloudout', (b) => b.click());
+    const picked = await pickTeam2(page);
+    const r = await afterTheWait(page);
+    expect({ picked, session: r.session, activeWs: r.activeWs, storedWs: r.storedWs }).toEqual({ picked: 'refused', session: false, activeWs: null, storedWs: null });
+  });
+
+  test('the control: the same with nothing being saved', async ({ page }) => {
+    await groupPageWithDrawing(page, false);
+    await page.$eval('#cloudout', (b) => b.click());
+    const picked = await pickTeam2(page);
+    const r = await afterTheWait(page);
+    expect({ picked, session: r.session, activeWs: r.activeWs, storedWs: r.storedWs }).toEqual({ picked: 'refused', session: false, activeWs: null, storedWs: null });
+  });
+
+  test('a second sign-out during the wait does nothing more: one sign-out, one wsGen bump', async ({ page }) => {
+    await groupPageWithDrawing(page, true, 1500);
+    await page.evaluate(() => { cloudSignOut(); cloudSignOut(); });
+    const r = await afterTheWait(page);
+    expect({ signedOut: r.signedOut, gen: r.gen, activeWs: r.activeWs }).toEqual({ signedOut: 1, gen: 1, activeWs: null });
+  });
+
+  test('the control: one press, with the same save being written, is one sign-out', async ({ page }) => {
+    await groupPageWithDrawing(page, true, 1500);
+    await page.evaluate(() => { cloudSignOut(); });
+    const r = await afterTheWait(page);
+    expect({ signedOut: r.signedOut, gen: r.gen, activeWs: r.activeWs }).toEqual({ signedOut: 1, gen: 1, activeWs: null });
+  });
+
+  test('switching away and straight back while the drawing\'s save is being written ends on the last choice, having never left', async ({ page }) => {
+    await groupPageWithDrawing(page, true, 800);
+    await page.evaluate(() => { wsSwitch('team2'); wsSwitch('team1'); });
+    const r = await afterTheWait(page);
+    expect({ activeWs: r.activeWs, storedWs: r.storedWs, gen: r.gen, opened: r.opened }).toEqual({ activeWs: 'team1', storedWs: 'team1', gen: 0, opened: 0 });
+  });
+
+  test('the control: away and back with nothing being saved ends on the last choice too, having switched twice', async ({ page }) => {
+    await groupPageWithDrawing(page, false);
+    await page.evaluate(() => { wsSwitch('team2'); wsSwitch('team1'); });
+    const r = await afterTheWait(page);
+    expect({ activeWs: r.activeWs, storedWs: r.storedWs, gen: r.gen, opened: r.opened }).toEqual({ activeWs: 'team1', storedWs: 'team1', gen: 2, opened: 2 });
+  });
+
+  test('two switches to one project while the save is being written run the switch once', async ({ page }) => {
+    await groupPageWithDrawing(page, true, 800);
+    await page.evaluate(() => { wsSwitch('team2'); wsSwitch('team2'); });
+    const r = await afterTheWait(page);
+    expect({ activeWs: r.activeWs, gen: r.gen, opened: r.opened }).toEqual({ activeWs: 'team2', gen: 1, opened: 1 });
+  });
+
+  test('the control: the same two switches with nothing being saved run it once', async ({ page }) => {
+    await groupPageWithDrawing(page, false);
+    await page.evaluate(() => { wsSwitch('team2'); wsSwitch('team2'); });
+    const r = await afterTheWait(page);
+    expect({ activeWs: r.activeWs, gen: r.gen, opened: r.opened }).toEqual({ activeWs: 'team2', gen: 1, opened: 1 });
   });
 });

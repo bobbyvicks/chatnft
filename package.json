@@ -15,7 +15,7 @@
   },
   "scripts": {
     "test": "npm run test:node && playwright test",
-    "test:node": "node --test test/trait-shelf-core.test.mjs test/sql/pglite-smoke.test.mjs test/sql/catalog.test.mjs test/secrets.test.mjs test/sql/replay.test.mjs test/sql/a0.test.mjs",
+    "test:node": "node --test test/trait-shelf-core.test.mjs test/sql/pglite-smoke.test.mjs test/sql/catalog.test.mjs test/secrets.test.mjs test/sql/replay.test.mjs test/sql/a0.test.mjs test/sql/a0-readback.test.mjs test/sql/a0-rest-probe.test.mjs",
     "test:ui": "playwright test --ui",
     "serve": "node tools/serve.cjs . 5288"
   }

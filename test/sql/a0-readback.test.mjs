@@ -95,7 +95,8 @@ test('A0 applied statement by statement - as it will be live - reads the same', 
 
 /* from/to edit the file (from must occur once), append adds a statement
    after it, before runs on the database ahead of the pre-read, role is who
-   applies it (pb_owner unless named). parts is every part that must say no. */
+   runs before and the mutated file (pb_owner unless named). parts is every
+   part that must say no. */
 const COLS = '\n        constraint collections_switching_at_check check (switching_at is null)';
 const MUTATIONS = [
   { name: 'protocol without NOT NULL', from: 'protocol smallint not null default 1', to: 'protocol smallint default 1', parts: ['protocol_ok'] },
@@ -144,6 +145,13 @@ const MUTATIONS = [
   { name: 'traits inheriting from another table', append: 'create table public.traits_base ();\nalter table public.traits inherit public.traits_base;', parts: ['catalog_unchanged'] },
   /* As the superuser: creating a publication needs CREATE on the database, which pb_owner lacks. */
   { name: 'traits added to a publication', append: 'create publication traits_pub for table public.traits;', role: null, parts: ['catalog_unchanged'] },
+  { name: 'a publication of all tables made with A0', append: 'create publication all_pub for all tables;', role: null, parts: ['catalog_unchanged'] },
+  { name: 'traits dropped from a publication', before: 'create publication both_pub for table public.traits, public.collections;', append: 'alter publication both_pub drop table public.traits;', role: null, parts: ['catalog_unchanged'] },
+  { name: 'the column list of a publication changed', before: 'create publication cols_pub for table public.traits (id, name);', append: 'alter publication cols_pub set table public.traits (id, name, layer);', role: null, parts: ['catalog_unchanged'] },
+  /* From two columns to every column: no list is not the same as a list. */
+  { name: 'the column list of a publication dropped', before: 'create publication cols_pub for table public.traits (id, name);', append: 'alter publication cols_pub set table public.traits;', role: null, parts: ['catalog_unchanged'] },
+  { name: 'an A0 column put in the column list of a publication', before: 'create publication cols_pub for table public.traits (id, name);', append: 'alter publication cols_pub set table public.traits (id, name, replaces);', role: null, parts: ['catalog_unchanged'] },
+  { name: 'the row filter of a publication changed', before: "create publication filt_pub for table public.traits where (kind = 'trait') with (publish = 'insert');", append: "alter publication filt_pub set table public.traits where (kind = 'ref');", role: null, parts: ['catalog_unchanged'] },
   /* The policy's text is unchanged; what it calls now lets everyone in. */
   { name: 'the policies\' membership function made to say yes', append: "create or replace function public.is_team_member(t uuid) returns boolean language sql stable security definer set search_path = '' as $$ select true $$;", parts: ['catalog_unchanged'] },
   { name: 'members refused the policies\' membership function', append: 'revoke execute on function public.is_team_member(uuid) from authenticated;', parts: ['catalog_unchanged'] },
@@ -163,11 +171,48 @@ for (const m of MUTATIONS) {
     if (m.append) bad = bad + '\n' + m.append + '\n';
     if (!m.before) assert.notEqual(bad, good, 'the mutation changed nothing, so it would test nothing');
     const db = await seeded('before-a0');
-    if (m.before) await applySqlText(db, m.before, 'before the pre-read', 'pb_owner');
+    if (m.before) await applySqlText(db, m.before, 'before the pre-read', m.role === undefined ? 'pb_owner' : m.role);
     const pre = await row(db, preSql());
     await applySqlText(db, bad, 'mutated A0', m.role === undefined ? 'pb_owner' : m.role);
     exactlyFalse(await row(db, postSql(pre)), m.parts);
     await db.close();
+  });
+}
+
+/* A PUBLICATION THAT WAS THERE BEFORE THE PRE-READ IS NOT A CHANGE. With no
+   column list, pg_publication_tables lists every column of the table - A0's
+   own among them, once A0 has run - so each of these must still read A0 as
+   ok, applied whole and statement by statement. The publication is made by
+   the superuser (pb_owner may not), and must hold one of the two tables, or
+   the case would pass by testing nothing. */
+const PUBLISHED = [
+  { name: 'traits, with no column list', before: 'create publication pb_pub for table public.traits;' },
+  { name: 'collections, with no column list', before: 'create publication pb_pub for table public.collections;' },
+  { name: 'all tables', before: 'create publication pb_pub for all tables;' },
+  { name: 'the tables in schema public', before: 'create publication pb_pub for tables in schema public;' },
+  { name: 'traits, with a column list', before: 'create publication pb_pub for table public.traits (id, name, layer);' },
+  { name: 'traits, with a row filter', before: "create publication pb_pub for table public.traits where (kind = 'trait') with (publish = 'insert');" },
+];
+for (const p of PUBLISHED) {
+  test('a publication of ' + p.name + ', made before the pre-read, leaves A0 ok - applied whole and statement by statement', async () => {
+    for (const how of ['whole', 'statement by statement']) {
+      const db = await seeded('before-a0');
+      await applySqlText(db, p.before, 'the publication', null);
+      assert.ok((await row(db, "select count(*)::int as n from pg_catalog.pg_publication_tables where pubname = 'pb_pub' and schemaname = 'public' and tablename in ('collections', 'traits')")).n > 0,
+        'the precondition: the publication holds one of the two tables');
+      const pre = await row(db, preSql());
+      if (how === 'whole') await applySqlFile(db, a0File(), 'pb_owner');
+      else {
+        const [s1, s2] = a0Statements(readFileSync(a0File(), 'utf8'));
+        await applySqlText(db, s1, 'statement 1', 'pb_owner');
+        await applySqlText(db, s2, 'statement 2', 'pb_owner');
+      }
+      const post = await row(db, postSql(pre));
+      assert.deepEqual(notTrue(post), [], how + ': ' + JSON.stringify(post));
+      assert.equal(post.a0_ok, true, how);
+      assert.equal(post.quiet, true, how);
+      await db.close();
+    }
   });
 }
 

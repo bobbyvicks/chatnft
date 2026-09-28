@@ -45,7 +45,12 @@ const A0_PAIRS = "(('collections', 'protocol'), ('collections', 'switching_at'),
           security definer one, has one live: anon may not execute it).
           Built-in functions are pinned, so pg_depend never lists them.
      inh  inheritance, either way: a child of traits is read with it
-     pub  publication membership, with its columns and row filter
+     pub  publication membership, with its row filter and its column list
+          as declared (pg_publication_rel.prattrs; none - or no table
+          entry, for all tables or a schema - means every column). Not
+          pg_publication_tables.attnames: for a publication with no list it
+          names every column, A0's own once A0 has run, so a publication
+          there before A0 would read as a change.
      rel  persistence (logged or not), replica identity, RLS on and forced,
           and the table ACL (a new owner moves it too: the grantors change)
    NOT COVERED, each measured in PGlite as not moving it: storage
@@ -107,8 +112,15 @@ export const FINGERPRINT_SQL = `(select md5(string_agg(x, E'\\n' order by x coll
   select 'inh|' || i.inhrelid::regclass::text || '|' || i.inhparent::regclass::text from pg_catalog.pg_inherits i
    where i.inhrelid in ${TABLES} or i.inhparent in ${TABLES}
   union all
-  select 'pub|' || t.pubname || '|' || t.tablename || '|' || coalesce(t.attnames::text, '') || '|' || coalesce(t.rowfilter, '')
-    from pg_catalog.pg_publication_tables t where t.schemaname = 'public' and t.tablename in ('collections', 'traits')
+  select 'pub|' || t.pubname || '|' || t.tablename || '|'
+         || case when r.prattrs is null then 'every column'
+                 else (select string_agg(a.attname, ',' order by a.attnum) from pg_catalog.pg_attribute a
+                        where a.attrelid = r.prrelid and a.attnum = any(r.prattrs::int2[])) end
+         || '|' || coalesce(t.rowfilter, '')
+    from pg_catalog.pg_publication_tables t
+    join pg_catalog.pg_publication p on p.pubname = t.pubname
+    left join pg_catalog.pg_publication_rel r on r.prpubid = p.oid and r.prrelid = ('public.' || t.tablename)::regclass
+   where t.schemaname = 'public' and t.tablename in ('collections', 'traits')
   union all
   select 'rel|' || c.relname || '|' || c.relpersistence::text || '|' || c.relreplident::text || '|' || c.relrowsecurity
          || '|' || c.relforcerowsecurity || '|' || coalesce(c.relacl::text, '')

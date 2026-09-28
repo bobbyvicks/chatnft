@@ -309,3 +309,62 @@ export async function gotoPage(page, name) {
   }, name);
   await page.waitForTimeout(60);
 }
+
+/* ==== seeding the store, for the auto cloud save specs (design E2) ====
+
+   These write records the way a person's store holds them, WITHOUT the
+   page's dbPut. From stage 0 on, dbPut stamps every trait, reference and
+   draft with the account, the kind of write and a local id, and a spec that
+   needs a record from before stage 0 must be able to write one with none of
+   those. So each record here holds exactly the fields given: stamps too,
+   only when a spec passes them.
+
+   findTrait looks a trait up the way a person names it - kind, name, layer,
+   status - never by the local id, which the new page's store does not use.
+
+   The old store only. Seeding the server and the new store's `local` (E2's
+   seedSettings) belongs to the plan that builds that store. */
+const putRaw = (page, rec) => page.evaluate(async (rec) => {
+  if (rec.__bytes !== undefined) { rec.blob = new Blob([new Uint8Array(rec.__bytes)], { type: 'image/png' }); delete rec.__bytes; }
+  const d = await db();
+  await new Promise((res, rej) => {
+    const tx = d.transaction('items', 'readwrite');
+    tx.objectStore('items').put(rec);
+    tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); tx.onabort = () => rej(tx.error);
+  });
+  return rec.id;
+}, rec);
+
+export async function seedTrait(page, t) {
+  const kind = t.kind || 'trait';
+  const layer = t.layer || 'unsorted', status = t.status || 'wip';
+  const rec = { id: t.id || (kind === 'ref' ? 'ref_' + t.name : 't_' + t.name + '_' + layer + '_' + status),
+    kind, name: t.name, w: t.w || 16, h: t.h || 16, at: t.at || 1, __bytes: t.bytes || 16 };
+  if (kind === 'trait') { rec.layer = layer; rec.status = status; rec.rarity = typeof t.rarity === 'number' ? t.rarity : 1; }
+  for (const k of ['rowId', 'path', 'rowAt', 'synced', 'unsent', 'shelfOrder', 'by', 'wk', 'lid', 'reviewId'])
+    if (t[k] !== undefined) rec[k] = t[k];
+  return putRaw(page, rec);
+}
+
+export async function findTrait(page, kind, name, layer, status) {
+  return page.evaluate(async ([kind, name, layer, status]) => {
+    const hit = (await dbAll()).filter(r => r.kind === kind && r.name === name
+      && (kind === 'ref' || ((r.layer || 'unsorted') === (layer || 'unsorted') && (r.status || 'wip') === (status || 'wip'))));
+    if (hit.length > 1) throw new Error('findTrait: ' + hit.length + ' records are ' + [kind, name, layer, status].join('/'));
+    if (!hit.length) return null;
+    const r = Object.assign({}, hit[0]);
+    delete r.blob;
+    return r;
+  }, [kind, name, layer, status]);
+}
+
+export async function seedSettings(page, id, fields) {
+  await putRaw(page, Object.assign({ id, kind: 'settings', at: 1 }, fields));
+}
+
+export async function seedDraft(page, d) {
+  const rec = { id: d.traitId ? 'autosave.' + d.traitId : 'autosave.working', kind: 'autosave',
+    traitId: d.traitId || null, name: d.name || 'draft.png', w: d.w || 16, h: d.h || 16, at: d.at || 1, __bytes: d.bytes || 16 };
+  for (const k of ['by', 'wk']) if (d[k] !== undefined) rec[k] = d[k];
+  return putRaw(page, rec);
+}

@@ -1989,7 +1989,7 @@ footer .mono{color:var(--ink);}
         <button class="mini" id="cloudpush" hidden>Save to cloud</button>
         <button class="mini" id="cloudpull" hidden>Load from cloud</button>
         <button class="mini" id="cloudclear" hidden
-          title="Remove this project from the server: every trait row and every picture in storage. Your own copy on this device is kept, and every other member of the group keeps theirs. It only clears what is on the server.">Clear the cloud</button>
+          title="Removes this project from the server for everyone. On a group page only the owner can.">Clear the cloud</button>
         <button class="mini" id="cloudout" hidden>Sign out</button>
         <button class="mini" id="setpass" hidden>Set a password</button>
         <button class="mini" id="setname" hidden>Change your name</button>
@@ -19275,11 +19275,61 @@ async function cloudFilesLeft(team,c){
    underneath, and every early return passes through one finally so a path
    that decided to do nothing cannot leave the button dead. */
 let clearingCloud=false;
+/* TASK 17 (design E3, controller ruling F-04): REMOVE FROM SERVER IS THE
+   GROUP OWNER'S. This account's role in the group shown: "owner",
+   "member" (a member, or no membership row at all), or null when it could
+   not be read - no group, no session, the network, an answer that is not
+   2xx or not a list. A plain team_members read, made only by clearCloud
+   on a group page and never inside cloudRender. The uid asked about is the
+   stored session's, whose token the read carries (as s0FlagSet reads it):
+   a member may read every member's row of the group (members_read), so it
+   must be the token's own; sbUser would be a request of its own. */
+const CLOUD_OWNER_ONLY="Only this project's owner can remove it from the server. Your copy on this device is untouched.";
+const CLOUD_OWNER_UNKNOWN="Could not check who owns this project, so nothing was changed.";
+/* Said by clearCloudNow when the page moved after the press (fix round 1). */
+const CLOUD_MOVED="The page moved to another project, so nothing was changed.";
+async function cloudRole(){
+  const team=activeWs;
+  if(!team) return null;
+  const h=await sbHeaders();
+  if(!h) return null;
+  const uid=s0SessionUid(sbLoadSession());
+  if(!uid) return null;
+  try{
+    const r=await fetch(SB_URL+"/rest/v1/team_members?select=role&team_id=eq."+encodeURIComponent(team)
+      +"&user_id=eq."+encodeURIComponent(uid),{headers:h});
+    if(!r.ok) return null;
+    const rows=await r.json();
+    if(!Array.isArray(rows)) return null;
+    return (rows[0]&&rows[0].role==="owner") ? "owner" : "member";
+  }catch(_){ return null; }
+}
 async function clearCloud(){
   if(clearingCloud) return;
   clearingCloud=true;
   const btn=$("cloudclear"); if(btn) btn.disabled=true;
-  try{ await clearCloudNow(); }
+  try{
+    /* TASK 17 (E3, F-04): on a group page, the owner's only. Asked first -
+       before the stage-0 hold (s0Refuse, clearCloudNow's first line) and
+       before any confirm - so a member is told the one thing that applies
+       to them, and nothing else is sent. Inside the try, so the finally
+       below always gives the button back. The personal page asks nothing. */
+    /* The project this press is for, on either page: a switch or a
+       sign-out bumps wsGen. The owner's answer below is for it, and
+       clearCloudNow is held to it too (fix round 1). */
+    const gen=wsGen;
+    if(activeWs){
+      const role=await cloudRole();
+      const note=$("cloudnote");
+      const say=m=>{ if(note) note.textContent=m; };
+      /* The page moved during the read: the answer is about a project no
+         longer shown, and going on would clear the one moved to. */
+      if(!wsStill(gen)){ say(CLOUD_OWNER_UNKNOWN); return; }
+      if(role===null){ say(CLOUD_OWNER_UNKNOWN); return; }
+      if(role!=="owner"){ say(CLOUD_OWNER_ONLY); return; }
+    }
+    await clearCloudNow(gen);
+  }
   finally{ clearingCloud=false; if(btn) btn.disabled=false; }
 }
 /* Records here that claim to be on a server which no longer has them.
@@ -19300,22 +19350,41 @@ async function relightUnsynced(){
   }
   return n;
 }
-async function clearCloudNow(){
+async function clearCloudNow(gen){
   /* STAGE 0 (D1): removing from the server waits while this project is held. */
   if(await s0Refuse()) return;
   const note=$("cloudnote");
   const say=m=>{ if(note) note.textContent=m; };
+  /* TASK 17, fix round 1: THE CLEAR STAYS ON THE PROJECT IT WAS PRESSED
+     ON. gen is wsGen at the press (clearCloud), the project the owner's
+     answer was for. The team is read only after s0Refuse's read and
+     sbUser's, so a switch in either aimed the whole clear at the project
+     moved to, on the answer for the one left (measured: the group moved
+     to lost its pictures and rows; from the personal page too, with no
+     role read at all). So it stops, and says so, before anything is asked
+     about the project moved to or made there (cloudCollection makes one
+     when there is none), and before the empty-server repair or the
+     confirm; from the confirm on, team and c are fixed. With no gen
+     (stage0gate calls this directly) it goes on as it did. */
+  const moved=()=>{
+    if(gen===undefined||wsStill(gen)) return false;
+    say(CLOUD_MOVED);
+    return true;
+  };
   const u=await sbUser();
   if(!u){ toast("Sign in first"); return; }
   const team=await cloudTeam();
+  if(moved()) return;
   const c=team?await cloudCollection(u):null;
   if(!team||!c){ say("Could not reach the server, so nothing was changed."); return; }
   const rows=await cloudRowCount(c);
+  if(moved()) return;
   if(rows===null){ say("Could not ask the server what it has, so nothing was changed."); return; }
   if(!rows){
     /* Files can outlive their rows - that is the whole reason this exists -
        so an empty row count is not an empty collection. */
     const left=await cloudFilesLeft(team,c);
+    if(moved()) return;
     if(!left){
       /* Nothing to delete, and still something to fix: this browser may be
          insisting it uploaded work to a server that was emptied behind its

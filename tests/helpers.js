@@ -381,6 +381,9 @@ export async function seedDraft(page, d) {
      after: the same keys, for the second and later protocol reads;
      insert: {status, body} to answer the trait insert with (default: 201);
      deleted: the rows a DELETE on traits answers (default []);
+     role: what the group role read (team_members, Task 17's Remove from
+       server check) answers - 'owner' (default), 'member', or 'none' ([]:
+       no membership row); roleStatus (200);
      keepState: true leaves s0State, and the set of stores seen on
        protocol 2 (s0Seen2), as they are (default: both reset), for a spec
        about what one tab remembers across accounts.
@@ -437,6 +440,10 @@ export async function armStage0(page, o = {}) {
       if (s.indexOf('/rest/v1/rpc/team_member_names') >= 0) return json([]);
       if (s.indexOf('/rest/v1/rpc/reorder_traits') >= 0) return json(null);
       if (s.indexOf('/rest/v1/rpc/leave_team') >= 0) return json(null);
+      if (s.indexOf('/rest/v1/team_members?select=role&') >= 0) {
+        if (o.roleStatus && o.roleStatus !== 200) return json({ code: 'XX000', message: 'down' }, o.roleStatus);
+        return json(o.role === 'none' ? [] : [{ role: o.role || 'owner' }]);
+      }
       if (s.indexOf('/rest/v1/teams') >= 0) return json([{ id: 'me', name: 'Me', personal: true }, { id: 'team7', name: 'Seven', personal: false }]);
       if (s.indexOf('/rest/v1/collections') >= 0) return json([{ id: 'c1', layers: ['hats', 'unsorted'] }]);
       if (s.indexOf('/storage/v1/object/list/') >= 0) return json([]);

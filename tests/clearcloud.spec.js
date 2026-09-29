@@ -59,6 +59,9 @@ const ready = (page, opts) => page.evaluate(async (o) => {
     const s = String(u), m = (opt && opt.method) || 'GET';
     if (s.indexOf('/auth/v1/user') >= 0) return Promise.resolve(json({ id: 'u-me' }));
     if (s.indexOf('/rpc/my_team') >= 0) return Promise.resolve(json('team1'));
+    /* The group role read (Task 17: on a group page only the owner clears).
+       These tests are the owner's; tests/removeowner.spec.js has the rest. */
+    if (s.indexOf('/rest/v1/team_members?select=role&') >= 0) return Promise.resolve(json([{ role: 'owner' }]));
     if (s.indexOf('/rest/v1/collections') >= 0)
       return Promise.resolve(json([{ id: 'c1', layers: ['hats'], rules: [], decisions: [] }]));
     /* The count request, answered the way PostgREST answers count=exact. */

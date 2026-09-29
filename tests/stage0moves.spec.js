@@ -143,6 +143,14 @@ function router(st) {
            st.hold.id when given - after the rows are gone, as the server
            removes them when the request arrives.) */
         await hold('rowdel', () => !st.hold.id || one === 'eq.' + st.hold.id);
+        /* (Close fix 3: st.rowdelAnswer answers the first row DELETE, the
+           rows already gone, with a 502 ('bad') or a 200 that is not JSON
+           ('garbled') - an answer that cannot say what it took.) */
+        if (st.rowdelAnswer && !st.rowdelAnswered) {
+          st.rowdelAnswered = true;
+          if (st.rowdelAnswer === 'bad') return json({ message: 'bad gateway' }, 502);
+          return route.fulfill({ status: 200, contentType: 'text/plain', headers: CORS, body: 'not json' });
+        }
         return json(hit.map(r => ({ id: r.id, path: r.path })));
       }
       if (m === 'POST') {
@@ -205,6 +213,7 @@ async function run(page, sc) {
   S.addRow({ id: 'row-me-3', collection_id: 'cme', team_id: 'me', name: 'cap', layer: 'skins', status: 'approved', rarity: 7, path: 'me/cme/trait-cap-skins-approved.png', updated_at: '2026-01-02T00:00:00+00:00' });
   if (sc.c1Decisions) S.colls.c1.decisions = sc.c1Decisions;
   st.refuseSend = !!sc.refuseSend;
+  st.rowdelAnswer = sc.rowdelAnswer || null;
   for (const r of (sc.t7 || [])) if (r.rowId) S.addRow({ id: r.rowId, collection_id: 'c1', team_id: 'team7', name: r.name, layer: r.layer, status: r.status, rarity: r.rarity, shelf_order: r.shelfOrder == null ? null : r.shelfOrder, path: r.path, updated_at: r.rowAt });
   await page.context().route(/supabase\.co/, router(st));
   await page.goto('/index.html');
@@ -860,4 +869,139 @@ test.describe('stage 0 (close fixes): an insert is its DELETE\'s other half', ()
     expect(out.ret).toEqual({ ok: false, reason: 'left' });
     expect(st.unknown).toEqual([]);
   });
+});
+
+/* Close fix 3: AN INSERT IS ITS DELETE'S OTHER HALF ONLY WHEN THE DELETE
+   TOOK A ROW. Close fix 1's premise is false for every move made through
+   cloudMoveOne - a layer rename or removal, a batch move, a sort, an editor
+   save that changes the status or the name. Its copy carries no row id, so
+   its DELETE is by the destination's name, layer and status and usually
+   removes nothing; the old row is removed afterwards by cloudDropOne, which
+   a move skips. So a move while that DELETE was out let the insert land,
+   the group kept both rows, and Save to cloud never removed the old one
+   (measured by the close-fix review at 512a9ce: a rename hats to caps ended
+   with cap on both layers; an editor status change wip to approved ended
+   with both rows and said "so the group has it twice"). The insert now asks
+   for the account only when its DELETE took a row, and for the whole home
+   when it took none; an answer that cannot say what it took counts as
+   taken. Here team7's cap is on row U1 and hat on row-2; the DELETE held is
+   the first row DELETE the action sends - the destination's, by name. After
+   the move, the page goes back to team7 (the catch-up) and Save to cloud is
+   pressed: the group must end with one row for cap, where the action put
+   it, and nothing of My page's touched. */
+const T7CAP_U1 = Object.assign({}, T7CAP, { rowId: U1 });
+const renameAct = "window.confirm=()=>true; await renameLayer('hats','caps'); return 'done';";
+const statusEditAct = "await openTraitRecord(await dbGet('t_cap_hats_wip')); await new Promise(r=>setTimeout(r,300));"
+  + " setChip('tstatus','approved'); return saveTraitNow();";
+const capRows = (server) => server.filter(r => r.indexOf('{c1 cap/') >= 0);
+/* Back to team7, its catch-up let finish, then Save to cloud: what each
+   request did, the server, both stores. */
+const backAndPush = async (page, st) => {
+  const mark = st.log.length;
+  await page.evaluate(async () => {
+    window.__toasts = [];
+    await wsSwitch('team7');
+    if (typeof catchUpFlight !== 'undefined' && catchUpFlight) { try { await catchUpFlight; } catch (_) {} }
+  });
+  await sleep(500);
+  const returned = { server: st.server.snap(), team7: (await DUMP(page, 'chatnft.ws.team7')).filter(l => l.indexOf('t_') === 0) };
+  await page.evaluate(async () => { s0State = Object.assign({}, s0State, { at: 0 }); await cloudPush(); });
+  await sleep(300);
+  return {
+    returned,
+    writes: st.log.slice(mark).filter(e => /^(POST|PATCH|DELETE)$/.test(e.m) && e.path.indexOf('/rpc/') < 0 && e.path.indexOf('/object/list/') < 0)
+      .map(e => e.m + ' ' + e.path.replace(/&select=.*$/, '')),
+    toasts: await page.evaluate(() => window.__toasts.slice()),
+    server: st.server.snap(),
+    team7: (await DUMP(page, 'chatnft.ws.team7')).filter(l => l.indexOf('t_') === 0),
+    me: await DUMP(page, 'pixelbench'),
+  };
+};
+
+test.describe('stage 0 (close fix 3): an insert is its DELETE\'s other half only when the DELETE took a row', () => {
+  test.afterEach(async ({ page }) => {
+    await page.evaluate(() => { try { activeWs = null; localStorage.removeItem('chatnft.session'); } catch (_) {} }).catch(() => {});
+  });
+
+  test('a layer rename, the page moving to My page while cap\'s destination DELETE is out: no insert, and after the return and a Save to cloud the group has one row for cap, on caps', async ({ page }) => {
+    const { st, out } = await run(page, { t7: [T7CAP_U1, T7HAT], hold: { kind: 'rowdel' }, move: true, act: renameAct });
+    expect([out.heldAt, out.moved]).toEqual(['rowdel', true]);
+    /* The action: cap's picture, its destination DELETE (which took
+       nothing), and no insert - the group keeps the row it had. */
+    expect.soft(out.writes, 'the insert is held').toEqual(['POST /storage/v1/object/traits/team7/c1/trait-cap-caps-wip.png',
+      'DELETE /rest/v1/traits?collection_id=eq.c1&kind=eq.trait&name=eq.cap&layer=eq.caps&status=eq.wip']);
+    expect.soft(out.server, 'the group keeps its rows').toEqual(ME_ROWS.concat([U1 + '{c1 cap/hats/wip r1}', 'row-2{c1 hat/hats/wip r1}']).sort());
+    expect.soft(out.toasts[out.toasts.length - 1]).toBe('Stopped part way: you left the project. What was done is kept there');
+    expect(out.meSame).toBe(true);
+    expect(namesMe(out)).toEqual([]);
+    const me = await DUMP(page, 'pixelbench');
+    const after = await backAndPush(page, st);
+    /* Save to cloud removes the old row and puts cap on caps. */
+    expect.soft(after.writes, 'the push replaces the old row').toContain('DELETE /rest/v1/traits?id=eq.' + U1);
+    expect(capRows(after.server), 'one row for cap').toEqual(['row-new-1{c1 cap/caps/wip r1}']);
+    expect(after.server).toEqual(ME_ROWS.concat(['row-2{c1 hat/hats/wip r1}', 'row-new-1{c1 cap/caps/wip r1}']).sort());
+    expect(after.team7).toEqual(['t_cap_caps_wip[row-new-1 1 caps synced]', 't_hat_hats_wip[row-2 1 hats synced]']);
+    expect(after.writes.filter(w => /cme|\/me\//.test(w)), 'nothing sent to My page').toEqual([]);
+    expect(after.me, 'nothing written in My page').toEqual(me);
+    expect(st.unknown).toEqual([]);
+  });
+  test('THE CONTROL: the same rename, cap\'s destination DELETE held and released with no move: both traits move, one row each', async ({ page }) => {
+    const { st, out } = await run(page, { t7: [T7CAP_U1, T7HAT], hold: { kind: 'rowdel' }, move: false, act: renameAct });
+    expect([out.heldAt, out.moved]).toEqual(['rowdel', false]);
+    expect(out.toasts[out.toasts.length - 1]).toBe('Renamed to caps, 2 traits moved');
+    expect(capRows(out.server)).toEqual(['row-new-1{c1 cap/caps/wip r1}']);
+    expect(out.server).toEqual(ME_ROWS.concat(['row-new-1{c1 cap/caps/wip r1}', 'row-new-2{c1 hat/caps/wip r1}']).sort());
+    expect(out.team7).toEqual(['t_cap_caps_wip[row-new-1 1 caps synced]', 't_hat_caps_wip[row-new-2 1 caps synced]']);
+    expect(out.meSame).toBe(true);
+    expect(st.unknown).toEqual([]);
+  });
+  test('the editor\'s save of a status change wip to approved, the page moving to My page while its destination DELETE is out: no insert, it says not sent, and after the return and a Save to cloud the group has one row for cap, approved', async ({ page }) => {
+    const { st, out } = await run(page, { t7: [T7CAP_U1], hold: { kind: 'rowdel' }, move: true, act: statusEditAct });
+    expect([out.heldAt, out.moved]).toEqual(['rowdel', true]);
+    expect.soft(out.writes, 'the insert is held').toEqual(['POST /storage/v1/object/traits/team7/c1/trait-cap-hats-approved.png',
+      'DELETE /rest/v1/traits?collection_id=eq.c1&kind=eq.trait&name=eq.cap&layer=eq.hats&status=eq.approved']);
+    expect.soft(out.server, 'the group keeps its row').toEqual(ME_ROWS.concat([U1 + '{c1 cap/hats/wip r1}']).sort());
+    const said = out.toasts.filter(t => /^Saved cap/.test(t));
+    expect.soft(said, JSON.stringify(out.toasts)).toEqual(['Saved cap here only - not sent: you left the project first. The change is kept there, and its next Save to cloud sends it.']);
+    expect(out.meSame).toBe(true);
+    expect(namesMe(out)).toEqual([]);
+    const me = await DUMP(page, 'pixelbench');
+    const after = await backAndPush(page, st);
+    expect.soft(after.writes, 'the push replaces the old row').toContain('DELETE /rest/v1/traits?id=eq.' + U1);
+    expect(capRows(after.server), 'one row for cap').toEqual(['row-new-1{c1 cap/hats/approved r1}']);
+    expect(after.team7).toEqual(['t_cap_hats_approved[row-new-1 1 hats synced]']);
+    expect(after.writes.filter(w => /cme|\/me\//.test(w)), 'nothing sent to My page').toEqual([]);
+    expect(after.me, 'nothing written in My page').toEqual(me);
+    expect(st.unknown).toEqual([]);
+  });
+  test('THE CONTROL: the same status change, its destination DELETE held and released with no move: the new row in, the old one out, one row', async ({ page }) => {
+    const { st, out } = await run(page, { t7: [T7CAP_U1], hold: { kind: 'rowdel' }, move: false, act: statusEditAct });
+    expect([out.heldAt, out.moved]).toEqual(['rowdel', false]);
+    expect(out.ret).toBe(true);
+    expect(capRows(out.server)).toEqual(['row-new-1{c1 cap/hats/approved r1}']);
+    const said = out.toasts.filter(t => /^Saved cap/.test(t));
+    expect(said.length, JSON.stringify(out.toasts)).toBe(1);
+    expect(said[0]).toMatch(/^Saved cap and shared it with the group/);
+    expect(said[0]).not.toMatch(/twice/);
+    expect(out.team7).toEqual(['t_cap_hats_approved[row-new-1 1 hats synced]']);
+    expect(out.meSame).toBe(true);
+    expect(st.unknown).toEqual([]);
+  });
+  /* WHAT CANNOT SAY WHAT IT TOOK COUNTS AS TAKEN. The row DELETE of a group
+     save removes the row and its answer is lost - a 502, or a 200 that is
+     not JSON - while the page moves: the row may be gone, so the insert
+     still goes, as close fix 1 has it, and the group has the trait. */
+  for (const [answer, words] of [['bad', 'a 502'], ['garbled', 'a 200 that is not JSON']]) {
+    test('a group save whose row DELETE answers ' + words + ' while the page moves to My page: counted as taken - the insert still goes into team7, and the group has the trait', async ({ page }) => {
+      const { st, out } = await run(page, { t7: [T7EDIT], hold: { kind: 'rowdel', id: U1 }, move: true, rowdelAnswer: answer, act: saveAct });
+      expect([out.heldAt, out.moved, st.rowdelAnswered]).toEqual(['rowdel', true, true]);
+      expect(out.writes).toEqual(SAVED);
+      expect(insertOf(st)).toEqual(INTO_C1);
+      expect(out.server).toEqual(ME_ROWS.concat(['row-new-1{c1 cap/hats/wip r1}']).sort());
+      expect(out.ret).toEqual({ ok: true, reason: null });
+      expect(namesMe(out)).toEqual([]);
+      expect(out.meSame).toBe(true);
+      expect(st.unknown).toEqual([]);
+    });
+  }
 });

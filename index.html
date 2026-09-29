@@ -20317,8 +20317,17 @@ async function cloudSyncOne(rec,ctx,why,seq){
     if(!s0SendHome(s0Home)) return say(s0LeftReason(s0Home));
     const dr=await fetch(SB_URL+"/rest/v1/traits?"+q,{method:"DELETE",
       headers:Object.assign({Prefer:"return=representation"},h)});
-    if(!replaces && dr && dr.ok){
-      try{ const gone=await dr.json(); if(Array.isArray(gone)&&gone.length===1&&gone[0]&&gone[0].id) replaces=gone[0].id; }catch(_){ }
+    /* STAGE 0 (CLOSE FIX 3): WHAT THIS DELETE TOOK, from the rows it
+       answers with - read for every DELETE now, not only one that looks
+       for its predecessor. The insert below goes after a move only when
+       this took a row (patch602, at the insert: a move's DELETE by the
+       destination's name usually takes nothing, and its old row goes
+       afterwards in cloudDropOne, which a move skips). An answer that is
+       not ok, or cannot be read, counts as taken: the row may be gone,
+       and holding its insert would leave the group without it. */
+    let s0Took=true;
+    if(dr && dr.ok){
+      try{ const gone=await dr.json(); if(Array.isArray(gone)){ s0Took=gone.length>0; if(!replaces&&gone.length===1&&gone[0]&&gone[0].id) replaces=gone[0].id; } }catch(_){ }
     }
     /* A uuid or nothing: anything else would fail the insert (22P02). */
     if(!(typeof replaces==="string"&&S0_UUID.test(replaces))) replaces=null;
@@ -20363,8 +20372,24 @@ async function cloudSyncOne(rec,ctx,why,seq){
            The account still stops it: the headers carry its session, and
            whether a sign-out, or another account signing in, lets the
            insert go with the session that ended is not decided here -
-           held as before, it waits for a ruling. */
-        if(s0Home.uid!==(s0Uid()||null)) return say(s0LeftReason(s0Home));
+           held as before, it waits for a ruling.
+           (CLOSE FIX 3, SUPERSEDING "So a move does not stop it" IN PART:
+           that holds only when the DELETE took a row. A move made through
+           cloudMoveOne - a layer rename or removal, a batch move, a sort,
+           an editor save that changes the status or the name - sends a
+           copy with no row id, so its DELETE is by the destination's
+           name, layer and status and usually removes nothing; the old
+           row goes afterwards, in cloudDropOne, which a move skips. Sent
+           after a move, that insert left the group with both rows, and
+           Save to cloud did not remove the old one (measured by the
+           close-fix review: a layer rename hats to caps ended with cap on
+           both layers). So the insert asks for the account only when its
+           DELETE took a row (s0Took, from the DELETE's answer; an answer
+           that is not ok or cannot be read counts as taken), and for the
+           whole home when it took none: held then, the group keeps the
+           row it had, and the record stays unsent where it was made, for
+           its next Save to cloud.) */
+        if(s0Took ? s0Home.uid!==(s0Uid()||null) : !s0SendHome(s0Home)) return say(s0LeftReason(s0Home));
         r=await fetch(SB_URL+"/rest/v1/traits",{method:"POST",
           headers:Object.assign({Prefer:"return=representation"},h), body:rowBody});
         if(r.ok) break;

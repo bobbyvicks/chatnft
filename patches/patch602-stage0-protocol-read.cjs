@@ -147,7 +147,24 @@
    - cloudSyncOne's insert is its DELETE's other half. Once the DELETE is
      out, a move no longer holds the insert - it asks for the account
      only - so a move never leaves the group without the trait's row, nor
-     tells the person a change was not sent when its row was deleted. */
+     tells the person a change was not sent when its row was deleted.
+     (SUPERSEDED IN PART by close fix 3, below: only when the DELETE took a
+     row.)
+
+   Close fix 3 (the close-fix review of 512a9ce; measured red there first,
+   tests/stage0moves.spec.js "close fix 3"):
+   - The insert is its DELETE's other half only when the DELETE took a
+     row. A move made through cloudMoveOne (a layer rename or removal, a
+     batch move, a sort, an editor save that changes the status or the
+     name) sends a copy with no row id: its DELETE is by the destination's
+     name, layer and status and usually takes nothing, and the old row
+     goes afterwards in cloudDropOne, which a move skips. So its insert,
+     sent after a move, left the group both rows, and Save to cloud did
+     not remove the old one. The insert asks for the account only when its
+     DELETE took a row (s0Took), and for the whole home when it took none.
+     Here the DELETE cannot tell, so s0Took is true; patch603, which makes
+     the DELETE ask for the removed rows back, sets it from the answer (an
+     answer that is not ok or cannot be read counts as taken). */
 const s0 = require('./stage0-common.cjs');
 const doc = s0.start([['function s0Uid(){', 'patch601 is not applied']]);
 
@@ -617,15 +634,25 @@ doc.swap('    if(!up.ok) return say(cloudLater(up.status)?"unreachable":"refused
   '      return say(cloudLater(up.status)?"unreachable":"refused",up.status);',
   '    }',
 ]);
+/* Close fix 3: s0Took, whether the row DELETE took a row, is what the insert
+   after it asks (below). This DELETE does not ask for the removed rows back,
+   so here it cannot tell, and cannot tell counts as taken; patch603 makes it
+   ask, and sets s0Took from the answer. */
 doc.swap('    await fetch(SB_URL+"/rest/v1/traits?"+q,{method:"DELETE",headers:h});', [
   '    if(!s0SendHome(s0Home)) return say(s0LeftReason(s0Home));   /* STAGE 0 (fix round 4) */',
   '    await fetch(SB_URL+"/rest/v1/traits?"+q,{method:"DELETE",headers:h});',
+  '    let s0Took=true;   /* STAGE 0 (close fix 3): did the DELETE take a row - it cannot tell, so taken (patch603 reads its answer) */',
 ]);
 /* Close fixes: the insert after its DELETE asks for the account only (the
    comment it writes says why). Fix round 4 asked for the whole home here;
    a move while the DELETE or a retry's wait was out then held the insert,
    and the group was left with no row for the trait (measured by the final
-   review, 3 of 3; tests/stage0moves.spec.js, "close fixes"). */
+   review, 3 of 3; tests/stage0moves.spec.js, "close fixes").
+   Close fix 3: the account only when the DELETE took a row (s0Took), the
+   whole home when it took none - a move's DELETE by the destination's name
+   takes nothing, and its insert sent after a move left the group both rows
+   (measured by the close-fix review; tests/stage0moves.spec.js, "close fix
+   3"). */
 doc.swap('        r=await fetch(SB_URL+"/rest/v1/traits",{method:"POST",', [
   '        /* STAGE 0 (CLOSE FIXES): THE DELETE\'S OTHER HALF. Once the DELETE',
   '           above is out, the row it removes comes back only when this',
@@ -643,8 +670,24 @@ doc.swap('        r=await fetch(SB_URL+"/rest/v1/traits",{method:"POST",', [
   '           The account still stops it: the headers carry its session, and',
   '           whether a sign-out, or another account signing in, lets the',
   '           insert go with the session that ended is not decided here -',
-  '           held as before, it waits for a ruling. */',
-  '        if(s0Home.uid!==(s0Uid()||null)) return say(s0LeftReason(s0Home));',
+  '           held as before, it waits for a ruling.',
+  '           (CLOSE FIX 3, SUPERSEDING "So a move does not stop it" IN PART:',
+  '           that holds only when the DELETE took a row. A move made through',
+  '           cloudMoveOne - a layer rename or removal, a batch move, a sort,',
+  '           an editor save that changes the status or the name - sends a',
+  '           copy with no row id, so its DELETE is by the destination\'s',
+  '           name, layer and status and usually removes nothing; the old',
+  '           row goes afterwards, in cloudDropOne, which a move skips. Sent',
+  '           after a move, that insert left the group with both rows, and',
+  '           Save to cloud did not remove the old one (measured by the',
+  '           close-fix review: a layer rename hats to caps ended with cap on',
+  '           both layers). So the insert asks for the account only when its',
+  '           DELETE took a row (s0Took, from the DELETE\'s answer; an answer',
+  '           that is not ok or cannot be read counts as taken), and for the',
+  '           whole home when it took none: held then, the group keeps the',
+  '           row it had, and the record stays unsent where it was made, for',
+  '           its next Save to cloud.) */',
+  '        if(s0Took ? s0Home.uid!==(s0Uid()||null) : !s0SendHome(s0Home)) return say(s0LeftReason(s0Home));',
   '        r=await fetch(SB_URL+"/rest/v1/traits",{method:"POST",',
 ]);
 doc.swap('    if(!adopted && !r.ok) return say(r.status===403 ? "notallowed"', [
@@ -1964,8 +2007,10 @@ doc.swap('            if(dr && dr.blob){', '            if(dr && dr.blob && wsSt
    counted: the definitions, and s0LeftReason's own use. A
    check removed, or one added, fails the build until this is changed with
    it. (Close fixes: 30 send checks, was 31 - the insert after its DELETE
-   asks for the account only; the finish checks below pin where.) */
-const S0_AT_HOME = 79, S0_SEND_HOME = 30;
+   asks for the account only; the finish checks below pin where. Close fix
+   3: 31 again - the insert's check asks for the home when its DELETE took
+   no row.) */
+const S0_AT_HOME = 79, S0_SEND_HOME = 31;
 doc.finish(({ code, must }) => {
   must('"/rest/v1/collections?select=id,protocol,switching_at&team_id=eq."', 'the protocol read is not there');
   must('{ const s0b=await s0Blocked(false,s0Home); if(s0b) return say(s0b==="left"?s0LeftReason(s0Home):"held"); }', 'cloudSyncOne is not held');
@@ -2068,17 +2113,29 @@ doc.finish(({ code, must }) => {
   /* Close fixes: in cloudSyncOne the home is asked right before the row
      DELETE, with no wait between; from the DELETE to the insert - its
      retries and their waits included - nothing asks for the home, and the
-     account is asked right before each insert, with no wait between. */
+     account is asked right before each insert, with no wait between.
+     (Close fix 3, superseding "nothing asks for the home" and "the account
+     is asked" in part: the one check from the DELETE to the insert, right
+     before each insert with no wait between, asks for the account when the
+     DELETE took a row and for the home when it took none. s0Took is
+     declared after the DELETE, true - here the DELETE cannot tell - and
+     nothing else in cloudSyncOne names it; patch603 sets it from the
+     DELETE's answer.) */
   {
     const f = code.indexOf('async function cloudSyncOne(rec,ctx,why,seq){'), e = code.indexOf('\n}', f), b = f >= 0 && e > f ? code.slice(f, e) : '';
-    const HOME = 'if(!s0SendHome(s0Home)) return say(s0LeftReason(s0Home));', ACCT = 'if(s0Home.uid!==(s0Uid()||null)) return say(s0LeftReason(s0Home));';
+    const HOME = 'if(!s0SendHome(s0Home)) return say(s0LeftReason(s0Home));',
+      GUARD = 'if(s0Took ? s0Home.uid!==(s0Uid()||null) : !s0SendHome(s0Home)) return say(s0LeftReason(s0Home));';
     const del = b.indexOf('fetch(SB_URL+"/rest/v1/traits?"+q,{method:"DELETE"'), post = b.indexOf('r=await fetch(SB_URL+"/rest/v1/traits",{method:"POST",');
     if (!(del > 0 && post > del)) throw new Error('cloudSyncOne\'s row DELETE and insert are not where this expects');
     const home = b.lastIndexOf(HOME, del);
     if (home < 0 || !/^\s*(?:const dr=)?await $/.test(b.slice(home + HOME.length, del))) throw new Error('the row DELETE does not ask for its home right before it is sent');
-    const between = b.slice(del, post), acct = between.lastIndexOf(ACCT);
-    if (/s0SendHome\(|s0AtHome\(/.test(between)) throw new Error('the insert after its DELETE asks for the home again - a move would leave the group with no row');
-    if (acct < 0 || /await /.test(between.slice(acct + ACCT.length))) throw new Error('the insert does not ask for the account right before it is sent');
-    if ((b.match(/s0Uid\(\)\|\|null\)\) return say/g) || []).length !== 1) throw new Error('expected the one account check, before the insert');
+    const between = b.slice(del, post), guard = between.lastIndexOf(GUARD);
+    if (/s0SendHome\(|s0AtHome\(/.test(between.split(GUARD).join(''))) throw new Error('the insert after its DELETE asks for the home apart from its own check - a move would leave the group with no row');
+    if (guard < 0 || /await /.test(between.slice(guard + GUARD.length))) throw new Error('the insert does not ask, right before it is sent, for the account when its DELETE took a row and for the home when it took none');
+    if (b.split(GUARD).length !== 2) throw new Error('expected the one check, before the insert');
+    if (/s0Uid\(\)\|\|null\)\) return say/.test(b)) throw new Error('the insert asks for the account alone, whatever its DELETE took - a move\'s DELETE by name takes nothing, and the group would keep both rows');
+    const took = between.indexOf('let s0Took=true;');
+    if (took < 0 || took > guard) throw new Error('s0Took is not declared after the DELETE, taken, before the insert asks it');
+    if ((b.match(/\bs0Took\b/g) || []).length !== 2) throw new Error('s0Took is named in cloudSyncOne other than where it is declared and asked - here nothing can tell what the DELETE took');
   }
 });

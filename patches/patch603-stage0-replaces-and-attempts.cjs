@@ -91,7 +91,16 @@
        dbDel) left wsGen as s0StandsIn found it, so gen alone missed it.
      - cloudSyncOne notes the attempt (Task 12) after fix 4's s0SendHome
        check and before the DELETE, and the note is a wait: the DELETE
-       asks s0SendHome again after it. */
+       asks s0SendHome again after it.
+
+   CLOSE FIX 3, INTEGRATED OVER PATCH602'S: patch602 leaves s0Took, true,
+   right after the row DELETE, and the insert asks for the account only
+   while it is true and for the whole home when it is false. The DELETE
+   here asks for the removed rows back, so its answer is read every time -
+   not only when it looks for a predecessor - and s0Took is set from it:
+   false when it took no row. An answer that is not ok, or cannot be read,
+   leaves it true. Re-anchored on patch602's two lines, the DELETE and
+   s0Took. */
 const s0 = require('./stage0-common.cjs');
 const doc = s0.start([['async function s0Blocked(addressed,home){', 'patch602 is not applied']]);
 
@@ -283,7 +292,10 @@ doc.swap('async function dbDelShared(rec,home,why){', [
 ]);
 
 /* ---- 2. cloudSyncOne: noted, then the delete, then the insert ----------- */
-doc.swap('    await fetch(SB_URL+"/rest/v1/traits?"+q,{method:"DELETE",headers:h});', [
+doc.swap([
+  '    await fetch(SB_URL+"/rest/v1/traits?"+q,{method:"DELETE",headers:h});',
+  '    let s0Took=true;   /* STAGE 0 (close fix 3): did the DELETE take a row - it cannot tell, so taken (patch603 reads its answer) */',
+], [
   '    /* STAGE 0 (D1, A2): THE ROW THIS INSERT STANDS IN FOR, sent as replaces',
   '       so Change A can pair the two exactly: a move\'s source (cloudMoveOne',
   '       passes ctx.replaces), else the row the record holds, else the row a',
@@ -300,8 +312,17 @@ doc.swap('    await fetch(SB_URL+"/rest/v1/traits?"+q,{method:"DELETE",headers:h
   '    if(!s0SendHome(s0Home)) return say(s0LeftReason(s0Home));',
   '    const dr=await fetch(SB_URL+"/rest/v1/traits?"+q,{method:"DELETE",',
   '      headers:Object.assign({Prefer:"return=representation"},h)});',
-  '    if(!replaces && dr && dr.ok){',
-  '      try{ const gone=await dr.json(); if(Array.isArray(gone)&&gone.length===1&&gone[0]&&gone[0].id) replaces=gone[0].id; }catch(_){ }',
+  '    /* STAGE 0 (CLOSE FIX 3): WHAT THIS DELETE TOOK, from the rows it',
+  '       answers with - read for every DELETE now, not only one that looks',
+  '       for its predecessor. The insert below goes after a move only when',
+  '       this took a row (patch602, at the insert: a move\'s DELETE by the',
+  '       destination\'s name usually takes nothing, and its old row goes',
+  '       afterwards in cloudDropOne, which a move skips). An answer that is',
+  '       not ok, or cannot be read, counts as taken: the row may be gone,',
+  '       and holding its insert would leave the group without it. */',
+  '    let s0Took=true;',
+  '    if(dr && dr.ok){',
+  '      try{ const gone=await dr.json(); if(Array.isArray(gone)){ s0Took=gone.length>0; if(!replaces&&gone.length===1&&gone[0]&&gone[0].id) replaces=gone[0].id; } }catch(_){ }',
   '    }',
   '    /* A uuid or nothing: anything else would fail the insert (22P02). */',
   '    if(!(typeof replaces==="string"&&S0_UUID.test(replaces))) replaces=null;',
@@ -495,6 +516,19 @@ doc.finish(({ code, must }) => {
   must('if(h&&s0SendHome(s0Home)){', 's0StandsIn\'s PATCH does not ask for the import\'s home after the headers\' wait');
   must('if(!s0AtHome(s0Home)) return told;', 's0StandsIn writes after a move the import began before');
   if ((code.match(/fetch\(SB_URL\+"\/rest\/v1\/traits",\{method:"POST"/g) || []).length !== 1) throw new Error('there should still be exactly one trait insert');
+  /* Close fix 3: the DELETE's answer is read every time and decides
+     whether it took a row; not ok, or not readable, leaves it taken -
+     s0Took starts true and is set only inside the ok answer's parse. The
+     insert still asks it (patch602's check, read here again). */
+  must('let s0Took=true;' + s0.NL + '    if(dr && dr.ok){' + s0.NL
+    + '      try{ const gone=await dr.json(); if(Array.isArray(gone)){ s0Took=gone.length>0; if(!replaces&&gone.length===1&&gone[0]&&gone[0].id) replaces=gone[0].id; } }catch(_){ }',
+    'the DELETE\'s answer does not decide whether it took a row');
+  must('if(s0Took ? s0Home.uid!==(s0Uid()||null) : !s0SendHome(s0Home)) return say(s0LeftReason(s0Home));', 'the insert does not ask what its DELETE took');
+  {
+    const f = code.indexOf('async function cloudSyncOne(rec,ctx,why,seq){'), e = code.indexOf('\n}', f), b = f >= 0 && e > f ? code.slice(f, e) : '';
+    if ((b.match(/\bs0Took\b/g) || []).length !== 3 || (b.match(/\bs0Took=/g) || []).length !== 2)
+      throw new Error('s0Took is named or set in cloudSyncOne other than where it starts taken, is read from the DELETE\'s answer, and is asked');
+  }
   /* Fix round 1: the PATCH asks for its row back, told means one row came
      back, and the record learns that row's time. */
   must('headers:Object.assign({Prefer:"return=representation"},h), body:JSON.stringify({replaces:was})});', 'the pairing PATCH does not ask for its row back');

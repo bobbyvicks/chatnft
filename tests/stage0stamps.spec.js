@@ -1206,6 +1206,9 @@ const groupPageWithDrawing = (page, saving) => page.evaluate(async (saving) => {
     if (s.indexOf('/auth/v1/token?grant_type=refresh_token') >= 0 && m === 'POST') {
       window.__refreshAsked = (window.__refreshAsked || 0) + 1;
       await (window.__refreshGate || null);
+      /* Refused when a test sets __refreshStatus (final fixes, B4). */
+      if (window.__refreshStatus && window.__refreshStatus !== 200)
+        return new Response(JSON.stringify({ error: 'invalid_grant' }), { status: window.__refreshStatus, headers: { 'Content-Type': 'application/json' } });
       return json({ access_token: 'not-a-real-token-renewed', refresh_token: 'not-a-real-refresh-renewed', expires_at: Math.floor(Date.now() / 1000) + 3600, user: { id: 'u1' } });
     }
     if (s.indexOf('/auth/v1/token?grant_type=password') >= 0 && m === 'POST') {
@@ -1529,6 +1532,31 @@ test.describe('stage 0: while sign-out or a switch waits for the drawing\'s save
     const after = await afterTheWait(page);
     expect({ inFlight: r.inFlight, waiting: r.waiting, got: r.got, storedAfterIt: r.storedAfterIt, session: after.session, authed: after.authed })
       .toEqual({ inFlight: true, waiting: false, got: null, storedAfterIt: null, session: false, authed: false });
+  });
+
+  /* Final fixes, B4, and sign-out's wait. A refusal that lands when nothing
+     is stored now ends the sign-in (B4), and sign-out stores nothing from
+     its first moment - so a renewal refused during its wait for the
+     drawing's save now ends the sign-in there, before the wait does. What
+     the wait keeps is kept: it ends signed out, once, with nothing stored,
+     and the drawing lands in the group's store as its maker's. */
+  test('a token renewal refused across a sign-out waiting for the drawing\'s save: it ends signed out, nothing stored, and the drawing keeps its maker', async ({ page }) => {
+    await groupPageWithDrawing(page, true);
+    await page.evaluate(() => { window.__refreshStatus = 400; });
+    const r = await renewalAcrossSignOut(page, true);
+    await releaseTheSave(page, 'signOut');
+    const after = await afterTheWait(page);
+    const maker = await page.evaluate(async () => {
+      const d = await new Promise((res, rej) => { const q = indexedDB.open('chatnft.ws.team1', 1); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); });
+      const x = await new Promise((res, rej) => { const t = d.transaction('items', 'readonly'); const q = t.objectStore('items').get('autosave.working'); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); });
+      d.close();
+      return x ? (x.by || '(none)') : null;
+    });
+    const endedToast = await page.evaluate(() => window.__toasts.filter(t => /signed out on this device/.test(t)).length);
+    console.log('B4 across sign-out\'s wait: "signed out on this device" toasts ' + endedToast + ', "Signed out" toasts ' + after.signedOut);
+    expect({ inFlight: r.inFlight, waiting: r.waiting, got: r.got, storedAfterIt: r.storedAfterIt, session: after.session, authed: after.authed, uid: after.uid,
+      activeWs: after.activeWs, signedOut: after.signedOut, maker })
+      .toEqual({ inFlight: true, waiting: true, got: null, storedAfterIt: null, session: false, authed: false, uid: null, activeWs: null, signedOut: 1, maker: 'u1' });
   });
 
   test('the control: a token renewal with no sign-out stores the renewed session', async ({ page }) => {

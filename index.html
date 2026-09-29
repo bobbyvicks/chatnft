@@ -22214,7 +22214,16 @@ async function wsLeave(){
      send leave_team for the other (measured). A switch still waiting
      stops Leave at once; the count is checked again below. */
   const leaving=activeWs, dbName=wsDbName();
-  const moved=()=>activeWs!==leaving||s0WsWant!==undefined||!sbLoadSession();
+  /* (Final fixes, B5: AND ITS HOME - the store, the account and wsGen -
+     noted with it, when pressed (s0HomeNow, Task 11 fix round 4). Asked
+     only whether the page still showed the project, a switch was waiting
+     and a session was stored, Leave went on after a move away and
+     straight back during its count, and asked and sent leave_team with
+     the headers it took before the wait (measured). It sends only while
+     the page is still at this home, and leave_team names the project
+     noted with it.) */
+  const s0Home=s0HomeNow();
+  const moved=()=>!s0SendHome(s0Home)||activeWs!==leaving||s0WsWant!==undefined||!sbLoadSession();
   if(s0WsWant!==undefined){ toast(S0_LEAVE_MOVING); return; }
   const h=await sbHeaders({"Content-Type":"application/json"});
   if(!h) return;
@@ -22271,6 +22280,10 @@ async function wsLeave(){
       +" After leaving you cannot open them unless you rejoin - press Cancel and Save to cloud first,"
       +" or OK to leave anyway (they stay on this device). The project stays for everyone else."
     : "Leave this group project? Your own page is untouched, and the project stays for everyone else.")) return;
+  /* STAGE 0 (final fixes, B5): asked again next to the send. Nothing is
+     awaited between the question and here; kept beside the send, a wait
+     added before it later cannot send for a page that has moved. */
+  if(moved()){ toast(S0_LEAVE_MOVED); return; }
   try{
     const r=await fetch(SB_URL+"/rest/v1/rpc/leave_team",{method:"POST",headers:h,
       body:JSON.stringify({p_team:leaving})});

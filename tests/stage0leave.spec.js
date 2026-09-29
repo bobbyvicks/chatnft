@@ -502,4 +502,63 @@ test.describe('stage 0: Leave', () => {
     expect(r.said).not.toContain('cleared');
     expect(r.unknown).toEqual([]);
   });
+
+  /* Final fixes, B5. LEAVE'S HOME. Leave noted the project it was pressed
+     on, and asked after its waits only whether the page still showed that
+     project, a switch was waiting, and a session was stored. A move away
+     and straight back during the wait (wsGen moved on twice) passed all
+     three, and Leave asked and sent leave_team with the headers it took
+     before the wait. It now notes its home - the store, the account and
+     wsGen - when pressed, and sends only while the page is still there.
+     The move is made inside Leave's count (its dbAll), after the count
+     was read: a real wait of Leave's. */
+  const moveDuringTheCount = (page, move) => page.evaluate(async (move) => {
+    const L = window.__L;
+    let first = true;
+    window.dbAll = async (...a) => {
+      const got = await L.real.dbAll(...a);
+      if (first) {
+        first = false;
+        if (move === 'away and back') { await wsSwitch('team8'); await wsSwitch('team7'); }
+        if (move === 'away') await wsSwitch('team8');
+        L.whenCounted = { activeWs, gen: wsGen };
+      }
+      return got;
+    };
+    const gen = wsGen;
+    await wsLeave();
+    return { genAtPress: gen, whenCounted: L.whenCounted };
+  }, move);
+
+  test('a move away and back during Leave\'s count: it asks nothing, leaves no group, and says so', async ({ page }) => {
+    await arm(page, {});
+    const m = await moveDuringTheCount(page, 'away and back');
+    const r = await done(page);
+    expect(m.whenCounted, 'the page was back on the project pressed on, two switches later').toEqual({ activeWs: 'team7', gen: m.genAtPress + 2 });
+    expect([r.asked, r.left, r.pteam]).toEqual([null, false, []]);
+    expect(r.dbs).toContain('chatnft.ws.team7');
+    expect(r.said).toContain(STOPPED);
+    expect(r.unknown).toEqual([]);
+  });
+
+  test('a move away during Leave\'s count: it asks nothing, leaves no group, and says so', async ({ page }) => {
+    await arm(page, {});
+    const m = await moveDuringTheCount(page, 'away');
+    const r = await done(page);
+    expect(m.whenCounted).toEqual({ activeWs: 'team8', gen: m.genAtPress + 1 });
+    expect([r.asked, r.left, r.pteam]).toEqual([null, false, []]);
+    expect(r.said).toContain(STOPPED);
+    expect(r.unknown).toEqual([]);
+  });
+
+  test('the control: the same Leave with no move asks, and leaves the project it was pressed on', async ({ page }) => {
+    await arm(page, {});
+    const m = await moveDuringTheCount(page, 'none');
+    const r = await done(page);
+    expect(m.whenCounted).toEqual({ activeWs: 'team7', gen: m.genAtPress });
+    expect([!!r.asked, r.left, r.pteam]).toEqual([true, true, ['team7']]);
+    expect(r.said).not.toContain(STOPPED);
+    expect(r.said).toContain('Left the project');
+    expect(r.unknown).toEqual([]);
+  });
 });

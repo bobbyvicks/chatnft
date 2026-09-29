@@ -161,7 +161,16 @@ doc.swap(['async function wsLeave(){', '  if(!activeWs) return;', '  const h=awa
   '     send leave_team for the other (measured). A switch still waiting',
   '     stops Leave at once; the count is checked again below. */',
   '  const leaving=activeWs, dbName=wsDbName();',
-  '  const moved=()=>activeWs!==leaving||s0WsWant!==undefined||!sbLoadSession();',
+  '  /* (Final fixes, B5: AND ITS HOME - the store, the account and wsGen -',
+  '     noted with it, when pressed (s0HomeNow, Task 11 fix round 4). Asked',
+  '     only whether the page still showed the project, a switch was waiting',
+  '     and a session was stored, Leave went on after a move away and',
+  '     straight back during its count, and asked and sent leave_team with',
+  '     the headers it took before the wait (measured). It sends only while',
+  '     the page is still at this home, and leave_team names the project',
+  '     noted with it.) */',
+  '  const s0Home=s0HomeNow();',
+  '  const moved=()=>!s0SendHome(s0Home)||activeWs!==leaving||s0WsWant!==undefined||!sbLoadSession();',
   '  if(s0WsWant!==undefined){ toast(S0_LEAVE_MOVING); return; }',
   '  const h=await sbHeaders({"Content-Type":"application/json"});',
   '  if(!h) return;',
@@ -215,6 +224,18 @@ doc.swap(['  if(!confirm(keeps', '    ? "Leave this group project? This device h
   '    ? "Leave this group project? This device has "+held.join(" and ")+"."',
 ]);
 doc.swap('      body:JSON.stringify({p_team:activeWs})});', '      body:JSON.stringify({p_team:leaving})});');
+/* Final fixes, B5: and asked again next to the send. */
+doc.swap([
+  '  try{',
+  '    const r=await fetch(SB_URL+"/rest/v1/rpc/leave_team",{method:"POST",headers:h,',
+], [
+  '  /* STAGE 0 (final fixes, B5): asked again next to the send. Nothing is',
+  '     awaited between the question and here; kept beside the send, a wait',
+  '     added before it later cannot send for a page that has moved. */',
+  '  if(moved()){ toast(S0_LEAVE_MOVED); return; }',
+  '  try{',
+  '    const r=await fetch(SB_URL+"/rest/v1/rpc/leave_team",{method:"POST",headers:h,',
+]);
 doc.swap([
   '    if(!keeps && leaving && dbName && dbName!==DBN){',
   '      freed=await new Promise(res=>{',
@@ -254,7 +275,16 @@ doc.finish(({ code, must }) => {
   must('const unchecked=!s0State.ok||!s0Mine(dbName,s0Uid()||null);', 'a protocol read that did not answer does not keep the copy');
   must('const drafts=all.filter(i=>i.kind==="autosave");', 'the count skips a draft');
   must('{ const f=s0FlushAutosave(); if(f) await f; }', 'the count misses a save still being written');
-  must('const leaving=activeWs, dbName=wsDbName();' + s0.NL + '  const moved=()=>activeWs!==leaving||s0WsWant!==undefined||!sbLoadSession();', 'Leave does not take its project first');
+  must('const leaving=activeWs, dbName=wsDbName();', 'Leave does not take its project first');
+  /* Final fixes, B5: its home, and the check beside the send. */
+  must('const s0Home=s0HomeNow();' + s0.NL + '  const moved=()=>!s0SendHome(s0Home)||activeWs!==leaving||s0WsWant!==undefined||!sbLoadSession();', 'Leave does not note its home, or does not ask it');
+  {
+    const f = code.indexOf('async function wsLeave(){'), e = code.indexOf('const r=await fetch(SB_URL+"/rest/v1/rpc/leave_team"', f);
+    const lead = f >= 0 && e > f ? code.slice(f, e) : '';
+    const last = lead.lastIndexOf('if(moved()){ toast(S0_LEAVE_MOVED); return; }');
+    if (last < 0 || /\bawait\b/.test(lead.slice(last))) throw new Error('leave_team is not sent straight after asking whether the page is still at home');
+    if (lead.slice(0, lead.indexOf('const s0Home=s0HomeNow();')).indexOf('await') >= 0) throw new Error('Leave notes its home after a wait');
+  }
   must('if(s0WsWant!==undefined){ toast(S0_LEAVE_MOVING); return; }', 'Leave goes on while a switch waits');
   must('if(moved()){ toast(S0_LEAVE_MOVED); return; }', 'Leave asks after the page moved');
   must('body:JSON.stringify({p_team:leaving})', 'leave_team can name another project');

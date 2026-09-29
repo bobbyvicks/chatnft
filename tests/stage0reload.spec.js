@@ -473,4 +473,124 @@ test.describe('stage 0: the reload rule', () => {
     await page.waitForTimeout(2000);
     expect(loads.n, 'once').toBe(1);
   });
+
+  /* Close fixes: THE BAR'S BUTTON WAITS FOR IT TOO. B2 put a person's own
+     operation of many records in hand for the reload that comes by itself,
+     and the bar's Reload did not ask: it shows at the read the rename's
+     first send makes, says the drawings are kept, and pressed then it
+     reloaded in the middle of the loop - the traits not yet reached left
+     on the old layer, the layer list and the rules still naming it, no
+     move marks, and nothing said (measured by the final review, 2 of 2;
+     from about 15 traits a press at human speed lands inside the loop).
+     The press now says to press again once the change is finished, and
+     does nothing else; when the rename ends, the reload rule is applied
+     again (s0Work). Here the rename's second trait waits at a gate, so
+     the press lands inside the loop; cap's rule names its layer. */
+  const RENAMED = {
+    traits: ['t_cap_caps_wip unsent', 't_hood_caps_wip unsent', 't_visor_caps_wip unsent'],
+    offered: ['cap offered', 'hood offered', 'visor offered'], orphans: [],
+    layers: ['caps', 'skins', 'unsorted'],
+    moves: ['t_cap_hats_wip -> t_cap_caps_wip', 't_hood_hats_wip -> t_hood_caps_wip', 't_visor_hats_wip -> t_visor_caps_wip'] };
+  const S0_RELOAD_WORKING = 'Finishing your change first - press Reload again in a moment';
+  const renameHeldAtTheSecond = async (page, used) => {
+    await serve(page, { protocol: 2 });
+    await page.route(/\/rest\/v1\/collections\?select=id,layers/, (r) => r.fulfill({ status: 200, contentType: 'application/json', headers: CORS,
+      body: JSON.stringify([{ id: 'c1', layers: ['hats', 'skins', 'unsorted'], rules: [], decisions: [], decide_order: [], empty_chance: null, rules_at: null }]) }));
+    await page.goto('/index.html');
+    await ready(page);
+    await signIn(page);
+    await onTeam7(page);
+    await seedRename(page);
+    await page.evaluate(async (used) => {
+      RULES = [['hats/cap', 'skins/boot']];
+      await dbPut({ id: RULES_ID, kind: 'settings', at: 1, groups: [['hats/cap', 'skins/boot']], rulesAt: 1, pairs: [['hats/cap', 'skins/boot']] });
+      /* This tab's reload for team7 and u1 already made: the bar is all there is. */
+      if (used) sessionStorage.setItem(s0ReloadKey(), '1');
+      const real = cloudMoveOne; let n = 0; window.__gated = false;
+      cloudMoveOne = async (...a) => { if (++n === 2) { window.__gated = true; await new Promise(r => { window.__release = r; }); } return real(...a); };
+      window.__renaming = renameLayer('hats', 'caps');
+    }, !!used);
+    await page.waitForFunction(() => window.__gated && !document.getElementById('s0reload').hidden);
+    expect(await page.evaluate(() => s0Working), 'the rename is in hand').toBe(1);
+  };
+  const rulesOf = (page) => page.evaluate(async () => {
+    const d = await new Promise((res, rej) => { const r = indexedDB.open('chatnft.ws.team7', 1); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+    const rec = await new Promise((res, rej) => { const t = d.transaction('items', 'readonly'); const q = t.objectStore('items').get('settings.rules'); q.onsuccess = () => res(q.result || null); q.onerror = () => rej(q.error); });
+    d.close();
+    return (rec && rec.groups) || null;
+  });
+
+  test('the bar\'s Reload pressed inside a layer rename whose first send found protocol 2: it says to wait, and the page reloads once the rename has finished, with everything written', async ({ page }) => {
+    await renameHeldAtTheSecond(page, false);
+    const loads = counting(page);
+    await page.click('#s0reload');
+    await page.waitForTimeout(1000);
+    expect(loads.n, 'no reload while the rename runs').toBe(0);
+    expect(await page.evaluate(() => [$('toast').textContent, $('s0reload').disabled, s0Working])).toEqual([S0_RELOAD_WORKING, false, 1]);
+    await page.evaluate(() => window.__release());
+    await expect.poll(() => loads.n, { timeout: 20000 }).toBe(1);
+    await ready(page);
+    expect(await team7Store(page)).toEqual(RENAMED);
+    expect(await rulesOf(page), 'the rule names the renamed layer').toEqual([['caps/cap', 'skins/boot']]);
+    await page.waitForTimeout(2000);
+    expect(loads.n, 'once').toBe(1);
+  });
+
+  test('the same press with this tab\'s reload already made: it says to wait, the rename finishes with no reload, and the next press reloads', async ({ page }) => {
+    await renameHeldAtTheSecond(page, true);
+    const loads = counting(page);
+    await page.click('#s0reload');
+    await page.waitForTimeout(1000);
+    expect(loads.n, 'no reload while the rename runs').toBe(0);
+    expect(await page.evaluate(() => $('toast').textContent)).toBe(S0_RELOAD_WORKING);
+    await page.evaluate(async () => { window.__release(); await window.__renaming; });
+    await page.waitForTimeout(1500);
+    expect(loads.n, 'the reload by itself was made already').toBe(0);
+    expect(await page.evaluate(() => [s0Working, !document.getElementById('s0reload').hidden])).toEqual([0, true]);
+    await page.click('#s0reload');
+    await expect.poll(() => loads.n, { timeout: 20000 }).toBe(1);
+    await ready(page);
+    expect(await team7Store(page)).toEqual(RENAMED);
+    expect(await rulesOf(page)).toEqual([['caps/cap', 'skins/boot']]);
+  });
+
+  /* Asked after the wait for the drawing's closing save, right before the
+     reload: a rename begun while the press waits is in hand when the wait
+     ends. On My page; the rename's second trait waits at a gate until the
+     press has answered. */
+  test('a press waiting for the drawing\'s closing save, and a layer rename begun in that wait: it says to wait, and the page reloads once the rename has finished', async ({ page }) => {
+    await serve(page, { protocol: 2 });
+    await openTrait(page, { w: 16, h: 16, draw: (set) => { set(1, 1, [255, 0, 0]); } });
+    await signIn(page);
+    await page.evaluate(() => { activeWs = null; dbp = null; dbpName = null; });
+    await seedRename(page);
+    const loads = counting(page);
+    await changeAndHold(page, true);
+    await page.evaluate(() => { closeEditor(); if (!s0SaveInFlight) throw new Error('the closing save is not in flight'); s0Check(true); });
+    await page.waitForTimeout(1000);
+    expect([loads.n, await page.evaluate(() => s0Held())]).toEqual([0, 'switched']);
+    await page.click('#s0reload');
+    await page.waitForTimeout(500);
+    expect(await page.evaluate(() => [!!s0SaveInFlight, $('s0reload').textContent])).toEqual([true, 'Saving...']);
+    await page.evaluate(() => {
+      const real = cloudMoveOne; let n = 0; window.__gated = false;
+      cloudMoveOne = async (...a) => { if (++n === 2) { window.__gated = true; await new Promise(r => { window.__releaseMove = r; }); } return real(...a); };
+      window.__renaming = renameLayer('hats', 'caps');
+    });
+    await page.waitForFunction(() => window.__gated);
+    await page.evaluate(() => window.__release());
+    await page.waitForTimeout(1000);
+    expect(loads.n, 'no reload while the rename runs').toBe(0);
+    expect(await page.evaluate(() => [$('toast').textContent, !!s0SaveInFlight, s0Working])).toEqual([S0_RELOAD_WORKING, false, 1]);
+    await page.evaluate(() => window.__releaseMove());
+    await expect.poll(() => loads.n, { timeout: 20000 }).toBe(1);
+    await ready(page);
+    expect(await draft(page, 'autosave.working')).toEqual({ px: [0, 0, 255, 255], by: 'u1' });
+    expect(await page.evaluate(async () => {
+      const d = await new Promise((res, rej) => { const r = indexedDB.open('pixelbench', 1); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+      const all = await new Promise((res, rej) => { const t = d.transaction('items', 'readonly'); const q = t.objectStore('items').getAll(); q.onsuccess = () => res(q.result || []); q.onerror = () => rej(q.error); });
+      d.close();
+      return { layers: (all.find(x => x.id === 'settings.layers') || {}).layers, traits: all.filter(x => x.kind === 'trait' && x.layer !== 'unsorted').map(x => x.id).sort() };
+    })).toEqual({ layers: ['caps', 'skins', 'unsorted'], traits: ['t_cap_caps_wip', 't_hood_caps_wip', 't_visor_caps_wip'] });
+  });
 });

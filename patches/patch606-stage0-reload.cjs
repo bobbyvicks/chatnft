@@ -81,7 +81,15 @@
    - A FLAG s0Busy CANNOT READ IS BUSY. A ReferenceError read as idle
      would let a renamed flag reload over what it guards. A reload missed
      costs a press; one made mid-stroke costs the stroke.
-     test/stage0-source.test.mjs keeps every name s0Busy reads declared. */
+     test/stage0-source.test.mjs keeps every name s0Busy reads declared.
+
+   Close fixes (the final review's last round; measured red on 78ae809
+   first, tests/stage0reload.spec.js): the bar's Reload asks s0Working
+   too. B2 held the reload that comes by itself for a person's own
+   operation of many records, and the press reloaded inside one - a
+   rename cut after its loop's second trait left the rest on the old
+   layer, the layer list and the rules naming it, and no move marks. The
+   press says to press again once the change is finished. */
 const s0 = require('./stage0-common.cjs');
 const doc = s0.start([['function s0Show(){', 'patch602 is not applied'], ['async function s0DeleteIfAlone(name){', 'patch605 is not applied']]);
 
@@ -104,6 +112,9 @@ doc.swap(['    else if(!why&&ours) fx.textContent="";', '  }', '}'], [
   'const S0_KEPT=". Your drawings and saved fixes are kept.";',
   'const S0_FIXER_FIRST=" Save the fixer\'s results first: unsaved ones are not kept.";',
   'const S0_RELOAD_WAIT="Saving your drawing first - press Reload again in a moment";',
+  '/* (Close fixes: what the bar\'s Reload says inside an operation of many',
+  '   records - s0ReloadNow.) */',
+  'const S0_RELOAD_WORKING="Finishing your change first - press Reload again in a moment";',
   '/* Per store AND account, like s0State: another account on this browser',
   '   has its own reload to make. */',
   'function s0ReloadKey(){ return S0_RELOADED+wsDbName()+"."+(s0Uid()||""); }',
@@ -186,6 +197,20 @@ doc.swap(['    else if(!why&&ours) fx.textContent="";', '  }', '}'], [
   '   back, the page on screen is the only copy - and the button says so',
   '   meanwhile. A write that failed does not reload: the canvas and the',
   '   warning would go with it. Asked again after the wait. */',
+  '/* (CLOSE FIXES: NOR INSIDE A PERSON\'S OWN OPERATION OF MANY RECORDS.',
+  '   B2 put a layer rename or removal, a sort, a batch move and the two',
+  '   imports in hand for the reload that comes by itself (s0Working), and',
+  '   this press did not ask. The bar shows at the read the operation\'s own',
+  '   first send makes, and says the drawings are kept; pressed then, it',
+  '   reloaded in the middle of the loop - the traits not yet reached left',
+  '   on the old layer, the layer list and the rules still naming it, no',
+  '   move marks, and nothing said (measured by the final review, 2 of 2).',
+  '   It says to press again once the change is finished, and does nothing',
+  '   else; when the operation ends, s0Work applies the reload rule again.',
+  '   Asked once, after the draft\'s wait and right before the reload, so',
+  '   an operation begun during that wait is asked about too. Asked before',
+  '   the wait as well, the first ask was shadowed by this one: taken out,',
+  '   every test of it still passed (measured).) */',
   'let s0Reloading=false;',
   'async function s0ReloadNow(){',
   '  if(s0Reloading) return;',
@@ -198,6 +223,7 @@ doc.swap(['    else if(!why&&ours) fx.textContent="";', '  }', '}'], [
   '  try{ ok=await s0DraftLanded(); }',
   '  finally{ s0Reloading=false; if(b){ b.disabled=false; b.textContent=was; } }',
   '  if(!ok) return;',
+  '  if(s0Working>0){ toast(S0_RELOAD_WORKING); return; }',
   '  if(s0SignOutWait||s0WsWant!==undefined||!s0Held()){ s0Show(); return; }',
   '  try{ sessionStorage.setItem(s0ReloadKey(),"1"); }catch(_){ }',
   '  location.reload();',
@@ -326,5 +352,15 @@ doc.finish(({ text, code, must }) => {
     const w = b.indexOf(write), d = b.indexOf('try{ await draftsFollow([{from:', w), s = b.indexOf(send, w);
     if (w < 0 || d < 0 || s < 0 || !(w < d && d < s)) throw new Error(fn + ' does not write the move unsent and move its drawing before the send');
     if (b.indexOf('draftsFollow(draftMoves') >= 0) throw new Error(fn + ' still moves the drawings after the loop');
+  }
+  /* Close fixes: the bar's Reload does not reload inside an operation of
+     many records - asked once, after the draft's wait, with no wait
+     between the asking and the reload. */
+  {
+    const f = code.indexOf('async function s0ReloadNow(){'), e = code.indexOf('\n}', f), b = f >= 0 && e > f ? code.slice(f, e) : '';
+    const ASK = 'if(s0Working>0){ toast(S0_RELOAD_WORKING); return; }';
+    const ask = b.indexOf(ASK), wait = b.indexOf('await s0DraftLanded()'), reload = b.indexOf('location.reload()');
+    if (!(wait > 0 && ask > wait && reload > ask) || b.indexOf(ASK, ask + 1) >= 0 || /await /.test(b.slice(ask, reload)))
+      throw new Error('the bar\'s Reload does not refuse an operation in hand after the draft\'s wait, right before it reloads');
   }
 });

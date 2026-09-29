@@ -229,6 +229,18 @@ test.describe('stage 0: removal and move marks', () => {
       fromLid: 'l_cap', to: 't_hat_hats_wip', toLid: 'l_cap' }]);
   });
 
+  /* INTEGRATED OVER TASK 11'S FIX ROUND 4, which writes the renamed record
+     and removes the old id in ONE transaction (dbApplyShelfRecords), so a
+     move between two writes cannot leave the trait removed and not written
+     back, or written twice. The removal of the old id no longer goes
+     through dbDel, and it cannot fail on its own: it fails with the write,
+     and then nothing is saved. So the refusal is made where the removal now
+     is - the transaction that removes t_cap_hats_wip - and its precondition
+     is what that failure leaves: the save did not go through, and the old
+     id is still there (was: the save went through, and both ids are there,
+     a state the one transaction makes impossible). What this test is for
+     is unchanged: a removal that failed dropped nothing, and nothing is
+     recorded. */
   test('the editor\'s rename whose removal of the old id fails records nothing: nothing was dropped', async ({ page }) => {
     const png = await page.evaluate(async () => {
       const c = document.createElement('canvas'); c.width = 16; c.height = 16;
@@ -240,13 +252,16 @@ test.describe('stage 0: removal and move marks', () => {
     const r = await page.evaluate(async () => {
       await openTraitRecord(await dbGet('t_cap_hats_wip'));
       $('tname').value = 'hat';
-      const real = dbDel;
-      dbDel = (id) => id === 't_cap_hats_wip' ? Promise.reject(new Error('refused')) : real(id);
+      const real = dbApplyShelfRecords;
+      let refused = 0;
+      dbApplyShelfRecords = (dels, ...rest) => (Array.isArray(dels) && dels.indexOf('t_cap_hats_wip') >= 0)
+        ? (refused++, Promise.reject(new Error('refused'))) : real(dels, ...rest);
       let ok;
-      try { ok = await saveTraitNow(); } finally { dbDel = real; }
-      return { ok, both: (await dbAll()).filter(i => i.kind === 'trait').map(i => i.id).sort() };
+      try { ok = await saveTraitNow(); } finally { dbApplyShelfRecords = real; }
+      return { ok, refused, both: (await dbAll()).filter(i => i.kind === 'trait').map(i => i.id).sort() };
     });
-    expect(r, 'the save went through, and the old id is still there').toEqual({ ok: true, both: ['t_cap_hats_wip', 't_hat_hats_wip'] });
+    expect(r, 'the removal was refused once, so the save did not go through, and the old id is still there')
+      .toEqual({ ok: false, refused: 1, both: ['t_cap_hats_wip'] });
     expect(await marks(page)).toEqual([]);
   });
 
@@ -587,7 +602,10 @@ const personOp = (page, site, how) => page.evaluate(async ([site, how]) => {
     onFetch(s => s.indexOf('/rest/v1/rpc/reorder_traits') >= 0);
     run = async () => commitShelfMove({ recordKey: shelfCore.recordKey(await dbGet('t_cap_hats_wip')), toLayer: 'skins', beforeKey: null });
   } else if (site === 'chip') {
-    after('dbPut', r => !!r && r.id === 't_cap_hats_approved');
+    /* The write of the new id is one transaction with the old id's removal
+       since Task 11's fix round 4 (dbApplyShelfRecords); a dbPut of the new
+       id now is only the upload's later "sent" write, after the mark. */
+    after('dbApplyShelfRecords', (dels, recs) => Array.isArray(recs) && recs.some(r => !!r && r.id === 't_cap_hats_approved'));
     run = async () => setTraitStatus(await dbGet('t_cap_hats_wip'), 'approved');
   } else if (site === 'batch') {
     after('draftsFollow', () => true);
@@ -605,7 +623,9 @@ const personOp = (page, site, how) => page.evaluate(async ([site, how]) => {
     await openTraitRecord(await dbGet('t_cap_hats_wip'));
     if ($('tlayer').value !== 'hats') throw new Error('the editor opened the trait on ' + $('tlayer').value);
     $('tname').value = 'hat';
-    after('dbDel', id => id === 't_cap_hats_wip');
+    /* The old id's removal is one transaction with the renamed record's
+       write since Task 11's fix round 4 (dbApplyShelfRecords), not a dbDel. */
+    after('dbApplyShelfRecords', dels => Array.isArray(dels) && dels.indexOf('t_cap_hats_wip') >= 0);
     run = () => saveTraitNow();
   } else if (site === 'import') {
     const c = document.createElement('canvas'); c.width = 16; c.height = 16; c.getContext('2d').fillRect(0, 0, 16, 16);

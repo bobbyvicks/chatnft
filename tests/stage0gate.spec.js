@@ -9,6 +9,9 @@
 import { test, expect } from '@playwright/test';
 import { armStage0, seedTrait, findTrait, S0_SWITCHING, S0_SWITCHED } from './helpers.js';
 
+/* patch602's fix round 3: what a shelf move says when the page left its project before the send. */
+const S0_LEFT = 'Not sent: you left the project first. The move is kept there, and its next Save to cloud sends it';
+
 const log = (page) => page.evaluate(() => window.__s0.log);
 const sends = async (page) => (await log(page)).filter(l => /^(POST|PATCH|DELETE) /.test(l) && l.indexOf('/rpc/my_team') < 0);
 const bar = (page) => page.evaluate(() => ({ shown: !document.getElementById('s0bar').hidden, text: document.getElementById('s0text').textContent }));
@@ -968,6 +971,134 @@ const moveDuringRead = (page, o) => page.evaluate(async (o) => {
 /* My page's three records, exactly as seeded. */
 const ME = ['t_cap_hats_approved[row-me-2 7 synced]', 't_cap_hats_wip[row-me-1 7 synced]', 't_cap_skins_approved[row-me-3 7 synced]'];
 
+/* EVERY SENDER, THE PAGE MOVING DURING ITS READ OR ITS SEND (fix round 3).
+   team7 (collection c1) holds cap under row-1; My page (collection cme)
+   holds its own records under the same ids (row-me-*, weight 7), its own
+   layer list and its own rules - where anything resolved from the store
+   shown after the move would land. `o.what` is the sender:
+     'save'    cloudSyncOne, a group save of a trait never sent;
+     'drop'    cloudDropOne, the removal of cap's row;
+     'patch'   cloudPatchOne, a weight change sent on its own;
+     'weight'  setRarity (cloudRarity);          addressed
+     'weights' setRarityMany;                    addressed
+     'status'  setTraitStatus (cloudMoveOne: cloudSyncOne, then cloudDropOne);
+     'shelf'   commitShelfMove (cloudSendShelfPlan);
+     'bulk'    bulkMoveToLayer (cloudSendShelfPlan);
+     'layers'  saveLayers;
+     'rules'   shareRules;
+     'delete'  dbDelShared.
+   `o.at` is where the page moves (with `o.move`): 'read' - the sender's
+   first protocol read is held, and answers `o.answer` ('one' or 'two');
+   'send' - its first write (or, for 'rules', its read of the answers,
+   answered `o.theirs` when given) is held; 'auth' - its first sign-in
+   check is held; 'dbGet' / 'dbDel' - dbDelShared's read, or its local
+   removal, of the record is held. Answers the
+   sender's own answer, what was written to the server, the last toast,
+   whether My page is exactly as seeded (and, if not, what it holds), and
+   team7's traits. */
+const senderMoves = (page, o) => page.evaluate(async (o) => {
+  const put = (recs) => db().then(d => new Promise((res, rej) => {
+    const t = d.transaction('items', 'readwrite'); for (const r of recs) t.objectStore('items').put(r);
+    t.oncomplete = () => res(); t.onerror = () => rej(t.error); }));
+  const blob = (n) => new Blob([new Uint8Array(n)], { type: 'image/png' });
+  const shelf = o.what === 'shelf' || o.what === 'bulk';
+  const base = { kind: 'trait', name: 'cap', w: 16, h: 16, at: 1, synced: true };
+  const snap = async () => (await dbAll()).filter(i => i.kind !== 'autosave')
+    .map(i => i.id + ' ' + JSON.stringify([i.rowId, i.rarity, !!i.synced, i.unsent || null, i.layer || null, i.status || null, i.layers || null, i.groups || null, i.rows || null])).sort();
+  /* My page, as seeded. */
+  activeWs = null; dbp = null; dbpName = null;
+  await put([
+    Object.assign({}, base, { id: 't_cap_hats_wip', layer: 'hats', status: 'wip', rarity: 7, blob: blob(32), rowId: 'row-me-1', path: 'me/cme/trait-cap-hats-wip.png', lid: 'l_me1' }),
+    Object.assign({}, base, { id: 't_cap_hats_approved', layer: 'hats', status: 'approved', rarity: 7, blob: blob(32), rowId: 'row-me-2', path: 'me/cme/trait-cap-hats-approved.png', lid: 'l_me2' }),
+    Object.assign({}, base, { id: 't_cap_skins_approved', layer: 'skins', status: 'approved', rarity: 7, blob: blob(32), rowId: 'row-me-3', path: 'me/cme/trait-cap-skins-approved.png', lid: 'l_me3' }),
+    { id: LAYERS_ID, kind: 'settings', at: 1, layers: ['mine-a', 'mine-b', 'hats', 'skins'], hidden: [] },
+    { id: RULES_ID, kind: 'settings', at: 1, groups: [['hats/mine', 'skins/cap']], rulesAt: 1, pairs: [['hats/mine', 'skins/cap']] },
+  ]);
+  const meBefore = await snap();
+  /* team7. */
+  activeWs = 'team7'; dbp = null; dbpName = null;
+  if (shelf) {
+    await put([{ id: LAYERS_ID, kind: 'settings', at: 1, layers: ['skins', 'hats', 'unsorted'], hidden: [] },
+      Object.assign({}, base, { id: 't_cap_skins_approved', layer: 'skins', status: 'approved', rarity: 1, blob: blob(16), shelfOrder: 10,
+        rowId: 'row-1', rowAt: '2026-01-01T00:00:00Z', path: 'team7/c1/trait-cap-skins-approved.png', lid: 'l_t7' })]);
+    LAYERS = ['skins', 'hats', 'unsorted'];
+    await renderShelf();
+  } else if (o.what === 'save') {
+    await put([Object.assign({}, base, { id: 't_cap_hats_wip', layer: 'hats', status: 'wip', rarity: 1, blob: blob(16), synced: false, lid: 'l_t7' })]);
+  } else if (o.what === 'patch') {
+    await put([Object.assign({}, base, { id: 't_cap_hats_wip', layer: 'hats', status: 'wip', rarity: 5, blob: blob(16), synced: false, unsent: 'meta',
+      rowId: 'row-1', rowAt: '2026-01-01T00:00:00Z', path: 'team7/c1/trait-cap-hats-wip.png', lid: 'l_t7' })]);
+  } else {
+    await put([Object.assign({}, base, { id: 't_cap_hats_wip', layer: 'hats', status: 'wip', rarity: 1, blob: blob(16),
+      rowId: 'row-1', rowAt: '2026-01-01T00:00:00Z', path: 'team7/c1/trait-cap-hats-wip.png', lid: 'l_t7' })]);
+  }
+  if (o.what === 'layers' || o.what === 'rules') {
+    await put([{ id: LAYERS_ID, kind: 'settings', at: 1, layers: ['hats', 'unsorted'], hidden: [] }]);
+    LAYERS = ['hats', 'unsorted']; await renderShelf();
+  }
+  /* The sender's hold. */
+  const f = window.fetch; let release; const gate = new Promise(r => { release = r; });
+  let asked = false, n = 0;
+  const isSend = (m, s) => o.what === 'rules' ? s.indexOf('/rest/v1/collections?select=decisions') >= 0
+    : (m === 'POST' && s.indexOf('/rest/v1/traits') >= 0 && s.indexOf('/rest/v1/traits?') < 0)
+      || (m === 'PATCH' && s.indexOf('/rest/v1/traits') >= 0) || s.indexOf('/rest/v1/rpc/reorder_traits') >= 0;
+  window.fetch = async (u, io) => {
+    const s = String(u), m = (io && io.method) || 'GET';
+    if (o.at === 'read' && s.indexOf('select=id,protocol,switching_at') >= 0 && ++n === 1) {
+      asked = true; await gate; await f(u, io);
+      return new Response(JSON.stringify([{ id: 'c1', protocol: o.answer === 'two' ? 2 : 1, switching_at: null }]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    if (o.at === 'send' && !asked && isSend(m, s)) {
+      asked = true; await gate;
+      if (o.theirs && s.indexOf('select=decisions') >= 0) { await f(u, io); return new Response(JSON.stringify([{ decisions: o.theirs }]), { status: 200, headers: { 'Content-Type': 'application/json' } }); }
+    }
+    if (o.at === 'auth' && !asked && s.indexOf('/auth/v1/user') >= 0) { asked = true; await gate; }
+    return f(u, io);
+  };
+  const realGet = dbGet;
+  if (o.at === 'dbGet') dbGet = async (id) => { const r = await realGet(id); if (!asked && id === 't_cap_hats_wip') { asked = true; await gate; } return r; };
+  const realDel = dbDel;
+  if (o.at === 'dbDel') dbDel = async (id) => { const r = await realDel(id); if (!asked && id === 't_cap_hats_wip') { asked = true; await gate; } return r; };
+  const toasts = [], shown = window.toast; window.toast = (m) => { toasts.push(String(m)); try { shown(m); } catch (_) {} };
+  const rec = await realGet(shelf ? 't_cap_skins_approved' : 't_cap_hats_wip');
+  const mark = window.__s0.log.length, bodyMark = window.__s0.bodies.length;
+  let acting = null;
+  if (o.what === 'save') acting = cloudSyncOne(rec, null, {});
+  if (o.what === 'drop') acting = cloudDropOne(rec);
+  if (o.what === 'patch') acting = cloudPatchOne(rec);
+  if (o.what === 'weight') acting = setRarity(rec, 50);
+  if (o.what === 'weights') acting = setRarityMany([rec], 50);
+  if (o.what === 'status') acting = setTraitStatus(rec, 'approved');
+  if (o.what === 'shelf') acting = commitShelfMove({ recordKey: 'row-1', toLayer: 'hats', beforeKey: null });
+  if (o.what === 'bulk') { shelfPick.clear(); shelfPick.add('row-1'); acting = bulkMoveToLayer('hats'); }
+  if (o.what === 'layers') { LAYERS = ['hats', 'team7-new', 'unsorted']; sharedLayerSig = null; acting = saveLayers(); }
+  if (o.what === 'rules') { RULES = [['hats/cap', 'hats/team7']]; sharedRuleSig = null; acting = shareRules(); }
+  if (o.what === 'delete') acting = dbDelShared(rec);
+  for (let i = 0; i < 300 && !asked; i++) await new Promise(r => setTimeout(r, 10));
+  const held = asked;
+  if (o.move) await wsSwitch(null);
+  const moved = activeWs === null;
+  release();
+  let ret;
+  try { ret = await acting; } catch (e) { ret = 'threw ' + e; }
+  await new Promise(r => setTimeout(r, 300));
+  window.fetch = f; dbGet = realGet; dbDel = realDel; window.toast = shown;
+  const rpc = window.__s0.bodies.slice(bodyMark).filter(b => b.path.indexOf('/rest/v1/rpc/reorder_traits') >= 0).map(b => { try { return JSON.parse(b.body).p_collection; } catch (_) { return '?'; } });
+  const sentBody = window.__s0.bodies.slice(bodyMark).filter(b => b.m === 'PATCH' && b.path.indexOf('/rest/v1/collections') >= 0)
+    .map(b => { try { const x = JSON.parse(b.body); return x.layers ? { layers: x.layers } : { rules: x.rules }; } catch (_) { return '?'; } });
+  const sent = window.__s0.log.slice(mark).filter(l => /^(PATCH|POST|DELETE) \/rest\/v1\/(traits|rpc\/reorder_traits|collections)|^(POST|DELETE) \/storage\/v1\/object\/traits(\/|$)/.test(l));
+  activeWs = null; dbp = null; dbpName = null;
+  const meAfter = await snap();
+  activeWs = 'team7'; dbp = null; dbpName = null;
+  const team7 = (await dbAll()).filter(i => i.kind === 'trait').map(i => i.id + '[' + i.rowId + ' ' + i.rarity + (i.synced ? ' synced' : ' unsent') + ']').sort();
+  activeWs = null; dbp = null; dbpName = null;
+  const said = toasts.filter(t => t !== 'Back on your page' && t !== 'Opened the group project');
+  const out = { held, moved, ret: ret === undefined ? '(undefined)' : (ret && typeof ret === 'object') ? { shared: ret.shared === undefined ? null : ret.shared } : ret, sent, rpc, sentBody, toast: said[said.length - 1] || null,
+    meSame: JSON.stringify(meBefore) === JSON.stringify(meAfter), team7 };
+  if (!out.meSame) out.me = meAfter;
+  return out;
+}, o);
+
 test.describe('stage 0: fix round 1 - what the review of 60ecb5d found', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/index.html');
@@ -1083,6 +1214,12 @@ test.describe('stage 0: fix round 1 - what the review of 60ecb5d found', () => {
      60ecb5d sent it, and My page is untouched. Held there, nothing is sent
      and nothing is written into My page. The first three fail on fix round
      1's "a move answers held" (nothing sent). */
+  /* (Fix round 3, ruling 3: team7's weight is written marked unsent before
+     the send, and the mark cleared only while the page is still on team7.
+     It moved, so it stays unsent - a resend of it, never its loss. The send
+     still goes: the weight is addressed. Was: 't_cap_hats_wip[row-1 50 synced]'.) */
+  /* (Task 11 fix round 4, section 2 (F1): an addressed send that lands after a move has its mark cleared in the store it was for - team7, opened by name, and only if it still holds
+     the weight written ahead. Was, in fix round 3: '... 50 unsent'.) */
   test('the page moves during a weight\'s read, team7 not held: the PATCH goes to team7\'s row, and My page\'s own cap is untouched', async ({ page }) => {
     await armStage0(page, { protocol: 1 });
     expect(await moveDuringRead(page, { what: 'weight', move: true, answer: 'one' })).toEqual({ readHeld: true, moved: true,
@@ -1091,20 +1228,29 @@ test.describe('stage 0: fix round 1 - what the review of 60ecb5d found', () => {
 
   test('the page moves during a weight on many\'s read, team7 not held: the PATCH goes, and My page is untouched', async ({ page }) => {
     await armStage0(page, { protocol: 1 });
+    /* (Fix round 3, ruling 3, as for the weight above. Was: '... 50 synced'.)
+       (Task 11 fix round 4, section 2 (F1): an addressed send that lands after a move has its mark cleared in the store it was for. Was, in fix round 3: '... 50 unsent'.) */
     expect(await moveDuringRead(page, { what: 'weights', move: true, answer: 'one' })).toEqual({ readHeld: true, moved: true,
       sent: ['PATCH /rest/v1/traits?id=in.(row-1)'], me: ME, team7: ['t_cap_hats_wip[row-1 50 synced]'] });
   });
 
-  test('the page moves during a shelf move\'s read, team7 not held: the order goes to team7, and My page is untouched', async ({ page }) => {
+  /* (Fix round 3. Ruling 1: a shelf move looks its collection up after the
+     read, so a move during it is held - it sent My page's collection, which
+     the live reorder_traits refuses, and the stand-in answered 200. Ruling 3:
+     the move stays in team7, marked unsent. Was: "the order goes to team7",
+     sent ['POST /rest/v1/rpc/reorder_traits'], '... 1 synced'.) */
+  test('the page moves during a shelf move\'s read, team7 not held: held since fix round 3 - nothing sent, My page untouched, the move kept in team7', async ({ page }) => {
     await armStage0(page, { protocol: 1 });
     expect(await moveDuringRead(page, { what: 'shelf', move: true, answer: 'one' })).toEqual({ readHeld: true, moved: true,
-      sent: ['POST /rest/v1/rpc/reorder_traits'], me: ME, team7: ['t_cap_hats_approved[row-1 1 synced]'] });
+      sent: [], me: ME, team7: ['t_cap_hats_approved[row-1 1 unsent]'] });
   });
 
-  test('the page moves during a batch move\'s read, team7 not held: the order goes, and My page is not marked unsent', async ({ page }) => {
+  /* (Fix round 3, ruling 1, as for the shelf move above. Was: "the order
+     goes", sent ['POST /rest/v1/rpc/reorder_traits'].) */
+  test('the page moves during a batch move\'s read, team7 not held: held since fix round 3 - nothing sent, and My page is not marked unsent', async ({ page }) => {
     await armStage0(page, { protocol: 1 });
     const r = await moveDuringRead(page, { what: 'bulk', move: true, answer: 'one' });
-    expect([r.readHeld, r.moved, r.sent, r.me]).toEqual([true, true, ['POST /rest/v1/rpc/reorder_traits'], ME]);
+    expect([r.readHeld, r.moved, r.sent, r.me]).toEqual([true, true, [], ME]);
   });
 
   test('THE CONTROL: the same weight, its read held and released with no move: the PATCH goes', async ({ page }) => {
@@ -1200,5 +1346,209 @@ test.describe('stage 0: fix round 1 - what the review of 60ecb5d found', () => {
     await seedTrait(page, { name: 'cap', layer: 'hats', rowId: 'row-1', synced: true, path: 'team7/c1/trait-cap-hats-wip.png' });
     expect(await page.evaluate(async () => cloudDropOne(await dbGet('t_cap_hats_wip')))).toBe(true);
     expect((await sends(page)).some(l => l.startsWith('DELETE /rest/v1/traits?id=eq.row-1'))).toBe(true);
+  });
+});
+
+/* Save to cloud, the page moving to My page while its first uploads are in
+   flight (fix round 3): what the push does after the move. team7 holds
+   seven traits never sent. */
+const pushAcrossMove = (page) => page.evaluate(async () => {
+  const f = window.fetch, gates = [];
+  window.fetch = async (u, io) => {
+    const s = String(u), m = (io && io.method) || 'GET';
+    if (m === 'POST' && s.indexOf('/storage/v1/object/traits/') >= 0) await new Promise(r => gates.push(r));
+    return f(u, io);
+  };
+  const until = async (ok, what) => { for (let i = 0; i < 500 && !ok(); i++) await new Promise(r => setTimeout(r, 10)); if (!ok()) throw new Error('never: ' + what); };
+  try {
+    const pushing = cloudPush();
+    await until(() => gates.length === 6, '6 uploads held');
+    await wsSwitch(null);
+    const moved = activeWs === null;
+    for (const g of gates) g();
+    await pushing;
+    await new Promise(r => setTimeout(r, 300));
+    const traits = async (ws) => { activeWs = ws; dbp = null; dbpName = null; return (await dbAll()).filter(i => i.kind === 'trait').map(i => i.id + (i.synced ? ' synced' : ' unsent')).sort(); };
+    const out = { moved, uploads: gates.length, me: await traits(null), team7: await traits('team7') };
+    activeWs = null; dbp = null; dbpName = null;
+    return out;
+  } finally { window.fetch = f; }
+});
+
+test.describe('stage 0: fix round 3 - every sender, the page moving during its read or its send', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/index.html');
+    await page.waitForFunction(() => typeof s0Check === 'function');
+    await page.evaluate(async () => { activeWs = 'team7'; dbp = null; dbpName = null; await dbClear(); });
+  });
+  test.afterEach(async ({ page }) => {
+    const unknown = await page.evaluate(() => (window.__s0 && window.__s0.unknown) || []);
+    await page.evaluate(() => {
+      if (window.__s0real) window.fetch = window.__s0real;
+      for (const k of Object.keys(localStorage)) if (k.indexOf('pb.migrating.') === 0) localStorage.removeItem(k);
+      activeWs = null; localStorage.removeItem('chatnft.session');
+    });
+    expect(unknown, 'every request had a named answer (design E2)').toEqual([]);
+  });
+  /* team7's collection is c1 and My page's cme, so a send that resolved
+     its collection after the move names cme, which reorder_traits refuses
+     as the live function does. */
+  const arm = (page) => armStage0(page, { protocol: 1, collections: { team7: 'c1', me: 'cme' }, deleted: [{ id: 'row-1', path: 'team7/c1/trait-cap-hats-wip.png' }] });
+  const T7 = ['t_cap_hats_wip[row-1 1 synced]'];
+  const SAVE = ['POST /storage/v1/object/traits/team7/c1/trait-cap-hats-wip.png',
+    'DELETE /rest/v1/traits?collection_id=eq.c1&kind=eq.trait&name=eq.cap&layer=eq.hats&status=eq.wip', 'POST /rest/v1/traits'];
+  const STATUS = ['POST /storage/v1/object/traits/team7/c1/trait-cap-hats-approved.png',
+    'DELETE /rest/v1/traits?collection_id=eq.c1&kind=eq.trait&name=eq.cap&layer=eq.hats&status=eq.approved', 'POST /rest/v1/traits'];
+  const DROP = ['DELETE /rest/v1/traits?id=eq.row-1', 'DELETE /storage/v1/object/traits'];
+
+  /* RULING 1 AND 5: MOVED DURING THE READ, team7 NOT HELD. Each beside its
+     no-move control. The seven senders that are not addressed are held: they
+     send nothing and write nothing into My page, and what they changed
+     stays unsent in team7. The two addressed ones send to their own row. */
+  const moved = { at: 'read', move: true, answer: 'one' };
+  const still = { at: 'read', move: false, answer: 'one' };
+  const cases = [
+    ['a group save (cloudSyncOne)', 'save',
+      { ret: null, sent: [], team7: ['t_cap_hats_wip[undefined 1 unsent]'] },
+      { ret: true, sent: SAVE, team7: ['t_cap_hats_wip[row-new 1 synced]'] }],
+    ['a row removal (cloudDropOne)', 'drop',
+      { ret: null, sent: [], team7: T7 },
+      { ret: true, sent: DROP, team7: T7 }],
+    ['a weight sent on its own (cloudPatchOne)', 'patch',
+      { ret: false, sent: [], team7: ['t_cap_hats_wip[row-1 5 unsent]'] },
+      { ret: true, sent: ['PATCH /rest/v1/traits?id=eq.row-1'], team7: ['t_cap_hats_wip[row-1 5 synced]'] }],
+    /* (Task 11 fix round 4, section 2 (F1): an addressed send that lands after a move has its mark cleared in the store it was for. Was, in fix round 3: '... 50 unsent', here and
+       for the weight on many below.) */
+    ['a weight (cloudRarity, addressed)', 'weight',
+      { ret: true, sent: ['PATCH /rest/v1/traits?id=eq.row-1'], team7: ['t_cap_hats_wip[row-1 50 synced]'] },
+      { ret: true, sent: ['PATCH /rest/v1/traits?id=eq.row-1'], team7: ['t_cap_hats_wip[row-1 50 synced]'] }],
+    ['a weight on many (setRarityMany, addressed)', 'weights',
+      { ret: 1, sent: ['PATCH /rest/v1/traits?id=in.(row-1)'], team7: ['t_cap_hats_wip[row-1 50 synced]'] },
+      { ret: 1, sent: ['PATCH /rest/v1/traits?id=in.(row-1)'], team7: ['t_cap_hats_wip[row-1 50 synced]'] }],
+    ['a status change (cloudMoveOne)', 'status',
+      { ret: { shared: null }, sent: [], team7: ['t_cap_hats_approved[row-1 1 unsent]'] },
+      { ret: { shared: true }, sent: STATUS.concat(DROP), team7: ['t_cap_hats_approved[row-new 1 synced]'] }],
+    ['a shelf move (cloudSendShelfPlan)', 'shelf',
+      { ret: false, sent: [], toast: S0_LEFT, team7: ['t_cap_hats_approved[row-1 1 unsent]'] },
+      { ret: true, sent: ['POST /rest/v1/rpc/reorder_traits'], rpc: ['c1'], team7: ['t_cap_hats_approved[row-1 1 synced]'] }],
+    ['a batch move (cloudSendShelfPlan)', 'bulk',
+      { sent: [], team7: ['t_cap_hats_approved[row-1 1 unsent]'] },
+      { sent: ['POST /rest/v1/rpc/reorder_traits'], rpc: ['c1'], team7: ['t_cap_hats_approved[row-1 1 synced]'] }],
+    ['the layer list (saveLayers)', 'layers',
+      { ret: false, sent: [], sentBody: [] },
+      { ret: true, sent: ['PATCH /rest/v1/collections?id=eq.c1'], sentBody: [{ layers: ['hats', 'team7-new', 'unsorted'] }] }],
+    ['the rules (shareRules)', 'rules',
+      { ret: false, sent: [], sentBody: [] },
+      { ret: true, sent: ['PATCH /rest/v1/collections?id=eq.c1'], sentBody: [{ rules: [['hats/cap', 'hats/team7']] }] }],
+    ['a removal (dbDelShared)', 'delete',
+      { ret: 'held', sent: [], team7: T7 },
+      { ret: true, sent: DROP, team7: [] }],
+  ];
+  const pick = (r, want) => { const o = {}; for (const k of Object.keys(want)) o[k] = r[k]; return o; };
+  for (const [name, what, whenMoved, whenStill] of cases) {
+    test(name + ': the page moves to My page during its read, team7 not held - nothing reaches the wrong project, and nothing is written into My page', async ({ page }) => {
+      await arm(page);
+      const r = await senderMoves(page, Object.assign({ what }, moved));
+      expect([r.held, r.moved, r.meSame, r.me || null]).toEqual([true, true, true, null]);
+      expect(pick(r, whenMoved)).toEqual(whenMoved);
+    });
+    test('THE CONTROL: ' + name + ', its read held and released with no move', async ({ page }) => {
+      await arm(page);
+      const r = await senderMoves(page, Object.assign({ what }, still));
+      expect([r.held, r.moved, r.meSame]).toEqual([true, false, true]);
+      expect(pick(r, whenStill)).toEqual(whenStill);
+    });
+  }
+
+  /* RULING 2: MOVED DURING THE SEND. The send already went to team7; what
+     the sender writes after it would land in My page. Nothing is, and the
+     change stays unsent in team7 - a resend of it, not a loss. */
+  const sendCases = [
+    ['a group save (cloudSyncOne): its "sent" write', 'save', { ret: true, sent: SAVE, team7: ['t_cap_hats_wip[undefined 1 unsent]'] }],
+    ['a weight sent on its own (cloudPatchOne): its "sent" write', 'patch', { ret: true, sent: ['PATCH /rest/v1/traits?id=eq.row-1'], team7: ['t_cap_hats_wip[row-1 5 unsent]'] }],
+    /* (Task 11 fix round 4, section 2 (F1): an addressed send that lands after a move has its mark cleared in the store it was for - the send is addressed and landed, so its
+       mark is cleared in team7, not in My page. Was, in fix round 3: '... 50
+       unsent', here and for the weight on many.) */
+    ['a weight: the mark cleared after it, in team7', 'weight', { ret: true, sent: ['PATCH /rest/v1/traits?id=eq.row-1'], team7: ['t_cap_hats_wip[row-1 50 synced]'] }],
+    ['a weight on many: the marks cleared after it, in team7', 'weights', { ret: 1, sent: ['PATCH /rest/v1/traits?id=in.(row-1)'], team7: ['t_cap_hats_wip[row-1 50 synced]'] }],
+    ['a status change (cloudMoveOne): the "sent" write, and the removal of the old row', 'status', { ret: { shared: true }, sent: STATUS, team7: ['t_cap_hats_approved[row-1 1 unsent]'] }],
+    /* (Task 11 fix round 4, section 3: the title said the mark was cleared and
+       the rules retargeted, and the test asserts neither happened - both
+       would land in My page, so team7 keeps the move marked unsent. Was: 'a
+       shelf move: the mark cleared, and the rules retargeted'. The batch
+       move's title below said the same of its mark.) */
+    ['a shelf move: the mark not cleared, the rules not retargeted - team7 keeps the move unsent', 'shelf', { ret: true, sent: ['POST /rest/v1/rpc/reorder_traits'], rpc: ['c1'], team7: ['t_cap_hats_approved[row-1 1 unsent]'] }],
+    ['a batch move: the mark not cleared - team7 keeps the move unsent', 'bulk', { sent: ['POST /rest/v1/rpc/reorder_traits'], rpc: ['c1'], team7: ['t_cap_hats_approved[row-1 1 unsent]'] }],
+    ['the rules (shareRules), during its read of the answers: the merge, the write and the send', 'rules', { ret: false, sent: [], sentBody: [] }],
+  ];
+  for (const [name, what, want] of sendCases) {
+    test('the page moves during ' + name + ' - nothing written into My page', async ({ page }) => {
+      await arm(page);
+      const r = await senderMoves(page, { what, at: 'send', move: true });
+      expect([r.held, r.moved, r.meSame, r.me || null]).toEqual([true, true, true, null]);
+      expect(pick(r, want)).toEqual(want);
+    });
+  }
+  test('the page moves during a removal\'s read of the record (dbDelShared) - nothing removed, here or there, and nothing written into My page', async ({ page }) => {
+    await arm(page);
+    const r = await senderMoves(page, { what: 'delete', at: 'dbGet', move: true });
+    expect([r.held, r.moved, r.meSame, r.me || null]).toEqual([true, true, true, null]);
+    expect(pick(r, { ret: 1, sent: 1, team7: 1 })).toEqual({ ret: 'held', sent: [], team7: T7 });
+  });
+
+  test('the page moves during the rules\' read of the answers, which brings one of a teammate\'s: nothing merged into My page\'s answers, nothing sent', async ({ page }) => {
+    await arm(page);
+    const r = await senderMoves(page, { what: 'rules', at: 'send', move: true, theirs: [{ a: 'hats/x', b: 'hats/y', ok: true, at: 5, by: 'u9', src: 'them' }] });
+    expect([r.held, r.moved, r.meSame, r.me || null]).toEqual([true, true, true, null]);
+    expect(pick(r, { ret: 1, sent: 1 })).toEqual({ ret: false, sent: [] });
+  });
+  test('the page moves during a removal\'s removal here (dbDelShared): removed here only - nothing filed in My page\'s removal list, nothing sent', async ({ page }) => {
+    await arm(page);
+    const r = await senderMoves(page, { what: 'delete', at: 'dbDel', move: true });
+    expect([r.held, r.moved, r.meSame, r.me || null]).toEqual([true, true, true, null]);
+    expect(pick(r, { ret: 1, sent: 1, team7: 1 })).toEqual({ ret: false, sent: [], team7: [] });
+  });
+  /* A move before the send, while it checks who is signed in: the collection
+     it then looks up is My page's. */
+  test('the page moves during a status change\'s sign-in check (cloudMoveOne): nothing sent to My page\'s collection, nothing written into My page', async ({ page }) => {
+    await arm(page);
+    const r = await senderMoves(page, { what: 'status', at: 'auth', move: true });
+    expect([r.held, r.moved, r.meSame, r.me || null]).toEqual([true, true, true, null]);
+    expect(pick(r, { ret: 1, sent: 1, team7: 1 })).toEqual({ ret: { shared: null }, sent: [], team7: ['t_cap_hats_approved[row-1 1 unsent]'] });
+  });
+  test('the page moves during a shelf move\'s sign-in check, after its read (cloudSendShelfPlan): the order is not sent with My page\'s collection', async ({ page }) => {
+    await arm(page);
+    const r = await senderMoves(page, { what: 'shelf', at: 'auth', move: true });
+    expect([r.held, r.moved, r.meSame, r.me || null]).toEqual([true, true, true, null]);
+    expect(pick(r, { ret: 1, sent: 1, rpc: 1, toast: 1, team7: 1 })).toEqual({ ret: false, sent: [], rpc: [], toast: S0_LEFT, team7: ['t_cap_hats_approved[row-1 1 unsent]'] });
+  });
+
+  /* RULING 3: HELD FOR ITS OWN PROJECT AFTER A MOVE (the read says protocol
+     2). Nothing is sent and nothing is written into My page (fix round 2),
+     and the change is not lost: team7 keeps it, marked unsent. */
+  for (const [what, kept] of [['weight', 't_cap_hats_wip[row-1 50 unsent]'], ['weights', 't_cap_hats_wip[row-1 50 unsent]'],
+    ['status', 't_cap_hats_approved[row-1 1 unsent]'], ['shelf', 't_cap_hats_approved[row-1 1 unsent]'], ['bulk', 't_cap_hats_approved[row-1 1 unsent]']]) {
+    test('held for team7 after a move (' + what + '): nothing sent, nothing written into My page, and team7 keeps the change, unsent', async ({ page }) => {
+      await arm(page);
+      const r = await senderMoves(page, { what, at: 'read', move: true, answer: 'two' });
+      expect([r.held, r.moved, r.sent, r.meSame, r.team7]).toEqual([true, true, [], true, [kept]]);
+    });
+  }
+
+  /* Save to cloud, and a move while its first six uploads are in flight:
+     the seventh is not sent, the six do not write "sent" into My page, and
+     the end of the run - the layers PATCH - does not go.
+     (Task 11 fix round 4, section 1: every send after any wait asks the
+     action's home, so the six row inserts that followed the six uploads
+     after the move are held too, and the push says it stopped. Was: 6 POST
+     /rest/v1/traits.) */
+  test('Save to cloud, the page moving to My page mid-push: no item after the move, no "sent" write into My page, no end-of-run write', async ({ page }) => {
+    await armStage0(page, { protocol: 1 });
+    await seedMany(page, 7);
+    const r = await pushAcrossMove(page);
+    expect(r).toEqual({ moved: true, uploads: 6, me: [],
+      team7: ['t_t0_hats_wip unsent', 't_t1_hats_wip unsent', 't_t2_hats_wip unsent', 't_t3_hats_wip unsent', 't_t4_hats_wip unsent', 't_t5_hats_wip unsent', 't_t6_hats_wip unsent'] });
+    expect((await log(page)).filter(l => l.startsWith('PATCH /rest/v1/collections'))).toEqual([]);
+    expect((await log(page)).filter(l => l === 'POST /rest/v1/traits').length).toBe(0);
   });
 });

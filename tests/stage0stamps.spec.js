@@ -766,8 +766,9 @@ test.describe('stage 0: signing out stops a running pull', () => {
 
   test('another tab reweights the trait and its send, held across this tab\'s re-id, then fails: one record for the row, unsent at that weight', async ({ page, context }) => {
     const r = await twoTabs(page, context, 'weight-late');
-    expect(r).toEqual({ other: ['t_cap_hats_wip'], otherUnknown: [],
-      afterThisPull: ['t_cap_hats_wip[row-1 wip 5 synced l_seed]'], afterTheOtherFailed: ['t_cap_hats_wip[row-1 wip 5 unsent l_seed]'],
+    /* Task 11 fix round 3, ruling 3 (the unsent mark is written ahead of the send): other and afterThisPull read unsent while the PATCH is in flight; were ['t_cap_hats_wip'] and '...5 synced...', which return with the ahead mark removed (measured). */
+    expect(r).toEqual({ other: ['t_cap_hats_wip unsent'], otherUnknown: [],
+      afterThisPull: ['t_cap_hats_wip[row-1 wip 5 unsent l_seed]'], afterTheOtherFailed: ['t_cap_hats_wip[row-1 wip 5 unsent l_seed]'],
       afterTheNext: ['t_cap_hats_wip[row-1 wip 5 unsent l_seed]'] });
   });
 

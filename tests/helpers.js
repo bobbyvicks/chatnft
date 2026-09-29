@@ -384,6 +384,12 @@ export async function seedDraft(page, d) {
      role: what the group role read (team_members, Task 17's Remove from
        server check) answers - 'owner' (default), 'member', or 'none' ([]:
        no membership row); roleStatus (200);
+     collections: each team's collection id, {team: id} (default: every
+       team's is 'c1'). reorder_traits answers as the live function does
+       (supabase/fixtures/live-catalog-2026-09-28.json, reorder_traits):
+       every row it is given is the armed project's, so a p_collection
+       other than that project's collection is refused, 400 P0001 'trait
+       outside project' (patch602's fix round 3);
      keepState: true leaves s0State, and the set of stores seen on
        protocol 2 (s0Seen2), as they are (default: both reset), for a spec
        about what one tab remembers across accounts.
@@ -417,6 +423,11 @@ export async function armStage0(page, o = {}) {
     const S = window.__s0 = { log: [], bodies: [], reads: 0, unknown: [] };
     window.__unknown = S.unknown;
     const pick = () => (S.reads > 1 && o.after) ? Object.assign({}, o, o.after) : o;
+    /* Whose collection is whose (fix round 3). A lookup by id, or with no team,
+       answers as before, 'c1'. The armed project is the one opened above: My
+       page is the team my_team answers, 'me'. */
+    const collectionOf = (team) => (o.collections && team && o.collections[team]) || 'c1';
+    const armedTeam = o.ws === undefined ? 'team7' : (o.ws || 'me');
     const json = (x, st, h) => new Response(JSON.stringify(x), { status: st || 200, headers: Object.assign({ 'Content-Type': 'application/json' }, h || {}) });
     window.__s0real = window.__s0real || window.fetch;
     window.fetch = async (u, io) => {
@@ -438,14 +449,18 @@ export async function armStage0(page, o = {}) {
       if (s.indexOf('/auth/v1/user') >= 0) return json({ id: uid });
       if (s.indexOf('/rest/v1/rpc/my_team') >= 0) return json('me');
       if (s.indexOf('/rest/v1/rpc/team_member_names') >= 0) return json([]);
-      if (s.indexOf('/rest/v1/rpc/reorder_traits') >= 0) return json(null);
+      if (s.indexOf('/rest/v1/rpc/reorder_traits') >= 0) {
+        let asked = null; try { asked = JSON.parse(io.body).p_collection; } catch (_) { asked = null; }
+        if (asked !== collectionOf(armedTeam)) return json({ code: 'P0001', details: null, hint: null, message: 'trait outside project' }, 400);
+        return json(null);
+      }
       if (s.indexOf('/rest/v1/rpc/leave_team') >= 0) return json(null);
       if (s.indexOf('/rest/v1/team_members?select=role&') >= 0) {
         if (o.roleStatus && o.roleStatus !== 200) return json({ code: 'XX000', message: 'down' }, o.roleStatus);
         return json(o.role === 'none' ? [] : [{ role: o.role || 'owner' }]);
       }
       if (s.indexOf('/rest/v1/teams') >= 0) return json([{ id: 'me', name: 'Me', personal: true }, { id: 'team7', name: 'Seven', personal: false }]);
-      if (s.indexOf('/rest/v1/collections') >= 0) return json([{ id: 'c1', layers: ['hats', 'unsorted'] }]);
+      if (s.indexOf('/rest/v1/collections') >= 0) return json([{ id: collectionOf(decodeURIComponent((s.match(/[?&]team_id=eq\.([^&]+)/) || [])[1] || '')), layers: ['hats', 'unsorted'] }]);
       if (s.indexOf('/storage/v1/object/list/') >= 0) return json([]);
       if (s.indexOf('/storage/v1/object/') >= 0) {
         if (m === 'GET') return new Response(new Blob([new Uint8Array([1])]), { status: 200 });

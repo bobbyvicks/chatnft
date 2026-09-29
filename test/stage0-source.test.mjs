@@ -91,10 +91,30 @@ test('every flag the reload rule reads is declared at the top level of the page'
   assert.match(code, /^let fixBatchRunning=/m);
 });
 
-test('the store is opened for use in one place, at version 1; the only other open is Leave\'s probe, which aborts its upgrade', () => {
-  assert.equal((code.match(/indexedDB\.open\(/g) || []).length, 2);
+/* SUPERSEDED IN PART by the integration of Task 11's fix round 4 (the
+   action's home) over Tasks 12-17, which added a third open: s0InStore,
+   F1's by-name open of the store an addressed send was for, so its ahead
+   mark is cleared there and never through db(). The count was two - db()
+   and Leave's probe - and is three now, each pinned to its function: db()
+   at version 1; s0InStore at version 1, locked first and tracked as db()
+   is, and aborting any upgrade, so it cannot create a store that has gone;
+   and Leave's probe, below. Every other assertion stands as written. */
+test('the store is opened for use in one place, at version 1; the other opens are fix 4\'s by-name clear, which cannot create a store, and Leave\'s probe, which aborts its upgrade', () => {
+  assert.equal((code.match(/indexedDB\.open\(/g) || []).length, 3);
   assert.ok(code.includes('indexedDB.open(name,1)'));
   assert.ok(code.includes('r=indexedDB.open(name,2);'));
+  {
+    const lines = kit.lines(code);
+    const opens = lines.map((l, i) => l.indexOf('indexedDB.open(') >= 0 ? i : -1).filter(i => i >= 0);
+    const owner = (i) => { let j = i; while (j >= 0 && !/^(async )?function /.test(lines[j])) j--; return j >= 0 ? lines[j] : null; };
+    assert.deepEqual(opens.map(owner), ['function db(){', 'function s0InStore(name){', 'function s0OthersOpen(name){'],
+      'each open is in the function this guard knows');
+    const st = kit.inFunction(lines, 'function s0InStore(name){');
+    const sb = lines.slice(st.start, st.end + 1).join('\n');
+    assert.ok(sb.includes('const r=indexedDB.open(name,1);'), 's0InStore opens at version 1');
+    assert.ok(sb.includes('r.onupgradeneeded=()=>{ try{ r.transaction.abort(); }catch(_){ } };'), 's0InStore aborts an upgrade, so it cannot create a store');
+    assert.ok(sb.includes('s0Hold(name).then(') && sb.includes('s0Track(name,r.result,hold)'), 's0InStore takes the open lock first and is tracked, as db() is');
+  }
   /* Leave's probe (s0OthersOpen, patch605) reads the store inside the
      upgrade and then aborts it, so it stays at version 1; stage0leave
      measures the version. Here: the probe's upgrade holds its transaction

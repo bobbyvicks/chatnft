@@ -71,12 +71,32 @@
    the person's own folder import was "changed in place by the group". The
    PATCH now asks for its row back, counts as told only when exactly one
    row comes back, and writes that row's time into the record's rowAt,
-   while the record still holds that row, synced, in the store it read. */
+   while the record still holds that row, synced, in the store it read.
+
+   INTEGRATED OVER TASK 11'S FIX ROUNDS 3 AND 4 (patch602 at cloud-save/
+   t11f3, "the action's home": an action notes its store, account and wsGen
+   when the person acts - s0HomeNow - and asks s0AtHome before every local
+   write and s0SendHome before every send after a wait). Re-anchored where
+   patch602 changed the text this patch matched, with the same meaning:
+   s0Blocked(addressed,home); dbDelShared(rec,home,why); cloudMoveOne's
+   fourth parameter is now the home, so s0Run is the fifth; the sent-write
+   guard after an edit in flight carries s0AtHome(s0Home); cloudSyncOne's
+   ctx is ctx||{home:s0Home}; the import's cloudDropOne calls and the
+   sort's, the layer rename's and Save to cloud's contexts carry the home.
+   Both intents kept where both change one behaviour:
+     - s0StandsIn keeps Task 12's own wsStill(gen) check (Finding 5) and
+       takes the import's home: its read asks s0Blocked for that home,
+       its PATCH asks s0SendHome after the headers' wait, and its writes
+       ask s0AtHome too - a move before the call (during the import's
+       dbDel) left wsGen as s0StandsIn found it, so gen alone missed it.
+     - cloudSyncOne notes the attempt (Task 12) after fix 4's s0SendHome
+       check and before the DELETE, and the note is a wait: the DELETE
+       asks s0SendHome again after it. */
 const s0 = require('./stage0-common.cjs');
-const doc = s0.start([['async function s0Blocked(){', 'patch602 is not applied']]);
+const doc = s0.start([['async function s0Blocked(addressed,home){', 'patch602 is not applied']]);
 
 /* ---- 1. the module, before dbDelShared ---------------------------------- */
-doc.swap('async function dbDelShared(rec){', [
+doc.swap('async function dbDelShared(rec,home,why){', [
   '/* STAGE 0 (D1): A BOOKKEEPING RECORD, APPENDED TO IN ONE TRANSACTION.',
   '   settings.attempts (below) and settings.gonemarks are read by the new',
   '   page\'s migration and by nothing in this one, so they are written on',
@@ -222,18 +242,25 @@ doc.swap('async function dbDelShared(rec){', [
   '   weight. Only while it still holds that row and has nothing unsent:',
   '   unsent work is based on the row as it was at rowAt, and moving that',
   '   past a change nobody here saw would hide it from the pull\'s clash',
-  '   check. */',
-  'async function s0StandsIn(old,newId){',
+  '   check.',
+  '   AND ONLY FOR THE IMPORT\'S HOME (Task 11 fix round 4, integrated):',
+  '   home is the store, account and wsGen the import began in. gen is',
+  '   this call\'s own, so a move before the call - during the import\'s',
+  '   removal of the old record - left it unmoved; the read asks s0Blocked',
+  '   for home, the PATCH asks s0SendHome after the headers\' wait, and',
+  '   the writes ask s0AtHome as well as wsStill(gen). */',
+  'async function s0StandsIn(old,newId,home){',
   '  const gen=wsGen;',
+  '  const s0Home=home||s0HomeNow();',
   '  const was=(old&&old.rowId)||(old&&old.s0Replaces);',
   '  if(!(typeof was==="string"&&S0_UUID.test(was))) return false;',
   '  try{',
   '    const rec=await dbGet(newId);',
   '    if(!rec||rec.rowId===was) return false;',
   '    let told=false, at=null;',
-  '    if(rec.rowId&&activeWs&&!(await s0Blocked())){',
+  '    if(rec.rowId&&activeWs&&!(await s0Blocked(false,s0Home))){',
   '      const h=await sbHeaders({"Content-Type":"application/json"});',
-  '      if(h){',
+  '      if(h&&s0SendHome(s0Home)){',
   '        const r=await fetch(SB_URL+"/rest/v1/traits?id=eq."+encodeURIComponent(rec.rowId),',
   '          {method:"PATCH", headers:Object.assign({Prefer:"return=representation"},h), body:JSON.stringify({replaces:was})});',
   '        let rows=[];',
@@ -244,6 +271,7 @@ doc.swap('async function dbDelShared(rec){', [
   '    }',
   '    const cur=await dbGet(newId);',
   '    /* No wait from here to dbPut, which picks its store as it is called. */',
+  '    if(!s0AtHome(s0Home)) return told;',
   '    if(!wsStill(gen)) return told;',
   '    if(told){',
   '      if(at&&cur&&cur.rowId===rec.rowId&&cur.synced){ try{ await dbPut(Object.assign({},cur,{rowAt:at}),"sent",cur.by===undefined?null:cur.by); }catch(_){} }',
@@ -251,7 +279,7 @@ doc.swap('async function dbDelShared(rec){', [
   '    return told;',
   '  }catch(_){ return false; }',
   '}',
-  'async function dbDelShared(rec){',
+  'async function dbDelShared(rec,home,why){',
 ]);
 
 /* ---- 2. cloudSyncOne: noted, then the delete, then the insert ----------- */
@@ -267,6 +295,9 @@ doc.swap('    await fetch(SB_URL+"/rest/v1/traits?"+q,{method:"DELETE",headers:h
   '       (ctx.s0Run, Decision 20). */',
   '    let replaces=ctx.replaces||rec.rowId||rec.s0Replaces||null;',
   '    await s0Attempted(rec,ctx.s0Run);',
+  '    /* The note is a wait: the DELETE asks for the save\'s home again after',
+  '       it (Task 11 fix round 4, integrated). */',
+  '    if(!s0SendHome(s0Home)) return say(s0LeftReason(s0Home));',
   '    const dr=await fetch(SB_URL+"/rest/v1/traits?"+q,{method:"DELETE",',
   '      headers:Object.assign({Prefer:"return=representation"},h)});',
   '    if(!replaces && dr && dr.ok){',
@@ -309,8 +340,8 @@ doc.swap('    let madeId=null, madeAt=null;', [
   '       note of that one, and stays. */',
   '    const s0Told=!adopted&&!!r&&r.ok&&!!replaces;',
 ]);
-doc.swap('      if(cur && !cur.synced){ try{ await dbPut(Object.assign({},cur,{rowId:madeId, rowAt:madeAt})); }catch(_){} }', [
-  '      if(cur && !cur.synced){',
+doc.swap('      if(cur && !cur.synced && s0AtHome(s0Home)){ try{ await dbPut(Object.assign({},cur,{rowId:madeId, rowAt:madeAt})); }catch(_){} }', [
+  '      if(cur && !cur.synced && s0AtHome(s0Home)){',
   '        const nx=Object.assign({},cur,{rowId:madeId, rowAt:madeAt});',
   '        if(s0Told&&nx.s0Replaces===replaces) delete nx.s0Replaces;   /* STAGE 0 (A2), above */',
   '        try{ await dbPut(nx); }catch(_){}',
@@ -322,27 +353,30 @@ doc.swap('      {synced:true, rowId:madeId, path:p, rowAt:madeAt}); delete up.un
 ]);
 
 /* ---- 4. cloudMoveOne: the old copy's row, and the loop's run ------------ */
-doc.swap('async function cloudMoveOne(oldRec,newRec,why){', [
+doc.swap('async function cloudMoveOne(oldRec,newRec,why,home){', [
   '/* s0Run: the attempts of the loop this move is one of (s0AttemptRun), when',
-  '   a loop calls it - a layer rename, a sort. */',
-  'async function cloudMoveOne(oldRec,newRec,why,s0Run){',
+  '   a loop calls it - a layer rename, a sort. After home (Task 11 fix',
+  '   round 4), which every caller that passes s0Run also passes. */',
+  'async function cloudMoveOne(oldRec,newRec,why,home,s0Run){',
 ]);
-doc.swap('  const arrived=await cloudSyncOne(fresh,ctx,why);', [
+doc.swap('  const arrived=await cloudSyncOne(fresh,ctx||{home:s0Home},why);', [
   '  /* STAGE 0 (A2): this insert stands in for the row the old copy is on. */',
-  '  const arrived=await cloudSyncOne(fresh,Object.assign({},ctx||{},{replaces:(oldRec&&oldRec.rowId)||null, s0Run:s0Run||null}),why);',
+  '  const arrived=await cloudSyncOne(fresh,Object.assign({},ctx||{home:s0Home},{replaces:(oldRec&&oldRec.rowId)||null, s0Run:s0Run||null}),why);',
 ]);
 
 /* ---- 5. bulkImport: the moved file and the merged rename ---------------- */
-doc.swap(['      /* The server copy too, or the next pull brings it back. */', '      try{ await cloudDropOne(rec); }catch(_){}', '      moved++; movedIds.add(rec.id);'], [
+/* Both calls hand s0StandsIn the import's home: the removal just above is
+   a wait (Task 11 fix round 4, integrated). */
+doc.swap(['      /* The server copy too, or the next pull brings it back. */', '      try{ await cloudDropOne(rec,{home:s0Home}); }catch(_){}', '      moved++; movedIds.add(rec.id);'], [
   '      /* The server copy too, or the next pull brings it back. */',
   '      /* STAGE 0 (A2): first, the moved file\'s record names the row it replaces. */',
-  '      if(to&&freshIds.has(to.id)) await s0StandsIn(rec,to.id);',
-  '      try{ await cloudDropOne(rec); }catch(_){}',
+  '      if(to&&freshIds.has(to.id)) await s0StandsIn(rec,to.id,s0Home);',
+  '      try{ await cloudDropOne(rec,{home:s0Home}); }catch(_){}',
   '      moved++; movedIds.add(rec.id);',
 ]);
-doc.swap(['      try{ await cloudDropOne(rec); }catch(_){}', '      mergedAway.push(rec.name+" into "+onto.name);'], [
-  '      await s0StandsIn(rec,onto.id);   /* STAGE 0 (A2): the renamed file stands in for this row */',
-  '      try{ await cloudDropOne(rec); }catch(_){}',
+doc.swap(['      try{ await cloudDropOne(rec,{home:s0Home}); }catch(_){}', '      mergedAway.push(rec.name+" into "+onto.name);'], [
+  '      await s0StandsIn(rec,onto.id,s0Home);   /* STAGE 0 (A2): the renamed file stands in for this row */',
+  '      try{ await cloudDropOne(rec,{home:s0Home}); }catch(_){}',
   '      mergedAway.push(rec.name+" into "+onto.name);',
 ]);
 
@@ -365,8 +399,8 @@ doc.swap('  async function pusher(){', [
   '  ctx.s0Run=s0AttemptRun(fresh.filter(j=>!j.light).map(j=>j.it));',
   '  async function pusher(){',
 ]);
-doc.swap('      pushCtx={u:u, team:await cloudTeam(), c:u?await cloudCollection(u):null};', [
-  '      pushCtx={u:u, team:await cloudTeam(), c:u?await cloudCollection(u):null, s0Run:s0Run};',
+doc.swap('      pushCtx={u:u, team:await cloudTeam(), c:u?await cloudCollection(u):null, home:s0Home};', [
+  '      pushCtx={u:u, team:await cloudTeam(), c:u?await cloudCollection(u):null, home:s0Home, s0Run:s0Run};',
 ]);
 doc.swap('  const sameArt=[];', [
   '  const sameArt=[];',
@@ -411,8 +445,8 @@ doc.swap('  const rows=plan.both.concat(plan.move,plan.rename);', [
   '  const s0Run=s0AttemptRun(rows.map(r=>{ const old=items.find(i=>i.id===r.id);',
   '    return old ? Object.assign({},old,{id:"t_"+r.toName+"_"+r.toLayer+"_"+(r.status||"wip"), name:r.toName, layer:r.toLayer, rowId:null}) : null; }));',
 ]);
-doc.swap('      const shared=await cloudMoveOne(old,rec);', [
-  '      const shared=await cloudMoveOne(old,rec,undefined,s0Run);',
+doc.swap('      const shared=await cloudMoveOne(old,rec,undefined,s0Home);', [
+  '      const shared=await cloudMoveOne(old,rec,undefined,s0Home,s0Run);',
 ]);
 doc.swap('  const mine=items.filter(i=>i.kind==="trait"&&i.layer===from);', [
   '  const mine=items.filter(i=>i.kind==="trait"&&i.layer===from);',
@@ -420,8 +454,8 @@ doc.swap('  const mine=items.filter(i=>i.kind==="trait"&&i.layer===from);', [
   '     A name taken on the new layer is renamed below and notes itself. */',
   '  const s0Run=s0AttemptRun(mine.map(t=>Object.assign({},t,{id:"t_"+t.name+"_"+to+"_"+(t.status||"wip"), layer:to, rowId:null})));',
 ]);
-doc.swap('    const shared=await cloudMoveOne(t,rec);', [
-  '    const shared=await cloudMoveOne(t,rec,undefined,s0Run);',
+doc.swap('    const shared=await cloudMoveOne(t,rec,undefined,s0Home);', [
+  '    const shared=await cloudMoveOne(t,rec,undefined,s0Home,s0Run);',
 ]);
 
 doc.finish(({ code, must }) => {
@@ -429,8 +463,8 @@ doc.finish(({ code, must }) => {
   must('if(!(typeof replaces==="string"&&S0_UUID.test(replaces))) replaces=null;', 'a non-uuid could be sent as replaces');
   must('let replaces=ctx.replaces||rec.rowId||rec.s0Replaces||null;', 'an import\'s moved file would not carry its predecessor');
   must('await s0Attempted(rec,ctx.s0Run);', 'the attempt is not noted before the delete');
-  must('if(to&&freshIds.has(to.id)) await s0StandsIn(rec,to.id);', 'a moved file does not name its row');
-  must('await s0StandsIn(rec,onto.id);', 'a merged rename does not name its row');
+  must('if(to&&freshIds.has(to.id)) await s0StandsIn(rec,to.id,s0Home);', 'a moved file does not name its row, for the import\'s home');
+  must('await s0StandsIn(rec,onto.id,s0Home);', 'a merged rename does not name its row, for the import\'s home');
   must('const was=(old&&old.rowId)||(old&&old.s0Replaces);', 'a record moved twice before it is sent loses the pairing');
   must('await dbPut(cur,undefined,cur.by===undefined?null:cur.by);', 'the pairing could take the owner off the record (Finding 4)');
   must('if(base.s0Replaces) rec.s0Replaces=base.s0Replaces;', 'saveTraitNow drops the pairing (Finding 1)');
@@ -439,13 +473,27 @@ doc.finish(({ code, must }) => {
   must('if(s0Told&&nx.s0Replaces===replaces) delete nx.s0Replaces;', 'an edit during the insert keeps a pairing told');
   must('if(s0Told&&up.s0Replaces===replaces) delete up.s0Replaces;', 'the sent write keeps a pairing told');
   must('ctx.s0Run=s0AttemptRun(fresh.filter(j=>!j.light).map(j=>j.it));', 'Save to cloud notes each trait on its own (F-18)');
-  must('c:u?await cloudCollection(u):null, s0Run:s0Run};', 'a group import notes each file on its own (F-18)');
+  must('c:u?await cloudCollection(u):null, home:s0Home, s0Run:s0Run};', 'a group import notes each file on its own (F-18)');
   must('const sig=s0Sigs.has(f) ? s0Sigs.get(f) : await fileSig(f);', 'the import hashes each file twice');
-  must('const shared=await cloudMoveOne(old,rec,undefined,s0Run);', 'a sort notes each move on its own (F-18)');
-  must('const shared=await cloudMoveOne(t,rec,undefined,s0Run);', 'a layer rename notes each move on its own (F-18)');
+  must('const shared=await cloudMoveOne(old,rec,undefined,s0Home,s0Run);', 'a sort notes each move on its own (F-18)');
+  must('const shared=await cloudMoveOne(t,rec,undefined,s0Home,s0Run);', 'a layer rename notes each move on its own (F-18)');
+  must('async function cloudMoveOne(oldRec,newRec,why,home,s0Run){', 'cloudMoveOne does not take its loop\'s run after the home');
   must('s0Run:s0Run||null}),why);', 'cloudMoveOne does not pass its loop\'s run');
   const at = code.indexOf('await s0Attempted(rec,ctx.s0Run);'), del = code.indexOf('const dr=await fetch(SB_URL+"/rest/v1/traits?"+q,{method:"DELETE",');
   if (!(at >= 0 && del > at)) throw new Error('the attempt must be noted before its delete is sent');
+  /* Integrated over Task 11 fix round 4: both guards stand around the note -
+     fix 4's s0SendHome before it, and one after it, with no wait between
+     that one and the DELETE. */
+  const shBefore = code.lastIndexOf('if(!s0SendHome(s0Home)) return say(s0LeftReason(s0Home));', at);
+  const between = code.slice(at + 'await s0Attempted(rec,ctx.s0Run);'.length, del);
+  if (!(shBefore >= 0 && at - shBefore < 400)) throw new Error('fix 4\'s check before the attempt\'s note is gone');
+  if (between.indexOf('if(!s0SendHome(s0Home)) return say(s0LeftReason(s0Home));') < 0 || /await /.test(between))
+    throw new Error('the DELETE does not ask for its home after the attempt\'s note, with no wait between');
+  /* s0StandsIn: the import's home for its read, its PATCH and its writes,
+     and Task 12's own gen check still there. */
+  must('if(rec.rowId&&activeWs&&!(await s0Blocked(false,s0Home))){', 's0StandsIn\'s read is not judged for the import\'s home');
+  must('if(h&&s0SendHome(s0Home)){', 's0StandsIn\'s PATCH does not ask for the import\'s home after the headers\' wait');
+  must('if(!s0AtHome(s0Home)) return told;', 's0StandsIn writes after a move the import began before');
   if ((code.match(/fetch\(SB_URL\+"\/rest\/v1\/traits",\{method:"POST"/g) || []).length !== 1) throw new Error('there should still be exactly one trait insert');
   /* Fix round 1: the PATCH asks for its row back, told means one row came
      back, and the record learns that row's time. */
@@ -455,7 +503,7 @@ doc.finish(({ code, must }) => {
     'the record keeps a time the PATCH moved on (fix round 1)');
   /* Finding 5, and fix round 1's write: the store check comes after the
      second read and before both dbPuts, and nothing else waits after it. */
-  const f = code.indexOf('async function s0StandsIn(old,newId){'), end = code.indexOf('async function dbDelShared(rec){', f);
+  const f = code.indexOf('async function s0StandsIn(old,newId,home){'), end = code.indexOf('async function dbDelShared(rec,home,why){', f);
   const rd = code.indexOf('const cur=await dbGet(newId);', f), gd = code.indexOf('if(!wsStill(gen)) return told;', f);
   if (!(f >= 0 && end > f && rd > f && gd > rd && gd < end)) throw new Error('s0StandsIn must check the store after its second read');
   const tail = code.slice(gd, end);

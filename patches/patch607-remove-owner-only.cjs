@@ -72,7 +72,28 @@
    button's two declaring lines. Fix round 1 adds three anchors in
    clearCloudNow, each exact-once on eaa3f75's page: its head down to
    cloudCollection (patch602's text), the row count's two lines, and the
-   pictures-left read's two lines. */
+   pictures-left read's two lines.
+
+   INTEGRATED OVER TASK 11'S FIX ROUNDS 3 AND 4 (patch602 at cloud-save/
+   t11f3, "the action's home"). Fix 4 guards clearCloudNow against a move
+   too: it notes its home at entry (s0HomeNow) and asks s0SendHome after
+   cloudCollection, after the row count, after the confirm's fresh read,
+   after marking this device's copy unsent and before the rows' DELETE,
+   and s0AtHome before the empty-server repair (S0_LEFT_CLEAR). BOTH GUARDS
+   STAND. Two anchors re-anchored with the same meaning: the head now has
+   fix 4's home as its first line (no wait: s0Refuse is still the first
+   await, which is what "before the stage-0 hold" means), and the row
+   count's next line is fix 4's check. Task 17's three checks go where they
+   went, each before fix 4's at the same point, so a move since the press
+   says CLOUD_MOVED as removeowner.spec.js pins; fix 4's checks follow and
+   still catch what gen does not - a call with no gen (stage0gate's direct
+   calls), a session that changed account without a switch. Task 17's
+   check between cloudTeam and cloudCollection is the one fix 4 has no
+   twin for: cloudCollection notes its own home as it is called, so after
+   a move it would look up, and could make, the project moved to. The
+   first-line check below reads past fix 4's home. clearCloud's press is
+   still clearCloudNow's home: wsStill(gen) is asked just before the call,
+   with no wait between. */
 const s0 = require('./stage0-common.cjs');
 const kit = require(require('path').join(s0.REPO, 'tools', 'patchkit.cjs'));
 const doc = s0.start([['async function s0Refuse(after){', 'patch602 is not applied (s0Refuse)']]);
@@ -140,6 +161,7 @@ doc.swap('  try{ await clearCloudNow(); }', [
 /* ---- 2b. fix round 1: clearCloudNow stays on the project of the press ----- */
 doc.swap([
   'async function clearCloudNow(){',
+  '  const s0Home=s0HomeNow();   /* STAGE 0 (fix round 4): see s0HomeNow */',
   '  /* STAGE 0 (D1): removing from the server waits while this project is held. */',
   '  if(await s0Refuse()) return;',
   '  const note=$("cloudnote");',
@@ -150,6 +172,7 @@ doc.swap([
   '  const c=team?await cloudCollection(u):null;',
 ], [
   'async function clearCloudNow(gen){',
+  '  const s0Home=s0HomeNow();   /* STAGE 0 (fix round 4): see s0HomeNow */',
   '  /* STAGE 0 (D1): removing from the server waits while this project is held. */',
   '  if(await s0Refuse()) return;',
   '  const note=$("cloudnote");',
@@ -178,11 +201,11 @@ doc.swap([
 ]);
 doc.swap([
   '  const rows=await cloudRowCount(c);',
-  '  if(rows===null){ say("Could not ask the server what it has, so nothing was changed."); return; }',
+  '  if(!s0SendHome(s0Home)){ say(S0_LEFT_CLEAR); return; }   /* STAGE 0 (fix round 4) */',
 ], [
   '  const rows=await cloudRowCount(c);',
   '  if(moved()) return;',
-  '  if(rows===null){ say("Could not ask the server what it has, so nothing was changed."); return; }',
+  '  if(!s0SendHome(s0Home)){ say(S0_LEFT_CLEAR); return; }   /* STAGE 0 (fix round 4) */',
 ]);
 doc.swap([
   '    const left=await cloudFilesLeft(team,c);',
@@ -248,9 +271,24 @@ doc.finish(({ text, code, must }) => {
   if (genAt < 0 || roleAt < 0 || nowAt < 0 || tryAt < 0 || !(tryAt < genAt && genAt < roleAt && roleAt < nowAt) || !(genAt < firstAwait))
     throw new Error('clearCloud does not take wsGen, then ask the role, inside its try, before clearCloudNow');
   const now = kit.inFunction(lines, 'async function clearCloudNow(gen){');
-  const firstNow = lines.slice(now.start + 1, now.end).find(l => l.trim() !== '');
+  /* Past fix 4's home, noted first with no wait (integration over Task 11
+     fix round 4): the first await is still the stage-0 hold. */
+  const nowLines = lines.slice(now.start + 1, now.end).filter(l => l.trim() !== '');
+  const firstNow = nowLines[0] && nowLines[0].trim() === 'const s0Home=s0HomeNow();' ? nowLines[1] : nowLines[0];
   if (firstNow !== '  if(await s0Refuse()) return;')
     throw new Error('clearCloudNow does not begin with the stage-0 hold, so "before s0Refuse" is not what clearCloud\'s order says: ' + firstNow);
+  /* Both guards stand (integration over Task 11 fix round 4): each of Task
+     17's checks after the team, the row count and the pictures read, and
+     fix 4's after cloudCollection, after the row count and before the
+     repair, with the move check first where both follow one wait. */
+  const nowCode = lines.slice(now.start, now.end + 1).join('\n');
+  for (const [s, why] of [
+    ['  const team=await cloudTeam();\n  if(moved()) return;\n  const c=team?await cloudCollection(u):null;\n  if(!s0SendHome(s0Home)){ say(S0_LEFT_CLEAR); return; }', 'the team and collection lookups'],
+    ['  const rows=await cloudRowCount(c);\n  if(moved()) return;\n  if(!s0SendHome(s0Home)){ say(S0_LEFT_CLEAR); return; }', 'the row count'],
+    ['    const left=await cloudFilesLeft(team,c);\n    if(moved()) return;\n    if(!left){', 'the pictures read'],
+  ]) if (nowCode.split(s).length - 1 !== 1) throw new Error('after ' + why + ', Task 17\'s move check and fix 4\'s home check do not both stand');
+  if ((nowCode.match(/s0SendHome\(s0Home\)/g) || []).length < 5 || (nowCode.match(/s0AtHome\(s0Home\)/g) || []).length < 1)
+    throw new Error('fix 4\'s home checks in clearCloudNow are fewer than it placed');
   /* Fix round 1: the three move checks, all before the confirm, and the one
      caller that hands a gen is clearCloud (stage0gate's direct calls hand
      none). */

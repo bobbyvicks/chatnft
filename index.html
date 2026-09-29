@@ -4373,6 +4373,7 @@ let tabRedrawTimer=null;
    not with the redraw below: a save pressed in the meantime would write
    the trait back under the id it left. */
 async function editorFollowsElsewhere(moved){
+  const s0Home=s0HomeNow();   /* STAGE 0 (fix round 4): see s0HomeNow */
   if(!openRec||!openRec.id||!Array.isArray(moved)) return false;
   const next=new Map();
   for(const m of moved) if(m&&m.from&&m.to&&m.from!==m.to) next.set(String(m.from),String(m.to));
@@ -4384,7 +4385,7 @@ async function editorFollowsElsewhere(moved){
   if(!await editorFollows(was,to)) return false;
   /* This tab's own draft, filed under the old id by an autosave that
      landed before this message did. */
-  try{ await draftsFollow([{from:was.id, to:to}]); }catch(_){}
+  try{ await draftsFollow([{from:was.id, to:to}],s0Home); }catch(_){}
   return true;
 }
 if(tabChan) tabChan.onmessage=(e)=>{
@@ -4627,8 +4628,9 @@ function s0ReidTx(d,oldId,rec,was,by){
 }
 
 let shelfMoveBusy=false;
-async function commitShelfMove(spec){
+async function commitShelfMove(spec,home){
   const s0MarkAt=s0MarkStart();   /* STAGE 0 (D1): where and whose its marks are, before its first wait */
+  const s0Home=home||s0HomeNow();   /* STAGE 0 (fix round 4): see s0HomeNow */
   /* SAID, NOT SILENT. This returned false without a word, which was fine
      while a drag was the only way in - pointerdown checks the same flag and
      never starts one. A control on the final project page can reach it, and
@@ -4654,7 +4656,7 @@ async function commitShelfMove(spec){
   let keptAs=null;
   if(!plan.ok && plan.reason==='duplicate' && moving && String(moving.status||"wip")===FINAL_KEEPS_BOTH){
     const free=await finalFreeName(moving.name,[moving.layer,spec.toLayer],moving.id);
-    const rr=free ? await setTraitStatus(moving,moving.status,free) : {ok:false};
+    const rr=free ? await setTraitStatus(moving,moving.status,free,s0Home) : {ok:false};
     if(rr.ok){
       keptAs=free;
       try{ items=await dbAll(); }catch(_){ toast('Could not read the project'); return false; }
@@ -4664,6 +4666,9 @@ async function commitShelfMove(spec){
       plan=shelfCore.planShelfMove(items,spec);
     }
   }
+  /* STAGE 0 (fix round 4): every read above waited. Left since, nothing is
+     written, moved or sent, and that is said. */
+  if(!s0AtHome(s0Home)){ toast(S0_LEFT_UNMADE); return false; }
   if(!plan.ok){
 
     toast(plan.reason==='duplicate'
@@ -4694,21 +4699,28 @@ async function commitShelfMove(spec){
        and one write at a time after the redraw, holding the lock: 78 round
        trips for 39 hats, with every drag refused meanwhile. */
     await dbApplyShelfRecords(plan.updates.map(update=>update.oldId),
-      plan.updates.map(update=>activeWs?update.record:unsentOf(update.record)));
+      /* STAGE 0 (8b in patch602): in a group too, a synced record is written
+         marked unsent, and the mark cleared once the group took the order. */
+      plan.updates.map(update=>(activeWs&&!update.record.synced)?update.record:unsentOf(update.record)));
   }catch(_){ toast('Could not save the new order'); return false; }
   for(const update of plan.updates) state.transfer(update.oldKey,shelfCore.recordKey(update.record));
   /* The selection survives a drag too: a cross-layer move rewrites the local
      id, and dragging one card out of a picked batch used to unpick it. */
   for(const update of plan.updates) pickTransfer(update.oldKey,shelfCore.recordKey(update.record));
   /* A cross-layer drag rewrites the local id, so the draft moves with it. */
-  try{ await draftsFollow(plan.updates.map(u=>({from:u.oldId, to:u.record.id}))); }catch(_){}
+  try{ await draftsFollow(plan.updates.map(u=>({from:u.oldId, to:u.record.id})),s0Home); }catch(_){}
   await renderShelf();
-  const s0Home=wsDbName();   /* STAGE 0 (fix round 2): see 8b in patch602 */
-  const shared=await cloudSaveShelfPlan(plan.updates,true);
+  const s0Seq=touchSeq, s0Group=s0Home.db!==DBN;   /* STAGE 0: see 8b in patch602 */
+  const shared=await cloudSaveShelfPlan(plan.updates,true,s0Home);
+  if(shared.ok&&s0Group&&s0AtHome(s0Home)){
+    const s0Took=plan.updates.filter(u=>u.record.synced&&!touchedSince(u.record.id,s0Seq)).map(u=>u.record);
+    if(s0Took.length){ try{ await dbApplyShelfRecords([],s0Took); }catch(_){ } }
+  }
   if(!shared.ok){
-    /* STAGE 0: the page moved off this project during the send; the rollback
-       would write this project's records into the store moved to. */
-    if(wsDbName()!==s0Home) return false;
+    /* STAGE 0: the page moved off this project during the send. The rollback
+       would write this project's records into the store moved to; the move
+       stays in the project left, marked unsent, and is said (fix round 3). */
+    if(!s0AtHome(s0Home)){ toast(S0_LEFT); return false; }
     try{
       await dbApplyShelfRecords(plan.updates.map(update=>update.record.id),originals);
       for(const update of plan.updates) state.transfer(shelfCore.recordKey(update.record),update.oldKey);
@@ -4726,11 +4738,14 @@ async function commitShelfMove(spec){
      drag is not one. The record each landed on is read from the store: on
      your own page what was written is a copy (unsentOf), and it is the
      copy that was given the local id. */
-  await s0Moved(plan.updates.filter(u=>u.oldId!==u.record.id)
+  if(s0AtHome(s0Home)) await s0Moved(plan.updates.filter(u=>u.oldId!==u.record.id)
     .map(u=>({from:items.find(i=>i.id===u.oldId)||u.oldId, to:u.record.id})),"person",s0MarkAt);
   /* Only here, past the rollback above: a move that did not stick must not
      take the rules with it. */
-  await retargetRules(plan.updates.map(u=>
+  /* STAGE 0 (8b): the rules are the project moved to's now; retargeting them
+     would rewrite and save that project's rules. The project left keeps its
+     own rules naming the trait's old place (fix round 3). */
+  if(s0AtHome(s0Home)) await retargetRules(plan.updates.map(u=>
     ({from:traitKey(items.find(i=>i.id===u.oldId)), to:traitKey(u.record)})));
   announceShelf('Moved trait to '+plan.destinationLayer+'.');
   /* WHICH THING HAPPENED. A drag within a layer is a reorder and "Order
@@ -4742,20 +4757,21 @@ async function commitShelfMove(spec){
   const crossed=plan.destinationLayer!==originalLayer;
   toast(crossed
     ? 'Moved '+(plan.movedName||'the trait')+' to '+plan.destinationLayer
-      +(activeWs?' for the group':'')+keptBothWords(keptAs)
-    : (activeWs?'Order saved for the group':'Order saved'));
+      +(s0Group?' for the group':'')+keptBothWords(keptAs)
+    : (s0Group?'Order saved for the group':'Order saved'));
   return true;
   }finally{ shelfMoveBusy=false; }
 }
 
 async function keyboardShelfMove(recordKey,direction,betweenLayers){
+  const s0Home=s0HomeNow();   /* STAGE 0 (fix round 4): see s0HomeNow */
   let items=[]; try{ items=await dbAll(); }catch(_){ return; }
   const source=items.find(item=>shelfCore.recordKey(item)===recordKey);
   if(!source) return;
   if(betweenLayers){
     const at=LAYERS.indexOf(source.layer), to=at+(direction<0?-1:1);
     if(to<0||to>=LAYERS.length){ toast('There is no layer in that direction'); return; }
-    await commitShelfMove({recordKey,toLayer:LAYERS[to],beforeKey:null});
+    await commitShelfMove({recordKey,toLayer:LAYERS[to],beforeKey:null},s0Home);
     return;
   }
   const ordered=shelfCore.orderedLayer(items,source.layer);
@@ -4767,7 +4783,7 @@ async function keyboardShelfMove(recordKey,direction,betweenLayers){
         ? (at+2<ordered.length?shelfCore.recordKey(ordered[at+2]):null)
         : recordKey);
   if(beforeKey===recordKey){ toast('That trait is already at the edge'); return; }
-  await commitShelfMove({recordKey,toLayer:source.layer,beforeKey});
+  await commitShelfMove({recordKey,toLayer:source.layer,beforeKey},s0Home);
 }
 
 /* Which traits are picked, by shelf record key - the same identity the drag,
@@ -4787,9 +4803,10 @@ let shelfPick=new Set();
 /* asName (patch592): the same move under a new name, which is how a layer
    move into a final-project layer that has one of this name renames the
    trait where it is before moving it. */
-async function setTraitStatus(t,next,asName){
+async function setTraitStatus(t,next,asName,home){
   const s0MarkAt=s0MarkStart();   /* STAGE 0 (D1): where and whose its marks are, before its first wait */
   if(!t||!next) return {ok:false};
+  const s0Home=home||s0HomeNow();   /* STAGE 0 (fix round 4): see s0HomeNow */
   if(String(t.status||"wip")===String(next) && !asName) return {ok:true, moved:t, shared:null, same:true};
   /* THE RECORD AS IT IS, NOT AS THE CARD WAS DRAWN. Another tab may have
      moved it since: a press on the stale card deleted an id that was
@@ -4802,6 +4819,7 @@ async function setTraitStatus(t,next,asName){
   let now=null;
   {
     try{ now=await dbGet(t.id); }catch(_){ now=null; }
+    if(!s0AtHome(s0Home)) return {ok:false, left:true};   /* STAGE 0 (fix round 4) */
     if(!now || String(now.status||"wip")!==String(t.status||"wip") || (now.layer||"")!==(t.layer||"")
        || now.name!==t.name) return {ok:false, stale:true};
   }
@@ -4817,7 +4835,9 @@ async function setTraitStatus(t,next,asName){
      nemed things in the STFP so i can compare". Arriving in the final
      project beside one of the same name and layer, the trait is kept as
      "Name (2)". Every other status still refuses, for the reason above. */
-  if(await idHolder(moved.id,t.id)){
+  const s0Clash=await idHolder(moved.id,t.id);
+  if(!s0AtHome(s0Home)) return {ok:false, left:true};   /* STAGE 0 (fix round 4) */
+  if(s0Clash){
     if(String(next)!==FINAL_KEEPS_BOTH || asName) return {ok:false, clash:true};
     const free=await finalFreeName(t.name,[t.layer],t.id);
     if(!free) return {ok:false, clash:true};
@@ -4826,22 +4846,29 @@ async function setTraitStatus(t,next,asName){
   }
   const visibility=currentShelfVisibility();
   const key=shelfCore.recordKey(t);
-  await dbDel(t.id);
-  await dbPut(moved);
-  await s0Moved([{from:now, to:moved.id}],"person",s0MarkAt);   /* STAGE 0 (D1): the old id is gone, the new one written */
+  /* STAGE 0 (fix round 4): the reads above waited. Left since, nothing is
+     written (left:true says why). */
+  if(!s0AtHome(s0Home)) return {ok:false, left:true};
+  /* STAGE 0 (8b in patch602): written marked unsent; the upload's own "sent"
+     write clears it once the group has the new row. The removal and the
+     new record in ONE transaction (fix round 4): two writes with a wait
+     between, and a move in it would leave the trait removed and not
+     written back. */
+  await dbApplyShelfRecords([t.id],[moved.synced ? unsentOf(moved) : moved]);
+  if(s0AtHome(s0Home)) await s0Moved([{from:now, to:moved.id}],"person",s0MarkAt);   /* STAGE 0 (D1): the old id is gone, the new one written */
   const movedKey=shelfCore.recordKey(moved);
   visibility.transfer(key,movedKey);
   /* And the selection, for the same reason and at the same moment. */
   pickTransfer(key,movedKey);
   /* And the unsaved work, which used to be the one id-keyed thing this did
      not carry - the line above has always carried the other. */
-  await draftsFollow([{from:t.id, to:moved.id}]);
+  await draftsFollow([{from:t.id, to:moved.id}],s0Home);
   /* A new name is a new layer/name, which is what a rule holds. */
-  if(renamed) await carryRules(traitKey(t),traitKey(moved));
+  if(renamed) await carryRules(traitKey(t),traitKey(moved),s0Home);
   /* Filled by the upload when it fails, so the tile and the final-set
      page can each say WHICH failure it was. */
   const why={};
-  const shared=await cloudMoveOne(now,moved,why);
+  const shared=await cloudMoveOne(now,moved,why,s0Home);
   /* AND THE RECORD STOPS CLAIMING TO BE ON THE SERVER. `moved` above is a
      spread of `t`, so a trait that was synced carries `synced` and `path`
      into its NEW identity - one the server has never seen. Measured, with
@@ -4872,7 +4899,7 @@ async function setTraitStatus(t,next,asName){
      returned back onto the local record - so for a synced trait the key just
      transferred TO is already stale, and the next render drops both entries
      as naming nothing. Hide a trait, press its chip, and it came back. */
-  if(shared){
+  if(shared&&s0AtHome(s0Home)){   /* STAGE 0 (fix round 4) */
     let now=null; try{ now=await dbGet(moved.id); }catch(_){}
     const freshKey=now?shelfCore.recordKey(now):null;
     if(freshKey&&freshKey!==movedKey){
@@ -4887,6 +4914,7 @@ async function setTraitStatus(t,next,asName){
    the record, the draft, the hidden and picked keys and the group with
    it; and it refuses what the chip refuses. Drawn once, at the end. */
 async function bulkSetStatus(next){
+  const s0Home=s0HomeNow();   /* STAGE 0 (fix round 4): see s0HomeNow */
   if(!next || STATUS_CYCLE.indexOf(next)<0) return;
   if(shelfMoveBusy){ toast("Still moving the last batch"); return; }
   const keys=[...shelfPick];
@@ -4902,11 +4930,12 @@ async function bulkSetStatus(next){
     for(const key of keys){
       const t=items.find(i=>i&&i.kind==="trait"&&shelfCore.recordKey(i)===key);
       if(!t) continue;
-      const r=await setTraitStatus(t,next);
+      const r=await setTraitStatus(t,next,undefined,s0Home);
+      if(r.left) break;   /* STAGE 0 (fix round 4): said below */
       if(r.same) same++;
       else if(r.clash) clash.push(t.name);
       else if(r.stale) stale++;
-      else if(r.ok){ changed++; if(r.renamed) kept.push(r.renamed); if(activeWs && !r.shared) notShared++; }
+      else if(r.ok){ changed++; if(r.renamed) kept.push(r.renamed); if(s0Home.db!==DBN && !r.shared) notShared++; }
       done++;
       if(done%10===0){ const c=$("shelfpickcount"); if(c) c.textContent="Setting "+done+" of "+keys.length+"..."; }
     }
@@ -4919,6 +4948,7 @@ async function bulkSetStatus(next){
     if(kept.length) bits.push(kept.length+" kept beside one of the same name: "+kept.slice(0,4).join(", ")
       +(kept.length>4?" and "+(kept.length-4)+" more":""));
     if(notShared) bits.push(notShared+" here only - press Save to cloud");
+    if(!s0AtHome(s0Home)) bits.push(s0LeftInline(S0_LEFT_UNMADE));   /* STAGE 0 (fix round 4) */
     toast(bits.join("; "));
   }finally{ shelfMoveBusy=false; shelfPickPaint(); }
 }
@@ -5004,6 +5034,7 @@ function applyPlanTo(list,updates){
 async function bulkMoveToLayer(toLayer){
   const s0MarkAt=s0MarkStart();   /* STAGE 0 (D1): where and whose its marks are, before its first wait */
   if(!toLayer) return;
+  const s0Home=s0HomeNow();   /* STAGE 0 (fix round 4): see s0HomeNow */
   if(shelfMoveBusy){ toast("Still moving the last batch"); return; }
   const keys=[...shelfPick];
   if(!keys.length){ toast("Pick some traits first"); return; }
@@ -5048,7 +5079,7 @@ async function bulkMoveToLayer(toLayer){
          lists, so the diff below neither deletes nor re-creates it. */
       if(!plan.ok && plan.reason==="duplicate" && String(rec.status||"wip")===FINAL_KEEPS_BOTH){
         const free=await finalFreeName(rec.name,[rec.layer,toLayer],rec.id);
-        const rr=free ? await setTraitStatus(rec,rec.status,free) : {ok:false};
+        const rr=free ? await setTraitStatus(rec,rec.status,free,s0Home) : {ok:false};
         let now=null;
         if(rr.ok){ try{ now=await dbGet(rr.moved.id); }catch(_){ now=null; } }
         if(now){
@@ -5072,6 +5103,11 @@ async function bulkMoveToLayer(toLayer){
       working=applyPlanTo(working,plan.updates);
       moved++;
     }
+    /* STAGE 0 (fix round 4): every read above waited. Left since, nothing is
+       written, moved or sent, and that is said - before the words below,
+       which would describe what the loop read after the move. No wait
+       comes between this and the write. */
+    if(!s0AtHome(s0Home)){ toast(S0_LEFT_UNMADE); return; }
     if(!moved){
       toast(refused.length ? refusalLine(refused) : "Nothing to move - they are already there");
       return;
@@ -5087,7 +5123,12 @@ async function bulkMoveToLayer(toLayer){
       return !o || o.layer!==r.layer || o.shelfOrder!==r.shelfOrder; });
     const state=currentShelfVisibility();
     try{
-      await dbApplyShelfRecords(gone,updates);
+      /* STAGE 0 (8b in patch602): marked unsent in a group too, and cleared
+         below once the group took the order. And on your own page, ahead
+         of cloudSaveShelfPlan's marks, which a move before them skips (fix
+         round 4): the renumbered records keep their path, so Save to cloud
+         would skip them as up to date. */
+      await dbApplyShelfRecords(gone,updates.map(r=>r.synced?unsentOf(r):r));
     }catch(_){ toast("Could not save the move"); return; }
     /* A hidden trait stays hidden. Moving a trait between layers rewrites its
        local id and the hidden set is keyed by that id, so without this the
@@ -5096,17 +5137,25 @@ async function bulkMoveToLayer(toLayer){
        order the plans were made, so a record two plans touched ends on the key
        the last of them gave it. */
     for(const t of transfers) state.transfer(t.from,t.to);
-    try{ await draftsFollow(draftMoves); }catch(_){}
-    await s0Moved(draftMoves.map(m=>({from:before.get(m.from)||m.from, to:m.to})),"person",s0MarkAt);   /* STAGE 0 (D1): one append for the batch, each read from the store */
-    await retargetRules(ruleMoves);
+    try{ await draftsFollow(draftMoves,s0Home); }catch(_){}
+    if(s0AtHome(s0Home)) await s0Moved(draftMoves.map(m=>({from:before.get(m.from)||m.from, to:m.to})),"person",s0MarkAt);   /* STAGE 0 (D1): one append for the batch, each read from the store */
+    /* STAGE 0 (fix round 4): the rules are the project moved to's after a
+       move during draftsFollow (measured for the single move). */
+    if(s0AtHome(s0Home)) await retargetRules(ruleMoves);
     shelfPick.clear();
     await renderShelf();
     /* The same shape commitShelfMove hands the cloud, so one trait and forty
        take the same path out. */
-    const shared=await cloudSaveShelfPlan(updates.map(r=>({record:r})));
+    const s0Seq=touchSeq, s0Group=s0Home.db!==DBN;   /* STAGE 0: see 8b in patch602 */
+    const shared=await cloudSaveShelfPlan(updates.map(r=>({record:r})),undefined,s0Home);
+    if(shared&&shared.ok&&s0Group&&s0AtHome(s0Home)){
+      const s0Took=updates.filter(r=>r.synced&&!touchedSince(r.id,s0Seq));
+      if(s0Took.length){ try{ await dbApplyShelfRecords([],s0Took); }catch(_){ } }
+    }
     const tail = refused.length ? "  "+refusalLine(refused) : "";
     toast("Moved "+moved+" trait"+(moved===1?"":"s")+" to "+toLayer
-      +(shared&&shared.ok===false ? " here only - the group did not get it" : "")
+      +(shared&&shared.left ? " - "+s0LeftInline(S0_LEFT)   /* STAGE 0 (fix round 4) */
+        : shared&&shared.ok===false ? " here only - the group did not get it" : "")
       +(keptBoth.length ? " - "+keptBoth.length+" kept beside one of the same name: "+keptBoth.slice(0,4).join(", ")
         +(keptBoth.length>4?" and "+(keptBoth.length-4)+" more":"") : "")+tail);
   } finally { shelfMoveBusy=false; }
@@ -5250,6 +5299,7 @@ function canvasFrom(data,w,h){
    has been recoloured is a different decision, and inheriting the approval
    would let an unreviewed colourway into a generated character. */
 async function duplicateTrait(t){
+  const s0Home=s0HomeNow();   /* STAGE 0 (fix round 4): see s0HomeNow */
   let items=[];
   try{ items=await dbAll(); }catch(_){ toast("Could not read the project"); return null; }
   const taken=new Set(items.map(i=>i.id));
@@ -5264,6 +5314,7 @@ async function duplicateTrait(t){
     w:t.w, h:t.h, blob:t.blob, at:Date.now(),
     shelfOrder:shelfCore.nextShelfOrder(items,t.layer)};
   if(typeof t.rarity==="number") rec.rarity=t.rarity;
+  if(!s0AtHome(s0Home)){ toast(S0_LEFT_UNMADE); return null; }   /* STAGE 0 (fix round 4) */
   try{ await dbPut(rec); }catch(_){ toast("Could not save the copy"); return null; }
   await renderShelf();
   toast("Copied to "+name+", marked wip");
@@ -5335,10 +5386,14 @@ function copyRules(fromKey,toKey){
 }
 /* A copy when another trait still answers to the old name, a move when
    none does - which is what a rename has always done (retargetRules). */
-async function carryRules(fromKey,toKey){
+async function carryRules(fromKey,toKey,home){
   if(!fromKey||!toKey||fromKey===toKey) return;
+  const s0Home=home||s0HomeNow();   /* STAGE 0 (fix round 4): see s0HomeNow */
   let still=true;
   try{ still=(await dbAll()).some(i=>i&&i.kind==="trait"&&traitKey(i)===fromKey); }catch(_){ still=true; }
+  /* RULES are the project moved to's after a move: nothing is copied or
+     retargeted in them, and nothing saved. */
+  if(!s0AtHome(s0Home)) return;
   if(still){ if(copyRules(fromKey,toKey)) await saveRules(); }
   else await retargetRules([{from:fromKey,to:toKey}]);
 }
@@ -5768,9 +5823,10 @@ async function renderShelf(viewOnly){
       x.title='Remove reference';
       /* ASKS FIRST. See the trait tile below for why this is here now. */
       x.onclick=async ev=>{ ev.stopPropagation();
+        const s0Home=s0HomeNow();   /* STAGE 0 (fix round 4): see s0HomeNow */
         if(await s0Refuse()) return;
         if(!confirm('Remove the reference "'+t.name+'"?')) return;
-        const gone=await dbDelShared(t); renderShelf(); toast(gone==="held" ? s0Words(s0Held()||"switched") : gone ? ('Removed '+t.name) : ('Removed '+t.name+' here, but the group still has it - it will come back')); };
+        const s0Why={}; const gone=await dbDelShared(t,s0Home,s0Why); renderShelf(); toast(s0Why.left ? s0LeftRemoval(gone,t.name) : gone==="held" ? s0Words(s0Held()||"switched") : gone ? ('Removed '+t.name) : ('Removed '+t.name+' here, but the group still has it - it will come back')); };
       el.appendChild(x); rg.appendChild(el);
     }
     rw.appendChild(rg); body.appendChild(rw);
@@ -5848,13 +5904,15 @@ async function renderShelf(viewOnly){
       cyc.className='cyc'; cyc.textContent=(t.status||'wip');
       cyc.title='Click to change status';
       cyc.onclick=async ev=>{ ev.stopPropagation();
+        const s0Home=s0HomeNow();   /* STAGE 0 (fix round 4): see s0HomeNow */
         const next=nextStatus(t.status);
         /* EVERYTHING THIS USED TO DO IS IN setTraitStatus, unchanged and in
            the same order - the record, the draft, the hidden key, the picked
            key, the group, and both keys again after the upload. It is a
            function because the final-set page calls it too, and two copies
            of that list would drift on the next thing added to it. */
-        const r=await setTraitStatus(t,next);
+        const r=await setTraitStatus(t,next,undefined,s0Home);
+        if(r.left){ toast(S0_LEFT_UNMADE); return; }   /* STAGE 0 (fix round 4) */
         if(r.stale){ toast(t.name+" changed in another tab - the shelf has been redrawn"); renderShelf(); return; }
         if(r.clash){
           toast("There is already "+article(next)+" "+t.name+" in "+(t.layer||"unsorted")
@@ -5865,7 +5923,7 @@ async function renderShelf(viewOnly){
         renderShelf();
         /* The result was discarded once, so a move the group never received
            still said "hat -> approved". */
-        toast((activeWs && !r.shared
+        toast((s0Home.db!==DBN && !r.shared   /* STAGE 0 (fix round 4): the change's project */
           ? t.name+' -> '+next+' here only - '+cloudWhyNot(r.why)
           : t.name+' -> '+next)+keptBothWords(r.renamed)+cloudAlsoOld(r.why)); };
       el.appendChild(cyc);
@@ -5997,9 +6055,10 @@ async function renderShelf(viewOnly){
          purpose. The rule above now shows it permanently on a touch screen,
          beside the artwork, on a shelf being scrolled with a thumb. */
       x.onclick=async ev=>{ ev.stopPropagation();
+        const s0Home=s0HomeNow();   /* STAGE 0 (fix round 4): see s0HomeNow */
         if(await s0Refuse()) return;
         if(!confirm('Remove "'+t.name+'" from '+(t.layer||"unsorted")+'?')) return;
-        const gone=await dbDelShared(t); visibility.show(key); renderShelf(); toast(gone==="held" ? s0Words(s0Held()||"switched") : gone ? ('Removed '+t.name) : ('Removed '+t.name+' here, but the group still has it - it will come back')); };
+        const s0Why={}; const gone=await dbDelShared(t,s0Home,s0Why); visibility.show(key); renderShelf(); toast(s0Why.left ? s0LeftRemoval(gone,t.name) : gone==="held" ? s0Words(s0Held()||"switched") : gone ? ('Removed '+t.name) : ('Removed '+t.name+' here, but the group still has it - it will come back')); };
       el.appendChild(x);
       /* STRAIGHT INTO THE FIXER. Beside the remove button rather than on
          the tile body, which already opens the editor - two different
@@ -6305,6 +6364,7 @@ function saveTrait(){
 async function saveTraitNow(){
   const s0MarkAt=s0MarkStart();   /* STAGE 0 (D1): where and whose its marks are, before its first wait */
   if(!ctx) return;
+  const s0Home=s0HomeNow();   /* STAGE 0 (fix round 4): see s0HomeNow */
   let name=($('tname').value.trim()||fileName.replace(/\.png$/,'')||'trait').slice(0,60);
   const layer=$('tlayer').value||'unsorted';
   const edge={};
@@ -6376,6 +6436,8 @@ async function saveTraitNow(){
        already exists in this layer and status would overwrite it. openRec is
        the record being edited, so saving it back over itself is not a clash. */
     const clash=await idHolder(id, openRec&&openRec.id);
+    /* STAGE 0 (fix round 4): the clash was read from the store shown. */
+    if(!s0AtHome(s0Home)){ toast(S0_LEFT_UNMADE); return false; }
     /* The final project keeps both (patch592): saved as "Name (2)", and the
        name field says so. */
     let keptAs=null;
@@ -6391,7 +6453,13 @@ async function saveTraitNow(){
     }
     /* After the clash, which can give the trait a new id. */
     const moved = openWas && openWas.id!==id;
-    await dbPut(rec);
+    /* STAGE 0 (fix round 4): the reads above waited. Left since, nothing is
+       written: the drawing is kept where it was drawn, by the switch's own
+       last save of it. A renamed or refiled trait is written and its old
+       record removed in ONE transaction, so a move between them cannot
+       leave both. */
+    if(!s0AtHome(s0Home)){ toast(S0_LEFT_UNMADE); return false; }
+    if(moved) await dbApplyShelfRecords([openWas.id],[rec]); else await dbPut(rec);
     /* THE ONE MOMENT A TRAIT'S PIXELS CHANGE, which is why the check lives
        here and not in a render. Sweeping 317 traits means decoding 317 PNGs
        and about ten seconds; one fingerprint per save costs 20ms and keeps
@@ -6404,7 +6472,7 @@ async function saveTraitNow(){
         const e=REVIEW.entries.find(x=>x.id===rec.reviewId);
         if(e&&e.artworkAccepted&&e.artHash){
           const fp=await traitFingerprint(rec);
-          if(fp&&fp.hash){ e.artHashNow=fp.hash; await saveReview(); }
+          if(fp&&fp.hash&&s0AtHome(s0Home)){ e.artHashNow=fp.hash; await saveReview(); }
         }
       }
     }catch(_){ }
@@ -6415,9 +6483,10 @@ async function saveTraitNow(){
          switching a trait from wip to approved in the editor left both
          t_bugtest_eyes_wip and t_bugtest_eyes_approved in the shelf. The shelf's
          own status and layer buttons already do this properly; the editor did not. */
+      /* (STAGE 0, fix round 4: removed above, with the new record.) */
       /* STAGE 0 (D1): recorded once the old id is gone - a removal that failed
          left it, and dropped nothing. */
-      try{ await dbDel(openWas.id); await s0Moved([{from:base||openWas, to:rec}],"person",s0MarkAt); }catch(_){}
+      if(s0AtHome(s0Home)){ try{ await s0Moved([{from:base||openWas, to:rec}],"person",s0MarkAt); }catch(_){} }
       cBitmapDrop(openWas.id);
       /* A hidden trait stays hidden through a rename. The visibility set is
          keyed by record key - rowId || id - and the id carries the name, layer
@@ -6439,8 +6508,8 @@ async function saveTraitNow(){
          retargetRules ignores a pair whose ends are equal. */
       /* A kept copy takes the rules as a copy while another trait still
          answers to its old name (patch592). */
-      if(keptAs) await carryRules(traitKey(openWas), traitKey(rec));
-      else await retargetRules([{from:traitKey(openWas), to:traitKey(rec)}]);
+      if(keptAs) await carryRules(traitKey(openWas), traitKey(rec), s0Home);
+      else if(s0AtHome(s0Home)) await retargetRules([{from:traitKey(openWas), to:traitKey(rec)}]);
     }
     /* The character preview decodes each trait once and keeps it forever, so
        without this it goes on compositing the version from before the edit.
@@ -6454,7 +6523,7 @@ async function saveTraitNow(){
        drafted under the working key. */
     for(const k of [draftKey(id), openWas?draftKey(openWas.id):null,
                     openWas?null:AUTO_ID]){
-      if(k){ try{ await dbDel(k); }catch(_){} }
+      if(k&&s0AtHome(s0Home)){ try{ await dbDel(k); }catch(_){} }
     }
     showDraftBar(null,null);
     /* THE CANVAS IS NOW THE RECORD. Without this the next open flushes a
@@ -6463,7 +6532,7 @@ async function saveTraitNow(){
     markCanvasSaved();
     openRec=rec;
     await renderShelf();
-    if(activeWs){
+    if(s0Home.db!==DBN){   /* STAGE 0 (fix round 4): the save's project, not the one shown now */
       /* Told plainly either way. A save that reached this browser but not the
          group is not a failure worth hiding - it is the difference between
          your friends seeing it and not. */
@@ -6471,8 +6540,8 @@ async function saveTraitNow(){
       const why={};
       /* The old row by the id the store holds (patch593), or the drop misses
          the live row and the group keeps the trait under both names. */
-      const shared = moved ? await cloudMoveOne(base||openWas,rec,why)
-        : await cloudSyncOne(rec,null,why);
+      const shared = moved ? await cloudMoveOne(base||openWas,rec,why,s0Home)
+        : await cloudSyncOne(rec,{home:s0Home},why);
       /* Marked only once it is actually up there. A save that could not reach
          the group stays unmarked, and the reconcile below will not remove it -
          losing work because the network blinked would be worse than the stale
@@ -6609,6 +6678,7 @@ $('shelfshowall').onclick=()=>{
   currentShelfVisibility().showAll(); renderShelf(); announceShelf('All traits are visible.');
 };
 $('clearproj').onclick=async()=>{
+  const s0Home=s0HomeNow();   /* STAGE 0 (fix round 4): see s0HomeNow */
   /* STAGE 0 (D1): Clear waits while this project is held. */
   if(await s0Refuse()) return;
   if(!confirm('Remove every saved trait and the reference from this browser?')) return;
@@ -6655,6 +6725,9 @@ $('clearproj').onclick=async()=>{
   let removed=0, kept=0;
   try{
     for(const rec of await dbAll()){
+      /* STAGE 0 (fix round 4): Clear removes this project's records, never the
+         project moved to's (the read above and every removal waited). */
+      if(!s0AtHome(s0Home)) break;
       if(rec.kind==="trait"||rec.kind==="ref"){ await dbDel(rec.id); removed++; }
       /* A draft belongs to the trait it names. With the traits gone it can
          never be opened again, and it would still be offered. The unattached
@@ -6668,8 +6741,11 @@ $('clearproj').onclick=async()=>{
        leaving it behind reopens a picture from a collection that no longer
        exists. */
     for(const id of [RULES_ID,DECISIONS_ID,DECIDE_ID,GRID_ID,BASE_ID,LAYERS_ID,AUTO_ID,EMPTY_ID]){
+      if(!s0AtHome(s0Home)) break;   /* STAGE 0 (fix round 4) */
       try{ await dbDel(id); kept--; }catch(_){}
     }
+    /* STAGE 0 (fix round 4): the settings below are the project shown. */
+    if(!s0AtHome(s0Home)){ toast(S0_LEFT_PART); return; }
     RULES=[]; DECISIONS=[]; DECIDE_ORDER=[]; BASE_KEEP=[];
     projectGrid=160;
     const box=$("rsgrid"); if(box) box.value=projectGrid;
@@ -6962,11 +7038,13 @@ function slotLoad(file,which){
       refData=d; thumb('refthumb',d); $('refslot').classList.add('filled');
       // kept in the project so several skins can live side by side and the
       // right one is chosen per submission
+      const s0Home=s0HomeNow();   /* STAGE 0 (fix round 4): see s0HomeNow */
       (async()=>{ try{
         const c=document.createElement('canvas'); c.width=d.width; c.height=d.height;
         c.getContext('2d').putImageData(d,0,0);
         const blob=await new Promise(r=>c.toBlob(r,'image/png'));
         const nm=file.name.replace(/[.][^.]+$/,'');
+        if(!s0AtHome(s0Home)){ toast(S0_LEFT_UNMADE); return; }   /* STAGE 0 (fix round 4) */
         await dbPut({id:'ref_'+nm, kind:'ref', name:nm, blob, w:d.width, h:d.height, at:Date.now()});
         renderShelf(); toast('Reference saved: '+nm);
       }catch(_){}})();
@@ -11206,7 +11284,8 @@ async function editorFollows(was,toId){
   openRec=now;
   return true;
 }
-async function draftsFollow(pairs){
+async function draftsFollow(pairs,home){
+  const s0Home=home||s0HomeNow();   /* STAGE 0 (fix round 4): see s0HomeNow */
   const next=new Map();
   for(const p of (pairs||[])) if(p&&p.from&&p.to&&p.from!==p.to) next.set(p.from,p.to);
   if(!next.size) return 0;
@@ -11228,6 +11307,7 @@ async function draftsFollow(pairs){
     const end=ends.find(m=>m.from===openRec.id);
     if(end){ try{ await editorFollows(openRec,end.to); }catch(_){} }
   }
+  if(!s0AtHome(s0Home)) return 0;   /* STAGE 0 (fix round 4) */
   const d=await db();
   return new Promise((res,rej)=>{
     const t=d.transaction(STORE,"readwrite"), s=t.objectStore(STORE);
@@ -11747,6 +11827,7 @@ function sortShow(plan){
    overwrites, so moving onto it would destroy the trait already there. */
 async function sortApply(plan){
   const s0MarkAt=s0MarkStart();   /* STAGE 0 (D1): where and whose its marks are, before its first wait */
+  const s0Home=s0HomeNow();   /* STAGE 0 (fix round 4): see s0HomeNow */
   let made=0, moved=0, refused=[], failed=0;
   /* Moved here but not for anybody else. The tile status cycle and
      bulkMoveLayer both keep this answer and say so; this discarded it. */
@@ -11778,22 +11859,22 @@ async function sortApply(plan){
        page and the Last edited list read, and a sort is filing. */
     const rec={...old, id:id, name:r.toName, layer:r.toLayer};
     try{
-      await dbPut(rec);
-      await dbDel(old.id);
+      if(!s0AtHome(s0Home)){ failed++; break; }   /* STAGE 0 (fix round 4) */
+      await dbApplyShelfRecords([old.id],[rec]);   /* one write: a move between two left both */
       s0Pairs.push({from:old, to:rec});
       taken.delete(old.id); taken.add(id);
-      await retargetRules([{from:traitKey(old), to:traitKey(rec)}]);
+      if(s0AtHome(s0Home)) await retargetRules([{from:traitKey(old), to:traitKey(rec)}]);
       draftMoves.push({from:old.id, to:id});
       /* ALWAYS, as retagLayer calls it: on your own page this is what marks
          the move as not yet sent (patch525), and skipping it let the next
          Load from cloud put the old layer back (measured). */
-      const shared=await cloudMoveOne(old,rec,undefined,s0Run);
+      const shared=await cloudMoveOne(old,rec,undefined,s0Home,s0Run);
       if(activeWs&&!shared) stranded++;
       moved++;
     }catch(_){ failed++; }
   }
-  try{ await draftsFollow(draftMoves); }catch(_){}
-  await s0Moved(s0Pairs,"person",s0MarkAt);   /* STAGE 0 (D1): one append for the whole sort */
+  try{ await draftsFollow(draftMoves,s0Home); }catch(_){}
+  if(s0AtHome(s0Home)) await s0Moved(s0Pairs,"person",s0MarkAt);   /* STAGE 0 (D1): one append for the whole sort */
   return {made, moved, refused, failed, stranded};
 }
 function pairState(a,b){
@@ -12436,7 +12517,8 @@ function readPath(rel){
    older one.
 
    rowId is deliberately not here - see the callers. */
-async function carryDecided(from,toId){
+async function carryDecided(from,toId,home){
+  const s0Home=home||s0HomeNow();   /* STAGE 0 (fix round 4): see s0HomeNow */
   if(!from||!toId) return false;
   let rec=null;
   try{ rec=await dbGet(toId); }catch(_){ return false; }
@@ -12459,8 +12541,9 @@ async function carryDecided(from,toId){
      server; the carried values were then here only, and the next pull
      put the row's back. Marked as any change here is, and sent now. */
   const next=unsentOf(rec);
+  if(!s0AtHome(s0Home)) return false;   /* STAGE 0 (fix round 4) */
   try{ await dbPut(next); }catch(_){ return false; }
-  if(activeWs && next.rowId && next.unsent==="meta"){ try{ await cloudPatchOne(next); }catch(_){} }
+  if(s0Home.db!==DBN && next.rowId && next.unsent==="meta"){ try{ await cloudPatchOne(next,{home:s0Home}); }catch(_){} }
   return true;
 }
 /* opts.inPlace: a save from Fix pixels, which writes the files it is given
@@ -12470,10 +12553,16 @@ async function carryDecided(from,toId){
 async function bulkImport(files,opts){
   const s0MarkAt=s0MarkStart();   /* STAGE 0 (D1): where and whose its marks are, before its first wait */
   const inPlace=!!(opts&&opts.inPlace);
+  /* STAGE 0 (fix round 4): the import's home - every write and send in it
+     asks, and one the page left stops, and says so (s0Left). */
+  const s0Home=s0HomeNow();
+  let s0Left=false;
   /* STAGE 0 (D1): a folder import waits while this project is held. A fixer
      save comes through here in place and is kept: its sends are held one
      by one, and its records stay unsent. */
   if(!inPlace&&await s0Refuse()) return;
+  /* (The layers below are adopted into LAYERS, the project shown.) */
+  if(!s0AtHome(s0Home)){ toast(S0_LEFT_UNMADE); return; }
   const note=$("bulknote");
   const all=[...files];
   const pngs=all.filter(f=>/\.png$/i.test(f.name));
@@ -12598,7 +12687,7 @@ async function bulkImport(files,opts){
   async function uploadCtx(){
     if(!pushCtx){
       const u=await sbUser();
-      pushCtx={u:u, team:await cloudTeam(), c:u?await cloudCollection(u):null, s0Run:s0Run};
+      pushCtx={u:u, team:await cloudTeam(), c:u?await cloudCollection(u):null, home:s0Home, s0Run:s0Run};
     }
     return pushCtx;
   }
@@ -12669,13 +12758,14 @@ async function bulkImport(files,opts){
     try{
       if(info.isRef&&!info.layer){
         const rrec={id:"ref_"+info.name, kind:"ref", name:info.name, w:w, h:h2, blob:f, at:Date.now()};
+        if(!s0AtHome(s0Home)){ s0Left=true; break; }   /* STAGE 0 (fix round 4) */
         await dbPut(rrec);
         /* Importing a folder writes straight to this browser and always did.
            It is a save like any other - the traits are just arriving by the
            hundred instead of one at a time - so in a group they go up too.
            Without this, importing a folder into a shared project put nothing
            anywhere anyone else could reach, and said "Imported 40 files". */
-        if(activeWs&&!await cloudSyncOne(rrec, await uploadCtx())) notShared++;
+        if(s0Home.db!==DBN&&!await cloudSyncOne(rrec, await uploadCtx())) notShared++;
         refs++;
       }else{
         /* Before the id is built from it - the id is
@@ -12819,6 +12909,7 @@ async function bulkImport(files,opts){
             break;
           }
         }
+        if(!s0AtHome(s0Home)){ s0Left=true; break; }   /* STAGE 0 (fix round 4) */
         await dbPut(trec);
         /* THE SIGNATURE OF WHAT IS NOW THERE. recSig caches by id, and a
            replacement keeps the id while the bytes change - so without this
@@ -12829,7 +12920,7 @@ async function bulkImport(files,opts){
         supplied.push({name:info.name, layer:layer, status:status, id:trec.id});
         shelfItems.push(trec);
         wroteThisRun.push(trec);
-        if(activeWs&&!await cloudSyncOne(trec, await uploadCtx())) notShared++;
+        if(s0Home.db!==DBN&&!await cloudSyncOne(trec, await uploadCtx())) notShared++;
         perLayer[layer]=(perLayer[layer]||0)+1;
       }
       ok++;
@@ -12870,13 +12961,14 @@ async function bulkImport(files,opts){
          line below, and a carried id would point at nothing. */
       const to=supplied.find(s=>s.name===rec.name&&s.layer===rec.layer
         &&s.status!==(rec.status||"wip"));
-      if(to) await carryDecided(rec,to.id);
+      if(to) await carryDecided(rec,to.id,s0Home);
+      if(!s0AtHome(s0Home)){ s0Left=true; break; }   /* STAGE 0 (fix round 4) */
       try{ await dbDel(rec.id); }catch(_){ continue; }
       if(to) s0ImportPairs.push({from:rec, to:to.id});
       /* The server copy too, or the next pull brings it back. */
       /* STAGE 0 (A2): first, the moved file's record names the row it replaces. */
-      if(to&&freshIds.has(to.id)) await s0StandsIn(rec,to.id);
-      try{ await cloudDropOne(rec); }catch(_){}
+      if(to&&freshIds.has(to.id)) await s0StandsIn(rec,to.id,s0Home);
+      try{ await cloudDropOne(rec,{home:s0Home}); }catch(_){}
       moved++; movedIds.add(rec.id);
     }
   }
@@ -12934,16 +13026,17 @@ async function bulkImport(files,opts){
       /* AND THE SAME WHERE A RENAME IS MERGED. cap.png renamed to
          cap v2.png is one trait under a new name, and the weight somebody
          set belongs to the trait rather than to the filename. */
-      await carryDecided(rec,onto.id);
+      await carryDecided(rec,onto.id,s0Home);
+      if(!s0AtHome(s0Home)){ s0Left=true; break; }   /* STAGE 0 (fix round 4) */
       try{ await dbDel(rec.id); }catch(_){ continue; }
       s0ImportPairs.push({from:rec, to:onto});
-      await s0StandsIn(rec,onto.id);   /* STAGE 0 (A2): the renamed file stands in for this row */
-      try{ await cloudDropOne(rec); }catch(_){}
+      await s0StandsIn(rec,onto.id,s0Home);   /* STAGE 0 (A2): the renamed file stands in for this row */
+      try{ await cloudDropOne(rec,{home:s0Home}); }catch(_){}
       mergedAway.push(rec.name+" into "+onto.name);
       mergedIds.add(rec.id);
     }
   }
-  await s0Moved(s0ImportPairs,"person",s0MarkAt);   /* STAGE 0 (D1): one append for the whole import */
+  if(s0AtHome(s0Home)) await s0Moved(s0ImportPairs,"person",s0MarkAt);   /* STAGE 0 (D1): one append for the whole import */
   /* Traits the project has and this folder did not bring. Usually a file
      deleted or renamed on disk, which means the folder and the collection have
      drifted - and the next thing that happens is a collection generated with a
@@ -13055,7 +13148,9 @@ async function bulkImport(files,opts){
   /* Once, after the writes. applyLayers would re-adopt these from the
      records on the next render anyway, but only in whatever order dbAll
      hands them back; saving pins the order the folder actually had. */
-  if(adopted.length){ try{ await saveLayers(); }catch(_){ } }
+  if(!s0AtHome(s0Home)) s0Left=true;   /* STAGE 0 (fix round 4) */
+  if(adopted.length&&!s0Left){ try{ await saveLayers(); }catch(_){ } }
+  if(s0Left) bits.push("S"+S0_LEFT_IMPORT.slice(1));
   note.textContent=bits.join(". ")+".";
   toast("Imported "+ok+" file"+(ok===1?"":"s"));
   /* THE COUNTERS, FOR A CALLER THAT HAS ITS OWN MESSAGE TO WRITE. This
@@ -13063,7 +13158,7 @@ async function bulkImport(files,opts){
      of files it HANDED OVER rather than the number written - and four
      paths in here drop a file without throwing. Every one of these was
      already in scope for the report above. */
-  return {ok, failed, oversized, strips, refs, notShared,
+  return {ok, failed, oversized, strips, refs, notShared, left:s0Left,
     skipped:failed+oversized+strips};
 }
 
@@ -14480,6 +14575,7 @@ async function saveEmptyChance(){
    re-typing it - which is what the first draft of its tests did, and what
    tests/helpers.js opens by warning against. */
 async function takeEmptyChance(c){
+  const s0Home=s0HomeNow();   /* STAGE 0 (fix round 4): see s0HomeNow */
   /* A NUMBER, not something that can be coerced into one. Number(null) is 0
      and 0 is a legal empty chance - every optional layer on every character
      - so a null would have passed the range check, read as a deliberate
@@ -14496,7 +14592,7 @@ async function takeEmptyChance(c){
     /* Written only when the recorded value differs, for the reason the
        layer list is: a pull that changed nothing must write nothing. */
     let mine=null; try{ mine=await dbGet(EMPTY_ID); }catch(_){ mine=null; }
-    if(!(mine&&mine.chance===theirs)) await saveEmptyChance();
+    if(!(mine&&mine.chance===theirs)&&s0AtHome(s0Home)) await saveEmptyChance();
     return "took";
   }
   if(emptyChance!==EMPTY_DEFAULT){
@@ -15072,16 +15168,19 @@ async function decidePair(a,b,ok){
 }
 /* The rules and the answers, written to this browser's store. Lifted out of
    saveRules so a send that merges the server's answers in can keep them. */
-async function saveRulesHere(){
+async function saveRulesHere(home){
+  const s0Home=home||s0HomeNow();   /* STAGE 0 (fix round 4): see s0HomeNow */
   await dbPut({id:RULES_ID, kind:"settings", at:Date.now(),
     groups:RULES.map(g=>g.slice()), rulesAt:rulesAt,
     pairs:RULES.reduce((acc,g)=>{
       for(let i=0;i<g.length;i++) for(let j=i+1;j<g.length;j++) acc.push([g[i],g[j]]);
       return acc; },[])});
+  if(!s0AtHome(s0Home)) return false;   /* STAGE 0 (fix round 4) */
   await dbPut({id:DECISIONS_ID, kind:"settings", at:Date.now(),
     decisions:DECISIONS.map(d=>({a:d.a,b:d.b,ok:d.ok,at:d.at,by:d.by||null,src:d.src||"you"}))});
 }
-async function saveRules(){
+async function saveRules(home){
+  const s0Home=home||s0HomeNow();   /* STAGE 0 (fix round 4): see s0HomeNow */
   /* Stamped here rather than in shareRules, so the copy in this browser and
      the copy on the server carry the SAME number. Every caller of this
      function is a change to the rules made on this device, which is exactly
@@ -15094,17 +15193,23 @@ async function saveRules(){
      the expansion is the SAME rule rather than an approximation of it: an
      older tab enforces what it cannot display, instead of dropping it.
      Nothing in this file ever reads pairs. */
-  await saveRulesHere();
+  await saveRulesHere(s0Home);
   /* AND THE GROUP. Same shape as saveLayers: sent when it changed, and the
      signature is remembered only when the send actually arrived, so a failed
      one is retried by the next change rather than assumed done. */
-  return await shareRules();
+  return await shareRules(s0Home);
 }
 /* Rules, the order they are decided in, and the answers behind them - one
    PATCH, because a reader that got the rules without the decisions could not
    tell which pairs had been reviewed. */
 let sharedRuleSig=null;
-async function shareRules(){
+async function shareRules(home){
+  /* STAGE 0: see 8b in patch602. The action's home (fix round 4): the
+     caller's - saveRules', after its writes here - else this call's. Left,
+     RULES and DECISIONS are the project moved to's: nothing is sent, and
+     sharedRuleSig, which is about the project shown, is not touched. */
+  const s0Home=home||s0HomeNow();
+  if(!s0AtHome(s0Home)){ if(s0Home.db!==DBN) s0LeftSaid(); return false; }
   if(!activeWs){ sharedRuleSig=null; return false; }
   /* The empty chance is in the signature as well as the body, or changing
      it alone would match the last signature and send nothing. */
@@ -15116,8 +15221,9 @@ async function shareRules(){
     const c=u?await cloudCollection(u):null;
     const h=c?await sbHeaders({"Content-Type":"application/json"}):null;
     if(c&&h){
-      /* STAGE 0 (D1): held, the rules and answers stay here. */
-      if(await s0Blocked()) throw new Error("held");
+      /* STAGE 0 (D1): held, the rules and answers stay here. Held because the
+         page left the project, it says that (fix round 4). */
+      { const s0b=await s0Blocked(false,s0Home); if(s0b){ if(s0b==="left") s0LeftSaid(); throw new Error("held"); } }
       /* READ, MERGE, THEN WRITE. The PATCH below writes the whole list of
          answers, and it used to write it blind: a teammate whose copy
          predated your answer sent theirs over yours, and everybody's next
@@ -15127,23 +15233,28 @@ async function shareRules(){
       const g=await fetch(SB_URL+"/rest/v1/collections?select=decisions&id=eq."+c.id,{headers:h});
       if(!g.ok) throw new Error("read");
       const got=await g.json();
+      /* STAGE 0 (8b): moved during the read of the answers. RULES and
+         DECISIONS are the project moved to's now: nothing is merged into
+         them, written or sent. */
+      if(!s0AtHome(s0Home)){ s0LeftSaid(); throw new Error("moved"); }
       const theirs=(Array.isArray(got)&&got[0]&&Array.isArray(got[0].decisions))?got[0].decisions:[];
       const before=JSON.stringify(DECISIONS);
       const merged=mergeDecisions(DECISIONS,theirs);
       if(JSON.stringify(merged)!==before){
         DECISIONS=merged;
         for(const d of DECISIONS) applyDecision(d.a,d.b,d.ok);
-        await saveRulesHere();
+        await saveRulesHere(s0Home);
       }
+      if(!s0AtHome(s0Home)){ s0LeftSaid(); throw new Error("moved"); }   /* STAGE 0 (8b) */
       const r=await fetch(SB_URL+"/rest/v1/collections?id=eq."+c.id,{method:"PATCH",
         headers:h, body:JSON.stringify({rules:RULES, decide_order:DECIDE_ORDER,
           decisions:DECISIONS, empty_chance:emptyChance, rules_at:rulesAt})});
       shared=r.ok;
-      if(!r.ok&&r.status!==401) await s0Recheck();
+      if(!r.ok&&r.status!==401) await s0Recheck(null,s0Home);
     }
   }catch(_){ shared=false; }
   /* Taken again after the merge: what was sent is what is remembered. */
-  sharedRuleSig = shared ? JSON.stringify([RULES,DECIDE_ORDER,DECISIONS,emptyChance]) : null;
+  if(s0AtHome(s0Home)) sharedRuleSig = shared ? JSON.stringify([RULES,DECIDE_ORDER,DECISIONS,emptyChance]) : null;   /* STAGE 0 (fix round 4) */
   return shared;
 }
 /* Does this trait clash with anything already on the character? */
@@ -16328,6 +16439,7 @@ function layersNotSaved(e,what){
   toast((what||"Could not save the layer list")+(storeFull(e)?" - "+STORE_FULL:""));
 }
 async function saveLayers(){
+  const s0Home=s0HomeNow();   /* STAGE 0 (fix round 4): see s0HomeNow */
   /* In the layers record rather than a fourth settings row: a set being off is
      a property of the layer list, and one record cannot half-save. */
   await dbPut({id:LAYERS_ID, kind:"settings", layers:LAYERS.slice(),
@@ -16350,6 +16462,10 @@ async function saveLayers(){
      fact about this browser and the write above has already happened; the
      send is still awaited, so a caller can still say it did not land. */
   await renderShelf();
+  /* STAGE 0 (fix round 4): left during the redraw - LAYERS and
+     sharedLayerSig are the project moved to's. The list is written above,
+     in its own store; in a group it is not sent, and that is said. */
+  if(!s0AtHome(s0Home)){ if(s0Home.db!==DBN) s0LeftSaid(); return false; }
   if(!activeWs){ sharedLayerSig=null; return true; }
   if(sig===sharedLayerSig) return true;
   let shared=false;
@@ -16358,25 +16474,27 @@ async function saveLayers(){
     const c=u?await cloudCollection(u):null;
     const h=c?await sbHeaders({"Content-Type":"application/json"}):null;
     if(c&&h){
-      /* STAGE 0 (D1): held, the list stays here and "not shared yet" says so. */
-      if(await s0Blocked()) throw new Error("held");
+      /* STAGE 0 (D1): held, the list stays here and "not shared yet" says so.
+         Held because the page left the project, it says that (fix round 4). */
+      { const s0b=await s0Blocked(false,s0Home); if(s0b){ if(s0b==="left") s0LeftSaid(); throw new Error("held"); } }
       const r=await fetch(SB_URL+"/rest/v1/collections?id=eq."+c.id,{method:"PATCH",
         headers:h, body:JSON.stringify({layers:LAYERS})});
       shared=r.ok;
-      if(!r.ok&&r.status!==401) await s0Recheck();
+      if(!r.ok&&r.status!==401) await s0Recheck(null,s0Home);
     }
   }catch(_){ shared=false; }
   /* Remembered only when it actually arrived, so a failed send is retried by
      the next change rather than being assumed done. */
-  sharedLayerSig = shared ? sig : null;
+  if(s0AtHome(s0Home)) sharedLayerSig = shared ? sig : null;   /* STAGE 0 (fix round 4): about the project shown */
   return shared;
 }
 
 /* A trait's id encodes its layer, so changing the layer means a NEW record.
    Delete then put - and never let a put land on an id already in use, or one
    trait silently replaces another and the count still looks right. */
-async function retagLayer(items,from,to,s0MarkAt){
+async function retagLayer(items,from,to,home,s0MarkAt){
   s0MarkAt=s0MarkAt||s0MarkStart();   /* STAGE 0 (D1): where and whose its marks are - its caller's, taken before the caller read the project */
+  const s0Home=home||s0HomeNow();   /* STAGE 0 (fix round 4): see s0HomeNow */
   const mine=items.filter(i=>i.kind==="trait"&&i.layer===from);
   /* STAGE 0 (Decision 20, Ruling F-18): the moves' attempts, noted together.
      A name taken on the new layer is renamed below and notes itself. */
@@ -16402,21 +16520,21 @@ async function retagLayer(items,from,to,s0MarkAt){
     if(name!==t.name) renamed++;
     taken.delete(t.id); taken.add(id);
     const rec=Object.assign({},t,{id:id,name:name,layer:to});
-    await dbDel(t.id);
-    await dbPut(rec);
+    if(!s0AtHome(s0Home)) break;   /* STAGE 0 (fix round 4) */
+    await dbApplyShelfRecords([t.id],[rec]);   /* one write: a move between two lost the trait */
     s0Pairs.push({from:t, to:rec});
     ruleMoves.push({from:traitKey(t), to:traitKey(rec)});
     draftMoves.push({from:t.id, to:rec.id});
     /* activeWs, because cloudMoveOne returns null when there is no group at
        all - nothing left the browser and nothing was meant to. Without this
        every rename on a personal page would warn about a group. */
-    const shared=await cloudMoveOne(t,rec,undefined,s0Run);
+    const shared=await cloudMoveOne(t,rec,undefined,s0Home,s0Run);
     if(activeWs && !shared) stranded++;
     moved++;
   }
-  await retargetRules(ruleMoves);
-  try{ await draftsFollow(draftMoves); }catch(_){}
-  await s0Moved(s0Pairs,"person",s0MarkAt);   /* STAGE 0 (D1): one append for the whole layer */
+  if(s0AtHome(s0Home)) await retargetRules(ruleMoves);
+  try{ await draftsFollow(draftMoves,s0Home); }catch(_){}
+  if(s0AtHome(s0Home)) await s0Moved(s0Pairs,"person",s0MarkAt);   /* STAGE 0 (D1): one append for the whole layer */
   return {moved:moved,renamed:renamed,stranded:stranded};
 }
 
@@ -16455,14 +16573,17 @@ async function addLayer(){
 }
 async function removeLayer(name){
   const s0MarkAt=s0MarkStart();   /* STAGE 0 (D1): where and whose its marks are, before its first wait */
+  const s0Home=s0HomeNow();   /* STAGE 0 (fix round 4): see s0HomeNow */
   if(name==="unsorted"){ toast("unsorted is where loose traits land, so it stays"); return; }
   const items=await dbAll();
+  if(!s0AtHome(s0Home)){ toast(S0_LEFT_UNMADE); return; }   /* STAGE 0 (fix round 4) */
   const n=items.filter(i=>i.kind==="trait"&&i.layer===name).length;
   /* Traits are MOVED, never deleted - but the layer they were on is lost, and
      re-filing them by hand is real work, so it gets asked about. */
   if(n && !confirm("Remove the layer \""+name+"\"?"+String.fromCharCode(10)+String.fromCharCode(10)+
       n+" trait"+(n===1?"":"s")+" will move to unsorted. Nothing is deleted.")) return;
-  const r=n?await retagLayer(items,name,"unsorted",s0MarkAt):{moved:0,renamed:0};
+  const r=n?await retagLayer(items,name,"unsorted",s0Home,s0MarkAt):{moved:0,renamed:0};
+  if(!s0AtHome(s0Home)){ toast(S0_LEFT_PART); return; }   /* STAGE 0 (fix round 4): LAYERS is the project shown */
   LAYERS=LAYERS.filter(l=>l!==name);
   /* Its traits went to unsorted, which is a different set and is on - so they
      become drawable again. That is correct and visible, and leaving the name
@@ -16478,11 +16599,14 @@ async function removeLayer(name){
 }
 async function renameLayer(oldName,raw){
   const s0MarkAt=s0MarkStart();   /* STAGE 0 (D1): where and whose its marks are, before its first wait */
+  const s0Home=s0HomeNow();   /* STAGE 0 (fix round 4): see s0HomeNow */
   const nw=slugLayer(raw);
   if(!nw||nw===oldName){ await renderShelf(); return; }
   if(LAYERS.indexOf(nw)>=0){ toast("There is already a layer called "+nw); await renderShelf(); return; }
   const items=await dbAll();
-  const r=await retagLayer(items,oldName,nw,s0MarkAt);
+  if(!s0AtHome(s0Home)){ toast(S0_LEFT_UNMADE); return; }   /* STAGE 0 (fix round 4) */
+  const r=await retagLayer(items,oldName,nw,s0Home,s0MarkAt);
+  if(!s0AtHome(s0Home)){ toast(S0_LEFT_PART); return; }   /* STAGE 0 (fix round 4): LAYERS is the project shown */
   LAYERS[LAYERS.indexOf(oldName)]=nw;
   /* The set is off by NAME, so a rename has to move it or the layer comes back
      on under its new name with nothing having said so. */
@@ -16772,10 +16896,15 @@ function planRows(items,layer,wip){
                    help, and every attempt costs a picture upload.
 
    A boolean collapsed the last two, and they want opposite handling. */
-async function cloudRarity(rec){
-  if(!activeWs || !rec || !rec.rowId) return "nogroup";
-  /* STAGE 0 (D1): held, the weight stays here, and setRarity marks it unsent. */
-  if(await s0Blocked()) return "unreachable";
+async function cloudRarity(rec,home){
+  /* STAGE 0 (fix round 4): the store the weight was written in - setRarity's
+     home - decides whether it has a group, not the store shown by now. */
+  const s0Home=home||s0HomeNow();
+  if(s0Home.db===DBN || !rec || !rec.rowId) return "nogroup";
+  /* STAGE 0 (D1): held, the weight stays here, and setRarity marks it unsent.
+     Addressed (fix round 3): the row id and the weight are rec's, fixed
+     before the read, so a move during it does not change where or what. */
+  if(await s0Blocked(true,s0Home)) return "unreachable";
   try{
     /* return=representation, so a PATCH that matched no row - the row is
        gone - is not read as sent. It answers 200 with nothing in it. */
@@ -16793,7 +16922,7 @@ async function cloudRarity(rec){
        every failure here used to read as "could not reach the group",
        because nothing looked at the reason. A 400 with a check-constraint
        body is not a network problem and must not be reported as one. */
-    if(r && r.status!==401 && await s0Recheck()) return "unreachable";
+    if(r && r.status!==401 && await s0Recheck(null,s0Home)) return "unreachable";
     let why=""; try{ why=await r.text(); }catch(_){ }
     if(r && r.status===400 && /rarity/i.test(why)){
       toast("The group will not take a rarity of "+rec.rarity
@@ -16813,22 +16942,25 @@ async function cloudRarity(rec){
    it a moment ago. */
 async function cloudPatchOne(rec,ctx,seq){
   const readAt=(typeof seq==="number")?seq:touchSeq;
+  const s0Home=(ctx&&ctx.home)||s0HomeNow();   /* STAGE 0: see 8b in patch602, and s0HomeNow */
   if(!rec||!rec.rowId) return false;
   /* STAGE 0 (D1): held, nothing is patched; the caller's upload is held too. */
-  if(await s0Blocked()) return false;
+  if(await s0Blocked(false,s0Home)) return false;
   try{
     const h=(ctx&&ctx.h)||await sbHeaders({"Content-Type":"application/json"});
     if(!h) return false;
+    if(!s0SendHome(s0Home)) return false;   /* STAGE 0 (fix round 4) */
     const r=await fetch(SB_URL+"/rest/v1/traits?id=eq."+encodeURIComponent(rec.rowId),
       {method:"PATCH", headers:Object.assign({Prefer:"return=representation"},h),
        body:JSON.stringify({rarity:(typeof rec.rarity==="number"?rec.rarity:1),
          shelf_order:(typeof rec.shelfOrder==="number"?rec.shelfOrder:null)})});
-    if(!r.ok){ if(r.status!==401) await s0Recheck(); return false; }
+    if(!r.ok){ if(r.status!==401) await s0Recheck(null,s0Home); return false; }
     let rows=[]; try{ rows=await r.json(); }catch(_){ rows=[]; }
     if(!Array.isArray(rows)||rows.length!==1) return false;
     /* Edited while this was in flight: the edit is newer than what was
        sent, stays unsent, and the next push sends it. */
     if(rec.id && touchedSince(rec.id,readAt)) return true;
+    if(!s0AtHome(s0Home)) return true;   /* STAGE 0 (8b): moved during the send */
     const up=Object.assign({},rec,{synced:true, rowAt:rows[0].updated_at||rec.rowAt||null}); delete up.unsent;
     try{ await dbPut(up,"sent"); }catch(_){}
     return true;
@@ -16843,8 +16975,9 @@ async function cloudPatchOne(rec,ctx,seq){
    picture is the honest cost of a row that really is behind - and where
    leaving it set would be the app saying the group had something it does
    not, which is the defect this whole function exists to end. */
-async function setRarity(rec,w){
+async function setRarity(rec,w,home){
   if(!rec) return false;
+  const s0Home=home||s0HomeNow();   /* STAGE 0 (fix round 4): see s0HomeNow */
   /* RAR_UNSET passes through rather than clamping up to RAR_MIN. Typing 1
      into the box on a tile is how a trait is put back to "nobody has
      chosen", and a clamp would silently answer 2 - a weight, and a claim
@@ -16862,9 +16995,15 @@ async function setRarity(rec,w){
   const cur = typeof rec.rarity==="number" ? rec.rarity : RAR_UNSET;
   if(cur===v) return false;
   const next={...rec, rarity:v};
-  await dbPut(next);
-  const s0Home=wsDbName();   /* STAGE 0 (fix round 2): see 8b in patch602 */
-  const sent=await cloudRarity(next);
+  /* STAGE 0 (8b in patch602): a synced weight is written marked unsent, and
+     the mark cleared once the group took it. The read of the record above
+     waited: left since, nothing is written (fix round 4). */
+  const s0Ahead=!!(next.rowId&&next.synced);
+  const s0Want=s0Ahead ? {...next, synced:false, unsent:"meta"} : next;
+  if(!s0AtHome(s0Home)){ toast(S0_LEFT_UNMADE); return false; }
+  await dbPut(s0Want);
+  const s0Seq=touchSeq;
+  const sent=await cloudRarity(next,s0Home);
   /* ONLY "unreachable" clears the flag. A refused row will be refused again,
      and cloudSyncOne re-uploads the PNG on every attempt - so marking 271
      refused traits unsynced would queue about a gigabyte to re-send numbers
@@ -16875,7 +17014,16 @@ async function setRarity(rec,w){
      server - and Load from cloud took its weight back over this one
      (measured 2026-09-22). A record with no rowId was never up there and
      synced is already false on it. "refused" stays as it is. */
-  if((sent==="unreachable"||sent==="nogroup") && next.rowId && next.synced && wsDbName()===s0Home) await dbPut({...next, synced:false, unsent:"meta"});
+  /* (STAGE 0: "unreachable" and "nogroup" keep the mark written above - what
+     this line used to write after the send. Anything else - the group took
+     it, or refused it and will refuse it again - is the record as it was.
+     Still home: written back, unless edited since. Left (F1, fix round 4):
+     cleared in the store the weight was written in, by name, and only if
+     it still holds s0Want.) */
+  if(s0Ahead && !(sent==="unreachable"||sent==="nogroup")){
+    if(s0AtHome(s0Home)){ if(!touchedSince(next.id,s0Seq)) await dbPut(next); }
+    else await s0ClearAhead(s0Home,[s0Want]);
+  }
   return true;
 }
 /* THE SAME WEIGHT FOR MANY TRAITS, as one store write and, in a group, one
@@ -16884,21 +17032,28 @@ async function setRarity(rec,w){
    in flight (measured at 100 ms round trips). The outcomes mean what
    setRarity's do. Returns how many changed. */
 const RARITY_BATCH=100;
-async function setRarityMany(recs,w){
+async function setRarityMany(recs,w,home){
   const v = Math.round(w)===RAR_UNSET ? RAR_UNSET
     : Math.max(RAR_MIN,Math.min(RAR_MAX,Math.round(w)||RAR_NORMAL));
   const changed=(recs||[]).filter(r=>r && (typeof r.rarity==="number" ? r.rarity : RAR_UNSET)!==v)
     .map(r=>Object.assign({},r,{rarity:v}));
   if(!changed.length) return 0;
-  await dbApplyShelfRecords([],changed);
-  const s0Home=wsDbName();   /* STAGE 0 (fix round 2): see 8b in patch602 */
+  /* STAGE 0 (8b in patch602): a synced row is written marked unsent, and the
+     mark cleared below for each row the group took. Home is noted here,
+     before this function's first wait (fix round 4). */
+  const s0Home=home||s0HomeNow();
+  if(!s0AtHome(s0Home)){ toast(S0_LEFT_UNMADE); return 0; }
+  await dbApplyShelfRecords([],changed.map(r=>(r.rowId&&r.synced) ? Object.assign({},r,{synced:false, unsent:"meta"}) : r));
+  const s0Seq=touchSeq;
   const behind=[];
   const onServer=changed.filter(r=>r.rowId);
-  if(!activeWs){ for(const r of onServer) if(r.synced) behind.push(r); }
+  if(s0Home.db===DBN){ for(const r of onServer) if(r.synced) behind.push(r); }   /* STAGE 0 (fix round 4): home decides */
   else {
     let refused=false;
-    /* STAGE 0 (D1): held, nothing is patched, and every synced row is behind. */
-    const s0h=await s0Blocked();
+    /* STAGE 0 (D1): held, nothing is patched, and every synced row is behind.
+       Addressed (fix round 3): the row ids and the weight were fixed above,
+       before the read. */
+    const s0h=await s0Blocked(true,s0Home);
     if(s0h) for(const r of onServer) if(r.synced) behind.push(r);
     for(let i=0;!s0h&&i<onServer.length;i+=RARITY_BATCH){
       const part=onServer.slice(i,i+RARITY_BATCH);
@@ -16913,14 +17068,22 @@ async function setRarityMany(recs,w){
           else { try{ body=await r.text(); }catch(_){ } }
         }
       }catch(_){ got=null; }
-      if(status>=400&&status!==401&&await s0Recheck()){ for(const r of part) if(r.synced) behind.push(r); continue; }
+      if(status>=400&&status!==401&&await s0Recheck(null,s0Home)){ for(const r of part) if(r.synced) behind.push(r); continue; }
       if(status===400 && /rarity/i.test(body)){ refused=true; continue; }
       const answered=new Set((Array.isArray(got)?got:[]).map(x=>x&&x.id));
       for(const r of part) if(!answered.has(r.rowId) && r.synced) behind.push(r);
     }
     if(refused) toast("The group will not take a rarity of "+v+" - its limit is lower than this page allows. Saved here only.");
   }
-  if(behind.length && wsDbName()===s0Home) await dbApplyShelfRecords([],behind.map(r=>Object.assign({},r,{synced:false, unsent:"meta"})));
+  /* (STAGE 0: what is behind keeps the mark written above - what this line
+     used to write. The rest landed, or was refused as before, and is
+     written back as it was: here while still home, unless edited since;
+     in its own store, by name, after a move (F1, fix round 4).) */
+  const s0Landed=changed.filter(r=>r.rowId&&r.synced&&behind.indexOf(r)<0);
+  if(s0Landed.length){
+    if(s0AtHome(s0Home)){ const s0Here=s0Landed.filter(r=>!touchedSince(r.id,s0Seq)); if(s0Here.length) await dbApplyShelfRecords([],s0Here); }
+    else await s0ClearAhead(s0Home,s0Landed.map(r=>Object.assign({},r,{synced:false, unsent:"meta"})));
+  }
   return changed.length;
 }
 
@@ -17521,6 +17684,7 @@ function planGroup(g,items,wip){
          half way the set is never left with this trait planned against
          weights the plan does not consider valid. */
       sl.onchange=async()=>{
+        const s0Home=s0HomeNow();   /* STAGE 0 (fix round 4): see s0HomeNow */
         /* Nothing moved, nothing is written - and nothing is re-rendered
            either, so opening the section and clicking about cannot churn
            271 records or bump anybody's updated_at. */
@@ -17530,8 +17694,8 @@ function planGroup(g,items,wip){
         const nw=weightForShare(multOfPos(+sl.value,n)/n, O);
         let also=0;
         /* The rest of the set at normal, as one write and one request. */
-        also=await setRarityMany(g.rows.filter(r=>r.id!==t.id && !rarityPlanned(r)),RAR_NORMAL);
-        await setRarity(t,nw);
+        also=await setRarityMany(g.rows.filter(r=>r.id!==t.id && !rarityPlanned(r)),RAR_NORMAL,s0Home);
+        await setRarity(t,nw,s0Home);
         await afterRarity();
         if(also) toast("Planned the other "+also+" in "+g.layer+" at normal,"
           +" so this set has room to make one rare. Nothing else changed.");
@@ -17592,12 +17756,12 @@ function planGroup(g,items,wip){
    nothing: a set whose weights are all equal draws exactly as it did when
    they were all the default. The toast says so, because a button that
    rewrites 271 records ought to say what it did not do as well. */
-async function seedRarity(list){
+async function seedRarity(list,home){
   const want=(list||[]).filter(t=>!rarityPlanned(t));
   if(!want.length) return 0;
   let done=0;
   /* One write and one request for the lot. */
-  done=await setRarityMany(want,RAR_NORMAL);
+  done=await setRarityMany(want,RAR_NORMAL,home);
   await afterRarity();
   toast("Set "+done+" trait"+(done===1?"":"s")+" to normal."
     +" Nothing about the collection changed.");
@@ -18300,6 +18464,11 @@ async function readProjectFile(file){
   }
 }
 async function importProject(file){
+  /* STAGE 0 (fix round 4): the import's home. s0Go() asks it before each
+     write, and once it has answered no, keeps answering no (s0Left). */
+  const s0Home=s0HomeNow();
+  let s0Left=false;
+  const s0Go=()=>{ if(!s0AtHome(s0Home)) s0Left=true; return !s0Left; };
   /* STAGE 0 (D1): importing a project file waits while this project is held. */
   if(await s0Refuse()) return;
   let doc=null;
@@ -18367,6 +18536,7 @@ async function importProject(file){
       if(typeof it.rarity==="number") rec.rarity=it.rarity;
       if(typeof it.shelfOrder==="number") rec.shelfOrder=it.shelfOrder; }
     /* Full is not unreadable, and the rest would be refused the same way. */
+    if(!s0Go()) break;   /* STAGE 0 (fix round 4) */
     try{ await dbPut(rec); added++; }catch(e){ if(storeFull(e)){ full=true; break; } failed++; }
   }
   /* The settings are writes too. Left for the import that finishes the job:
@@ -18383,7 +18553,7 @@ async function importProject(file){
      or a draw order belongs to the collection that is already open, and a
      friend's file does not get to redraw it. */
   const restored=[];
-  if(Array.isArray(doc.rules)&&doc.rules.length){
+  if(s0Go()&&Array.isArray(doc.rules)&&doc.rules.length){
     const have=new Set(RULES.map(ruleId));
     let gained=0;
     for(const g of doc.rules){
@@ -18395,23 +18565,23 @@ async function importProject(file){
     }
     if(gained) restored.push(gained+" rule"+(gained===1?"":"s"));
   }
-  if(Array.isArray(doc.decisions)&&doc.decisions.length){
+  if(s0Go()&&Array.isArray(doc.decisions)&&doc.decisions.length){
     const was=DECISIONS.length;
     DECISIONS=mergeDecisions(DECISIONS, doc.decisions);
     const gain=DECISIONS.length-was;
     if(gain) restored.push(gain+" answer"+(gain===1?"":"s"));
   }
-  if(restored.length) await saveRules();
-  if(wasEmpty && Array.isArray(doc.decideOrder) && doc.decideOrder.length){
+  if(restored.length&&s0Go()) await saveRules();
+  if(s0Go() && wasEmpty && Array.isArray(doc.decideOrder) && doc.decideOrder.length){
     DECIDE_ORDER=doc.decideOrder.map(String).filter(Boolean);
     await saveDecideOrder();
     restored.push("the draw order");
   }
-  if(wasEmpty && Array.isArray(doc.baseColours) && doc.baseColours.length){
+  if(s0Go() && wasEmpty && Array.isArray(doc.baseColours) && doc.baseColours.length){
     await saveBaseColours(doc.baseColours.filter(c=>c&&typeof c.r==="number"));
     if(BASE_KEEP.length) restored.push("the base colour");
   }
-  if(wasEmpty && typeof doc.grid==="number" && doc.grid>=4 && doc.grid<=1024){
+  if(s0Go() && wasEmpty && typeof doc.grid==="number" && doc.grid>=4 && doc.grid<=1024){
     projectGrid=doc.grid;
     const box=$("rsgrid"); if(box) box.value=projectGrid;
     await saveGrid();
@@ -18420,7 +18590,7 @@ async function importProject(file){
   /* Same guard as the grid: only into a project that had nothing of its own
      to overwrite. A file from before version 4 has no such field and leaves
      this alone, which is the right answer for it. */
-  if(wasEmpty && typeof doc.emptyChance==="number"
+  if(s0Go() && wasEmpty && typeof doc.emptyChance==="number"
      && doc.emptyChance>=0 && doc.emptyChance<=0.9){
     emptyChance=doc.emptyChance;
     const box=$("cempty"); if(box) box.value=String(Math.round(emptyChance*100));
@@ -18432,7 +18602,7 @@ async function importProject(file){
      this collection's draw order and the imported file does not get to
      reorder it. */
   let newLayers=0;
-  if(Array.isArray(doc.layers)){
+  if(s0Go()&&Array.isArray(doc.layers)){
     /* BEFORE "unsorted", the rule the import, applyLayers and the sort all
        use. push() put a new layer AFTER the catch-all, which is the front of
        the paint order, so a layer arriving this way was drawn over
@@ -18448,12 +18618,12 @@ async function importProject(file){
      On a restore only: a layer you can see in a project you are already
      working in is one you chose to see. */
   let hid=0;
-  if(wasEmpty && Array.isArray(doc.hidden)){
+  if(s0Go() && wasEmpty && Array.isArray(doc.hidden)){
     for(const l of doc.hidden)
       if(LAYERS.indexOf(l)>=0 && !HIDDEN_LAYERS.has(l)){ HIDDEN_LAYERS.add(l); hid++; }
     if(hid) restored.push(hid+" layer"+(hid===1?"":"s")+" turned off");
   }
-  if(newLayers||hid) await saveLayers();
+  if((newLayers||hid)&&s0Go()) await saveLayers();
   await renderShelf();
   const bits=["Imported "+added+" item"+(added===1?"":"s")];
   if(restored.length) bits.push("restored "+restored.join(", "));
@@ -18461,6 +18631,7 @@ async function importProject(file){
   if(renamed) bits.push(renamed+" renamed to avoid replacing something");
   if(newLayers) bits.push(newLayers+" new layer"+(newLayers===1?"":"s"));
   if(failed) bits.push(failed+" could not be read");
+  if(s0Left) bits.push(S0_LEFT_IMPORT);   /* STAGE 0 (fix round 4) */
   toast(bits.join(", "));
 }
 
@@ -18863,18 +19034,34 @@ function cloudSignOutNow(){
 /* One collection per person for now. Fetched or created on demand so the
    caller never has to care which. */
 let cloudTeamId=null;
+/* STAGE 0 (fix round 4): the store and account cloudTeamId was read for
+   ("<store>|<uid>"). It is set, and
+   trusted, only for that store: a my_team answer that arrived after the
+   page had left for My page and come straight back was kept as the
+   group's team, and the group's catch-up pulled My page's rows into its
+   store, and Save to cloud PATCHed My page's collection with the group's
+   layers (measured, 2 of 3 runs on f5a23b8, 3 of 3 on eaa3f75). */
+let cloudTeamFor=null;
 /* my_team() creates the team AND the membership row in one server-side step.
    Doing it from here in two calls can leave a team nobody belongs to, which
    nothing can then read or delete because every policy needs membership. */
 async function cloudTeam(){
-  if(cloudTeamId) return cloudTeamId;
+  /* STAGE 0 (fix round 4): noted before the first wait, and asked after
+     each - a move, or a move and back, answers nothing (null), as a
+     team that could not be opened. */
+  const s0Home=s0HomeNow();
+  const s0Key=s0Home.db+"|"+(s0Home.uid||"");
+  if(cloudTeamId&&cloudTeamFor===s0Key) return cloudTeamId;
   const h=await sbHeaders({"Content-Type":"application/json"});
   if(!h) return null;
+  if(!s0SendHome(s0Home)) return null;
   try{
-    if(activeWs){ cloudTeamId=activeWs; return cloudTeamId; }
+    if(activeWs){ cloudTeamId=activeWs; cloudTeamFor=s0Key; return cloudTeamId; }
     const r=await fetch(SB_URL+"/rest/v1/rpc/my_team",{method:"POST",headers:h,body:"{}"});
     if(!r.ok) return null;
-    cloudTeamId=await r.json();
+    const got=await r.json();
+    if(!s0SendHome(s0Home)) return null;
+    cloudTeamId=got; cloudTeamFor=s0Key;
     return cloudTeamId;
   }catch(_){ return null; }
 }
@@ -18918,6 +19105,22 @@ const S0_POLL_MS=120000, S0_REUSE_MS=2000;
 let S0_READ_MS=5000;   /* a let, so a spec can shorten it */
 const S0_SWITCHING="This project is being updated: your change is kept here and will be sent after it";
 const S0_SWITCHED="BuildaNFT was updated: reload to send what you saved";
+/* A shelf move whose send the page moved away from (fix round 3, 8b). */
+const S0_LEFT="Not sent: you left the project first. The move is kept there, and its next Save to cloud sends it";
+/* The same for every other sender that is not addressed (fix round 4): what
+   was changed is kept, marked unsent, in the project it was made in. */
+const S0_LEFT_SENT="Not sent: you left the project first. The change is kept there, and its next Save to cloud sends it";
+/* Fix round 4: a change the page moved away from before anything of it was
+   written; a removal made here whose send the page moved away from; a Save
+   to cloud the page moved away from; a Remove from server likewise. */
+const S0_LEFT_UNMADE="Not saved: you left the project before it was written";
+const S0_LEFT_PART="Stopped part way: you left the project. What was done is kept there";
+const S0_LEFT_REMOVED="you left the project before the removal was sent, so it will come back";
+const S0_LEFT_UNREMOVED="Not removed: you left the project first";
+const S0_LEFT_PUSH="Save to cloud stopped: you left the project. What it had not finished is kept there, marked unsent, and its next Save to cloud sends it";
+const S0_LEFT_CLEAR="Nothing was removed from the server: you left the project first.";
+const S0_LEFT_IMPORT="stopped: you left the project first - import the rest there";
+const S0_LEFT_CLEAR_PART="Stopped part way: you left the project. Press Remove from server again there - it is safe to repeat.";
 let s0State={db:null, uid:null, protocol:1, switching:false, ok:false, at:0};
 /* Every store and account ("<store>|<uid>") this tab has read on protocol 2
    or above. Never cleared: the switch is one way (E1). s0State is one slot,
@@ -18929,7 +19132,9 @@ let s0Flight=null, s0FlightKey=null;
 function s0Mine(dbn,uid){ return s0State.db===dbn&&s0State.uid===uid; }
 async function s0ReadNow(signal){
   let team=null;
-  try{ team=activeWs||cloudTeamId||await cloudTeam(); }catch(_){ team=null; }
+  /* (Fix round 4: cloudTeamId is trusted only for the store it was read
+     for - cloudTeam answers it, or reads it again.) */
+  try{ team=activeWs||await cloudTeam(); }catch(_){ team=null; }
   if(!team) return null;
   const h=await sbHeaders();
   if(!h) return null;
@@ -18968,8 +19173,11 @@ async function s0Check(force){
     const got=await s0Read();
     /* The page moved during the read: the state is not written for a store
        or account no longer shown, but the answer is handed back, keyed, so a
-       sender can judge the store its send is for (fix round 2). */
-    if(wsDbName()!==dbn||(s0Uid()||null)!==uid) return {db:dbn, uid:uid, moved:true, got:got};
+       sender can judge the store its send is for (fix round 2). Protocol 2
+       is still remembered for the key it was read for: the switch is one
+       way, whichever store the page shows now (fix round 4, measured: it
+       returned before the line below). */
+    if(wsDbName()!==dbn||(s0Uid()||null)!==uid){ if(got&&got.protocol>=2) s0Seen2.add(key); return {db:dbn, uid:uid, moved:true, got:got}; }
     const mine=s0Mine(dbn,uid);
     const wasHeld=mine&&(s0State.protocol>=2||s0State.switching);
     const seen=Math.max((mine&&s0State.protocol>=2) ? s0State.protocol : 1, s0Seen2.has(key) ? 2 : 1);
@@ -19052,14 +19260,121 @@ function s0AnsweredFor(dbn,uid,r){ return (r&&r.moved) ? !!r.got : !!(r&&r.db===
    the store moved to - over a record of My page's with the same id -
    while the store the send was for kept the change marked synced, so
    nothing ever sent it. Judged for its own store now (fix round 2): not
-   held there, the send goes to its own target, as 60ecb5d sent it - a row
-   id PATCH, a delete or the rpc names its row, and reaches its project. */
-async function s0Blocked(){
-  const dbn=wsDbName(), uid=s0Uid()||null, sid=s0SessionUid(sbLoadSession());
+   held there, the send goes to its own target, as 60ecb5d sent it.
+   MOVED MEANS HELD, UNLESS THE SEND IS ADDRESSED (fix round 3). Fix round
+   2 let every send go to "its own target", and that is true only of a
+   sender whose target AND body are both fixed before its read: the rest
+   read their body or their target, or write, after it, from the store
+   shown - the layer list and the rules the move reloaded, the collection
+   looked up after the read, the record read again to delete it - and
+   acted on the project moved to (measured by the review of eaa3f75).
+   addressed: the caller fixed its row ids and its body before the read
+   (cloudRarity, setRarityMany); judged for its own store, as above. Any
+   other sender the page moved away from during its read is held, and
+   sends nothing.
+   HOME, BEFORE THE READ AS WELL AS DURING IT (fix round 4). home is the
+   store, account and wsGen the ACTION was begun in (s0HomeNow, below),
+   not the store shown when this is reached: a sender that looked up the
+   user, the team or the collection first, or a caller that read the
+   store first, can reach here after a move, and judged "moved" from
+   here it read and sent for the project moved to (measured: a removal
+   deleted My page's row, a save uploaded over My page's picture, the
+   layer list was sent to the wrong project). A sender that is not
+   addressed answers "left" (truthy) once the page has left home, before
+   or during the read; an addressed one is judged for home. */
+async function s0Blocked(addressed,home){
+  home=home||s0HomeNow();
+  const dbn=home.db, uid=home.uid, sid=s0SessionUid(sbLoadSession());
+  if(!s0SendHome(home)) return addressed ? s0HeldFor(dbn,uid,sid,null) : "left";
   let r=null;
   try{ r=await s0Check(false); }catch(_){ r=null; }
-  if(wsDbName()!==dbn||(s0Uid()||null)!==uid) return s0HeldFor(dbn,uid,sid,r);
+  if(!s0SendHome(home)) return addressed ? s0HeldFor(dbn,uid,sid,r) : "left";
   return !!s0Held();
+}
+/* THE ACTION'S HOME (fix round 4). Rounds 1 to 3 closed the move race one
+   sender at a time, each noting its store where it happened to be
+   reached, and each round the review found a neighbour open (measured).
+   One mechanism now: every action that ends in a local write or a send
+   notes, when the person acts, the store, the account and wsGen
+   (s0HomeNow), and every write or send after any await asks first, with
+   no await between the asking and the write:
+     - s0AtHome: still on that store, and never left it since (wsGen
+       moves on every switch and sign-out, so away and straight back is
+       away). A local write does nothing once this is false.
+     - s0SendHome: and the same account, whose token the send carries. A
+       send is held once this is false, except by the two addressed
+       senders (s0Blocked).
+   A call to a function that notes its own home first is a write or send
+   too: its caller asks just before calling, so the callee's home is the
+   caller's. */
+function s0HomeNow(){ return {db:wsDbName(), uid:s0Uid()||null, gen:wsGen}; }
+function s0AtHome(h){ return !!h&&h.gen===wsGen&&h.db===wsDbName(); }
+function s0SendHome(h){ return s0AtHome(h)&&h.uid===(s0Uid()||null); }
+/* Why s0SendHome answered no, as a sender's reason: "left" when the page
+   left the store (or another account is signed in), "signedout" when the
+   session ended under the action - a revoked sign-in clears it with no
+   wsGen move, and "you left the project" was said for it (measured,
+   whyitdidnotreach.spec.js). */
+function s0LeftReason(h){ return (!s0AtHome(h)||s0Uid()) ? "left" : "signedout"; }
+/* The words for a send the page left: inside another sentence, on its
+   own, and for a removal (dbDelShared's why.left). */
+function s0LeftInline(w){ w=w||S0_LEFT_SENT; return w.charAt(0).toLowerCase()+w.slice(1); }
+function s0LeftSaid(){ toast(S0_LEFT_SENT); }
+function s0LeftRemoval(gone,name){ return gone==="held" ? S0_LEFT_UNREMOVED : "Removed "+name+" here, but "+S0_LEFT_REMOVED; }
+/* F1 (fix round 4): AN ADDRESSED SEND THAT LANDED AFTER THE PAGE MOVED.
+   setRarity and setRarityMany write the weight marked unsent ahead of the
+   send (fix round 3), and cleared the mark only while the page was still
+   on its store - so a send that landed after a move left the group's
+   record falsely unsent, and the next Save to cloud undid a teammate's
+   removal of the row, filed a false clash, and could write this weight
+   over a teammate's newer one (measured by the review of f5a23b8). The
+   mark is cleared in the store the send was FOR, opened by name, never
+   through db() (which resolves the store shown), and only if the record
+   there still holds what was written ahead: read and put in one
+   readwrite transaction. A store that no longer exists is not made again
+   (the upgrade is aborted). Answers how many it cleared. */
+function s0InStore(name){
+  return new Promise((res,rej)=>{
+    s0Hold(name).then(hold=>{
+      const let_go=()=>{ if(hold&&hold.release){ try{ hold.release(); }catch(_){} } };
+      try{
+        const r=indexedDB.open(name,1);
+        r.onupgradeneeded=()=>{ try{ r.transaction.abort(); }catch(_){ } };
+        r.onsuccess=()=>res(s0Track(name,r.result,hold));
+        r.onerror=()=>{ let_go(); rej(r.error); };
+      }catch(e){ let_go(); rej(e); }
+    });
+  });
+}
+function s0StillAhead(cur,want){
+  return !!cur&&!!want&&!cur.synced&&cur.unsent==="meta"&&cur.kind===want.kind&&cur.rowId===want.rowId
+    &&cur.rarity===want.rarity&&cur.shelfOrder===want.shelfOrder&&cur.name===want.name
+    &&(cur.layer||"")===(want.layer||"")&&(cur.status||"wip")===(want.status||"wip")&&(cur.at||0)===(want.at||0);
+}
+async function s0ClearAhead(home,ahead){
+  if(!home||!ahead||!ahead.length) return 0;
+  let d=null;
+  try{ d=await s0InStore(home.db); }catch(_){ return 0; }
+  try{
+    return await new Promise((res,rej)=>{
+      const t=d.transaction(STORE,"readwrite"), s=t.objectStore(STORE);
+      let n=0;
+      for(const want of ahead){
+        const q=s.get(want.id);
+        q.onsuccess=()=>{
+          const cur=q.result;
+          if(!s0StillAhead(cur,want)) return;
+          const clean=Object.assign({},cur,{synced:true}); delete clean.unsent;
+          s.put(s0Stamps(clean) ? s0Stamp(clean,cur,undefined,home.uid) : clean);
+          touchedAt.set(String(want.id),++touchSeq);
+          n++;
+        };
+      }
+      t.oncomplete=()=>{ if(n){ tabStores.add(home.db); tabsTell(); } res(n); };
+      t.onerror=()=>rej(t.error); t.onabort=()=>rej(dbAborted(t));
+    });
+  }catch(_){ return 0; }
+  finally{ try{ d.close(); }catch(_){ } }
 }
 /* A read that begins after now. s0Check joins a read already running for
    the same store and account, and one that began before a refusal, or
@@ -19087,11 +19402,16 @@ function s0Guard(err){ return !!err&&err.code==="P0001"&&typeof err.message==="s
        the read reported; it is never written over a read that answered.
      - The page moved during the read: the same, judged for the store and
        account the refused send was for (s0HeldFor), and nothing is
-       written for the store moved to (fix round 2). */
-async function s0Recheck(err){
-  const dbn=wsDbName(), uid=s0Uid()||null, sid=s0SessionUid(sbLoadSession()), guard=s0Guard(err);
+       written for the store moved to (fix round 2).
+     - The page moved BEFORE the read (fix round 4): home is the store and
+       account the refused send was for; no read of it can be made from
+       here, so it is judged as a read that cannot answer. */
+async function s0Recheck(err,home){
+  home=home||s0HomeNow();
+  const dbn=home.db, uid=home.uid, sid=s0SessionUid(sbLoadSession()), guard=s0Guard(err);
+  if(!s0SendHome(home)) return s0HeldFor(dbn,uid,sid,null)||guard;
   const r=await s0Fresh();
-  if(wsDbName()!==dbn||(s0Uid()||null)!==uid) return s0HeldFor(dbn,uid,sid,r)||(guard&&!s0AnsweredFor(dbn,uid,r));
+  if(!s0SendHome(home)) return s0HeldFor(dbn,uid,sid,r)||(guard&&!s0AnsweredFor(dbn,uid,r));
   if(s0Held()) return true;
   if(guard&&!(s0Mine(dbn,uid)&&s0State.ok)){
     s0State={db:dbn, uid:uid, protocol:(s0Mine(dbn,uid) ? s0State.protocol : 1), switching:true, ok:false, at:Date.now()};
@@ -19220,6 +19540,7 @@ async function cloudCollection(u){
   /* Its two fetches were the only unguarded ones on this path - cloudTeam and
      sbUser both catch - and a throw here escaped commitShelfMove entirely. */
   try{
+  const s0Home=s0HomeNow();   /* STAGE 0 (fix round 4): see s0HomeNow */
   const team=await cloudTeam();
   if(!team) return null;
   let h=await sbHeaders({"Content-Type":"application/json"});
@@ -19244,6 +19565,9 @@ async function cloudCollection(u){
   const rows=await r.json();
   if(!Array.isArray(rows)) return null;
   if(rows.length) return rows[0];
+  /* STAGE 0 (fix round 4): the insert carries LAYERS, read now - the
+     project moved to's after a move. Nothing is made then. */
+  if(!s0SendHome(s0Home)) return null;
   r=await fetch(SB_URL+"/rest/v1/collections",{method:"POST",
     headers:Object.assign({Prefer:"return=representation"},h),
     body:JSON.stringify({team_id:team, owner:u.id, name:"My collection", layers:LAYERS})});
@@ -19288,7 +19612,8 @@ async function bucketPaths(team,c,h){
     return {ok:true, list:found, paths:new Set(found)};
   }catch(_){ return {ok:false, list:[], paths:new Set()}; }
 }
-async function cloudSweep(team,c,keepPaths){
+async function cloudSweep(team,c,keepPaths,home){
+  const s0Home=home||s0HomeNow();   /* STAGE 0 (fix round 4): see s0HomeNow */
   const h=await sbHeaders({"Content-Type":"application/json"});
   if(!h) return 0;
   /* The listing is bucketPaths now; the two rules below are its rules. */
@@ -19310,6 +19635,7 @@ async function cloudSweep(team,c,keepPaths){
   const keep=new Set(keepPaths);
   const dead=found.filter(p=>!keep.has(p));
   if(!dead.length) return 0;
+  if(!s0SendHome(s0Home)) return 0;   /* STAGE 0 (fix round 4) */
   const d=await fetch(SB_URL+"/storage/v1/object/traits",{method:"DELETE",headers:h,
     body:JSON.stringify({prefixes:dead})});
   return d.ok ? dead.length : 0;
@@ -19429,9 +19755,11 @@ async function clearCloud(){
    already empty because something else emptied it. The second is the one
    that bites - cloudPush skips anything already synced, so a browser left
    in that state reports a successful upload of nothing. */
-async function relightUnsynced(){
+async function relightUnsynced(home){
+  const s0Home=home||s0HomeNow();   /* STAGE 0 (fix round 4): see s0HomeNow */
   let n=0;
   for(const rec of await dbAll()){
+    if(!s0AtHome(s0Home)) break;
     if(rec.kind!=="trait"&&rec.kind!=="ref") continue;
     if(!rec.synced&&!rec.rowId&&!rec.path) continue;
     const next=Object.assign({},rec);
@@ -19441,6 +19769,7 @@ async function relightUnsynced(){
   return n;
 }
 async function clearCloudNow(gen){
+  const s0Home=s0HomeNow();   /* STAGE 0 (fix round 4): see s0HomeNow */
   /* STAGE 0 (D1): removing from the server waits while this project is held. */
   if(await s0Refuse()) return;
   const note=$("cloudnote");
@@ -19466,9 +19795,11 @@ async function clearCloudNow(gen){
   const team=await cloudTeam();
   if(moved()) return;
   const c=team?await cloudCollection(u):null;
+  if(!s0SendHome(s0Home)){ say(S0_LEFT_CLEAR); return; }   /* STAGE 0 (fix round 4) */
   if(!team||!c){ say("Could not reach the server, so nothing was changed."); return; }
   const rows=await cloudRowCount(c);
   if(moved()) return;
+  if(!s0SendHome(s0Home)){ say(S0_LEFT_CLEAR); return; }   /* STAGE 0 (fix round 4) */
   if(rows===null){ say("Could not ask the server what it has, so nothing was changed."); return; }
   if(!rows){
     /* Files can outlive their rows - that is the whole reason this exists -
@@ -19479,7 +19810,8 @@ async function clearCloudNow(gen){
       /* Nothing to delete, and still something to fix: this browser may be
          insisting it uploaded work to a server that was emptied behind its
          back, in which case Save to cloud silently sends nothing. */
-      const relit=await relightUnsynced();
+      if(!s0AtHome(s0Home)){ say(S0_LEFT_CLEAR); return; }   /* STAGE 0 (fix round 4) */
+      const relit=await relightUnsynced(s0Home);
       if(relit){ await renderShelf(); await cloudStatus(u); }
       say("There is nothing on the server for this project."
         +(relit?" "+relit+" here had been marked as uploaded and no longer are,"
@@ -19501,14 +19833,20 @@ async function clearCloudNow(gen){
      A read that began after the confirm closed (fix round 2): one already
      running - the two-minute read, say - can answer from before it. */
   if(await s0Refuse(true)) return;
+  if(!s0SendHome(s0Home)){ say(S0_LEFT_CLEAR); return; }   /* STAGE 0 (fix round 4) */
+  let s0Relit=0;
+  try{ s0Relit=await relightUnsynced(s0Home); }
+  catch(_){ say("Something went wrong part way through. Press it again - it is safe to repeat."); return; }
+  if(!s0SendHome(s0Home)){ say(S0_LEFT_CLEAR); return; }
   say("Clearing the server\u2026");
   let files=0, rowsGone=false;
   try{
     /* An empty keep-list: everything under this collection goes. The sweep
        already refuses to delete on a partial listing, which is the guard
        that matters here too. */
-    files=await cloudSweep(team,c,[]);
+    files=await cloudSweep(team,c,[],s0Home);
     const h=await sbHeaders({"Content-Type":"application/json"});
+    if(!s0SendHome(s0Home)){ say(S0_LEFT_CLEAR_PART); return; }   /* STAGE 0 (fix round 4) */
     if(h){
       const d=await fetch(SB_URL+"/rest/v1/traits?collection_id=eq."+c.id,
         {method:"DELETE",headers:h});
@@ -19517,7 +19855,7 @@ async function clearCloudNow(gen){
     /* THE FLAGS ON THE LOCAL COPY ARE NOW LIES. cloudPush skips anything
        already synced, so leaving them would make Save to cloud report
        success and upload nothing at all. */
-    const relit=await relightUnsynced();
+    const relit=s0Relit;   /* STAGE 0 (fix round 4): marked before the removal, below */
     await renderShelf();
     await cloudStatus(u);
     /* ASKED AGAIN RATHER THAN ASSUMED. cloudSweep returns 0 for "nothing to
@@ -19725,7 +20063,10 @@ function cloudAlsoOld(why){
 }
 function cloudWhyNot(why){
   const r=why&&why.reason;
-  /* STAGE 0: held back on purpose, and kept here (D1). */
+  /* STAGE 0: held back on purpose, and kept here (D1). Held because the
+     page left the project first, it says that (fix round 4): "BuildaNFT
+     was updated" was said for a move. */
+  if(r==="left") return s0LeftInline()+".";
   if(r==="held") return s0Inline(s0Held()||"switched")+".";
   if(r==="signedout")
     return "you are signed out on this device. Sign in, then press Save to cloud.";
@@ -19744,6 +20085,9 @@ function cloudWhyNot(why){
   return "could not reach the group. Press Save to cloud when you are back.";
 }
 async function cloudSyncOne(rec,ctx,why,seq){
+  /* STAGE 0: see 8b in patch602. The action's home (fix round 4): the
+     caller's, handed in ctx, else this call's own, noted before any wait. */
+  const s0Home=(ctx&&ctx.home)||s0HomeNow();
   /* The touch sequence when rec was read - see cloudPatchOne. */
   const readAt=(typeof seq==="number")?seq:touchSeq;
   /* No guard here: the caller decides. saveTrait only calls this inside a
@@ -19800,15 +20144,17 @@ async function cloudSyncOne(rec,ctx,why,seq){
   let u=ctx.u;
   if(!u){
     const who=await sbAuthState();
+    if(!s0SendHome(s0Home)) return say(s0LeftReason(s0Home));   /* STAGE 0 (fix round 4) */
     if(who.state!=="in") return say(who.state==="out"?"signedout":"unreachable");
     u=who.user;
   }
   if(!u) return outOrOffline();
-  const team=ctx.team||await cloudTeam(); if(!team) return outOrOffline();
-  const c=ctx.c||await cloudCollection(u); if(!c) return say("collection");
+  const team=ctx.team||await cloudTeam(); if(!s0SendHome(s0Home)) return say(s0LeftReason(s0Home)); if(!team) return outOrOffline();
+  const c=ctx.c||await cloudCollection(u); if(!s0SendHome(s0Home)) return say(s0LeftReason(s0Home)); if(!c) return say("collection");
   /* STAGE 0 (D1): nothing is sent while this project is held. Every caller
-     already keeps a record that did not go up as unsent. */
-  if(await s0Blocked()) return say("held");
+     already keeps a record that did not go up as unsent. Nor once the page
+     has left the project this save was for (fix round 4). */
+  { const s0b=await s0Blocked(false,s0Home); if(s0b) return say(s0b==="left"?s0LeftReason(s0Home):"held"); }
   const p=cloudPath(team,c,rec);
   try{
     const hb=ctx.hb||await sbHeaders({"Content-Type":"image/png","x-upsert":"true"});
@@ -19822,13 +20168,14 @@ async function cloudSyncOne(rec,ctx,why,seq){
     let up=null;
     for(let attempt=0; attempt<PULL_TRIES; attempt++){
       try{
+        if(!s0SendHome(s0Home)) return say(s0LeftReason(s0Home));   /* STAGE 0 (fix round 4) */
         up=await fetch(SB_URL+"/storage/v1/object/traits/"+p,
           {method:"POST",headers:hb,body:rec.blob});
         if(up.ok) break;
         /* Split for the same reason as the row insert below: a 401 is a
            sign-in problem and a 403 is a membership one, and neither is
            retried - both are definitive. */
-        if(up.status===403) return (await s0Recheck()) ? say("held",up.status) : say("notallowed",up.status);
+        if(up.status===403) return (await s0Recheck(null,s0Home)) ? say("held",up.status) : say("notallowed",up.status);
         if(up.status===401) return say("signedout",up.status);
       }catch(_){ up=null; }
       if(attempt<PULL_TRIES-1) await new Promise(r=>setTimeout(r,250*(attempt+1)));
@@ -19836,7 +20183,7 @@ async function cloudSyncOne(rec,ctx,why,seq){
     if(!up) return say("unreachable");
     if(!up.ok){
       /* STAGE 0 (D1): a refusal is read again before it is reported. */
-      if(up.status!==401&&await s0Recheck()) return say("held",up.status);
+      if(up.status!==401&&await s0Recheck(null,s0Home)) return say("held",up.status);
       return say(cloudLater(up.status)?"unreachable":"refused",up.status);
     }
     const h=ctx.h||await sbHeaders({"Content-Type":"application/json"});
@@ -19852,6 +20199,7 @@ async function cloudSyncOne(rec,ctx,why,seq){
         +"&name=eq."+encodeURIComponent(rec.name)
         +"&layer=eq."+encodeURIComponent(rec.layer||"unsorted")
         +"&status=eq."+encodeURIComponent(rec.status||"wip"));
+    if(!s0SendHome(s0Home)) return say(s0LeftReason(s0Home));   /* STAGE 0 (fix round 4) */
     /* STAGE 0 (D1, A2): THE ROW THIS INSERT STANDS IN FOR, sent as replaces
        so Change A can pair the two exactly: a move's source (cloudMoveOne
        passes ctx.replaces), else the row the record holds, else the row a
@@ -19863,6 +20211,9 @@ async function cloudSyncOne(rec,ctx,why,seq){
        (ctx.s0Run, Decision 20). */
     let replaces=ctx.replaces||rec.rowId||rec.s0Replaces||null;
     await s0Attempted(rec,ctx.s0Run);
+    /* The note is a wait: the DELETE asks for the save's home again after
+       it (Task 11 fix round 4, integrated). */
+    if(!s0SendHome(s0Home)) return say(s0LeftReason(s0Home));
     const dr=await fetch(SB_URL+"/rest/v1/traits?"+q,{method:"DELETE",
       headers:Object.assign({Prefer:"return=representation"},h)});
     if(!replaces && dr && dr.ok){
@@ -19895,6 +20246,7 @@ async function cloudSyncOne(rec,ctx,why,seq){
     let r=null, adopted=null;
     for(let attempt=0; attempt<PULL_TRIES; attempt++){
       try{
+        if(!s0SendHome(s0Home)) return say(s0LeftReason(s0Home));   /* STAGE 0 (fix round 4) */
         r=await fetch(SB_URL+"/rest/v1/traits",{method:"POST",
           headers:Object.assign({Prefer:"return=representation"},h), body:rowBody});
         if(r.ok) break;
@@ -19937,7 +20289,7 @@ async function cloudSyncOne(rec,ctx,why,seq){
     if(!adopted && !r.ok && r.status!==401){
       /* STAGE 0 (D1): read again before saying what happened. */
       let err=null; try{ err=await r.clone().json(); }catch(_){ err=null; }
-      if(await s0Recheck(err)) return say("held",r.status);
+      if(await s0Recheck(err,s0Home)) return say("held",r.status);
     }
     if(!adopted && !r.ok) return say(r.status===403 ? "notallowed"
       : r.status===401 ? "signedout"
@@ -19968,9 +20320,13 @@ async function cloudSyncOne(rec,ctx,why,seq){
        colliding with it on the unique index, and the record stays unsent
        - without the path, which would tell unsentOf the picture is on
        the server when the one there is the old one. */
+    /* STAGE 0 (8b): moved during the send. The "sent" write below would land
+       in the store moved to, over its own record with this id; the record
+       stays unsent where it was made, and the next push replaces the row. */
+    if(!s0AtHome(s0Home)) return true;
     if((adopted||r.ok) && rec.id && touchedSince(rec.id,readAt)){
       let cur=null; try{ cur=await dbGet(rec.id); }catch(_){ cur=null; }
-      if(cur && !cur.synced){
+      if(cur && !cur.synced && s0AtHome(s0Home)){
         const nx=Object.assign({},cur,{rowId:madeId, rowAt:madeAt});
         if(s0Told&&nx.s0Replaces===replaces) delete nx.s0Replaces;   /* STAGE 0 (A2), above */
         try{ await dbPut(nx); }catch(_){}
@@ -19995,9 +20351,13 @@ async function cloudDropOne(rec,ctx){
   /* No group to tell now. An import replacing an old copy calls this, and
      the old row is one this device removed on purpose - remembered for
      Save to cloud. null still: nothing was removed yet. */
-  if(!activeWs){ await goneAdd(rec); return null; }
+  /* STAGE 0: the action's home (fix round 4) - the caller's, in ctx, else
+     this call's. A caller that waited first asks it before calling. */
+  const s0Home=(ctx&&ctx.home)||s0HomeNow();
+  if(!s0AtHome(s0Home)) return null;
+  if(!activeWs){ await goneAdd(rec,s0Home); return null; }
   /* STAGE 0 (D1): a removal is not sent while this project is held. */
-  if(await s0Blocked()) return null;
+  if(await s0Blocked(false,s0Home)) return null;
   /* ctx: the user, team and collection the caller already has - see
      cloudMoveOne. Every other caller passes nothing and asks here. */
   const u=(ctx&&ctx.u)||await sbUser(); if(!u) return null;
@@ -20032,6 +20392,7 @@ async function cloudDropOne(rec,ctx){
     let r=null;
     for(let attempt=0; attempt<PULL_TRIES; attempt++){
       try{
+        if(!s0SendHome(s0Home)) return null;   /* STAGE 0 (fix round 4) */
         r=await fetch(SB_URL+"/rest/v1/traits?"+q,{method:"DELETE",
           headers:Object.assign({Prefer:"return=representation"},h)});
         if(r.ok) break;
@@ -20039,7 +20400,7 @@ async function cloudDropOne(rec,ctx){
       }catch(_){ r=null; }
       if(attempt<PULL_TRIES-1) await new Promise(x=>setTimeout(x,250*(attempt+1)));
     }
-    if(!r||!r.ok){ if(r&&r.status!==401) await s0Recheck(); return null; }
+    if(!r||!r.ok){ if(r&&r.status!==401) await s0Recheck(null,s0Home); return null; }
     let removed=[];
     if(r.ok){ try{ removed=await r.json(); }catch(_){ removed=[]; } }
     /* Only the images belonging to rows that actually went. Deleting a path
@@ -20061,7 +20422,9 @@ async function cloudDropOne(rec,ctx){
        catch. */
     const gone=removed.length>0;
     if(paths.length){
-      try{ await fetch(SB_URL+"/storage/v1/object/traits",{method:"DELETE",
+      /* STAGE 0 (fix round 4): the row is gone; its picture waits for the
+         sweep if the page has left. */
+      if(s0SendHome(s0Home)) try{ await fetch(SB_URL+"/storage/v1/object/traits",{method:"DELETE",
         headers:h, body:JSON.stringify({prefixes:paths})}); }catch(_){ }
     }
     return gone;
@@ -20088,19 +20451,25 @@ function goneMatch(list,row){
   if(!row) return null;
   return list.find(g=>(g.rowId&&row.id===g.rowId)||(!g.rowId&&g.path&&row.path===g.path))||null;
 }
-async function goneAdd(rec){
+async function goneAdd(rec,home){
   /* Nothing to remove from the server for a trait that never reached it. */
-  if(!rec||!(rec.rowId||rec.path)) return;
+  if(!rec||!(rec.rowId||rec.path)) return true;
+  /* STAGE 0 (fix round 4): false when the page left before it was filed. */
+  const s0Home=home||s0HomeNow();
   const list=await goneLoad();
   const g={rowId:rec.rowId||null, path:rec.path||null, name:rec.name||"", at:Date.now()};
-  if(list.some(x=>goneKey(x)===goneKey(g))) return;
+  if(list.some(x=>goneKey(x)===goneKey(g))) return true;
   list.push(g);
+  if(!s0AtHome(s0Home)) return false;
   try{ await dbPut({id:GONE_ID, kind:"settings", rows:list, at:Date.now()}); }catch(_){}
+  return true;
 }
-async function goneForget(keys){
+async function goneForget(keys,home){
   if(!keys.length) return;
+  const s0Home=home||s0HomeNow();   /* STAGE 0 (fix round 4): see s0HomeNow */
   const drop=new Set(keys);
   const list=(await goneLoad()).filter(g=>!drop.has(goneKey(g)));
+  if(!s0AtHome(s0Home)) return;
   try{ await dbPut({id:GONE_ID, kind:"settings", rows:list, at:Date.now()}); }catch(_){}
 }
 /* STAGE 0 (D1): A BOOKKEEPING RECORD, APPENDED TO IN ONE TRANSACTION.
@@ -20248,18 +20617,25 @@ const S0_UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
    weight. Only while it still holds that row and has nothing unsent:
    unsent work is based on the row as it was at rowAt, and moving that
    past a change nobody here saw would hide it from the pull's clash
-   check. */
-async function s0StandsIn(old,newId){
+   check.
+   AND ONLY FOR THE IMPORT'S HOME (Task 11 fix round 4, integrated):
+   home is the store, account and wsGen the import began in. gen is
+   this call's own, so a move before the call - during the import's
+   removal of the old record - left it unmoved; the read asks s0Blocked
+   for home, the PATCH asks s0SendHome after the headers' wait, and
+   the writes ask s0AtHome as well as wsStill(gen). */
+async function s0StandsIn(old,newId,home){
   const gen=wsGen;
+  const s0Home=home||s0HomeNow();
   const was=(old&&old.rowId)||(old&&old.s0Replaces);
   if(!(typeof was==="string"&&S0_UUID.test(was))) return false;
   try{
     const rec=await dbGet(newId);
     if(!rec||rec.rowId===was) return false;
     let told=false, at=null;
-    if(rec.rowId&&activeWs&&!(await s0Blocked())){
+    if(rec.rowId&&activeWs&&!(await s0Blocked(false,s0Home))){
       const h=await sbHeaders({"Content-Type":"application/json"});
-      if(h){
+      if(h&&s0SendHome(s0Home)){
         const r=await fetch(SB_URL+"/rest/v1/traits?id=eq."+encodeURIComponent(rec.rowId),
           {method:"PATCH", headers:Object.assign({Prefer:"return=representation"},h), body:JSON.stringify({replaces:was})});
         let rows=[];
@@ -20270,6 +20646,7 @@ async function s0StandsIn(old,newId){
     }
     const cur=await dbGet(newId);
     /* No wait from here to dbPut, which picks its store as it is called. */
+    if(!s0AtHome(s0Home)) return told;
     if(!wsStill(gen)) return told;
     if(told){
       if(at&&cur&&cur.rowId===rec.rowId&&cur.synced){ try{ await dbPut(Object.assign({},cur,{rowAt:at}),"sent",cur.by===undefined?null:cur.by); }catch(_){} }
@@ -20339,26 +20716,40 @@ async function s0Moved(pairs,wk,o){
   if(wsDbName()!==home) return false;
   return s0Append(S0_MARKS_ID,"marks",out,S0_MARKS_KEEP);
 }
-async function dbDelShared(rec){
+async function dbDelShared(rec,home,why){
   const s0MarkAt=s0MarkStart();   /* STAGE 0 (D1): where and whose its mark is, before its first wait */
+  /* STAGE 0: see 8b in patch602. The action's home (fix round 4): the
+     tile's, noted at the press, before its read and its confirm - else
+     this call's. why.left says the page left the project first. */
+  const s0Home=home||s0HomeNow();
   /* STAGE 0 (D1): a removal waits while this project is held. Nothing leaves
      this device's store either, and the tile says why. */
-  if(await s0Blocked()) return "held";
+  { const s0b=await s0Blocked(false,s0Home); if(s0b){ if(s0b==="left"&&why) why.left=true; return "held"; } }
   /* THE ROW ID THE STORE HOLDS (patch593). A card drawn before a group
      send landed carries the id that send replaced; the delete by it
      matched nothing and the trait came back on the next load. */
   { let s=null; try{ s=await dbGet(rec.id); }catch(_){ s=null; } if(s&&s.kind===rec.kind) rec=s; }
+  /* STAGE 0 (8b): moved during the read of the record - it is the project
+     moved to's own record with this id now. Nothing is removed. */
+  if(!s0AtHome(s0Home)){ if(why) why.left=true; return "held"; }
   /* Or the character preview keeps compositing a trait that is gone. */
   try{ cBitmapDrop(rec.id); }catch(_){}
   /* Returns what actually happened, so the message can be honest: "removed"
      and "removed here but the group still has it" are different events and
      were being reported identically. */
   await dbDel(rec.id);
+  /* STAGE 0 (8b): moved during the removal here. activeWs below is the
+     project moved to's: nothing is filed or sent for it. Removed here only. */
+  if(!s0AtHome(s0Home)){ if(why) why.left=true; return false; }
   await s0Removed(rec,"person",s0MarkAt);   /* STAGE 0 (D1): a person's removal */
   /* Your own page: removed here, and remembered, so the next Save to
      cloud removes it there - and only it. */
-  if(!activeWs){ await goneAdd(rec); return true; }
-  return (await cloudDropOne(rec))===true;
+  /* STAGE 0 (fix round 4): filed, and sent, for home only - goneAdd and
+     cloudDropOne ask it after each of their own waits. */
+  if(!activeWs){ if(await goneAdd(rec,s0Home)) return true; if(why) why.left=true; return false; }
+  const s0Dropped=await cloudDropOne(rec,{home:s0Home});
+  if(s0Dropped!==true&&!s0AtHome(s0Home)&&why) why.left=true;
+  return s0Dropped===true;
 }
 
 /* Renaming, restatusing or moving a trait between layers all change the very
@@ -20393,19 +20784,25 @@ function unsentOf(stored){
   else { delete honest.path; delete honest.unsent; }
   return honest;
 }
-async function markUnsent(rec){
+async function markUnsent(rec,home){
   if(!rec||!rec.id) return;
+  const s0Home=home||s0HomeNow();   /* STAGE 0 (fix round 4): see s0HomeNow */
   let stored=null; try{ stored=await dbGet(rec.id); }catch(_){ stored=null; }
+  if(!s0AtHome(s0Home)) return;
   if(!stored || !(stored.synced||stored.path)) return;
   try{ await dbPut(unsentOf(stored)); }catch(_){}
 }
 /* s0Run: the attempts of the loop this move is one of (s0AttemptRun), when
-   a loop calls it - a layer rename, a sort. */
-async function cloudMoveOne(oldRec,newRec,why,s0Run){
-  const s0Home=wsDbName();   /* STAGE 0 (fix round 2): see 8b in patch602 */
+   a loop calls it - a layer rename, a sort. After home (Task 11 fix
+   round 4), which every caller that passes s0Run also passes. */
+async function cloudMoveOne(oldRec,newRec,why,home,s0Run){
+  /* STAGE 0: see 8b in patch602. The action's home (fix round 4): the
+     caller's - setTraitStatus', after its writes - else this call's. */
+  const s0Home=home||s0HomeNow();
+  if(!s0AtHome(s0Home)){ if(why) why.reason="left"; return null; }
   /* No group means nothing was sent, and on a personal page the record
      still describes a row the personal collection holds the old way. */
-  if(!activeWs){ await markUnsent(newRec); return null; }
+  if(!activeWs){ await markUnsent(newRec,s0Home); return null; }
   /* THE ORDER THE COMMENT ABOVE DESCRIBES. It used to drop first and sync
      second, so "a failure halfway leaves the old copy rather than nothing at
      all" was exactly backwards - measured, a failed upload left the group with
@@ -20425,12 +20822,21 @@ async function cloudMoveOne(oldRec,newRec,why,s0Run){
     if(who.state==="in"){
       const team=await cloudTeam();
       const c=team ? await cloudCollection(who.user) : null;
-      if(team&&c) ctx={u:who.user, team:team, c:c};
+      if(team&&c) ctx={u:who.user, team:team, c:c, home:s0Home};
     }
   }
+  /* STAGE 0 (8b): moved before the upload - ctx may name the project moved
+     to. Nothing is sent, and the record stays unsent where it was made. */
+  if(!s0AtHome(s0Home)){ if(why) why.reason="left"; return null; }
   /* STAGE 0 (A2): this insert stands in for the row the old copy is on. */
-  const arrived=await cloudSyncOne(fresh,Object.assign({},ctx||{},{replaces:(oldRec&&oldRec.rowId)||null, s0Run:s0Run||null}),why);
-  if(!arrived){ if(wsDbName()===s0Home) await markUnsent(newRec); return null; }
+  const arrived=await cloudSyncOne(fresh,Object.assign({},ctx||{home:s0Home},{replaces:(oldRec&&oldRec.rowId)||null, s0Run:s0Run||null}),why);
+  if(!arrived){ await markUnsent(newRec,s0Home); return null; }
+  /* STAGE 0 (8b): moved during the upload. The old row is not removed from
+     here: cloudDropOne would read activeWs, now the project moved to, and
+     file the group's row in that store's removal list. Both rows stay, which
+     the comment above calls recoverable, and the record stays unsent - and
+     the person is told the old copy is still there (fix round 4). */
+  if(!s0AtHome(s0Home)){ if(why) why.oldKept=true; return arrived; }
   /* Only now, once the new copy has landed. */
   /* READ, NOT DISCARDED. The comment above calls a half-finished move
      "recoverable", which it is - but nobody was told there was anything to
@@ -20440,20 +20846,29 @@ async function cloudMoveOne(oldRec,newRec,why,s0Run){
      not be done", which leaves the old copy on the server. false is "it was
      done and matched nothing", which for a move means the old row had
      already gone - no second copy, nothing to say. */
-  const dropped=await cloudDropOne(oldRec,ctx);
+  const dropped=await cloudDropOne(oldRec,ctx||{home:s0Home});
   if(dropped===null&&why) why.oldKept=true;
   return arrived;
 }
 
 /* Shelf reordering is metadata-only. The PNG path deliberately does not
    appear in this payload, so moving a card can never rewrite the artwork. */
-async function cloudSendShelfPlan(updates){
-  if(!activeWs) return {ok:true};
-  /* STAGE 0 (D1): held, the order is not sent; commitShelfMove puts the old one back. */
-  if(await s0Blocked()) return {ok:false,reason:"held"};
+async function cloudSendShelfPlan(updates,home){
+  /* STAGE 0: see 8b in patch602. The action's home (fix round 4): the
+     shelf move's, noted when the card was dropped. Its store decides
+     whether there is a group to send to, not the page shown by now. */
+  const s0Home=home||s0HomeNow();
+  if(s0Home.db===DBN) return {ok:true};
+  /* STAGE 0 (D1): held, the order is not sent; commitShelfMove puts the old one back.
+     Held because the page left the project first (fix round 4), it says so:
+     left:true, and the caller says S0_LEFT. */
+  { const s0b=await s0Blocked(false,s0Home); if(s0b) return {ok:false,reason:"held",left:s0b==="left"}; }
   const u=await sbUser();
   if(!u) return {ok:false,reason:"auth"};
   const c=await cloudCollection(u);
+  /* STAGE 0 (fix round 4): a move during the lookups is said as one - the
+     collection it finds is the project moved to's, or none. */
+  if(!s0SendHome(s0Home)) return {ok:false,reason:"held",left:true};
   if(!c) return {ok:false,reason:"collection"};
   let items=[];
   try{ items=shelfCore.rpcItems(updates); }
@@ -20461,13 +20876,16 @@ async function cloudSendShelfPlan(updates){
   const h=await sbHeaders({"Content-Type":"application/json"});
   if(!h) return {ok:false,reason:"auth"};
   try{
+    /* STAGE 0 (8b): the collection is looked up after the read; moved since,
+       it names the project moved to, which refuses every row. */
+    if(!s0SendHome(s0Home)) return {ok:false,reason:"held",left:true};
     const r=await fetch(SB_URL+"/rest/v1/rpc/reorder_traits",{
       method:"POST", headers:h,
       body:JSON.stringify({p_collection:c.id,p_items:items})
     });
     if(r.ok) return {ok:true};
     let detail={}; try{ detail=await r.json(); }catch(_){}
-    if(r.status!==401&&await s0Recheck(detail)) return {ok:false,reason:"held"};
+    if(r.status!==401&&await s0Recheck(detail,s0Home)) return {ok:false,reason:"held"};
     return {ok:false,reason:(r.status===409||detail.code==="23505")?"duplicate":"server"};
   }catch(_){ return {ok:false,reason:"network"}; }
 }
@@ -20481,12 +20899,12 @@ async function cloudSendShelfPlan(updates){
 /* marked: the caller wrote these records already marked unsent (a drop on
    your own page does, in the same transaction), so nothing is left to do
    here unless a group refused them. */
-async function cloudSaveShelfPlan(updates,marked){
-  const s0Home=wsDbName();   /* STAGE 0 (fix round 2): see 8b in patch602 */
-  const r=await cloudSendShelfPlan(updates);
-  if(wsDbName()!==s0Home) return r;
+async function cloudSaveShelfPlan(updates,marked,home){
+  const s0Home=home||s0HomeNow();   /* STAGE 0: see 8b in patch602, and s0HomeNow */
+  const r=await cloudSendShelfPlan(updates,s0Home);
+  if(!s0AtHome(s0Home)) return r;
   if(marked && !activeWs) return r;
-  if(!activeWs || !(r&&r.ok)) for(const u of (updates||[])) await markUnsent(u&&u.record);
+  if(!activeWs || !(r&&r.ok)) for(const u of (updates||[])) await markUnsent(u&&u.record,s0Home);
   return r;
 }
 
@@ -20497,7 +20915,8 @@ let pushRunning=false, pushStopAsked=false;
 function pushWhy(reasons){
   let best=null, n=0;
   for(const k in reasons) if(reasons[k]>n){ n=reasons[k]; best=k; }
-  return best==="held" ? s0Inline(s0Held()||"switched")
+  return best==="left" ? "you left the project first"
+    : best==="held" ? s0Inline(s0Held()||"switched")
     : best==="signedout" ? "you are signed out on this device"
     : best==="notallowed" ? "this account may not write here"
     : best==="refused" ? "the server refused them"
@@ -20518,8 +20937,10 @@ async function lineStillAnswers(path){
 }
 async function cloudPush(){
   /* STAGE 0: the project this push is for, noted before its first wait (the
-     controller's audit, Finding 5; used after the protocol read below). */
-  const s0PushGen=wsGen;
+     controller's audit, Finding 5; used after the protocol read below).
+     The action's home since fix round 4 (s0HomeNow): every item's send, and
+     every write and send at the end of the run, asks it. */
+  const s0Home=s0HomeNow();
   /* THREE answers, not two. "Could not ask" is not "you are signed out", and
      telling a signed-in person to sign in is an instruction to do the one
      thing that risks losing local work. */
@@ -20528,8 +20949,10 @@ async function cloudPush(){
   if(who.state!=="in"){ toast("Sign in first"); return; }
   const u=who.user;
   const c=await cloudCollection(u);
+  if(!s0SendHome(s0Home)){ toast(S0_LEFT_PUSH); return; }   /* STAGE 0 (fix round 4) */
   if(!c){ toast("Could not open your collection on the server"); return; }
   const team=await cloudTeam();
+  if(!s0SendHome(s0Home)){ toast(S0_LEFT_PUSH); return; }   /* STAGE 0 (fix round 4) */
   if(!team){ toast("Could not open your team"); return; }
   /* STAGE 0 (D1): a batch reads afresh before it sends anything; a held
      project sends nothing, and what is unsent stays marked so. */
@@ -20545,8 +20968,9 @@ async function cloudPush(){
      which reads activeWs late: the personal page's stale-row DELETE,
      cloudSweep and the layers PATCH would otherwise run against the
      project left. A move after this line, mid-upload, stays with the
-     push-in-flight class Task 10 left open. */
-  if(!wsStill(s0PushGen)) return;
+     push-in-flight class Task 10 left open. (Closed in fix round 4: every
+     item and every end-of-run write asks s0Home, and the move is said.) */
+  if(!s0SendHome(s0Home)){ toast(S0_LEFT_PUSH); return; }
   { const why=s0Held(); if(why){ s0Show(); toast(s0Words(why)); return; } }
   let items=[];
   /* Taken before the read: anything written after it is read again before
@@ -20594,7 +21018,7 @@ async function cloudPush(){
      outlived the token sent the dead one to the end (measured, 95 of 311
      failed). cloudSyncOne and cloudPatchOne read their own per request,
      which renews the token when it is due. */
-  const ctx={u:u, team:team, c:c};
+  const ctx={u:u, team:team, c:c, home:s0Home};
   /* SIX AT A TIME, not one. cloudPull already does this and says why in its
      own comment - a project with 310 traits meant 310 round trips in a row -
      and the upload never got the same treatment. Six rather than the pull's
@@ -20635,7 +21059,10 @@ async function cloudPush(){
     /* THREE IN A ROW THAT COULD NOT REACH THE SERVER end the run: every
        picture after them would find the same, three attempts and a backoff
        each (measured: 933 attempts and 42 s to learn that 311 failed). */
-    while(next<fresh.length && !broke && !pushStopAsked){
+    /* STAGE 0 (8b): and not past a move. The items were read from the project
+       the push began in; sent after a move, each one's "sent" write, and its
+       fresh read, would resolve the project moved to (fix round 3). */
+    while(next<fresh.length && !broke && !pushStopAsked && s0SendHome(s0Home)){
       const job=fresh[next++];
       let it=job.it, light=job.light, seq=readSeq;
       /* WRITTEN SINCE THE READ - an edit saved, a weight changed, while
@@ -20697,8 +21124,13 @@ async function cloudPush(){
      with the migration flag set during the last upload (fix round 1,
      measured). Each is skipped while the project is held, or when any
      item was held - a hold the run saw is not undone by a read after it.
-     The layer list stays unshared here, as saveLayers leaves it. */
-  const s0End=()=>!!s0Held()||!!reasons.held;
+     The layer list stays unshared here, as saveLayers leaves it.
+     AND WHEN THE PAGE HAS MOVED since the push began (fix round 3): the
+     three read activeWs and LAYERS late, and the removal list from the
+     store shown - the project moved to's - so a push that a move overtook
+     sent that project's layers to this one, or ran the personal page's
+     stale-row removal against a group. */
+  const s0End=()=>!s0SendHome(s0Home)||!!s0Held()||!!reasons.held;
   let stale=0, notHere=0, serverPaths=null;
   /* Not after a run that stopped early either: what is left is unknown. */
   /* Nor after one that something changed under. */
@@ -20729,7 +21161,7 @@ async function cloudPush(){
         /* A removal whose row is already gone has nothing left to do. */
         const ids=new Set(got.rows.map(r=>r.id)), paths=new Set(got.rows.map(r=>r.path));
         for(const g of gone) if(g.rowId ? !ids.has(g.rowId) : !paths.has(g.path)) done.push(goneKey(g));
-        await goneForget(done);
+        await goneForget(done,s0Home);
         serverPaths=s0Cut ? null : kept.map(r=>r.path).filter(Boolean);
       }
     }catch(_){ serverPaths=null; }
@@ -20762,10 +21194,11 @@ async function cloudPush(){
     /* Every picture a server row still names is kept, as well as this
        device's own; keeping only this device's list is what took the 311
        pictures. No reliable read of the rows, no sweep. */
-    if(!s0End() && !activeWs && !failed && !changed && serverPaths) swept=await cloudSweep(team,c,[...new Set(rows.map(r=>r.path).concat(serverPaths))]);
+    if(!s0End() && !activeWs && !failed && !changed && serverPaths) swept=await cloudSweep(team,c,[...new Set(rows.map(r=>r.path).concat(serverPaths))],s0Home);
   }catch(_){ }
   if(!s0End()) try{
     h=(await sbHeaders({"Content-Type":"application/json"}))||h;
+    if(s0End()) throw new Error("held");   /* STAGE 0 (fix round 4): after the wait above */
     await fetch(SB_URL+"/rest/v1/collections?id=eq."+c.id,{method:"PATCH",headers:h,
       body:JSON.stringify({layers:LAYERS})});
   }catch(_){ }
@@ -20775,6 +21208,8 @@ async function cloudPush(){
   await cloudStatus(u);
   /* Every number that is not zero, and none that is. "0 skipped" on a first
      push is noise, and noise is what stops the useful ones being read. */
+  /* STAGE 0 (fix round 4): what happened, when the page left mid-run. */
+  if(!s0SendHome(s0Home)){ toast(S0_LEFT_PUSH); return; }
   const bits=[];
   if(saved) bits.push("Saved "+saved+" to the cloud");
   if(unchangedSkipped) bits.push(unchangedSkipped+" already up to date");
@@ -21197,7 +21632,7 @@ async function cloudPull(opts){
         if(w.replaces){
           try{
             const dr=await dbGet(draftKey(w.id));
-            if(dr && dr.blob){
+            if(dr && dr.blob && wsStill(gen)){   /* STAGE 0 (fix round 4): the read above waited */
               await dbPut(Object.assign({},dr,{at:Math.max(Date.now(),(rec.at||0)+1)}),"pull",s0By);   /* STAGE 0: keeps its maker (a pull's draft write ignores the uid) */
               draftsKept.push(w.name);
             }
@@ -21256,6 +21691,7 @@ async function cloudPull(opts){
   if(Array.isArray(c.layers)&&c.layers.length){
     const declared=[...new Set(c.layers.map(String))].filter(Boolean);
     let mine=null; try{ mine=await dbGet(LAYERS_ID); }catch(_){ mine=null; }
+    if(!wsStill(gen)){ try{ $("cloudpull").disabled=false; }catch(_){} try{ if(banner) banner.hidden=true; }catch(_){} return null; }   /* STAGE 0 (fix round 4) */
     const own=!!(mine&&Array.isArray(mine.layers)&&mine.layers.length);
     if(!own){
       LAYERS=declared.slice();
@@ -21278,7 +21714,7 @@ async function cloudPull(opts){
       && JSON.stringify((Array.isArray(mine.hidden)?mine.hidden:[]).slice().sort())===JSON.stringify(hid);
     if(!same) try{ await dbPut({id:LAYERS_ID, kind:"settings", layers:LAYERS.slice(),
       hidden:hid, at:Date.now()}); }catch(_){}
-    sharedLayerSig=declared.join("\u0000");
+    if(wsStill(gen)) sharedLayerSig=declared.join("\u0000");   /* STAGE 0 (fix round 4) */
   }
   /* THE RULES AND THE ANSWERS BEHIND THEM.
 
@@ -21289,7 +21725,9 @@ async function cloudPull(opts){
      An EMPTY server side is not an answer. Anyone whose rules predate the
      column has them locally and nothing up there, and adopting [] would
      delete the lot - so an empty server takes the local copy instead. */
+  if(!wsStill(gen)){ try{ $("cloudpull").disabled=false; }catch(_){} try{ if(banner) banner.hidden=true; }catch(_){} return null; }   /* STAGE 0 (fix round 4) */
   await takeEmptyChance(c);
+  if(!wsStill(gen)){ try{ $("cloudpull").disabled=false; }catch(_){} try{ if(banner) banner.hidden=true; }catch(_){} return null; }   /* STAGE 0 (fix round 4): the rules below */
   let pulledRules=0;
   /* A CLEAR IS AN EVENT, NOT AN ABSENCE.
 
@@ -21313,10 +21751,12 @@ async function cloudPull(opts){
       rulesAt=theirsAt;
       await dbPut({id:RULES_ID, kind:"settings", at:Date.now(),
         groups:[], pairs:[], rulesAt:rulesAt});
+      if(!wsStill(gen)){ try{ $("cloudpull").disabled=false; }catch(_){} try{ if(banner) banner.hidden=true; }catch(_){} return null; }   /* STAGE 0 (fix round 4) */
       await dbPut({id:DECISIONS_ID, kind:"settings", at:Date.now(), decisions:[]});
       toast("The group cleared the trait rules");
     }
   }
+  if(!wsStill(gen)){ try{ $("cloudpull").disabled=false; }catch(_){} try{ if(banner) banner.hidden=true; }catch(_){} return null; }   /* STAGE 0 (fix round 4) */
   if(Array.isArray(c.rules)||Array.isArray(c.decisions)){
     const theirs=Array.isArray(c.rules)?c.rules.filter(g=>Array.isArray(g)).map(ruleGroup).filter(g=>g.length>=2):[];
     const merged=mergeDecisions(DECISIONS,Array.isArray(c.decisions)?c.decisions:[]);
@@ -21361,7 +21801,7 @@ async function cloudPull(opts){
      redrawn here. Drawing it only from renderShelf meant the mailbox appeared
      one render late - on the next shelf redraw, which on a quiet sync might
      be never. */
-  if(incoming.length||clashed.length){ await mailAdd(incoming, clashed); mailShow(); }
+  if(wsStill(gen)&&(incoming.length||clashed.length)){ await mailAdd(incoming, clashed); mailShow(); }   /* STAGE 0 (fix round 4) */
   const bits=["Loaded "+added+" item"+(added===1?"":"s")];
   if(incoming.length) bits.push(incoming.length+" updated by the group");
   /* A move to another layer, a reorder or a reweight by a teammate arrives
@@ -23000,12 +23440,13 @@ function planFold(on,remember){
   };
   const seed=$("planseedall");
   if(seed) seed.onclick=async()=>{
+    const s0Home=s0HomeNow();   /* STAGE 0 (fix round 4): see s0HomeNow */
     const items=await dbAll();
     const wip=!!($("cwip")&&$("cwip").checked);
     const all=[];
     for(const l of LAYERS){ if(HIDDEN_LAYERS.has(l)) continue;
       for(const t of planRows(items,l,wip)) all.push(t); }
-    await seedRarity(all);
+    await seedRarity(all,s0Home);
   };
   /* FOLDED BY DEFAULT, unlike the traits. A section of 271 sliders opening
      itself over the shelf on every load is the panel burying its own tail,
@@ -23044,6 +23485,7 @@ $('cloudpull').onclick=cloudPull;
 let groupResending=null;
 async function groupResend(){
   if(!activeWs || pushRunning || groupResending) return groupResending;
+  const s0Home=s0HomeNow();   /* STAGE 0 (fix round 4): see s0HomeNow */
   groupResending=(async()=>{
     try{
       if(sharedRuleSig===null && (RULES.length||DECISIONS.length)){
@@ -23051,7 +23493,7 @@ async function groupResend(){
         if(sent) answersHeldSaid=false;
       }
       let unsent=[]; try{ unsent=(await dbAll()).filter(i=>(i.kind==="trait"||i.kind==="ref")&&!i.synced); }catch(_){ unsent=[]; }
-      if(unsent.length) await cloudPush();
+      if(unsent.length&&s0SendHome(s0Home)) await cloudPush();   /* STAGE 0 (fix round 4) */
     }catch(_){ }
   })();
   try{ await groupResending; } finally{ groupResending=null; }
@@ -27007,6 +27449,7 @@ async function fixSaveFiles(files,say){
     +(withFolder<files.length?" \u00b7 "+(files.length-withFolder)
       +" had no folder, so they are in unsorted":"")
     +(r&&r.skipped?" \u00b7 "+r.skipped+" could not be saved":"")
+    +(r&&r.left?" \u00b7 "+S0_LEFT_IMPORT:"")   /* STAGE 0 (fix round 4) */
     +(r&&r.notShared?" \u00b7 "+r.notShared+" here only, not sent to the group":"")
     /* STAGE 0 (D1): and why, while the project is held. */
     +(s0Held()?" \u00b7 "+s0Words(s0Held()):"")
@@ -27515,7 +27958,9 @@ function shelfBehind(){
   renderShelf();
 }
 async function finalMove(t,next){
-  const r=await setTraitStatus(t,next);
+  const s0Home=s0HomeNow();   /* STAGE 0 (fix round 4): see s0HomeNow */
+  const r=await setTraitStatus(t,next,undefined,s0Home);
+  if(r.left){ toast(S0_LEFT_UNMADE); return; }
   if(r.clash){
     toast("There is already "+article(next)+" "+t.name+" in "+(t.layer||"unsorted")
       +" - rename one of them first");
@@ -27530,7 +27975,7 @@ async function finalMove(t,next){
   /* r.same, because setTraitStatus returns early with shared:null when the
      status is already the one asked for - and "here only" on a change that
      never happened is a warning about a send nobody attempted. */
-  toast((activeWs && !r.shared && !r.same ? what+" here only - "+cloudWhyNot(r.why) : what)+cloudAlsoOld(r.why));
+  toast((s0Home.db!==DBN && !r.shared && !r.same ? what+" here only - "+cloudWhyNot(r.why) : what)+cloudAlsoOld(r.why));
 }
 /* THE FINAL PROJECT, DRAWN.
 
@@ -28245,6 +28690,7 @@ $('revopen2').onclick=async()=>{
 };
 $('revart').onclick=async()=>{
   if(!REVIEW) return;
+  const s0Home=s0HomeNow();   /* STAGE 0 (fix round 4): see s0HomeNow */
   const e=REVIEW.entries[reviewIndex()];
   e.artworkAccepted=!e.artworkAccepted;
   /* WHAT WAS ACCEPTED, not just that something was. Taken here rather than
@@ -28254,6 +28700,7 @@ $('revart').onclick=async()=>{
     const fp=await traitFingerprint(t);
     if(fp){ e.artHash=fp.hash; e.artHashNow=fp.hash; e.artAt=Date.now(); }
   }else{ e.artHash=null; e.artHashNow=null; e.artAt=null; }
+  if(!s0AtHome(s0Home)){ toast(S0_LEFT_UNMADE); return; }   /* STAGE 0 (fix round 4) */
   await saveReview(); await renderReview();
 };
 /* ACCEPTING A NAME THAT CHANGED IS A RENAME, and it goes through saveTrait -
@@ -28262,6 +28709,7 @@ $('revart').onclick=async()=>{
    its own way of moving a trait. */
 $('revnamed').onclick=async()=>{
   if(!REVIEW) return;
+  const s0Home=s0HomeNow();   /* STAGE 0 (fix round 4): see s0HomeNow */
   /* THE ID, NOT THE OBJECT. saveTrait ends in renderShelf, which calls
      applyReview, which replaces REVIEW with fresh objects read back from the
      store - so an entry captured before a rename is an orphan afterwards,
@@ -28273,6 +28721,9 @@ $('revnamed').onclick=async()=>{
   if(t && want!==t.name){
     const opened=await openTraitRecord(t);
     if(!opened){ toast('Could not open '+t.name); return; }
+    /* STAGE 0 (fix round 4): the open above waited; the editor's save notes
+       its own home when it starts, which would be the project moved to. */
+    if(!s0AtHome(s0Home)){ toast(S0_LEFT_UNMADE); return; }
     $('tname').value=want;
     const ok=await saveTrait();
     if(ok===false) return;   /* saveTrait already said why */
@@ -28282,6 +28733,7 @@ $('revnamed').onclick=async()=>{
      the queue. */
   const cur=REVIEW&&REVIEW.entries.find(x=>x.id===id);
   if(!cur) return;
+  if(!s0AtHome(s0Home)){ toast(S0_LEFT_UNMADE); return; }   /* STAGE 0 (fix round 4) */
   cur.finalName=want; cur.currentName=want+'.png'; cur.nameAccepted=true;
   await saveReview();
   await renderShelf();
@@ -28334,6 +28786,7 @@ $('sortfile').onchange=async(e)=>{
 $('sortcancel').onclick=()=>{ $('sortscrim').hidden=true; };
 $('sortgo').onclick=async()=>{
   if(!sortPlan) return;
+  const s0Home=s0HomeNow();   /* STAGE 0 (fix round 4): see s0HomeNow */
   const btn=$("sortgo");
   btn.disabled=true; btn.textContent="Moving...";
   const r=await sortApply(sortPlan);
@@ -28343,7 +28796,7 @@ $('sortgo').onclick=async()=>{
      names - applyPaintOrder only orders layers that already exist, so
      running it first would silently skip every new one. */
   let painted=null;
-  try{ painted=await applyPaintOrder(sortOrder); }catch(_){ painted=null; }
+  if(s0AtHome(s0Home)) try{ painted=await applyPaintOrder(sortOrder); }catch(_){ painted=null; }   /* STAGE 0 (fix round 4) */
   sortOrder=null;
   await renderShelf();
   const bits=["Moved "+r.moved+" trait"+(r.moved===1?"":"s")];
@@ -28565,6 +29018,7 @@ function reviewDecided(e){
     at:r.approvedAt||null};
 }
 async function importReviewQueue(f){
+  const s0Home=s0HomeNow();   /* STAGE 0 (fix round 4): see s0HomeNow */
   if(!f) return false;
   const note=$("reviewnote"); if(note) note.hidden=false;
   const say=m=>{ if(note) note.textContent=m; };
@@ -28628,9 +29082,11 @@ async function importReviewQueue(f){
       approvedRevision:decided?e.approvedRevision:((old&&old.approvedRevision)||null),
       skipped:!!(old&&old.skipped)});
     if(t && t.reviewId!==e.id){
-      try{ await dbPut(Object.assign({},t,{reviewId:e.id})); stamped++; }catch(_){}
+      if(s0AtHome(s0Home)) try{ await dbPut(Object.assign({},t,{reviewId:e.id})); stamped++; }catch(_){}   /* STAGE 0 (fix round 4) */
     }
   }
+  /* STAGE 0 (fix round 4): REVIEW is the project shown. */
+  if(!s0AtHome(s0Home)){ say(S0_LEFT_UNMADE+"."); return false; }
   entries.sort((a,b)=>(a.sequence||0)-(b.sequence||0));
   REVIEW={revision:(doc&&doc.collectionRevision)||null,
     activeId:(doc&&doc.activeTraitId)||entries[0].id, entries:entries};
@@ -28641,7 +29097,7 @@ async function importReviewQueue(f){
   /* The same order the rules file carries, applied the same way. */
   let painted=null;
   if(doc&&Array.isArray(doc.order)){
-    try{ painted=await applyPaintOrder(doc.order.map(String)); }catch(_){ painted=null; }
+    if(s0AtHome(s0Home)) try{ painted=await applyPaintOrder(doc.order.map(String)); }catch(_){ painted=null; }   /* STAGE 0 (fix round 4) */
   }
   await renderShelf();
   const bits=["Review pass started: "+entries.length+" trait"+(entries.length===1?"":"s")];
@@ -28697,6 +29153,7 @@ function parseLayerOrderText(text){
   return null;
 }
 async function importRuleFile(f){
+  const s0Home=s0HomeNow();   /* STAGE 0 (fix round 4): see s0HomeNow */
   if(!f) return;
   const note=$("ruleimportnote"); note.hidden=false;
   note.textContent="Reading "+f.name+"...";
@@ -28724,6 +29181,7 @@ async function importRuleFile(f){
     const order=parseLayerOrderText(raw);
     if(order){
       let painted=null;
+      if(!s0AtHome(s0Home)){ note.textContent=S0_LEFT_UNMADE+"."; return; }   /* STAGE 0 (fix round 4) */
       try{ painted=await applyPaintOrder(order); }catch(_){ painted=null; }
       await renderShelf();
       note.textContent="Read "+f.name+" as a layer order. "+(painted
@@ -28746,6 +29204,7 @@ async function importRuleFile(f){
      Safe because applyPaintOrder only moves layers this project already
      has: a file about a different collection still moves nothing. */
   let painted=null;
+  if(!s0AtHome(s0Home)){ note.textContent=S0_LEFT_UNMADE+"."; return; }   /* STAGE 0 (fix round 4) */
   try{ painted=await applyPaintOrder(fileOrder); }catch(_){ painted=null; }
   const paintSaid = painted
     ? paintOrderSaid(painted).map(s=>" "+s.charAt(0).toUpperCase()+s.slice(1)+".").join("")
@@ -28765,6 +29224,7 @@ async function importRuleFile(f){
       +paintSaid;
     return;
   }
+  if(!s0AtHome(s0Home)){ note.textContent=S0_LEFT_UNMADE+"."; return; }   /* STAGE 0 (fix round 4) */
   const before=RULES.length;
   /* What was in force before, so the report can say what this file took
      back as well as what it added. */
@@ -28788,8 +29248,8 @@ async function importRuleFile(f){
   let ordered=false;
   if(plan.order.length){ DECIDE_ORDER=plan.order.slice(); ordered=true; }
   try{
-    await saveRules();
-    if(ordered) await saveDecideOrder();
+    await saveRules(s0Home);
+    if(ordered&&s0AtHome(s0Home)) await saveDecideOrder();
   }catch(_){
     RULES.length=before;
     note.textContent="Could not save those rules, so none were kept.";

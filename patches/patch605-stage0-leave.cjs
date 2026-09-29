@@ -71,7 +71,13 @@
    - Finding 5: Leave's own move off the project, overtaken by a move back
      to it, left the page on the project whose copy was then deleted. It
      is deleted only when the page is off it.
-   - Finding 7: see the version-2 request, above. */
+   - Finding 7: see the version-2 request, above.
+
+   INTEGRATED OVER TASK 11'S FIX ROUNDS 3 AND 4 (patch602 at cloud-save/
+   t11f3): every anchor matched as written. One page-wide count moved:
+   fix 4's F1 added a third IndexedDB open, s0InStore, which opens the
+   store a send was for by name - locked and tracked as db() is - so the
+   finish check counts three and pins the third (below). */
 const s0 = require('./stage0-common.cjs');
 const doc = s0.start([['async function s0CloseAllGone(name){', 'patch600 is not applied'], ['async function s0Refuse(', 'patch602 is not applied'], ['let s0WsWant', 'Task 10\'s switch wait is not in the page']]);
 
@@ -257,5 +263,17 @@ doc.finish(({ code, must }) => {
   must('res(r.error&&r.error.name==="AbortError"&&verdict ? verdict : "unknown"); };', 'an aborted read reads as alone');
   if ((code.match(/const leaving=activeWs, dbName=wsDbName\(\);/g) || []).length !== 1) throw new Error('wsLeave takes its project twice');
   if ((code.match(/indexedDB\.deleteDatabase\(/g) || []).length !== 1) throw new Error('s0DeleteIfAlone should be the only delete of a store');
-  if ((code.match(/indexedDB\.open\(/g) || []).length !== 2) throw new Error('db() and the Leave probe should be the only opens');
+  /* INTEGRATED OVER TASK 11 FIX ROUND 4: its F1 opens the store a send was
+     for by name (s0InStore, for s0ClearAhead). It takes the store's open
+     lock first and is tracked, as db() is, so Leave's lock and its
+     s0CloseAllGone see it; it is the one other open, and it may not create
+     a store (its upgrade is aborted). Counted as three, and the third
+     pinned to those terms. */
+  if ((code.match(/indexedDB\.open\(/g) || []).length !== 3) throw new Error('db(), s0InStore (fix 4) and the Leave probe should be the only opens');
+  {
+    const f = code.indexOf('function s0InStore(name){'), e = code.indexOf('\n}', f), b = f >= 0 && e > f ? code.slice(f, e) : '';
+    if (!b || b.indexOf('indexedDB.open(name,1)') < 0 || b.indexOf('s0Hold(name).then(') < 0 || b.indexOf('s0Track(name,r.result,hold)') < 0
+      || b.indexOf('r.transaction.abort()') < 0)
+      throw new Error('the third open is not s0InStore\'s, locked and tracked as db() is, and unable to create a store');
+  }
 });

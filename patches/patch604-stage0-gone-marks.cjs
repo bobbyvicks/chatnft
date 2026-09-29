@@ -108,14 +108,32 @@
    append. A layer rename or removal takes it in renameLayer or removeLayer,
    before their read of the project, and hands it to retagLayer. THE SAME
    TRADE: a person's operation that the page leaves its project during
-   records nothing, never a mark in the store switched to. */
+   records nothing, never a mark in the store switched to.
+
+   INTEGRATED OVER TASK 11'S FIX ROUNDS 3 AND 4 (patch602 at cloud-save/
+   t11f3, "the action's home"). Re-anchored where patch602 changed the text
+   this patch matched, with the same meaning: dbDelShared(rec,home,why),
+   setTraitStatus(t,next,asName,home), commitShelfMove(spec,home) and
+   retagLayer(items,from,to,home) take the action's home, so retagLayer's
+   s0MarkAt is its fifth parameter and removeLayer and renameLayer pass
+   both; fix 4 made Sort's, a layer rename's and the editor's rename's two
+   writes one transaction (dbApplyShelfRecords), so the pair is collected
+   after that one write, and the editor's rename is recorded once it has
+   gone through; the batch move's and the import's lines carry the home.
+   Both intents kept where both guard one write: each person's append is
+   still named by s0MarkAt, taken before the operation's first wait, and
+   still checked for its store inside s0Moved and s0Removed (Task 13); and
+   each is made only while the action is at home, asked with no wait
+   between (fix 4: every local write after a wait asks s0AtHome). A
+   person's removal is recorded after dbDelShared's own home check, not
+   between the removal and that check. */
 const s0 = require('./stage0-common.cjs');
 const doc = s0.start([['function s0Attempt(entry){', 'patch603 is not applied'],
   ['function s0ReidTx(d,oldId,rec,was,by){', 'Task 10\'s fix round 5 (s0ReidTx) is not on this page']]);
 const NL = s0.NL;
 
 /* ---- 1. the module, before dbDelShared ---------------------------------- */
-doc.swap('async function dbDelShared(rec){', [
+doc.swap('async function dbDelShared(rec,home,why){', [
   '/* STAGE 0 (D1): settings.gonemarks - every removal and every move\'s drop',
   '   this page makes, marked as a person\'s or a pull\'s. A record of its own:',
   '   settings.gone is today\'s queue of rows for Save to cloud to delete, and',
@@ -178,13 +196,20 @@ doc.swap('async function dbDelShared(rec){', [
   '  if(wsDbName()!==home) return false;',
   '  return s0Append(S0_MARKS_ID,"marks",out,S0_MARKS_KEEP);',
   '}',
-  'async function dbDelShared(rec){',
+  'async function dbDelShared(rec,home,why){',
   '  const s0MarkAt=s0MarkStart();   /* STAGE 0 (D1): where and whose its mark is, before its first wait */',
 ]);
 
 /* ---- 2. a person's removal ------------------------------------------------ */
-doc.swap('  await dbDel(rec.id);', [
+/* After fix 4's home check, which follows the removal with no wait between. */
+doc.swap(['  await dbDel(rec.id);',
+  '  /* STAGE 0 (8b): moved during the removal here. activeWs below is the',
+  '     project moved to\'s: nothing is filed or sent for it. Removed here only. */',
+  '  if(!s0AtHome(s0Home)){ if(why) why.left=true; return false; }'], [
   '  await dbDel(rec.id);',
+  '  /* STAGE 0 (8b): moved during the removal here. activeWs below is the',
+  '     project moved to\'s: nothing is filed or sent for it. Removed here only. */',
+  '  if(!s0AtHome(s0Home)){ if(why) why.left=true; return false; }',
   '  await s0Removed(rec,"person",s0MarkAt);   /* STAGE 0 (D1): a person\'s removal */',
 ]);
 
@@ -192,26 +217,30 @@ doc.swap('  await dbDel(rec.id);', [
 /* Before each one's first wait, so a switch anywhere in it - a send, a loop,
    a write - leaves its marks unfiled rather than filed in the store moved to. */
 const MARK_AT = '  const s0MarkAt=s0MarkStart();   /* STAGE 0 (D1): where and whose its marks are, before its first wait */';
-for (const fn of ['async function setTraitStatus(t,next,asName){', 'async function commitShelfMove(spec){',
+for (const fn of ['async function setTraitStatus(t,next,asName,home){', 'async function commitShelfMove(spec,home){',
   'async function bulkMoveToLayer(toLayer){', 'async function sortApply(plan){', 'async function saveTraitNow(){',
   'async function bulkImport(files,opts){', 'async function removeLayer(name){', 'async function renameLayer(oldName,raw){'])
   doc.swap(fn, [fn, MARK_AT]);
 /* A layer rename or removal: taken by the caller, before its read of the
-   project, and handed on; called without it, retagLayer takes its own. */
-doc.swap('async function retagLayer(items,from,to){', [
-  'async function retagLayer(items,from,to,s0MarkAt){',
+   project, and handed on; called without it, retagLayer takes its own.
+   After the home (Task 11 fix round 4), which its callers pass too. */
+doc.swap('async function retagLayer(items,from,to,home){', [
+  'async function retagLayer(items,from,to,home,s0MarkAt){',
   '  s0MarkAt=s0MarkAt||s0MarkStart();   /* STAGE 0 (D1): where and whose its marks are - its caller\'s, taken before the caller read the project */',
 ]);
-doc.swap('  const r=n?await retagLayer(items,name,"unsorted"):{moved:0,renamed:0};',
-  '  const r=n?await retagLayer(items,name,"unsorted",s0MarkAt):{moved:0,renamed:0};');
-doc.swap('  const r=await retagLayer(items,oldName,nw);', '  const r=await retagLayer(items,oldName,nw,s0MarkAt);');
+doc.swap('  const r=n?await retagLayer(items,name,"unsorted",s0Home):{moved:0,renamed:0};',
+  '  const r=n?await retagLayer(items,name,"unsorted",s0Home,s0MarkAt):{moved:0,renamed:0};');
+doc.swap('  const r=await retagLayer(items,oldName,nw,s0Home);', '  const r=await retagLayer(items,oldName,nw,s0Home,s0MarkAt);');
 
 /* ---- 3. the moves' drops, a person's ------------------------------------- */
+/* Every person's append below is made only while the action is at home,
+   asked with no wait between (Task 11 fix round 4, integrated): each
+   follows a wait - a write, a send, a redraw. */
 /* The status chip, once the new id is written. The record it landed on is
    read from the store, as a drag's is: a write that puts a copy (unsentOf,
    as the drag's does on your own page) stamps the copy, not `moved`. */
 doc.swap('  const movedKey=shelfCore.recordKey(moved);', [
-  '  await s0Moved([{from:now, to:moved.id}],"person",s0MarkAt);   /* STAGE 0 (D1): the old id is gone, the new one written */',
+  '  if(s0AtHome(s0Home)) await s0Moved([{from:now, to:moved.id}],"person",s0MarkAt);   /* STAGE 0 (D1): the old id is gone, the new one written */',
   '  const movedKey=shelfCore.recordKey(moved);',
 ]);
 /* A drag: the moves that stuck. By id, because on your own page the record
@@ -222,17 +251,17 @@ doc.swap('  /* Only here, past the rollback above: a move that did not stick mus
   '     drag is not one. The record each landed on is read from the store: on',
   '     your own page what was written is a copy (unsentOf), and it is the',
   '     copy that was given the local id. */',
-  '  await s0Moved(plan.updates.filter(u=>u.oldId!==u.record.id)',
+  '  if(s0AtHome(s0Home)) await s0Moved(plan.updates.filter(u=>u.oldId!==u.record.id)',
   '    .map(u=>({from:items.find(i=>i.id===u.oldId)||u.oldId, to:u.record.id})),"person",s0MarkAt);',
   '  /* Only here, past the rollback above: a move that did not stick must not',
 ]);
 /* A batch move. The records it landed on are read from the store too: a
    write of unsentOf's copies (Task 11's fix round 3 writes them in a group)
    stamps the copies, not `after`'s records. */
-doc.swap(['    for(const t of transfers) state.transfer(t.from,t.to);', '    try{ await draftsFollow(draftMoves); }catch(_){}'], [
+doc.swap(['    for(const t of transfers) state.transfer(t.from,t.to);', '    try{ await draftsFollow(draftMoves,s0Home); }catch(_){}'], [
   '    for(const t of transfers) state.transfer(t.from,t.to);',
-  '    try{ await draftsFollow(draftMoves); }catch(_){}',
-  '    await s0Moved(draftMoves.map(m=>({from:before.get(m.from)||m.from, to:m.to})),"person",s0MarkAt);   /* STAGE 0 (D1): one append for the batch, each read from the store */',
+  '    try{ await draftsFollow(draftMoves,s0Home); }catch(_){}',
+  '    if(s0AtHome(s0Home)) await s0Moved(draftMoves.map(m=>({from:before.get(m.from)||m.from, to:m.to})),"person",s0MarkAt);   /* STAGE 0 (D1): one append for the batch, each read from the store */',
 ]);
 /* Sort: collected in the loop, appended once after it. */
 doc.swap(['  const draftMoves=[];', '  for(const l of plan.layers){'], [
@@ -240,15 +269,15 @@ doc.swap(['  const draftMoves=[];', '  for(const l of plan.layers){'], [
   '  const s0Pairs=[];   /* STAGE 0 (D1): the moves, recorded once after the loop */',
   '  for(const l of plan.layers){',
 ]);
-doc.swap(['      await dbPut(rec);', '      await dbDel(old.id);', '      taken.delete(old.id); taken.add(id);'], [
-  '      await dbPut(rec);',
-  '      await dbDel(old.id);',
+/* After fix 4's one write, which puts the new record and removes the old. */
+doc.swap(['      await dbApplyShelfRecords([old.id],[rec]);   /* one write: a move between two left both */', '      taken.delete(old.id); taken.add(id);'], [
+  '      await dbApplyShelfRecords([old.id],[rec]);   /* one write: a move between two left both */',
   '      s0Pairs.push({from:old, to:rec});',
   '      taken.delete(old.id); taken.add(id);',
 ]);
-doc.swap(['  try{ await draftsFollow(draftMoves); }catch(_){}', '  return {made, moved, refused, failed, stranded};'], [
-  '  try{ await draftsFollow(draftMoves); }catch(_){}',
-  '  await s0Moved(s0Pairs,"person",s0MarkAt);   /* STAGE 0 (D1): one append for the whole sort */',
+doc.swap(['  try{ await draftsFollow(draftMoves,s0Home); }catch(_){}', '  return {made, moved, refused, failed, stranded};'], [
+  '  try{ await draftsFollow(draftMoves,s0Home); }catch(_){}',
+  '  if(s0AtHome(s0Home)) await s0Moved(s0Pairs,"person",s0MarkAt);   /* STAGE 0 (D1): one append for the whole sort */',
   '  return {made, moved, refused, failed, stranded};',
 ]);
 /* A layer rename or removal: collected in the loop, appended once after it. */
@@ -257,22 +286,25 @@ doc.swap(['  const draftMoves=[];', '  for(const t of mine){'], [
   '  const s0Pairs=[];   /* STAGE 0 (D1): the moves, recorded once after the loop */',
   '  for(const t of mine){',
 ]);
-doc.swap(['    await dbDel(t.id);', '    await dbPut(rec);', '    ruleMoves.push({from:traitKey(t), to:traitKey(rec)});'], [
-  '    await dbDel(t.id);',
-  '    await dbPut(rec);',
+doc.swap(['    await dbApplyShelfRecords([t.id],[rec]);   /* one write: a move between two lost the trait */', '    ruleMoves.push({from:traitKey(t), to:traitKey(rec)});'], [
+  '    await dbApplyShelfRecords([t.id],[rec]);   /* one write: a move between two lost the trait */',
   '    s0Pairs.push({from:t, to:rec});',
   '    ruleMoves.push({from:traitKey(t), to:traitKey(rec)});',
 ]);
-doc.swap(['  try{ await draftsFollow(draftMoves); }catch(_){}', '  return {moved:moved,renamed:renamed,stranded:stranded};'], [
-  '  try{ await draftsFollow(draftMoves); }catch(_){}',
-  '  await s0Moved(s0Pairs,"person",s0MarkAt);   /* STAGE 0 (D1): one append for the whole layer */',
+doc.swap(['  try{ await draftsFollow(draftMoves,s0Home); }catch(_){}', '  return {moved:moved,renamed:renamed,stranded:stranded};'], [
+  '  try{ await draftsFollow(draftMoves,s0Home); }catch(_){}',
+  '  if(s0AtHome(s0Home)) await s0Moved(s0Pairs,"person",s0MarkAt);   /* STAGE 0 (D1): one append for the whole layer */',
   '  return {moved:moved,renamed:renamed,stranded:stranded};',
 ]);
-/* The editor's rename: a drop only when the old id's removal went through. */
-doc.swap('      try{ await dbDel(openWas.id); }catch(_){}', [
+/* The editor's rename: a drop only when the old id's removal went through.
+   Fix 4 removes the old id in the same transaction that writes the new one
+   (dbApplyShelfRecords, which throws past this when it fails), so reaching
+   this line means it went through. */
+doc.swap('      /* (STAGE 0, fix round 4: removed above, with the new record.) */', [
+  '      /* (STAGE 0, fix round 4: removed above, with the new record.) */',
   '      /* STAGE 0 (D1): recorded once the old id is gone - a removal that failed',
   '         left it, and dropped nothing. */',
-  '      try{ await dbDel(openWas.id); await s0Moved([{from:base||openWas, to:rec}],"person",s0MarkAt); }catch(_){}',
+  '      if(s0AtHome(s0Home)){ try{ await s0Moved([{from:base||openWas, to:rec}],"person",s0MarkAt); }catch(_){} }',
 ]);
 /* A folder import: its moved files and merged renames, appended once after both loops. */
 doc.swap(['  if(supplied.length && !inPlace){', '    let existing=[]; try{ existing=await dbAll(); }catch(_){ existing=[]; }',
@@ -288,13 +320,15 @@ doc.swap(['      try{ await dbDel(rec.id); }catch(_){ continue; }', '      /* Th
   '      if(to) s0ImportPairs.push({from:rec, to:to.id});',
   '      /* The server copy too, or the next pull brings it back. */',
 ]);
-doc.swap(['      await carryDecided(rec,onto.id);', '      try{ await dbDel(rec.id); }catch(_){ continue; }'], [
-  '      await carryDecided(rec,onto.id);',
+doc.swap(['      await carryDecided(rec,onto.id,s0Home);', '      if(!s0AtHome(s0Home)){ s0Left=true; break; }   /* STAGE 0 (fix round 4) */',
+  '      try{ await dbDel(rec.id); }catch(_){ continue; }'], [
+  '      await carryDecided(rec,onto.id,s0Home);',
+  '      if(!s0AtHome(s0Home)){ s0Left=true; break; }   /* STAGE 0 (fix round 4) */',
   '      try{ await dbDel(rec.id); }catch(_){ continue; }',
   '      s0ImportPairs.push({from:rec, to:onto});',
 ]);
 doc.swap('  /* Traits the project has and this folder did not bring. Usually a file', [
-  '  await s0Moved(s0ImportPairs,"person",s0MarkAt);   /* STAGE 0 (D1): one append for the whole import */',
+  '  if(s0AtHome(s0Home)) await s0Moved(s0ImportPairs,"person",s0MarkAt);   /* STAGE 0 (D1): one append for the whole import */',
   '  /* Traits the project has and this folder did not bring. Usually a file',
 ]);
 
@@ -390,6 +424,21 @@ doc.finish(({ code }) => {
     }
   }
   if (person !== 8) throw new Error('expected 8 person appends naming s0MarkAt, found ' + person);
+  /* Integrated over Task 11 fix round 4: each person's append is made only
+     while its action is at home - the last s0AtHome(s0Home) before it lies
+     in the same function, with no wait between the two. */
+  let homed = 0;
+  for (const call of ['await s0Moved(', 'await s0Removed(']) {
+    for (let i = at(call); i >= 0; i = at(call, i + 1)) {
+      const stmt = code.slice(i, code.indexOf(';', i));
+      if (!/,"person",s0MarkAt\)$/.test(stmt)) continue;
+      const h = code.lastIndexOf('s0AtHome(s0Home)', i), gap = h >= 0 ? code.slice(h, i) : '';
+      if (h < 0 || /\bawait\b/.test(gap) || /\bfunction\b/.test(gap))
+        throw new Error('a person\'s append is not asked for its action\'s home, with no wait between: ' + stmt.slice(0, 140));
+      homed++;
+    }
+  }
+  if (homed !== 8) throw new Error('expected 8 person appends behind a home check, found ' + homed);
   /* ... each taken as its operation begins: one capture in each function
      that appends, before that function's first wait, and its one append
      inside that function. A body runs to the first "}" in column 0. */
@@ -397,7 +446,7 @@ doc.finish(({ code }) => {
   const firstWait = (b) => b.search(/\bawait\b/);
   const count = (b, s) => b.split(s).length - 1;
   const CAP = 'const s0MarkAt=s0MarkStart();';
-  for (const fn of ['async function dbDelShared(rec){', 'async function setTraitStatus(t,next,asName){', 'async function commitShelfMove(spec){',
+  for (const fn of ['async function dbDelShared(rec,home,why){', 'async function setTraitStatus(t,next,asName,home){', 'async function commitShelfMove(spec,home){',
     'async function bulkMoveToLayer(toLayer){', 'async function sortApply(plan){', 'async function saveTraitNow(){', 'async function bulkImport(files,opts){']) {
     const b = body(fn);
     if (count(b, CAP) !== 1 || !(b.indexOf(CAP) < firstWait(b))) throw new Error(fn + ' does not take where and whose its marks are, once, before its first wait');
@@ -405,11 +454,11 @@ doc.finish(({ code }) => {
   }
   /* A layer rename or removal: taken in renameLayer and removeLayer before
      their read of the project, handed to retagLayer, which appends once. */
-  const rb = body('async function retagLayer(items,from,to,s0MarkAt){'), RCAP = 's0MarkAt=s0MarkAt||s0MarkStart();';
+  const rb = body('async function retagLayer(items,from,to,home,s0MarkAt){'), RCAP = 's0MarkAt=s0MarkAt||s0MarkStart();';
   if (count(rb, RCAP) !== 1 || !(rb.indexOf(RCAP) < firstWait(rb)) || count(rb, '"person",s0MarkAt)') !== 1)
     throw new Error('retagLayer does not append once with where and whose its caller took');
-  for (const [fn, call] of [['async function removeLayer(name){', 'retagLayer(items,name,"unsorted",s0MarkAt)'],
-    ['async function renameLayer(oldName,raw){', 'retagLayer(items,oldName,nw,s0MarkAt)']]) {
+  for (const [fn, call] of [['async function removeLayer(name){', 'retagLayer(items,name,"unsorted",s0Home,s0MarkAt)'],
+    ['async function renameLayer(oldName,raw){', 'retagLayer(items,oldName,nw,s0Home,s0MarkAt)']]) {
     const b = body(fn);
     if (count(b, CAP) !== 1 || !(b.indexOf(CAP) < firstWait(b)) || count(b, call) !== 1)
       throw new Error(fn + ' does not take where and whose before its read and hand them to retagLayer');

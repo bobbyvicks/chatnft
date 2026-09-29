@@ -56,6 +56,10 @@ test('the secret scan finds each shape it looks for, and passes the public keys 
   assert.equal(findSecrets('sbp_' + 'oauth_' + 'a'.repeat(30)).length, 1, 'an OAuth token, underscore and all');
   assert.equal(findSecrets('Authorization: Bearer ' + 'a'.repeat(40)).length, 1);
   assert.equal(findSecrets('https://x.example/hook?token=' + 'a'.repeat(20)).length, 1);
+  /* Final fixes, B6: an Anthropic key, and a GitHub token of either kind. */
+  assert.equal(findSecrets('sk-' + 'ant-' + 'api03-' + 'a'.repeat(80)).length, 1, 'an Anthropic key');
+  assert.equal(findSecrets('ghp' + '_' + 'a'.repeat(36)).length, 1, 'a classic GitHub token');
+  assert.equal(findSecrets('github' + '_pat_' + 'a'.repeat(22) + '_' + 'b'.repeat(59)).length, 1, 'a fine-grained GitHub token');
   assert.deepEqual(findSecrets(page.match(/sb_publishable_[A-Za-z0-9_-]+/)[0]), [], 'the publishable key is public');
 });
 

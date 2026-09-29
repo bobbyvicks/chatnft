@@ -27,12 +27,20 @@ const SHAPES = [
   ['an apikey value that is not the publishable key', '{ ', 'api' + 'key: "' + run('k', 24), '" }'],
   ['a token in a URL', 'https://example.test/cb', '?access' + u + 'token=' + run('t', 24), '&x=1'],
   ['a JWT whose role is "service_role"', 'token: ', jwt({ role: 'service' + u + 'role' }), ''],
+  /* Final fixes, B6: the keys this repo's own code uses beyond Supabase's
+     (measured by the final review: both passed the scan in a tracked file).
+     An Anthropic key - api/identify.ts's secret - and a GitHub token, the
+     classic personal one and the fine-grained one. */
+  ['an Anthropic API key', 'ANTHROPIC' + u + 'API' + u + 'KEY=', ['sk', 'ant', 'api03', run('a', 80) + 'AA'].join('-'), '\n'],
+  ['a GitHub token', 'git remote set-url origin https://', ['ghp', run('g', 36)].join(u), '@github.com/x/y', 'a classic personal one'],
+  ['a GitHub token', 'GH' + u + 'TOKEN: ', ['github', 'pat', '11' + run('G', 20), run('h', 59)].join(u), '\n', 'a fine-grained one'],
 ];
 
 /* The whole finding is pinned, so it names the kind and offset and nothing
    of the value. */
-for (const [kind, before, part, after] of SHAPES) {
-  test('finds ' + kind + ', once, at its offset, named by kind alone', () => {
+/* what: told apart in the title where one kind has two shapes (B6). */
+for (const [kind, before, part, after, what] of SHAPES) {
+  test('finds ' + kind + (what ? ' (' + what + ')' : '') + ', once, at its offset, named by kind alone', () => {
     assert.deepEqual(findSecrets(before + part + after), [kind + ' at offset ' + before.length]);
   });
 }
@@ -42,6 +50,13 @@ test('does not find the public twins: an anon JWT, a publishable key', () => {
   const publishable = ['sb', 'publishable', run('q', 24)].join(u);
   assert.deepEqual(findSecrets('{ ' + 'api' + 'key: "' + publishable + '" }'), []);
   assert.deepEqual(findSecrets('const key = "' + publishable + '";'), []);
+});
+
+/* Final fixes, B6: and a key named in prose, as the review's own notes
+   name them, is not a key - the prefix with no body. */
+test('does not find a key shape named in prose: the prefix alone', () => {
+  assert.deepEqual(findSecrets('an Anthropic key (' + ['sk', 'ant', 'api03', '...'].join('-') + ')'), []);
+  assert.deepEqual(findSecrets('a GitHub token (' + ['ghp', '...'].join(u) + ' and ' + ['github', 'pat', '...'].join(u) + ')'), []);
 });
 
 test('this file itself scans clean', () => {

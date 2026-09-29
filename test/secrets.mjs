@@ -18,6 +18,14 @@ const SHAPES = [
   ['a bearer token', /Bearer\s+[A-Za-z0-9._~+/-]{32,}/i],
   ['an apikey value that is not the publishable key', /apikey["']?\s*[:=]\s*["'](?!sb_publishable_)[A-Za-z0-9._-]{16,}/i],
   ['a token in a URL', /[?&](access_token|refresh_token|token|apikey|key)=[A-Za-z0-9._-]{16,}/i],
+  /* Final fixes, B6: not only Supabase's shapes. The final review put two
+     other secrets this repo's own work uses in a tracked file and both
+     passed: an Anthropic key (api/identify.ts's secret) and a GitHub
+     token. A GitHub token is a classic personal one or a fine-grained
+     one. A prefix alone, as prose names them, is not a key: each needs
+     its body. */
+  ['an Anthropic API key', /sk-ant-[A-Za-z0-9_-]{20,}/],
+  ['a GitHub token', /ghp_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{22,}/],
 ];
 const JWT = /eyJ[A-Za-z0-9_-]{8,}\.(eyJ[A-Za-z0-9_-]{8,})\.[A-Za-z0-9_-]*/g;
 

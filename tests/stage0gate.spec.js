@@ -1842,3 +1842,117 @@ test.describe('stage 0 (final fixes, B1): a held drag writes nothing; a drag put
     expect(rest).toEqual({ moved: true, rpc: 1, traits: ['t_cap_hats_approved'], drafts: ['autosave.t_cap_hats_approved -> t_cap_hats_approved'], offered: 20 });
   });
 });
+
+/* Final fixes, B2 (the rest of it; the reload itself is stage0reload.spec.js).
+   EACH STEP OF A LOOP OF MOVES IS SAFE TO CUT. A tab closed mid-rename, or
+   the bar's button pressed, still cuts the loop, and what the store then
+   holds is what the next page finds. It held each trait written with the
+   flags it was copied with - synced, with the old row - until its send
+   landed, and every drawing under its old id until the loop had ended: cut
+   at a send, a moved trait claimed a send that never happened, and the
+   drawings of the traits already moved were under ids no trait has
+   (measured by the final review). Here the loop is cut where a reload
+   cuts it: the second trait's upload never answers, and the store is read
+   while the loop waits on it. cap, hood and visor are synced on hats (rows
+   1-3), each with a drawing. */
+const cutAtTheSecondSend = (page, op) => page.evaluate(async (op) => {
+  LAYERS = ['hats', 'skins', 'unsorted'];
+  await dbPut({ id: 'settings.layers', kind: 'settings', at: 1, layers: ['hats', 'skins', 'unsorted'], hidden: [] });
+  const blob = () => new Blob([new Uint8Array(16)], { type: 'image/png' });
+  let i = 0;
+  for (const n of ['cap', 'hood', 'visor']) {
+    i++;
+    await dbPut({ id: 't_' + n + '_hats_wip', kind: 'trait', name: n, layer: 'hats', status: 'wip', blob: blob(), w: 16, h: 16, rarity: 1, at: 1000,
+      shelfOrder: i, rowId: 'row-' + i, rowAt: '2026-01-01T00:00:00+00:00', path: 'team7/c1/trait-' + n + '-hats-wip.png', synced: true });
+    await dbPut({ id: 'autosave.t_' + n + '_hats_wip', kind: 'autosave', traitId: 't_' + n + '_hats_wip', name: n + '.png', w: 16, h: 16, blob: blob(), at: 5000 });
+  }
+  const f = window.fetch; let uploads = 0; window.__cut = false;
+  window.fetch = async (u, io) => {
+    const m = (io && io.method) || 'GET';
+    if (m === 'POST' && String(u).indexOf('/storage/v1/object/traits/') >= 0 && ++uploads === 2) {
+      window.__cut = true; window.__s0.log.push('POST ' + String(u).replace(/^https?:\/\/[^/]+/, '') + ' (never answered)');
+      return new Promise(() => {});
+    }
+    return f(u, io);
+  };
+  const toast = window.toast; window.toast = () => {};
+  if (op === 'rename') renameLayer('hats', 'caps');
+  if (op === 'sort') sortApply({ layers: [], both: [], rename: [], move: ['cap', 'hood', 'visor'].map(n => ({ id: 't_' + n + '_hats_wip', name: n, toName: n, toLayer: 'skins', status: 'wip' })) });
+  for (let k = 0; k < 500 && !window.__cut; k++) await new Promise(r => setTimeout(r, 10));
+  const cut = window.__cut;
+  const all = await dbAll();
+  window.toast = toast;
+  const traits = all.filter(x => x.kind === 'trait');
+  return {
+    cut,
+    traits: traits.map(x => x.id + ' ' + (x.synced ? 'synced' : 'unsent') + ' ' + x.rowId).sort(),
+    drawings: traits.map(t => { const d = all.find(x => x.id === 'autosave.' + t.id); return t.name + (d && d.at > (t.at || 0) ? ' offered' : ' none'); }).sort(),
+    orphans: all.filter(x => x.kind === 'autosave' && x.traitId && !traits.some(t => t.id === x.traitId)).map(x => x.id),
+  };
+}, op);
+/* cap sent (the stand-in's insert answers row-new); hood cut at its upload,
+   unsent, its drawing with it; visor not reached. A rename takes them to
+   caps, the sort to skins. */
+const CUT = (to) => ({ cut: true,
+  traits: ['t_cap_' + to + '_wip synced row-new', 't_hood_' + to + '_wip unsent row-2', 't_visor_hats_wip synced row-3'],
+  drawings: ['cap offered', 'hood offered', 'visor offered'], orphans: [] });
+
+test.describe('stage 0 (final fixes, B2): a loop of moves cut part way leaves unsent work, never a false synced', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/index.html');
+    await page.waitForFunction(() => typeof s0Check === 'function');
+    await page.evaluate(async () => { activeWs = 'team7'; dbp = null; dbpName = null; await dbClear(); });
+  });
+  test.afterEach(async ({ page }) => {
+    const unknown = await page.evaluate(() => (window.__s0 && window.__s0.unknown) || []);
+    await page.evaluate(() => {
+      if (window.__s0real) window.fetch = window.__s0real;
+      activeWs = null; localStorage.removeItem('chatnft.session');
+    });
+    expect(unknown, 'every request had a named answer (design E2)').toEqual([]);
+  });
+
+  test('a layer rename cut at its second send', async ({ page }) => {
+    await armStage0(page, { protocol: 1 });
+    expect(await cutAtTheSecondSend(page, 'rename')).toEqual(CUT('caps'));
+  });
+
+  test('Sort unsorted cut at its second send', async ({ page }) => {
+    await armStage0(page, { protocol: 1 });
+    expect(await cutAtTheSecondSend(page, 'sort')).toEqual(CUT('skins'));
+  });
+
+  /* IN HAND: each of the six operations counts while it runs, and not once
+     it has ended - read the moment each is called (s0Work raises the count
+     before the operation's first wait) and after it returns. Nothing is
+     held here, so each goes its usual way. */
+  test('each operation of many records is in hand while it runs, and not after', async ({ page }) => {
+    await armStage0(page, { protocol: 1 });
+    await seedTrait(page, { name: 'cap', layer: 'hats' });
+    await pngFile(page, 'col/hats/wip/hat.png');
+    const r = await page.evaluate(async () => {
+      const toast = window.toast, rc = window.confirm; window.toast = () => {}; window.confirm = () => false;
+      LAYERS = ['hats', 'skins', 'unsorted'];
+      const ops = {
+        'a layer rename': () => renameLayer('skins', 'shoes'),
+        'a layer removal': () => removeLayer('shoes'),
+        'Sort unsorted': () => sortApply({ layers: [], both: [], move: [], rename: [] }),
+        'a batch move': () => { shelfPick.clear(); return bulkMoveToLayer('skins'); },
+        'a folder import': () => bulkImport([fileWithPath(window.__png, window.__rel)]),
+        'a project file import': () => importProject(new File(['{}'], 'project.json', { type: 'application/json' })),
+      };
+      const out = {};
+      try {
+        for (const [name, run] of Object.entries(ops)) {
+          const p = run(); const during = s0Working;
+          try { await p; } catch (e) { out[name + ' threw'] = String(e); }
+          out[name] = [during, s0Working, s0Busy()];
+        }
+      } finally { window.toast = toast; window.confirm = rc; }
+      return out;
+    });
+    const inHand = [1, 0, false];
+    expect(r).toEqual({ 'a layer rename': inHand, 'a layer removal': inHand, 'Sort unsorted': inHand, 'a batch move': inHand,
+      'a folder import': inHand, 'a project file import': inHand });
+  });
+});

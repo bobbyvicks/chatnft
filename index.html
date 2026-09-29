@@ -5049,7 +5049,9 @@ function applyPlanTo(list,updates){
 
    A trait the planner refuses is COUNTED AND NAMED. Moving thirty and quietly
    keeping four is how a collection ships four traits short. */
-async function bulkMoveToLayer(toLayer){
+/* STAGE 0 (final fixes, B2): a batch move is in hand while it runs (s0Work). */
+async function bulkMoveToLayer(toLayer){ return s0Work(()=>s0BulkMoveToLayer(toLayer)); }
+async function s0BulkMoveToLayer(toLayer){
   const s0MarkAt=s0MarkStart();   /* STAGE 0 (D1): where and whose its marks are, before its first wait */
   if(!toLayer) return;
   const s0Home=s0HomeNow();   /* STAGE 0 (fix round 4): see s0HomeNow */
@@ -11843,7 +11845,9 @@ function sortShow(plan){
 
    A destination that already holds this name and status is REFUSED - dbPut
    overwrites, so moving onto it would destroy the trait already there. */
-async function sortApply(plan){
+/* STAGE 0 (final fixes, B2): Sort unsorted is in hand while it runs (s0Work). */
+async function sortApply(plan){ return s0Work(()=>s0SortApply(plan)); }
+async function s0SortApply(plan){
   const s0MarkAt=s0MarkStart();   /* STAGE 0 (D1): where and whose its marks are, before its first wait */
   const s0Home=s0HomeNow();   /* STAGE 0 (fix round 4): see s0HomeNow */
   let made=0, moved=0, refused=[], failed=0;
@@ -11878,11 +11882,14 @@ async function sortApply(plan){
     const rec={...old, id:id, name:r.toName, layer:r.toLayer};
     try{
       if(!s0AtHome(s0Home)){ failed++; break; }   /* STAGE 0 (fix round 4) */
-      await dbApplyShelfRecords([old.id],[rec]);   /* one write: a move between two left both */
+      /* STAGE 0 (final fixes, B2): marked unsent until its send lands, and
+         its drawing moved with it, both before the send, as in retagLayer. */
+      await dbApplyShelfRecords([old.id],[unsentOf(rec)]);   /* one write: a move between two left both */
       s0Pairs.push({from:old, to:rec});
       taken.delete(old.id); taken.add(id);
       if(s0AtHome(s0Home)) await retargetRules([{from:traitKey(old), to:traitKey(rec)}]);
       draftMoves.push({from:old.id, to:id});
+      try{ await draftsFollow([{from:old.id, to:id}],s0Home); }catch(_){}
       /* ALWAYS, as retagLayer calls it: on your own page this is what marks
          the move as not yet sent (patch525), and skipping it let the next
          Load from cloud put the old layer back (measured). */
@@ -11891,7 +11898,8 @@ async function sortApply(plan){
       moved++;
     }catch(_){ failed++; }
   }
-  try{ await draftsFollow(draftMoves,s0Home); }catch(_){}
+  /* (Final fixes, B2: the drawings moved in the loop, each with its trait -
+     the sort's "one transaction after the loop" above is superseded.) */
   if(s0AtHome(s0Home)) await s0Moved(s0Pairs,"person",s0MarkAt);   /* STAGE 0 (D1): one append for the whole sort */
   return {made, moved, refused, failed, stranded};
 }
@@ -12568,7 +12576,9 @@ async function carryDecided(from,toId,home){
    and nothing else - no moved-file deletion, no same-picture merge, no
    report of what the "folder" did not bring. Those three read a folder as
    the whole truth about the layers it touches, and a fixer save is not one. */
-async function bulkImport(files,opts){
+/* STAGE 0 (final fixes, B2): a folder import (the fixer's save goes through it too) is in hand while it runs (s0Work). */
+async function bulkImport(files,opts){ return s0Work(()=>s0BulkImport(files,opts)); }
+async function s0BulkImport(files,opts){
   const s0MarkAt=s0MarkStart();   /* STAGE 0 (D1): where and whose its marks are, before its first wait */
   const inPlace=!!(opts&&opts.inPlace);
   /* STAGE 0 (fix round 4): the import's home - every write and send in it
@@ -16529,6 +16539,10 @@ async function retagLayer(items,from,to,home,s0MarkAt){
   const ruleMoves=[];
   /* Same shape as ruleMoves above, and for the same reason: one write at
      the end rather than one per trait on the layer. */
+  /* (SUPERSEDED, final fixes, B2: the drawings are no longer moved at the
+     end. Each moves with its trait inside the loop, before the send, so a
+     reload that cuts the loop leaves no drawing under an id no trait has;
+     a transaction per drawing is the cost. This keeps the list.) */
   const draftMoves=[];
   const s0Pairs=[];   /* STAGE 0 (D1): the moves, recorded once after the loop */
   for(const t of mine){
@@ -16539,10 +16553,13 @@ async function retagLayer(items,from,to,home,s0MarkAt){
     taken.delete(t.id); taken.add(id);
     const rec=Object.assign({},t,{id:id,name:name,layer:to});
     if(!s0AtHome(s0Home)) break;   /* STAGE 0 (fix round 4) */
-    await dbApplyShelfRecords([t.id],[rec]);   /* one write: a move between two lost the trait */
+    /* STAGE 0 (final fixes, B2): marked unsent until its send lands, and its
+       drawing moved with it now, both before the send (see above). */
+    await dbApplyShelfRecords([t.id],[unsentOf(rec)]);   /* one write: a move between two lost the trait */
     s0Pairs.push({from:t, to:rec});
     ruleMoves.push({from:traitKey(t), to:traitKey(rec)});
     draftMoves.push({from:t.id, to:rec.id});
+    try{ await draftsFollow([{from:t.id, to:rec.id}],s0Home); }catch(_){}
     /* activeWs, because cloudMoveOne returns null when there is no group at
        all - nothing left the browser and nothing was meant to. Without this
        every rename on a personal page would warn about a group. */
@@ -16551,7 +16568,7 @@ async function retagLayer(items,from,to,home,s0MarkAt){
     moved++;
   }
   if(s0AtHome(s0Home)) await retargetRules(ruleMoves);
-  try{ await draftsFollow(draftMoves,s0Home); }catch(_){}
+  /* (Final fixes, B2: the drawings moved in the loop, each with its trait.) */
   if(s0AtHome(s0Home)) await s0Moved(s0Pairs,"person",s0MarkAt);   /* STAGE 0 (D1): one append for the whole layer */
   return {moved:moved,renamed:renamed,stranded:stranded};
 }
@@ -16589,7 +16606,9 @@ async function addLayer(){
   catch(e){ LAYERS=was; $("newlayer").value=raw; try{ await renderShelf(); }catch(_){} layersNotSaved(e,"Could not add "+name); return; }
   toast("Added "+name+(listShared?"":LAYERS_NOT_SHARED));
 }
-async function removeLayer(name){
+/* STAGE 0 (final fixes, B2): a layer removal is in hand while it runs (s0Work). */
+async function removeLayer(name){ return s0Work(()=>s0RemoveLayer(name)); }
+async function s0RemoveLayer(name){
   const s0MarkAt=s0MarkStart();   /* STAGE 0 (D1): where and whose its marks are, before its first wait */
   const s0Home=s0HomeNow();   /* STAGE 0 (fix round 4): see s0HomeNow */
   if(name==="unsorted"){ toast("unsorted is where loose traits land, so it stays"); return; }
@@ -16615,7 +16634,9 @@ async function removeLayer(name){
     +(!r.stranded&&!listShared?LAYERS_NOT_SHARED:"")
     +(r.stranded?" - "+r.stranded+" not shared yet, press Save to cloud":""));
 }
-async function renameLayer(oldName,raw){
+/* STAGE 0 (final fixes, B2): a layer rename is in hand while it runs (s0Work). */
+async function renameLayer(oldName,raw){ return s0Work(()=>s0RenameLayer(oldName,raw)); }
+async function s0RenameLayer(oldName,raw){
   const s0MarkAt=s0MarkStart();   /* STAGE 0 (D1): where and whose its marks are, before its first wait */
   const s0Home=s0HomeNow();   /* STAGE 0 (fix round 4): see s0HomeNow */
   const nw=slugLayer(raw);
@@ -18481,7 +18502,9 @@ async function readProjectFile(file){
     buf=buf.slice(end+1); pos=0;
   }
 }
-async function importProject(file){
+/* STAGE 0 (final fixes, B2): a project file import is in hand while it runs (s0Work). */
+async function importProject(file){ return s0Work(()=>s0ImportProject(file)); }
+async function s0ImportProject(file){
   /* STAGE 0 (fix round 4): the import's home. s0Go() asks it before each
      write, and once it has answered no, keeps answering no (s0Left). */
   const s0Home=s0HomeNow();
@@ -19509,6 +19532,23 @@ function s0ReloadKey(){ return S0_RELOADED+wsDbName()+"."+(s0Uid()||""); }
    that cannot be read is busy: a missed reload costs a press, a reload
    over what it guards costs that work (test/stage0-source.test.mjs keeps
    every name here declared). */
+/* (FINAL FIXES, B2: AND A PERSON'S OWN OPERATION OF MANY RECORDS. A layer
+   rename or removal, a sort, a batch move, a folder import and a project
+   import each send one record at a time, and each send reads the
+   protocol first - so the operation's own first send could be the read
+   that found protocol 2, and the page reloaded in the middle of it. The
+   loop was cut: drawings left under ids no trait has, a moved trait
+   marked synced that was never sent, no move marks, and the rules and
+   the layer list not saved (measured by the final review). s0Working
+   counts the operations running; s0Busy reads it; and when the last one
+   ends, s0Show applies the rule again, so a reload put off for it
+   happens then. s0Work wraps each, and lowers the count however it ends.) */
+let s0Working=0;
+async function s0Work(run){
+  s0Working++;
+  try{ return await run(); }
+  finally{ s0Working=Math.max(0,s0Working-1); if(!s0Working) s0Show(); }
+}
 function s0Busy(){
   const on=f=>{ try{ return !!f(); }catch(_){ return true; } };
   const app=$("app");
@@ -19516,7 +19556,8 @@ function s0Busy(){
   return on(()=>painting) || on(()=>moveBuf) || on(()=>moveFrom)
     || on(()=>seDrag) || on(()=>seLift) || on(()=>textDrag) || on(()=>pendingTouch)
     || on(()=>shelfDrag) || on(()=>shelfMoveBusy) || on(()=>layerDrag) || on(()=>exDrag) || on(()=>gdDrag)
-    || on(()=>autoPending) || on(()=>s0SaveInFlight) || on(()=>s0SignOutWait) || on(()=>s0WsWant!==undefined);
+    || on(()=>autoPending) || on(()=>s0SaveInFlight) || on(()=>s0SignOutWait) || on(()=>s0WsWant!==undefined)
+    || on(()=>s0Working>0);
 }
 /* The fixer's results live only in memory in stage 0: a single fix's
    (FIX.out) and a folder's (fixBatchFiles) - and the fixer at work on

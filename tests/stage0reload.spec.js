@@ -405,4 +405,72 @@ test.describe('stage 0: the reload rule', () => {
     expect(await page.evaluate(() => activeWs), 'back on the group').toBe('team7');
     expect(await draft(page, 'autosave.working')).toEqual({ px: [0, 0, 255, 255], by: 'u1' });
   });
+
+  /* Final fixes, B2. A PERSON'S OWN OPERATION IS IN HAND. A layer rename in
+     a group sends trait by trait, and each send reads the protocol first;
+     on a project that switched before this tab read it, the rename's own
+     first send is the read that finds protocol 2. The page reloaded then,
+     in the middle of the loop: the traits not yet reached stayed on the
+     old layer, drawings were left under ids no trait has, one moved trait
+     was marked synced and never sent, and no marks, rules or layer list
+     were written (measured by the final review, 3 of 3 runs). The rename
+     is in hand now: it finishes - every trait moved and kept unsent, every
+     drawing offered, the marks and the layer list written - and the page
+     reloads once it has. team7 holds cap, hood and visor on hats, synced,
+     each with a drawing newer than its saved picture; the store is read
+     after the reload, by name. */
+  const seedRename = (page) => page.evaluate(async () => {
+    LAYERS = ['hats', 'skins', 'unsorted'];
+    await dbPut({ id: 'settings.layers', kind: 'settings', at: 1, layers: ['hats', 'skins', 'unsorted'], hidden: [] });
+    const blob = () => new Blob([new Uint8Array(16)], { type: 'image/png' });
+    let i = 0;
+    for (const n of ['cap', 'hood', 'visor']) {
+      i++;
+      await dbPut({ id: 't_' + n + '_hats_wip', kind: 'trait', name: n, layer: 'hats', status: 'wip', blob: blob(), w: 16, h: 16, rarity: 1, at: 1000,
+        shelfOrder: i, rowId: 'row-' + i, rowAt: '2026-01-01T00:00:00+00:00', path: 'team7/c1/trait-' + n + '-hats-wip.png', synced: true });
+      await dbPut({ id: 'autosave.t_' + n + '_hats_wip', kind: 'autosave', traitId: 't_' + n + '_hats_wip', name: n + '.png', w: 16, h: 16, blob: blob(), at: 5000 });
+    }
+    await renderShelf();
+    /* A fresh tab: nothing read yet, no reload made. */
+    s0State = { db: null, uid: null, protocol: 1, switching: false, ok: false, at: 0 };
+    s0Seen2.clear();
+    sessionStorage.clear();
+  });
+  const team7Store = (page) => page.evaluate(async () => {
+    const d = await new Promise((res, rej) => { const r = indexedDB.open('chatnft.ws.team7', 1); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+    const all = await new Promise((res, rej) => { const t = d.transaction('items', 'readonly'); const q = t.objectStore('items').getAll(); q.onsuccess = () => res(q.result || []); q.onerror = () => rej(q.error); });
+    d.close();
+    const traits = all.filter(x => x.kind === 'trait');
+    return {
+      traits: traits.map(x => x.id + (x.synced ? ' synced' : ' unsent')).sort(),
+      /* Offered: a drawing under its trait's id, newer than the trait (the open path takes only a newer one). */
+      offered: traits.map(t => { const d = all.find(x => x.id === 'autosave.' + t.id); return t.name + (d && d.at > (t.at || 0) ? ' offered' : ' none'); }).sort(),
+      orphans: all.filter(x => x.kind === 'autosave' && x.traitId && !traits.some(t => t.id === x.traitId)).map(x => x.id),
+      layers: (all.find(x => x.id === 'settings.layers') || {}).layers,
+      moves: ((all.find(x => x.id === 'settings.gonemarks') || {}).marks || []).filter(m => m.what === 'moved').map(m => m.from.id + ' -> ' + m.to.id).sort(),
+    };
+  });
+
+  test('a layer rename whose first send finds protocol 2 finishes - every trait moved, every drawing offered, marks and layer list written - and reloads only after', async ({ page }) => {
+    await serve(page, { protocol: 2 });
+    /* The rename looks its collection up before each send (named, not the catch-all). */
+    await page.route(/\/rest\/v1\/collections\?select=id,layers/, (r) => r.fulfill({ status: 200, contentType: 'application/json', headers: CORS,
+      body: JSON.stringify([{ id: 'c1', layers: ['hats', 'skins', 'unsorted'], rules: [], decisions: [], decide_order: [], empty_chance: null, rules_at: null }]) }));
+    await page.goto('/index.html');
+    await ready(page);
+    await signIn(page);
+    await onTeam7(page);
+    await seedRename(page);
+    const loads = counting(page);
+    await page.evaluate(() => { window.__renaming = renameLayer('hats', 'caps'); });
+    await expect.poll(() => loads.n, { timeout: 20000 }).toBe(1);
+    await ready(page);
+    expect(await team7Store(page)).toEqual({
+      traits: ['t_cap_caps_wip unsent', 't_hood_caps_wip unsent', 't_visor_caps_wip unsent'],
+      offered: ['cap offered', 'hood offered', 'visor offered'], orphans: [],
+      layers: ['caps', 'skins', 'unsorted'],
+      moves: ['t_cap_hats_wip -> t_cap_caps_wip', 't_hood_hats_wip -> t_hood_caps_wip', 't_visor_hats_wip -> t_visor_caps_wip'] });
+    await page.waitForTimeout(2000);
+    expect(loads.n, 'once').toBe(1);
+  });
 });

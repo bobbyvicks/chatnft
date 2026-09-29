@@ -116,6 +116,23 @@ doc.swap(['    else if(!why&&ours) fx.textContent="";', '  }', '}'], [
   '   that cannot be read is busy: a missed reload costs a press, a reload',
   '   over what it guards costs that work (test/stage0-source.test.mjs keeps',
   '   every name here declared). */',
+  '/* (FINAL FIXES, B2: AND A PERSON\'S OWN OPERATION OF MANY RECORDS. A layer',
+  '   rename or removal, a sort, a batch move, a folder import and a project',
+  '   import each send one record at a time, and each send reads the',
+  '   protocol first - so the operation\'s own first send could be the read',
+  '   that found protocol 2, and the page reloaded in the middle of it. The',
+  '   loop was cut: drawings left under ids no trait has, a moved trait',
+  '   marked synced that was never sent, no move marks, and the rules and',
+  '   the layer list not saved (measured by the final review). s0Working',
+  '   counts the operations running; s0Busy reads it; and when the last one',
+  '   ends, s0Show applies the rule again, so a reload put off for it',
+  '   happens then. s0Work wraps each, and lowers the count however it ends.) */',
+  'let s0Working=0;',
+  'async function s0Work(run){',
+  '  s0Working++;',
+  '  try{ return await run(); }',
+  '  finally{ s0Working=Math.max(0,s0Working-1); if(!s0Working) s0Show(); }',
+  '}',
   'function s0Busy(){',
   '  const on=f=>{ try{ return !!f(); }catch(_){ return true; } };',
   '  const app=$("app");',
@@ -123,7 +140,8 @@ doc.swap(['    else if(!why&&ours) fx.textContent="";', '  }', '}'], [
   '  return on(()=>painting) || on(()=>moveBuf) || on(()=>moveFrom)',
   '    || on(()=>seDrag) || on(()=>seLift) || on(()=>textDrag) || on(()=>pendingTouch)',
   '    || on(()=>shelfDrag) || on(()=>shelfMoveBusy) || on(()=>layerDrag) || on(()=>exDrag) || on(()=>gdDrag)',
-  '    || on(()=>autoPending) || on(()=>s0SaveInFlight) || on(()=>s0SignOutWait) || on(()=>s0WsWant!==undefined);',
+  '    || on(()=>autoPending) || on(()=>s0SaveInFlight) || on(()=>s0SignOutWait) || on(()=>s0WsWant!==undefined)',
+  '    || on(()=>s0Working>0);',
   '}',
   '/* The fixer\'s results live only in memory in stage 0: a single fix\'s',
   '   (FIX.out) and a folder\'s (fixBatchFiles) - and the fixer at work on',
@@ -186,6 +204,92 @@ doc.swap(['    else if(!why&&ours) fx.textContent="";', '  }', '}'], [
   '}',
 ]);
 
+/* ---- 2b. final fixes, B2: an operation of many records is in hand ------- */
+/* Each wrapper keeps the operation's name, so every caller - the layer
+   list's input and button, Sort unsorted, the batch move, the import
+   buttons, the fixer's save - is in hand without being touched. */
+const WRAP = [
+  ['renameLayer', 'oldName,raw', 'a layer rename'],
+  ['removeLayer', 'name', 'a layer removal'],
+  ['sortApply', 'plan', 'Sort unsorted'],
+  ['bulkMoveToLayer', 'toLayer', 'a batch move'],
+  ['bulkImport', 'files,opts', 'a folder import (the fixer\'s save goes through it too)'],
+  ['importProject', 'file', 'a project file import'],
+];
+for (const [fn, args, what] of WRAP) {
+  const inner = 's0' + fn.charAt(0).toUpperCase() + fn.slice(1);
+  doc.swap('async function ' + fn + '(' + args + '){', [
+    '/* STAGE 0 (final fixes, B2): ' + what + ' is in hand while it runs (s0Work). */',
+    'async function ' + fn + '(' + args + '){ return s0Work(()=>' + inner + '(' + args + ')); }',
+    'async function ' + inner + '(' + args + '){',
+  ]);
+}
+/* EACH STEP SAFE TO CUT (final fixes, B2). The count keeps the page from
+   reloading itself mid-loop; a tab closed, or the button pressed, still
+   cuts it. Each trait is written marked unsent, and its drawing moved with
+   it, before its send - so a cut leaves unsent work that Save to cloud
+   finds and a drawing its trait offers, never a trait claiming a send that
+   did not happen (the review measured one left synced, with the old row,
+   in 19 of 20 short runs). The send clears the mark when it lands:
+   cloudSyncOne writes the record sent. */
+doc.swap([
+  '  /* Same shape as ruleMoves above, and for the same reason: one write at',
+  '     the end rather than one per trait on the layer. */',
+  '  const draftMoves=[];',
+], [
+  '  /* Same shape as ruleMoves above, and for the same reason: one write at',
+  '     the end rather than one per trait on the layer. */',
+  '  /* (SUPERSEDED, final fixes, B2: the drawings are no longer moved at the',
+  '     end. Each moves with its trait inside the loop, before the send, so a',
+  '     reload that cuts the loop leaves no drawing under an id no trait has;',
+  '     a transaction per drawing is the cost. This keeps the list.) */',
+  '  const draftMoves=[];',
+]);
+doc.swap([
+  '    await dbApplyShelfRecords([t.id],[rec]);   /* one write: a move between two lost the trait */',
+  '    s0Pairs.push({from:t, to:rec});',
+  '    ruleMoves.push({from:traitKey(t), to:traitKey(rec)});',
+  '    draftMoves.push({from:t.id, to:rec.id});',
+], [
+  '    /* STAGE 0 (final fixes, B2): marked unsent until its send lands, and its',
+  '       drawing moved with it now, both before the send (see above). */',
+  '    await dbApplyShelfRecords([t.id],[unsentOf(rec)]);   /* one write: a move between two lost the trait */',
+  '    s0Pairs.push({from:t, to:rec});',
+  '    ruleMoves.push({from:traitKey(t), to:traitKey(rec)});',
+  '    draftMoves.push({from:t.id, to:rec.id});',
+  '    try{ await draftsFollow([{from:t.id, to:rec.id}],s0Home); }catch(_){}',
+]);
+doc.swap([
+  '  if(s0AtHome(s0Home)) await retargetRules(ruleMoves);',
+  '  try{ await draftsFollow(draftMoves,s0Home); }catch(_){}',
+], [
+  '  if(s0AtHome(s0Home)) await retargetRules(ruleMoves);',
+  '  /* (Final fixes, B2: the drawings moved in the loop, each with its trait.) */',
+]);
+doc.swap([
+  '      await dbApplyShelfRecords([old.id],[rec]);   /* one write: a move between two left both */',
+  '      s0Pairs.push({from:old, to:rec});',
+], [
+  '      /* STAGE 0 (final fixes, B2): marked unsent until its send lands, and',
+  '         its drawing moved with it, both before the send, as in retagLayer. */',
+  '      await dbApplyShelfRecords([old.id],[unsentOf(rec)]);   /* one write: a move between two left both */',
+  '      s0Pairs.push({from:old, to:rec});',
+]);
+doc.swap([
+  '      draftMoves.push({from:old.id, to:id});',
+], [
+  '      draftMoves.push({from:old.id, to:id});',
+  '      try{ await draftsFollow([{from:old.id, to:id}],s0Home); }catch(_){}',
+]);
+doc.swap([
+  '  try{ await draftsFollow(draftMoves,s0Home); }catch(_){}',
+  '  if(s0AtHome(s0Home)) await s0Moved(s0Pairs,"person",s0MarkAt);   /* STAGE 0 (D1): one append for the whole sort */',
+], [
+  '  /* (Final fixes, B2: the drawings moved in the loop, each with its trait -',
+  '     the sort\'s "one transaction after the loop" above is superseded.) */',
+  '  if(s0AtHome(s0Home)) await s0Moved(s0Pairs,"person",s0MarkAt);   /* STAGE 0 (D1): one append for the whole sort */',
+]);
+
 /* ---- 3. the button ------------------------------------------------------- */
 doc.swap('},S0_POLL_MS);', [
   '},S0_POLL_MS);',
@@ -208,4 +312,19 @@ doc.finish(({ text, code, must }) => {
   must('if(!$("app").hidden) return await autosaveNow();', 'the Reload button does not write the open editor\'s draft first');
   must('if(!ok) return;', 'the Reload button reloads over a draft write that failed');
   if ((code.match(/location\.reload\(\)/g) || []).length !== 2) throw new Error('only s0Reload and s0ReloadNow may reload the page');
+  /* Final fixes, B2. */
+  must('on(()=>s0Working>0)', 's0Busy does not read an operation in hand');
+  must('finally{ s0Working=Math.max(0,s0Working-1); if(!s0Working) s0Show(); }', 'an operation that ends does not lower the count, or does not apply the rule again');
+  for (const [fn, args] of WRAP) {
+    const inner = 's0' + fn.charAt(0).toUpperCase() + fn.slice(1);
+    must('async function ' + fn + '(' + args + '){ return s0Work(()=>' + inner + '(' + args + ')); }', fn + ' is not in hand while it runs');
+    if ((code.match(new RegExp('async function ' + fn + '\\(', 'g')) || []).length !== 1) throw new Error(fn + ' is declared twice');
+  }
+  for (const [fn, write, send] of [['async function retagLayer(', 'await dbApplyShelfRecords([t.id],[unsentOf(rec)]);', 'await cloudMoveOne(t,rec,undefined,s0Home,s0Run);'],
+    ['async function s0SortApply(', 'await dbApplyShelfRecords([old.id],[unsentOf(rec)]);', 'await cloudMoveOne(old,rec,undefined,s0Home,s0Run);']]) {
+    const f = code.indexOf(fn), e = code.indexOf('\n}', f), b = f >= 0 && e > f ? code.slice(f, e) : '';
+    const w = b.indexOf(write), d = b.indexOf('try{ await draftsFollow([{from:', w), s = b.indexOf(send, w);
+    if (w < 0 || d < 0 || s < 0 || !(w < d && d < s)) throw new Error(fn + ' does not write the move unsent and move its drawing before the send');
+    if (b.indexOf('draftsFollow(draftMoves') >= 0) throw new Error(fn + ' still moves the drawings after the loop');
+  }
 });

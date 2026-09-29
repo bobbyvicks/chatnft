@@ -83,9 +83,12 @@ test('every flag the reload rule reads is declared at the top level of the page'
   const read = busyFlags();
   assert.ok(read, 'no s0Busy in the page');
   assert.ok(read.includes('painting') && read.length >= 16, 'the names were not read out of s0Busy: ' + JSON.stringify(read));
+  /* (Final fixes, ruling B2: and s0Working, the count of a person's own
+     operations of many records in hand - a layer rename or removal, a
+     sort, a batch move, a folder or project import.) */
   assert.deepEqual(read, ['painting', 'moveBuf', 'moveFrom', 'seDrag', 'seLift', 'textDrag', 'pendingTouch', 'shelfDrag', 'shelfMoveBusy',
-    'layerDrag', 'exDrag', 'gdDrag', 'autoPending', 's0SaveInFlight', 's0SignOutWait', 's0WsWant'].sort(),
-    'the flags s0Busy reads: Task 10\'s closing save and waits (autoPending, s0SaveInFlight, s0SignOutWait, s0WsWant) among them');
+    'layerDrag', 'exDrag', 'gdDrag', 'autoPending', 's0SaveInFlight', 's0SignOutWait', 's0WsWant', 's0Working'].sort(),
+    'the flags s0Busy reads: Task 10\'s closing save and waits (autoPending, s0SaveInFlight, s0SignOutWait, s0WsWant) and the operations in hand (s0Working) among them');
   for (const name of read) assert.ok(topLevelLet(name), name + ' is not a top-level let: s0Busy would read it as busy, always');
   /* Ruling F-13: the check itself can say no - a name the page never declares. */
   assert.equal(topLevelLet('s0NoSuchFlag'), false, 'the check finds a name the page does not declare');

@@ -1735,4 +1735,84 @@ test.describe('stage 0: a renewal or a refusal that answers after the session ch
     expect({ held: r.held, end: { authed: r.end.authed, stored: r.end.stored, gateShown: r.end.gateShown }, signedOutToast: r.signedOutToast, unknown: r.unknown })
       .toEqual({ held: true, end: { authed: false, stored: null, gateShown: true }, signedOutToast: true, unknown: [] });
   });
+
+  /* Final fixes, B4 (the parked list's first item; H6 in the Task 10 final
+     review's auth hunt). A REFUSAL THAT LANDS WHEN NOTHING IS STORED. Two
+     tabs of one account, both signed in, both asking the server at once
+     from an action (Load from cloud); the server refuses both - the
+     session was revoked. The first refusal clears the stored session and
+     signs its tab out. The second lands with nothing stored, and the
+     condition "the stored session is still the one refused" was false for
+     it, so that tab kept claiming a sign-in storage no longer held: its
+     panel said signed in and every cloud action said "Sign in first",
+     with no wall to sign in again through (measured at afff755; e43fdfc
+     and the live page signed it out). Nothing stored is the refused
+     session gone, so it signs out too; a different session stored - a
+     newer sign-in - is still left alone (the tests above). `what`:
+     'renew' holds both renewals of the token in its last minute, 'user'
+     holds both account checks of a fresh token; `bVia`: the second tab's
+     'action' (cloudPull) or 'start' (cloudRender). */
+  const bothRefused = async (page, context, what, bVia) => {
+    const B = await context.newPage();
+    await B.route(/\.supabase\.co\//, (route) => {
+      pastTheStandIns.push(route.request().method() + ' ' + route.request().url().replace(/^https?:\/\/[^/]+/, ''));
+      return route.abort();
+    });
+    await B.goto('/index.html');
+    await B.waitForFunction(() => typeof cloudRender === 'function' && typeof sbToken === 'function');
+    for (const p of [page, B])
+      await p.evaluate((src) => { (new Function('return (' + src + ')'))()(); window.__renewStatus = 400; activeWs = null; groupCaughtUp = true; }, authStandIn.toString());
+    /* Both signed in for real first, their panels drawn, with a fresh token. */
+    await page.evaluate(() => { wsSave(null);
+      localStorage.setItem('chatnft.session', JSON.stringify({ access_token: 'tok-u1', refresh_token: 'rt-u1', expires_at: Math.floor(Date.now() / 1000) + 3600, user: { id: 'u1' } })); });
+    for (const p of [page, B]) await p.evaluate(async () => { await cloudRender(); await new Promise(r => setTimeout(r, 300)); });
+    const before = await B.evaluate(new Function('return (' + authState.toString() + ')')());
+    if (what === 'renew')
+      await page.evaluate(() => localStorage.setItem('chatnft.session', JSON.stringify({ access_token: 'tok-u1', refresh_token: 'rt-u1', expires_at: Math.floor(Date.now() / 1000) + 30, user: { id: 'u1' } })));
+    for (const p of [page, B]) await p.evaluate((what) => {
+      window.__toasts = []; window.__renewAsked = 0; window.__userAsked = 0;
+      if (what === 'user') { let open; window.__userGate = new Promise(r => { open = r; }); window.__userOpen = open; }
+    }, what);
+    await page.evaluate(() => { window.__p = cloudPull({}).then(() => 'done', e => 'threw ' + e); });
+    await B.evaluate((bVia) => { window.__p = (bVia === 'start' ? cloudRender() : cloudPull({})).then(() => 'done', e => 'threw ' + e); }, bVia);
+    const asked = what === 'renew' ? () => window.__renewAsked === 1 : () => window.__userAsked === 1;
+    await page.waitForFunction(asked, null, { timeout: 5000 });
+    await B.waitForFunction(asked, null, { timeout: 5000 });
+    const release = (what) => { if (what === 'renew') window.__renewOpen(); else window.__userOpen(401); return window.__p; };
+    const aGot = await page.evaluate(release, what);
+    const storedBetween = await B.evaluate(() => localStorage.getItem('chatnft.session'));
+    const bGot = await B.evaluate(release, what);
+    await B.waitForTimeout(300);
+    const end = async (p) => Object.assign(await p.evaluate(new Function('return (' + authState.toString() + ')')()),
+      await p.evaluate(() => ({ who: $('cloudwho').textContent, signedOutToast: window.__toasts.some(t => /signed out on this device/.test(t)) })));
+    const aEnd = await end(page), bEnd = await end(B);
+    const unknown = [...await page.evaluate(() => window.__unknown.slice()), ...await B.evaluate(() => window.__unknown.slice())];
+    await B.close();
+    return { before: { authed: before.authed, uid: before.uid, stored: before.stored }, aGot, bGot, storedBetween, aEnd, bEnd, unknown };
+  };
+  const signedOut = { authed: false, uid: null, stored: null, offline: false, pushShown: false, gateShown: true, who: 'not signed in', signedOutToast: true };
+
+  test('two tabs of one account, both renewals refused, each from Load from cloud: both end signed out', async ({ page, context }) => {
+    const r = await bothRefused(page, context, 'renew', 'action');
+    expect(r).toEqual({ before: { authed: true, uid: 'u1', stored: 'tok-u1' }, aGot: 'done', bGot: 'done', storedBetween: null,
+      aEnd: signedOut, bEnd: signedOut, unknown: [] });
+  });
+
+  /* The start draws the wall itself when it finds nobody signed in, so this
+     one shows the harness can see the second tab signed out whichever way
+     the refusal is handled: its toast is not asked (measured at d9eb714:
+     the start signed it out with no toast). */
+  test('the control: the same two refused renewals, the second tab\'s through a start of the page, both end signed out', async ({ page, context }) => {
+    const r = await bothRefused(page, context, 'renew', 'start');
+    const { signedOutToast, ...bState } = r.bEnd;
+    const { signedOutToast: _, ...signedOutState } = signedOut;
+    expect({ ...r, bEnd: bState }).toEqual({ before: { authed: true, uid: 'u1', stored: 'tok-u1' }, aGot: 'done', bGot: 'done', storedBetween: null,
+      aEnd: signedOut, bEnd: signedOutState, unknown: [] });
+  });
+
+  test('two tabs of one account, both account checks refused, each from Load from cloud: both end signed out', async ({ page, context }) => {
+    const r = await bothRefused(page, context, 'user', 'action');
+    expect(r).toEqual({ before: { authed: true, uid: 'u1', stored: 'tok-u1' }, aGot: 'done', bGot: 'done', storedBetween: null,
+      aEnd: signedOut, bEnd: signedOut, unknown: [] });
+  });
 });

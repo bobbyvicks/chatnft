@@ -18703,9 +18703,18 @@ async function sbToken(){
            refusal of an older renewal arriving after a newer sign-in cleared
            the new session and signed its account out (measured). So only
            while the stored session still carries the refresh token refused. */
+        /* (Final fixes, B4: OR WHILE NOTHING IS STORED. Another tab of this
+           account had its renewal refused first and cleared the session:
+           the one refused here is gone all the same. Asked only "is it
+           still the one refused", this tab kept claiming a sign-in that
+           storage no longer held - its panel said signed in, every cloud
+           action said "Sign in first", and there was no wall to sign in
+           again through (measured, two tabs both refused; e43fdfc and the
+           live page signed it out). A different session stored - a newer
+           sign-in - is still left alone.) */
         if(r.status===400||r.status===401||r.status===403){
           const now=sbLoadSession();
-          if(now && now.refresh_token===s.refresh_token){ sbSaveSession(null); sessionEnded(); }
+          if(!now || now.refresh_token===s.refresh_token){ sbSaveSession(null); sessionEnded(); }
         }
         return null;
       }
@@ -18788,9 +18797,13 @@ async function sbAuthState(again){
        the new account out. If what is stored now is not the token that was
        refused, the answer is about a session that has gone: the question is
        asked again, once, of the session stored now. */
+    /* (Final fixes, B4: or nothing is stored - as in sbToken: another tab
+       of this account was refused first and cleared it. Asked again then,
+       the page answered "out" without ending the sign-in it still showed
+       (measured, two tabs both refused).) */
     if(r.status===401||r.status===403){
       const now=sbLoadSession();
-      if(now && now.access_token===t){ sbSaveSession(null); sessionEnded(); return {state:"out"}; }
+      if(!now || now.access_token===t){ sbSaveSession(null); sessionEnded(); return {state:"out"}; }
       return again ? {state:"unknown"} : sbAuthState(true);
     }
     /* A 500, a 429, a gateway page: the server did not answer the question. */

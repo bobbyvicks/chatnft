@@ -319,9 +319,18 @@ doc.swap('        if(r.status===400||r.status===401||r.status===403){ sbSaveSess
   '           refusal of an older renewal arriving after a newer sign-in cleared',
   '           the new session and signed its account out (measured). So only',
   '           while the stored session still carries the refresh token refused. */',
+  '        /* (Final fixes, B4: OR WHILE NOTHING IS STORED. Another tab of this',
+  '           account had its renewal refused first and cleared the session:',
+  '           the one refused here is gone all the same. Asked only "is it',
+  '           still the one refused", this tab kept claiming a sign-in that',
+  '           storage no longer held - its panel said signed in, every cloud',
+  '           action said "Sign in first", and there was no wall to sign in',
+  '           again through (measured, two tabs both refused; e43fdfc and the',
+  '           live page signed it out). A different session stored - a newer',
+  '           sign-in - is still left alone.) */',
   '        if(r.status===400||r.status===401||r.status===403){',
   '          const now=sbLoadSession();',
-  '          if(now && now.refresh_token===s.refresh_token){ sbSaveSession(null); sessionEnded(); }',
+  '          if(!now || now.refresh_token===s.refresh_token){ sbSaveSession(null); sessionEnded(); }',
   '        }',
 ]);
 doc.swap('    if(r.status===401||r.status===403){ sbSaveSession(null); sessionEnded(); return {state:"out"}; }', [
@@ -330,9 +339,13 @@ doc.swap('    if(r.status===401||r.status===403){ sbSaveSession(null); sessionEn
   '       the new account out. If what is stored now is not the token that was',
   '       refused, the answer is about a session that has gone: the question is',
   '       asked again, once, of the session stored now. */',
+  '    /* (Final fixes, B4: or nothing is stored - as in sbToken: another tab',
+  '       of this account was refused first and cleared it. Asked again then,',
+  '       the page answered "out" without ending the sign-in it still showed',
+  '       (measured, two tabs both refused).) */',
   '    if(r.status===401||r.status===403){',
   '      const now=sbLoadSession();',
-  '      if(now && now.access_token===t){ sbSaveSession(null); sessionEnded(); return {state:"out"}; }',
+  '      if(!now || now.access_token===t){ sbSaveSession(null); sessionEnded(); return {state:"out"}; }',
   '      return again ? {state:"unknown"} : sbAuthState(true);',
   '    }',
 ]);
@@ -859,12 +872,13 @@ doc.finish(({ code, must }) => {
   if (!/const still=sbLoadSession\(\);\s*if\(!still\) return null;\s*if\(still\.refresh_token!==s\.refresh_token\)\{\s*const same=!!s0SessionUid\(still\) && s0SessionUid\(still\)===s0SessionUid\(s\);\s*return \(same && still\.access_token && still\.expires_at && Date\.now\(\) < \(still\.expires_at\*1000 - 60000\)\) \? still\.access_token : null;\s*\}\s*sbSaveSession\(\{access_token:j\.access_token/.test(tok))
     throw new Error('a renewed session is stored without checking it is still the one renewed, or the same account\'s renewal by another tab is not answered');
   /* Final adjudication touch: a refusal clears only the session it refused. */
-  if (!/if\(r\.status===400\|\|r\.status===401\|\|r\.status===403\)\{\s*const now=sbLoadSession\(\);\s*if\(now && now\.refresh_token===s\.refresh_token\)\{ sbSaveSession\(null\); sessionEnded\(\); \}\s*\}/.test(tok))
-    throw new Error('a refused renewal clears a session it did not refuse');
+  /* (Final fixes, B4: or while nothing is stored.) */
+  if (!/if\(r\.status===400\|\|r\.status===401\|\|r\.status===403\)\{\s*const now=sbLoadSession\(\);\s*if\(!now \|\| now\.refresh_token===s\.refresh_token\)\{ sbSaveSession\(null\); sessionEnded\(\); \}\s*\}/.test(tok))
+    throw new Error('a refused renewal clears a session it did not refuse, or does not end one already cleared');
   const auth = body('async function sbAuthState(again){');
-  if (!/if\(r\.status===401\|\|r\.status===403\)\{\s*const now=sbLoadSession\(\);\s*if\(now && now\.access_token===t\)\{ sbSaveSession\(null\); sessionEnded\(\); return \{state:"out"\}; \}\s*return again \? \{state:"unknown"\} : sbAuthState\(true\);\s*\}/.test(auth))
-    throw new Error('a refused /auth/v1/user clears a session it did not refuse');
-  if (/sbSaveSession\(null\); sessionEnded\(\);/.test(auth.replace('if(now && now.access_token===t){ sbSaveSession(null); sessionEnded();', '')))
+  if (!/if\(r\.status===401\|\|r\.status===403\)\{\s*const now=sbLoadSession\(\);\s*if\(!now \|\| now\.access_token===t\)\{ sbSaveSession\(null\); sessionEnded\(\); return \{state:"out"\}; \}\s*return again \? \{state:"unknown"\} : sbAuthState\(true\);\s*\}/.test(auth))
+    throw new Error('a refused /auth/v1/user clears a session it did not refuse, or does not end one already cleared');
+  if (/sbSaveSession\(null\); sessionEnded\(\);/.test(auth.replace('if(!now || now.access_token===t){ sbSaveSession(null); sessionEnded();', '')))
     throw new Error('sbAuthState clears a session somewhere without checking it is the one refused');
   must('function s0SessionUid(s){', 'there is no way to tell whose a session is');
   if ((tx.match(/\.transaction\(/g) || []).length !== 1 || /\bawait\b|\.then\(/.test(tx)) throw new Error('s0ReidTx is not exactly one transaction with no wait');

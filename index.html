@@ -4628,6 +4628,7 @@ function s0ReidTx(d,oldId,rec,was,by){
 
 let shelfMoveBusy=false;
 async function commitShelfMove(spec){
+  const s0MarkAt=s0MarkStart();   /* STAGE 0 (D1): where and whose its marks are, before its first wait */
   /* SAID, NOT SILENT. This returned false without a word, which was fine
      while a drag was the only way in - pointerdown checks the same flag and
      never starts one. A control on the final project page can reach it, and
@@ -4721,6 +4722,12 @@ async function commitShelfMove(spec){
     return false;
   }
 
+  /* STAGE 0 (D1): the moves that stuck - past the rollback, so an undone
+     drag is not one. The record each landed on is read from the store: on
+     your own page what was written is a copy (unsentOf), and it is the
+     copy that was given the local id. */
+  await s0Moved(plan.updates.filter(u=>u.oldId!==u.record.id)
+    .map(u=>({from:items.find(i=>i.id===u.oldId)||u.oldId, to:u.record.id})),"person",s0MarkAt);
   /* Only here, past the rollback above: a move that did not stick must not
      take the rules with it. */
   await retargetRules(plan.updates.map(u=>
@@ -4781,6 +4788,7 @@ let shelfPick=new Set();
    move into a final-project layer that has one of this name renames the
    trait where it is before moving it. */
 async function setTraitStatus(t,next,asName){
+  const s0MarkAt=s0MarkStart();   /* STAGE 0 (D1): where and whose its marks are, before its first wait */
   if(!t||!next) return {ok:false};
   if(String(t.status||"wip")===String(next) && !asName) return {ok:true, moved:t, shared:null, same:true};
   /* THE RECORD AS IT IS, NOT AS THE CARD WAS DRAWN. Another tab may have
@@ -4820,6 +4828,7 @@ async function setTraitStatus(t,next,asName){
   const key=shelfCore.recordKey(t);
   await dbDel(t.id);
   await dbPut(moved);
+  await s0Moved([{from:now, to:moved.id}],"person",s0MarkAt);   /* STAGE 0 (D1): the old id is gone, the new one written */
   const movedKey=shelfCore.recordKey(moved);
   visibility.transfer(key,movedKey);
   /* And the selection, for the same reason and at the same moment. */
@@ -4993,6 +5002,7 @@ function applyPlanTo(list,updates){
    A trait the planner refuses is COUNTED AND NAMED. Moving thirty and quietly
    keeping four is how a collection ships four traits short. */
 async function bulkMoveToLayer(toLayer){
+  const s0MarkAt=s0MarkStart();   /* STAGE 0 (D1): where and whose its marks are, before its first wait */
   if(!toLayer) return;
   if(shelfMoveBusy){ toast("Still moving the last batch"); return; }
   const keys=[...shelfPick];
@@ -5087,6 +5097,7 @@ async function bulkMoveToLayer(toLayer){
        the last of them gave it. */
     for(const t of transfers) state.transfer(t.from,t.to);
     try{ await draftsFollow(draftMoves); }catch(_){}
+    await s0Moved(draftMoves.map(m=>({from:before.get(m.from)||m.from, to:m.to})),"person",s0MarkAt);   /* STAGE 0 (D1): one append for the batch, each read from the store */
     await retargetRules(ruleMoves);
     shelfPick.clear();
     await renderShelf();
@@ -6292,6 +6303,7 @@ function saveTrait(){
   return saveFlight;
 }
 async function saveTraitNow(){
+  const s0MarkAt=s0MarkStart();   /* STAGE 0 (D1): where and whose its marks are, before its first wait */
   if(!ctx) return;
   let name=($('tname').value.trim()||fileName.replace(/\.png$/,'')||'trait').slice(0,60);
   const layer=$('tlayer').value||'unsorted';
@@ -6403,7 +6415,9 @@ async function saveTraitNow(){
          switching a trait from wip to approved in the editor left both
          t_bugtest_eyes_wip and t_bugtest_eyes_approved in the shelf. The shelf's
          own status and layer buttons already do this properly; the editor did not. */
-      try{ await dbDel(openWas.id); }catch(_){}
+      /* STAGE 0 (D1): recorded once the old id is gone - a removal that failed
+         left it, and dropped nothing. */
+      try{ await dbDel(openWas.id); await s0Moved([{from:base||openWas, to:rec}],"person",s0MarkAt); }catch(_){}
       cBitmapDrop(openWas.id);
       /* A hidden trait stays hidden through a rename. The visibility set is
          keyed by record key - rowId || id - and the id carries the name, layer
@@ -11732,6 +11746,7 @@ function sortShow(plan){
    A destination that already holds this name and status is REFUSED - dbPut
    overwrites, so moving onto it would destroy the trait already there. */
 async function sortApply(plan){
+  const s0MarkAt=s0MarkStart();   /* STAGE 0 (D1): where and whose its marks are, before its first wait */
   let made=0, moved=0, refused=[], failed=0;
   /* Moved here but not for anybody else. The tile status cycle and
      bulkMoveLayer both keep this answer and say so; this discarded it. */
@@ -11739,6 +11754,7 @@ async function sortApply(plan){
   /* Collected and applied in one transaction after the loop, rather than a
      transaction per trait across a sort of three hundred. */
   const draftMoves=[];
+  const s0Pairs=[];   /* STAGE 0 (D1): the moves, recorded once after the loop */
   for(const l of plan.layers){
     if(LAYERS.indexOf(l)>=0) continue;
     const u=LAYERS.indexOf("unsorted");
@@ -11764,6 +11780,7 @@ async function sortApply(plan){
     try{
       await dbPut(rec);
       await dbDel(old.id);
+      s0Pairs.push({from:old, to:rec});
       taken.delete(old.id); taken.add(id);
       await retargetRules([{from:traitKey(old), to:traitKey(rec)}]);
       draftMoves.push({from:old.id, to:id});
@@ -11776,6 +11793,7 @@ async function sortApply(plan){
     }catch(_){ failed++; }
   }
   try{ await draftsFollow(draftMoves); }catch(_){}
+  await s0Moved(s0Pairs,"person",s0MarkAt);   /* STAGE 0 (D1): one append for the whole sort */
   return {made, moved, refused, failed, stranded};
 }
 function pairState(a,b){
@@ -12450,6 +12468,7 @@ async function carryDecided(from,toId){
    report of what the "folder" did not bring. Those three read a folder as
    the whole truth about the layers it touches, and a fixer save is not one. */
 async function bulkImport(files,opts){
+  const s0MarkAt=s0MarkStart();   /* STAGE 0 (D1): where and whose its marks are, before its first wait */
   const inPlace=!!(opts&&opts.inPlace);
   /* STAGE 0 (D1): a folder import waits while this project is held. A fixer
      save comes through here in place and is kept: its sends are held one
@@ -12828,6 +12847,7 @@ async function bulkImport(files,opts){
      batch means someone keeps two files and both stay. A different layer is
      a different trait - the live collection repeats names across layers. A
      layer this import never touched is never reached into. */
+  const s0ImportPairs=[];   /* STAGE 0 (D1): the moves below, recorded once, after both loops */
   if(supplied.length && !inPlace){
     let existing=[]; try{ existing=await dbAll(); }catch(_){ existing=[]; }
     const here=new Set(supplied.map(s=>s.id));
@@ -12852,6 +12872,7 @@ async function bulkImport(files,opts){
         &&s.status!==(rec.status||"wip"));
       if(to) await carryDecided(rec,to.id);
       try{ await dbDel(rec.id); }catch(_){ continue; }
+      if(to) s0ImportPairs.push({from:rec, to:to.id});
       /* The server copy too, or the next pull brings it back. */
       /* STAGE 0 (A2): first, the moved file's record names the row it replaces. */
       if(to&&freshIds.has(to.id)) await s0StandsIn(rec,to.id);
@@ -12915,12 +12936,14 @@ async function bulkImport(files,opts){
          set belongs to the trait rather than to the filename. */
       await carryDecided(rec,onto.id);
       try{ await dbDel(rec.id); }catch(_){ continue; }
+      s0ImportPairs.push({from:rec, to:onto});
       await s0StandsIn(rec,onto.id);   /* STAGE 0 (A2): the renamed file stands in for this row */
       try{ await cloudDropOne(rec); }catch(_){}
       mergedAway.push(rec.name+" into "+onto.name);
       mergedIds.add(rec.id);
     }
   }
+  await s0Moved(s0ImportPairs,"person",s0MarkAt);   /* STAGE 0 (D1): one append for the whole import */
   /* Traits the project has and this folder did not bring. Usually a file
      deleted or renamed on disk, which means the folder and the collection have
      drifted - and the next thing that happens is a collection generated with a
@@ -16352,7 +16375,8 @@ async function saveLayers(){
 /* A trait's id encodes its layer, so changing the layer means a NEW record.
    Delete then put - and never let a put land on an id already in use, or one
    trait silently replaces another and the count still looks right. */
-async function retagLayer(items,from,to){
+async function retagLayer(items,from,to,s0MarkAt){
+  s0MarkAt=s0MarkAt||s0MarkStart();   /* STAGE 0 (D1): where and whose its marks are - its caller's, taken before the caller read the project */
   const mine=items.filter(i=>i.kind==="trait"&&i.layer===from);
   /* STAGE 0 (Decision 20, Ruling F-18): the moves' attempts, noted together.
      A name taken on the new layer is renamed below and notes itself. */
@@ -16370,6 +16394,7 @@ async function retagLayer(items,from,to){
   /* Same shape as ruleMoves above, and for the same reason: one write at
      the end rather than one per trait on the layer. */
   const draftMoves=[];
+  const s0Pairs=[];   /* STAGE 0 (D1): the moves, recorded once after the loop */
   for(const t of mine){
     const status=t.status||"wip";
     let name=t.name, id="t_"+name+"_"+to+"_"+status, k=2;
@@ -16379,6 +16404,7 @@ async function retagLayer(items,from,to){
     const rec=Object.assign({},t,{id:id,name:name,layer:to});
     await dbDel(t.id);
     await dbPut(rec);
+    s0Pairs.push({from:t, to:rec});
     ruleMoves.push({from:traitKey(t), to:traitKey(rec)});
     draftMoves.push({from:t.id, to:rec.id});
     /* activeWs, because cloudMoveOne returns null when there is no group at
@@ -16390,6 +16416,7 @@ async function retagLayer(items,from,to){
   }
   await retargetRules(ruleMoves);
   try{ await draftsFollow(draftMoves); }catch(_){}
+  await s0Moved(s0Pairs,"person",s0MarkAt);   /* STAGE 0 (D1): one append for the whole layer */
   return {moved:moved,renamed:renamed,stranded:stranded};
 }
 
@@ -16427,6 +16454,7 @@ async function addLayer(){
   toast("Added "+name+(listShared?"":LAYERS_NOT_SHARED));
 }
 async function removeLayer(name){
+  const s0MarkAt=s0MarkStart();   /* STAGE 0 (D1): where and whose its marks are, before its first wait */
   if(name==="unsorted"){ toast("unsorted is where loose traits land, so it stays"); return; }
   const items=await dbAll();
   const n=items.filter(i=>i.kind==="trait"&&i.layer===name).length;
@@ -16434,7 +16462,7 @@ async function removeLayer(name){
      re-filing them by hand is real work, so it gets asked about. */
   if(n && !confirm("Remove the layer \""+name+"\"?"+String.fromCharCode(10)+String.fromCharCode(10)+
       n+" trait"+(n===1?"":"s")+" will move to unsorted. Nothing is deleted.")) return;
-  const r=n?await retagLayer(items,name,"unsorted"):{moved:0,renamed:0};
+  const r=n?await retagLayer(items,name,"unsorted",s0MarkAt):{moved:0,renamed:0};
   LAYERS=LAYERS.filter(l=>l!==name);
   /* Its traits went to unsorted, which is a different set and is on - so they
      become drawable again. That is correct and visible, and leaving the name
@@ -16449,11 +16477,12 @@ async function removeLayer(name){
     +(r.stranded?" - "+r.stranded+" not shared yet, press Save to cloud":""));
 }
 async function renameLayer(oldName,raw){
+  const s0MarkAt=s0MarkStart();   /* STAGE 0 (D1): where and whose its marks are, before its first wait */
   const nw=slugLayer(raw);
   if(!nw||nw===oldName){ await renderShelf(); return; }
   if(LAYERS.indexOf(nw)>=0){ toast("There is already a layer called "+nw); await renderShelf(); return; }
   const items=await dbAll();
-  const r=await retagLayer(items,oldName,nw);
+  const r=await retagLayer(items,oldName,nw,s0MarkAt);
   LAYERS[LAYERS.indexOf(oldName)]=nw;
   /* The set is off by NAME, so a rename has to move it or the layer comes back
      on under its new name with nothing having said so. */
@@ -20089,7 +20118,70 @@ async function s0StandsIn(old,newId){
     return told;
   }catch(_){ return false; }
 }
+/* STAGE 0 (D1): settings.gonemarks - every removal and every move's drop
+   this page makes, marked as a person's or a pull's. A record of its own:
+   settings.gone is today's queue of rows for Save to cloud to delete, and
+   the page before stage 0 reads it as exactly that and rewrites it whole.
+   Appended to with s0Append (above) once per operation, however many
+   traits it moves, and kept 30 days and the newest 1,000 (Decision 20):
+   it is rewritten whole on every append and read by every redraw.
+   A MARK: {what:"removed"|"moved", wk:"person"|"pull", by, at, from, to}.
+   from is the record as it was: {id, lid, kind, name, layer, status,
+   rowId}. to, on a move only, is the record it landed on: {id, lid, kind,
+   name, layer, status} - never a row (Decision 16): until it is sent that
+   record still holds the old row id; the row it moved to is the rowId the
+   record with to.lid holds once sent, and that row's replaces names
+   from.rowId (patch603). AN END MAY BE {id} ALONE (Ruling F-16): when the
+   caller has only an id for it and, for a to, the store no longer holds
+   that id either. A to given as an id is read from the store first, so
+   it carries its local id.
+   o: {by, home}, taken as the operation began, before its first wait -
+   s0MarkStart() for a person's operation (fix round 1); a pull and a
+   catch-up take theirs beside gen. by is the uid the marks carry: a
+   session can end under an operation without stopping it. home is the
+   store the operation wrote in (its wsDbName()), and the marks go there
+   or nowhere: a page that has moved to another store by the append drops
+   them, rather than filing them where the same ids are other traits.
+   Every caller passes it. Left out, it is whoever is signed in and the
+   store current when this is called - which also covers this function's
+   own reads - and so is blind to a move made before the call. */
+const S0_MARKS_ID="settings.gonemarks", S0_MARKS_KEEP={ms:30*24*60*60*1000, max:1000};
+function s0MarkStart(){ return {home:wsDbName(), by:s0Uid()}; }
+function s0Ref(r,withRow){
+  if(!r) return null;
+  if(typeof r!=="object") return {id:String(r)};
+  const o={id:r.id||null, lid:r.lid||null, kind:r.kind||null, name:r.name||null, layer:r.layer||null, status:r.status||null};
+  if(withRow) o.rowId=r.rowId||null;
+  return o;
+}
+async function s0Removed(recs,wk,o){
+  o=o||{};
+  const home=o.home||wsDbName(), by=(o.by!==undefined) ? o.by : s0Uid(), at=Date.now(), kind=wk==="pull"?"pull":"person";
+  const out=(Array.isArray(recs)?recs:[recs]).filter(r=>r&&(typeof r!=="object"||r.id))
+    .map(r=>({what:"removed", wk:kind, by:by, at:at, from:s0Ref(r,true)}));
+  if(wsDbName()!==home) return false;
+  return s0Append(S0_MARKS_ID,"marks",out,S0_MARKS_KEEP);
+}
+async function s0Moved(pairs,wk,o){
+  o=o||{};
+  const home=o.home||wsDbName(), by=(o.by!==undefined) ? o.by : s0Uid(), at=Date.now(), kind=wk==="pull"?"pull":"person", out=[];
+  const idOf=x=>(x&&typeof x==="object") ? x.id : x;
+  for(const p of pairs||[]){
+    if(!p) continue;
+    const fromId=idOf(p.from), toId=idOf(p.to);
+    /* Same id: a reorder or a rewrite, not a move - nothing dropped. */
+    if(!fromId||!toId||String(fromId)===String(toId)) continue;
+    let to=p.to;
+    if(typeof to!=="object"){ try{ to=(await dbGet(String(to)))||to; }catch(_){ } }
+    out.push({what:"moved", wk:kind, by:by, at:at, from:s0Ref(p.from,true), to:s0Ref(to,false)});
+  }
+  /* Checked after the reads above, with no wait before s0Append, which
+     picks its store as it is called. */
+  if(wsDbName()!==home) return false;
+  return s0Append(S0_MARKS_ID,"marks",out,S0_MARKS_KEEP);
+}
 async function dbDelShared(rec){
+  const s0MarkAt=s0MarkStart();   /* STAGE 0 (D1): where and whose its mark is, before its first wait */
   /* STAGE 0 (D1): a removal waits while this project is held. Nothing leaves
      this device's store either, and the tile says why. */
   if(await s0Blocked()) return "held";
@@ -20103,6 +20195,7 @@ async function dbDelShared(rec){
      and "removed here but the group still has it" are different events and
      were being reported identically. */
   await dbDel(rec.id);
+  await s0Removed(rec,"person",s0MarkAt);   /* STAGE 0 (D1): a person's removal */
   /* Your own page: removed here, and remembered, so the next Save to
      cloud removes it there - and only it. */
   if(!activeWs){ await goneAdd(rec); return true; }
@@ -20634,6 +20727,9 @@ async function cloudPull(opts){
      round 1). Nothing on the way there bumps wsGen itself, so this never
      stops a pull on its own. */
   const gen=wsGen;
+  /* STAGE 0 (D1): and where and whose its move marks are - the store its
+     writes go to while gen holds, and who was signed in as it began. */
+  const s0PullDb=wsDbName(), s0PullBy=s0Uid();
   /* THREE answers, not two. "Could not ask" is not "you are signed out", and
      telling a signed-in person to sign in is an instruction to do the one
      thing that risks losing local work. */
@@ -20788,6 +20884,7 @@ async function cloudPull(opts){
      sentence used to stand above a loop that wrote every matched row back;
      measured, 311 record writes per open on 311 unchanged traits. */
   let repaired=0;
+  const s0PullPairs=[];   /* STAGE 0 (D1): the re-ids that committed, recorded once after the loop */
   for(const rp of repair){
     if(!wsStill(gen)) break;
     /* At write time, not plan time: the plan is minutes old by the end of
@@ -20855,6 +20952,7 @@ async function cloudPull(opts){
         const moved=await s0ReidTx(d,rp.oldId,rp.record,rp.was,by);
         if(moved===null){ skipped++; continue; }
         repaired++;
+        s0PullPairs.push({from:rp.was, to:rp.record});   /* STAGE 0 (D1): committed - a move, whatever comes next */
         tabMoves.push({from:rp.oldId, to:rp.record.id, db:d.name}); tabsTell();
         if(!wsStill(gen)) break;
         touch(rp.oldId); touch(rp.record.id);
@@ -20868,6 +20966,12 @@ async function cloudPull(opts){
     }catch(_){}
   }
 
+  /* STAGE 0 (D1): one append for the whole pull, into the store the re-ids
+     were made in or nowhere. A group pull stopped by leaving its project
+     records none of the re-ids it made - they are done and no later pull
+     redoes them, so those marks are lost - but never files them in the
+     store moved to, where the same ids are other traits. */
+  await s0Moved(s0PullPairs,"pull",{by:s0PullBy, home:s0PullDb});
   const PULL_AT_ONCE=8;
   let next=0;
   async function puller(){
@@ -21185,6 +21289,7 @@ async function groupCatchUpRun(){
      every page load and every switch. Deleting them out of the project the
      person moved to would be the worst version of this. */
   const gen=wsGen;
+  const s0CatchDb=wsDbName(), s0CatchBy=s0Uid();   /* STAGE 0 (D1): where and whose its removal marks are */
   try{
     /* READ BEFORE THE PULL. This is the set the server snapshot answers
        for; a record that appears while the pull runs - a move made by the
@@ -21257,14 +21362,18 @@ async function groupCatchUpRun(){
           try{ const b=await bucketPaths(team,{id:f}); if(b.ok) inFolders.set(f,b.paths); }catch(_){ }
         }
         let gone=0, kept=0;
+        const s0Gone=[];   /* STAGE 0 (D1): recorded once after the loop */
         for(const it of cand){
           if(!wsStill(gen)) break;
           if(it.path){
             const files=inFolders.get(folderOf(it.path))||null;
             if(files===null || files.has(it.path)){ kept++; continue; }
           }
-          await dbDel(it.id); gone++;
+          await dbDel(it.id); gone++; s0Gone.push(it);
         }
+        /* STAGE 0 (D1): removed by someone else - into the group's store or
+           nowhere: a catch-up stopped by leaving the project records none. */
+        await s0Removed(s0Gone,"pull",{by:s0CatchBy, home:s0CatchDb});
         const said=[];
         if(gone) said.push(gone+" removed by someone else");
         if(kept) said.push(kept+" kept - missing from the group's list, but "+(kept===1?"its picture is":"their pictures are")

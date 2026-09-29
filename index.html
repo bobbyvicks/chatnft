@@ -4729,7 +4729,7 @@ async function commitShelfMove(spec,home){
 
     toast(shared.reason==='duplicate'
       ? 'Move cancelled because the shared shelf changed'
-      : shared.reason==='held' ? s0Words(s0Held()||'switched')+' - the old order is back'
+      : shared.reason==='held' ? S0_REFUSED   /* final fixes, B3: put back, so not done */
       : 'Move did not sync, so the old order was restored');
     return false;
   }
@@ -5826,7 +5826,7 @@ async function renderShelf(viewOnly){
         const s0Home=s0HomeNow();   /* STAGE 0 (fix round 4): see s0HomeNow */
         if(await s0Refuse()) return;
         if(!confirm('Remove the reference "'+t.name+'"?')) return;
-        const s0Why={}; const gone=await dbDelShared(t,s0Home,s0Why); renderShelf(); toast(s0Why.left ? s0LeftRemoval(gone,t.name) : gone==="held" ? s0Words(s0Held()||"switched") : gone ? ('Removed '+t.name) : ('Removed '+t.name+' here, but the group still has it - it will come back')); };
+        const s0Why={}; const gone=await dbDelShared(t,s0Home,s0Why); renderShelf(); toast(s0Why.left ? s0LeftRemoval(gone,t.name) : gone==="held" ? S0_REFUSED : gone ? ('Removed '+t.name) : ('Removed '+t.name+' here, but the group still has it - it will come back')); };
       el.appendChild(x); rg.appendChild(el);
     }
     rw.appendChild(rg); body.appendChild(rw);
@@ -6058,7 +6058,7 @@ async function renderShelf(viewOnly){
         const s0Home=s0HomeNow();   /* STAGE 0 (fix round 4): see s0HomeNow */
         if(await s0Refuse()) return;
         if(!confirm('Remove "'+t.name+'" from '+(t.layer||"unsorted")+'?')) return;
-        const s0Why={}; const gone=await dbDelShared(t,s0Home,s0Why); visibility.show(key); renderShelf(); toast(s0Why.left ? s0LeftRemoval(gone,t.name) : gone==="held" ? s0Words(s0Held()||"switched") : gone ? ('Removed '+t.name) : ('Removed '+t.name+' here, but the group still has it - it will come back')); };
+        const s0Why={}; const gone=await dbDelShared(t,s0Home,s0Why); visibility.show(key); renderShelf(); toast(s0Why.left ? s0LeftRemoval(gone,t.name) : gone==="held" ? S0_REFUSED : gone ? ('Removed '+t.name) : ('Removed '+t.name+' here, but the group still has it - it will come back')); };
       el.appendChild(x);
       /* STRAIGHT INTO THE FIXER. Beside the remove button rather than on
          the tile body, which already opens the editor - two different
@@ -19118,6 +19118,16 @@ const S0_POLL_MS=120000, S0_REUSE_MS=2000;
 let S0_READ_MS=5000;   /* a let, so a spec can shorten it */
 const S0_SWITCHING="This project is being updated: your change is kept here and will be sent after it";
 const S0_SWITCHED="BuildaNFT was updated: reload to send what you saved";
+/* FINAL FIXES, B3: A REFUSED ACTION'S OWN WORDS. D1's two sentences above
+   describe what is kept here and sent after: drawings, saves, weights,
+   status changes. Shown for an action stage 0 refuses - Clear, an
+   import, a removal, Leave, Remove from server, Load from cloud, a drag
+   put back - they said it was kept and would be sent after, and nothing
+   of it was: the final review called a switch off after each, and none
+   of them happened (measured). A refusal says so, in this sentence,
+   whatever holds the project; the bar, the fixer's line and every kept
+   change keep D1's words. */
+const S0_REFUSED="This project is being updated, so this was not done. Try again once it has finished.";
 /* A shelf move whose send the page moved away from (fix round 3, 8b). */
 const S0_LEFT="Not sent: you left the project first. The move is kept there, and its next Save to cloud sends it";
 /* The same for every other sender that is not addressed (fix round 4): what
@@ -19443,7 +19453,7 @@ async function s0Refuse(after){
   const why=s0Held();
   if(!why) return false;
   s0Show();
-  toast(s0Words(why));
+  toast(S0_REFUSED);   /* final fixes, B3: refused, not kept */
   return true;
 }
 /* The bar, on every page and over the editor; and the fixer's save line. */
@@ -21346,7 +21356,8 @@ async function cloudPull(opts){
   const u=who.user;
   /* STAGE 0 (D1): a pull reads afresh first, and a held project pulls nothing. */
   await s0Check(true);
-  { const why=s0Held(); if(why){ s0Show(); if(!opts.quiet) toast(s0Words(why)); return; } }
+  /* (Final fixes, B3: a pull is refused, not kept - its own words.) */
+  { const why=s0Held(); if(why){ s0Show(); if(!opts.quiet) toast(S0_REFUSED); return; } }
   const c=await cloudCollection(u);
   if(!c){ toast("Nothing on the server yet"); return; }
   const h=await sbHeaders();

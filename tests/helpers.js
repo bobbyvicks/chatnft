@@ -403,6 +403,9 @@ export async function seedDraft(page, d) {
    page. */
 export const S0_SWITCHING = 'This project is being updated: your change is kept here and will be sent after it';
 export const S0_SWITCHED = 'BuildaNFT was updated: reload to send what you saved';
+/* Final fixes, ruling B3: an action stage 0 refuses says so in its own
+   sentence. D1's two above describe what is kept, and stay for that. */
+export const S0_REFUSED = 'This project is being updated, so this was not done. Try again once it has finished.';
 
 export async function armStage0(page, o = {}) {
   await page.evaluate((o) => {

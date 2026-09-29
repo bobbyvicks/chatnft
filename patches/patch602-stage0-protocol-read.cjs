@@ -180,6 +180,16 @@ doc.swap('const TEAM_PROJECT_PICK="&order=created_at.asc,id.asc&limit=1";', [
   'let S0_READ_MS=5000;   /* a let, so a spec can shorten it */',
   'const S0_SWITCHING="This project is being updated: your change is kept here and will be sent after it";',
   'const S0_SWITCHED="BuildaNFT was updated: reload to send what you saved";',
+  '/* FINAL FIXES, B3: A REFUSED ACTION\'S OWN WORDS. D1\'s two sentences above',
+  '   describe what is kept here and sent after: drawings, saves, weights,',
+  '   status changes. Shown for an action stage 0 refuses - Clear, an',
+  '   import, a removal, Leave, Remove from server, Load from cloud, a drag',
+  '   put back - they said it was kept and would be sent after, and nothing',
+  '   of it was: the final review called a switch off after each, and none',
+  '   of them happened (measured). A refusal says so, in this sentence,',
+  '   whatever holds the project; the bar, the fixer\'s line and every kept',
+  '   change keep D1\'s words. */',
+  'const S0_REFUSED="This project is being updated, so this was not done. Try again once it has finished.";',
   '/* A shelf move whose send the page moved away from (fix round 3, 8b). */',
   'const S0_LEFT="Not sent: you left the project first. The move is kept there, and its next Save to cloud sends it";',
   '/* The same for every other sender that is not addressed (fix round 4): what',
@@ -505,7 +515,7 @@ doc.swap('const TEAM_PROJECT_PICK="&order=created_at.asc,id.asc&limit=1";', [
   '  const why=s0Held();',
   '  if(!why) return false;',
   '  s0Show();',
-  '  toast(s0Words(why));',
+  '  toast(S0_REFUSED);   /* final fixes, B3: refused, not kept */',
   '  return true;',
   '}',
   '/* The bar, on every page and over the editor; and the fixer\'s save line. */',
@@ -703,7 +713,7 @@ doc.swap('    let detail={}; try{ detail=await r.json(); }catch(_){}', [
   '    if(r.status!==401&&await s0Recheck(detail,s0Home)) return {ok:false,reason:"held"};',
 ]);
 doc.swap("      : 'Move did not sync, so the old order was restored');", [
-  "      : shared.reason==='held' ? s0Words(s0Held()||'switched')+' - the old order is back'",
+  "      : shared.reason==='held' ? S0_REFUSED   /* final fixes, B3: put back, so not done */",
   "      : 'Move did not sync, so the old order was restored');",
 ]);
 doc.swap([
@@ -825,7 +835,8 @@ doc.swap(['  const u=who.user;', '  const c=await cloudCollection(u);', '  if(!c
   '  const u=who.user;',
   '  /* STAGE 0 (D1): a pull reads afresh first, and a held project pulls nothing. */',
   '  await s0Check(true);',
-  '  { const why=s0Held(); if(why){ s0Show(); if(!opts.quiet) toast(s0Words(why)); return; } }',
+  '  /* (Final fixes, B3: a pull is refused, not kept - its own words.) */',
+  '  { const why=s0Held(); if(why){ s0Show(); if(!opts.quiet) toast(S0_REFUSED); return; } }',
   '  const c=await cloudCollection(u);',
   '  if(!c){ toast("Nothing on the server yet"); return; }',
 ]);
@@ -1245,9 +1256,9 @@ doc.swap(['  if(!activeWs){ await goneAdd(rec); return true; }', '  return (awai
 /* The tiles: home at the press, before the read and the confirm, and the
    words for a removal the page left (fix round 4). */
 doc.swap("const gone=await dbDelShared(t); renderShelf(); toast(gone ?",
-  "const s0Why={}; const gone=await dbDelShared(t,s0Home,s0Why); renderShelf(); toast(s0Why.left ? s0LeftRemoval(gone,t.name) : gone===\"held\" ? s0Words(s0Held()||\"switched\") : gone ?");
+  "const s0Why={}; const gone=await dbDelShared(t,s0Home,s0Why); renderShelf(); toast(s0Why.left ? s0LeftRemoval(gone,t.name) : gone===\"held\" ? S0_REFUSED : gone ?");
 doc.swap("const gone=await dbDelShared(t); visibility.show(key); renderShelf(); toast(gone ?",
-  "const s0Why={}; const gone=await dbDelShared(t,s0Home,s0Why); visibility.show(key); renderShelf(); toast(s0Why.left ? s0LeftRemoval(gone,t.name) : gone===\"held\" ? s0Words(s0Held()||\"switched\") : gone ?");
+  "const s0Why={}; const gone=await dbDelShared(t,s0Home,s0Why); visibility.show(key); renderShelf(); toast(s0Why.left ? s0LeftRemoval(gone,t.name) : gone===\"held\" ? S0_REFUSED : gone ?");
 doc.swap("        if(!confirm('Remove the reference \"'+t.name+'\"?')) return;", [
   '        const s0Home=s0HomeNow();   /* STAGE 0 (fix round 4): see s0HomeNow */',
   '        if(await s0Refuse()) return;',
@@ -1965,4 +1976,14 @@ doc.finish(({ code, must }) => {
   if ((code.match(/await s0Blocked\(/g) || []).length !== 9) throw new Error('expected 9 held senders, found ' + (code.match(/await s0Blocked\(/g) || []).length);
   if ((code.match(/await s0Refuse\(/g) || []).length !== 7) throw new Error('expected 7 refused actions, found ' + (code.match(/await s0Refuse\(/g) || []).length);
   if (/setItem\(\s*["']pb\.migrating/.test(code)) throw new Error('stage 0 must never set the migration flag (B1)');
+  /* Final fixes, B3: every refusal says it was not done, in its own words;
+     D1's sentences are left to what is kept. */
+  must('const S0_REFUSED="This project is being updated, so this was not done. Try again once it has finished.";', 'a refused action has no words of its own');
+  if ((code.match(/gone==="held" \? S0_REFUSED : gone \?/g) || []).length !== 2) throw new Error('a tile\'s held removal says it is kept');
+  must("shared.reason==='held' ? S0_REFUSED", 'a drag put back says it is kept');
+  must('if(!opts.quiet) toast(S0_REFUSED); return;', 'a refused pull says a change is kept');
+  {
+    const f = code.indexOf('async function s0Refuse('), e = code.indexOf('\n}', f), b = f >= 0 && e > f ? code.slice(f, e) : '';
+    if (!b || b.indexOf('s0Words(') >= 0 || b.indexOf('toast(S0_REFUSED);') < 0) throw new Error('s0Refuse does not say it refused, or still says D1\'s kept words');
+  }
 });

@@ -24,7 +24,7 @@
    name and records any other in window.__s0.unknown (answered 501); each
    test asserts that list is empty. */
 import { test, expect } from '@playwright/test';
-import { armStage0, S0_SWITCHED } from './helpers.js';
+import { armStage0, S0_SWITCHED, S0_REFUSED } from './helpers.js';
 
 const MEMBER = "Only this project's owner can remove it from the server. Your copy on this device is untouched.";
 const UNKNOWN = 'Could not check who owns this project, so nothing was changed.';
@@ -292,6 +292,10 @@ test.describe('Remove from server is the group owner\'s', () => {
     onlyTheRoleRead(r, MEMBER);
     expect(r.reads, 'no protocol read').toBe(0);
     expect(r.toasts, 'not the held text').not.toContain(S0_SWITCHED);
+    /* Final fixes, ruling B3: a refused Remove from server now says it was
+       not done in its own sentence, so the line above alone could no longer
+       fail; this is the held text now. */
+    expect(r.toasts, 'not the refusal text').not.toContain(S0_REFUSED);
     expect(r.bar, 'and no held bar').toBe(false);
   });
 
@@ -303,7 +307,10 @@ test.describe('Remove from server is the group owner\'s', () => {
     expect(r.log[0], 'the role read first').toBe(ROLE_READ);
     const proto = r.log.findIndex(l => l.indexOf('select=id,protocol,switching_at') >= 0);
     expect(proto, 'then the protocol read').toBeGreaterThan(0);
-    expect(r.toasts, 'the held text').toContain(S0_SWITCHED);
+    /* Final fixes, ruling B3: the refusal sentence. This expected D1's
+       protocol-2 sentence, which says what is kept, and a refused Remove
+       from server keeps nothing. */
+    expect(r.toasts, 'the held text').toContain(S0_REFUSED);
     expect(r.bar, 'and the bar').toBe(true);
     expect(r.asked, 'held before the confirm').toEqual([]);
     expect(r.log.filter(isDelete)).toEqual([]);

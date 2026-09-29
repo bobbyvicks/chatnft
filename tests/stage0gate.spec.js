@@ -7,7 +7,7 @@
    the same action goes through when nothing is held, because a gate that
    refuses everything reads exactly like caution. */
 import { test, expect } from '@playwright/test';
-import { armStage0, seedTrait, findTrait, S0_SWITCHING, S0_SWITCHED } from './helpers.js';
+import { armStage0, seedTrait, findTrait, S0_SWITCHING, S0_SWITCHED, S0_REFUSED } from './helpers.js';
 
 /* patch602's fix round 3: what a shelf move says when the page left its project before the send. */
 const S0_LEFT = 'Not sent: you left the project first. The move is kept there, and its next Save to cloud sends it';
@@ -1182,7 +1182,10 @@ test.describe('stage 0: fix round 1 - what the review of 60ecb5d found', () => {
     await armStage0(page, { protocol: 1, after: { switching: '2026-09-27T12:00:00+00:00' } });
     const r = await removeFromServer(page);
     expect([r.asked, r.reads, r.shown]).toEqual([1, 2, true]);
-    expect(r.toasts).toContain(S0_SWITCHING);
+    /* Final fixes, ruling B3: a refused action's own sentence. This expected
+       D1's switching sentence, which says the change is kept and will be
+       sent after - and nothing of a refused Remove from server is. */
+    expect(r.toasts).toContain(S0_REFUSED);
     expect(await serverCleared(page)).toEqual([]);
   });
 
@@ -1190,7 +1193,7 @@ test.describe('stage 0: fix round 1 - what the review of 60ecb5d found', () => {
     await armStage0(page, { protocol: 1, after: { switching: '2026-09-27T12:00:00+00:00' } });
     const r = await removeWithStaleRead(page);
     expect([r.asked, r.staleAsked, r.reads, r.shown]).toEqual([1, true, 3, true]);
-    expect(r.toasts).toContain(S0_SWITCHING);
+    expect(r.toasts).toContain(S0_REFUSED);   /* final fixes, ruling B3: was S0_SWITCHING */
     expect(await serverCleared(page)).toEqual([]);
   });
 
@@ -1198,7 +1201,7 @@ test.describe('stage 0: fix round 1 - what the review of 60ecb5d found', () => {
     await armStage0(page, { protocol: 2 });
     const r = await removeFromServer(page);
     expect([r.asked, r.reads, r.shown]).toEqual([0, 1, true]);
-    expect(r.toasts).toContain(S0_SWITCHED);
+    expect(r.toasts).toContain(S0_REFUSED);   /* final fixes, ruling B3: was S0_SWITCHED */
     expect(await serverCleared(page)).toEqual([]);
   });
 
@@ -1307,7 +1310,9 @@ test.describe('stage 0: fix round 1 - what the review of 60ecb5d found', () => {
   test('a shelf move while held: the order is not sent, the old one is back, and it says why', async ({ page }) => {
     await armStage0(page, { protocol: 2 });
     const r = await shelfMove(page, null);
-    expect([r.moved, r.rpc, r.toast, r.layer]).toEqual([false, 0, S0_SWITCHED + ' - the old order is back', 'skins']);
+    /* Final fixes, ruling B3: the refusal sentence. This expected D1's
+       protocol-2 sentence with " - the old order is back". */
+    expect([r.moved, r.rpc, r.toast, r.layer]).toEqual([false, 0, S0_REFUSED, 'skins']);
   });
 
   test('THE CONTROL: the same shelf move with nothing held is sent, and sticks', async ({ page }) => {
@@ -1550,5 +1555,152 @@ test.describe('stage 0: fix round 3 - every sender, the page moving during its r
       team7: ['t_t0_hats_wip unsent', 't_t1_hats_wip unsent', 't_t2_hats_wip unsent', 't_t3_hats_wip unsent', 't_t4_hats_wip unsent', 't_t5_hats_wip unsent', 't_t6_hats_wip unsent'] });
     expect((await log(page)).filter(l => l.startsWith('PATCH /rest/v1/collections'))).toEqual([]);
     expect((await log(page)).filter(l => l === 'POST /rest/v1/traits').length).toBe(0);
+  });
+});
+
+/* Final fixes, B3. A REFUSED ACTION SAYS IT WAS NOT DONE. D1's switching
+   sentence, "This project is being updated: your change is kept here and
+   will be sent after it", describes a change kept on the device. Stage 0
+   also showed it - and on protocol 2 D1's other sentence - for the
+   actions it refuses, where nothing was done, nothing was kept and
+   nothing is sent after: the final review called a switch off after
+   each, and none of them happened (measured). A refused action now says
+   so in its own sentence; a kept one keeps D1's, verbatim. Each action
+   below runs with the toasts and the confirm listened to. */
+const SWITCHING_AT = '2026-09-27T12:00:00+00:00';
+const listen = (page) => page.evaluate(() => {
+  window.__said = []; window.__asked = 0; window.__onAsk = null;
+  window.__shownToast = window.toast; window.__realConfirm = window.confirm;
+  window.toast = (m) => { window.__said.push(String(m)); try { window.__shownToast(m); } catch (_) {} };
+  window.confirm = () => { window.__asked++; const f = window.__onAsk; window.__onAsk = null; if (f) f(); return true; };
+});
+const heard = (page) => page.evaluate(() => {
+  window.toast = window.__shownToast; window.confirm = window.__realConfirm;
+  return { said: window.__said.slice(), asked: window.__asked };
+});
+const traitNames = (page) => page.evaluate(async () => (await dbAll()).filter(i => i.kind === 'trait').map(i => i.name).sort());
+/* The tile's own remove button, pressed. */
+const pressTileRemove = (page, name) => page.evaluate(async (name) => {
+  await renderShelf();
+  const x = document.querySelector('#projbody button.x[aria-label="Remove ' + name + '"]');
+  if (!x) throw new Error('no remove button on the ' + name + ' tile');
+  await x.onclick({ stopPropagation() {} });
+}, name);
+
+test.describe('stage 0 (final fixes, B3): a refused action says it was not done; a kept one keeps D1\'s words', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/index.html');
+    await page.waitForFunction(() => typeof s0Check === 'function');
+    await page.evaluate(async () => { activeWs = 'team7'; dbp = null; dbpName = null; await dbClear(); });
+  });
+  test.afterEach(async ({ page }) => {
+    const unknown = await page.evaluate(() => (window.__s0 && window.__s0.unknown) || []);
+    await page.evaluate(() => {
+      if (window.__s0real) window.fetch = window.__s0real;
+      activeWs = null; localStorage.removeItem('chatnft.session');
+    });
+    expect(unknown, 'every request had a named answer (design E2)').toEqual([]);
+  });
+
+  test('switching: Clear is refused, and says it was not done', async ({ page }) => {
+    await armStage0(page, { switching: SWITCHING_AT });
+    await seedTrait(page, { name: 'cap', layer: 'hats', rowId: 'row-1', synced: true, path: 'team7/c1/trait-cap-hats-wip.png' });
+    await listen(page);
+    await page.evaluate(() => document.getElementById('clearproj').onclick());
+    const h = await heard(page);
+    expect({ said: h.said, asked: h.asked, names: await traitNames(page) }).toEqual({ said: [S0_REFUSED], asked: 0, names: ['cap'] });
+    expect(await sends(page)).toEqual([]);
+  });
+
+  test('switching: a folder import is refused, and says it was not done', async ({ page }) => {
+    await armStage0(page, { switching: SWITCHING_AT });
+    await pngFile(page, 'col/hats/wip/hat.png');
+    await listen(page);
+    const ran = await page.evaluate(async () => (await bulkImport([fileWithPath(window.__png, window.__rel)])) === undefined ? 'refused' : 'ran');
+    const h = await heard(page);
+    expect({ ran, said: h.said, names: await traitNames(page) }).toEqual({ ran: 'refused', said: [S0_REFUSED], names: [] });
+    expect(await sends(page)).toEqual([]);
+  });
+
+  test('switching: a project file import is refused, and says it was not done', async ({ page }) => {
+    await armStage0(page, { switching: SWITCHING_AT });
+    await listen(page);
+    await page.evaluate(() => importProject(new File(['{}'], 'project.json', { type: 'application/json' })));
+    const h = await heard(page);
+    expect({ said: h.said, names: await traitNames(page) }).toEqual({ said: [S0_REFUSED], names: [] });
+    expect(await sends(page)).toEqual([]);
+  });
+
+  test('switching: a tile\'s Remove is refused, and says it was not done', async ({ page }) => {
+    await armStage0(page, { switching: SWITCHING_AT });
+    await seedTrait(page, { name: 'cap', layer: 'hats', rowId: 'row-1', synced: true, path: 'team7/c1/trait-cap-hats-wip.png' });
+    await listen(page);
+    await pressTileRemove(page, 'cap');
+    const h = await heard(page);
+    expect({ said: h.said, asked: h.asked, names: await traitNames(page) }).toEqual({ said: [S0_REFUSED], asked: 0, names: ['cap'] });
+    expect(await sends(page)).toEqual([]);
+  });
+
+  /* The confirm open past the read's reuse window (S0_REUSE_MS), so the
+     removal's own read is a new one, and it says switching. */
+  test('switching begins while a tile\'s Remove confirm is open: the removal is refused, and says it was not done', async ({ page }) => {
+    await armStage0(page, { protocol: 1, after: { switching: SWITCHING_AT } });
+    await seedTrait(page, { name: 'cap', layer: 'hats', rowId: 'row-1', synced: true, path: 'team7/c1/trait-cap-hats-wip.png' });
+    await listen(page);
+    await page.evaluate(() => { window.__onAsk = () => { s0State.at = 0; }; });
+    await pressTileRemove(page, 'cap');
+    const h = await heard(page);
+    expect({ said: h.said, asked: h.asked, reads: await page.evaluate(() => window.__s0.reads), names: await traitNames(page) })
+      .toEqual({ said: [S0_REFUSED], asked: 1, reads: 2, names: ['cap'] });
+    expect(await sends(page)).toEqual([]);
+  });
+
+  test('switching: Leave is refused, and says it was not done', async ({ page }) => {
+    await armStage0(page, { switching: SWITCHING_AT });
+    await listen(page);
+    await page.evaluate(() => wsLeave());
+    const h = await heard(page);
+    expect({ said: h.said, asked: h.asked, activeWs: await page.evaluate(() => activeWs) }).toEqual({ said: [S0_REFUSED], asked: 0, activeWs: 'team7' });
+    expect(await sends(page)).toEqual([]);
+  });
+
+  test('switching: Load from cloud is refused, and says it was not done', async ({ page }) => {
+    await armStage0(page, { switching: SWITCHING_AT });
+    await listen(page);
+    await page.evaluate(() => cloudPull({}));
+    const h = await heard(page);
+    expect(h.said).toEqual([S0_REFUSED]);
+    expect((await log(page)).filter(l => l.indexOf('/rest/v1/traits?select=*') >= 0), 'no rows asked for').toEqual([]);
+  });
+
+  test('protocol 2: Clear is refused, and says it was not done', async ({ page }) => {
+    await armStage0(page, { protocol: 2 });
+    await seedTrait(page, { name: 'cap', layer: 'hats', rowId: 'row-1', synced: true, path: 'team7/c1/trait-cap-hats-wip.png' });
+    await listen(page);
+    await page.evaluate(() => document.getElementById('clearproj').onclick());
+    const h = await heard(page);
+    expect({ said: h.said, asked: h.asked, names: await traitNames(page) }).toEqual({ said: [S0_REFUSED], asked: 0, names: ['cap'] });
+  });
+
+  /* THE CONTROLS: a change that IS kept here, and sent after, keeps D1's
+     sentence verbatim - switching and on protocol 2. */
+  test('THE CONTROL: switching, Save to cloud keeps the unsent trait here, and says so in D1\'s words', async ({ page }) => {
+    await armStage0(page, { switching: SWITCHING_AT });
+    await seedTrait(page, { name: 'cap', layer: 'hats' });
+    await listen(page);
+    await page.evaluate(() => cloudPush());
+    const h = await heard(page);
+    expect(h.said).toEqual([S0_SWITCHING]);
+    expect(await sends(page)).toEqual([]);
+  });
+
+  test('THE CONTROL: protocol 2, Save to cloud keeps the unsent trait here, and says so in D1\'s words', async ({ page }) => {
+    await armStage0(page, { protocol: 2 });
+    await seedTrait(page, { name: 'cap', layer: 'hats' });
+    await listen(page);
+    await page.evaluate(() => cloudPush());
+    const h = await heard(page);
+    expect(h.said).toEqual([S0_SWITCHED]);
+    expect(await sends(page)).toEqual([]);
   });
 });

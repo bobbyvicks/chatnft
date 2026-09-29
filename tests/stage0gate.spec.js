@@ -320,26 +320,92 @@ test.describe('stage 0: the protocol read and what it holds back', () => {
       .toEqual({ held: null, ok: true, reads: 2 });
   });
 
-  test('the guard\'s P0001, and the page moves to My page during the read after it: held for the project it came from, and My page is not held', async ({ page }) => {
+  /* The guard's P0001, and the page moves to My page during the read after
+     it (fix round 1; judged for team7 since fix round 2 - fix round 1 took
+     any move for held). The read is held until the move, then answers
+     `ans`: 'switching', 'one' (protocol 1, not switching) or 'fail'. */
+  const guardThenMove = (page, ans) => page.evaluate(async (ans) => {
+    const f = window.fetch; let answer; const held = new Promise(res => { answer = res; });
+    let n = 0, asked = false;
+    window.fetch = async (u, io) => {
+      if (String(u).indexOf('select=id,protocol,switching_at') >= 0 && ++n === 2) {
+        asked = true; await held; await f(u, io);
+        if (ans === 'fail') return new Response(JSON.stringify({ code: 'XX000' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+        return new Response(JSON.stringify([{ id: 'c1', protocol: 1, switching_at: ans === 'switching' ? '2026-09-27T12:00:00+00:00' : null }]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return f(u, io);
+    };
+    const why = {};
+    const saving = cloudSyncOne(await dbGet('t_cap_hats_wip'), null, why);
+    for (let i = 0; i < 300 && !asked; i++) await new Promise(res => setTimeout(res, 10));
+    const readHeld = asked;
+    await wsSwitch(null);
+    const moved = activeWs === null;
+    answer();
+    await saving;
+    window.fetch = f;
+    return { readHeld, moved, reason: why.reason || null, held: s0Held(), shown: !document.getElementById('s0bar').hidden };
+  }, ans);
+
+  test('the guard\'s P0001, the page moves to My page during the read after it, which says switching: held for the project it came from, and My page is not held', async ({ page }) => {
     await armStage0(page, { protocol: 1, insert: { status: 400, body: { code: 'P0001', message: 'project switched: reload' } } });
     await seedTrait(page, { name: 'cap', layer: 'hats' });
-    const r = await page.evaluate(async () => {
-      /* The second protocol read - the one after the refusal - is held until the move. */
-      const f = window.fetch; let answer; const held = new Promise(res => { answer = res; });
-      let n = 0, asked = false;
-      window.fetch = async (u, io) => { if (String(u).indexOf('select=id,protocol,switching_at') >= 0 && ++n === 2) { asked = true; await held; } return f(u, io); };
-      const why = {};
-      const saving = cloudSyncOne(await dbGet('t_cap_hats_wip'), null, why);
-      for (let i = 0; i < 300 && !asked; i++) await new Promise(res => setTimeout(res, 10));
-      const readHeld = asked;
-      await wsSwitch(null);
-      const moved = activeWs === null;
-      answer();
-      await saving;
-      window.fetch = f;
-      return { readHeld, moved, reason: why.reason || null, held: s0Held(), shown: !document.getElementById('s0bar').hidden };
-    });
-    expect(r).toEqual({ readHeld: true, moved: true, reason: 'held', held: null, shown: false });
+    expect(await guardThenMove(page, 'switching')).toEqual({ readHeld: true, moved: true, reason: 'held', held: null, shown: false });
+  });
+
+  test('the guard\'s P0001, the page moves during the read after it, which fails: held (the guard, unanswered), and My page is not held', async ({ page }) => {
+    await armStage0(page, { protocol: 1, insert: { status: 400, body: { code: 'P0001', message: 'project switched: reload' } } });
+    await seedTrait(page, { name: 'cap', layer: 'hats' });
+    expect(await guardThenMove(page, 'fail')).toEqual({ readHeld: true, moved: true, reason: 'held', held: null, shown: false });
+  });
+
+  test('the guard\'s P0001, the page moves during the read after it, which answers protocol 1: the switch has ended there - refused', async ({ page }) => {
+    await armStage0(page, { protocol: 1, insert: { status: 400, body: { code: 'P0001', message: 'project switched: reload' } } });
+    await seedTrait(page, { name: 'cap', layer: 'hats' });
+    expect(await guardThenMove(page, 'one')).toEqual({ readHeld: true, moved: true, reason: 'refused', held: null, shown: false });
+  });
+
+  /* A READ THAT BEGAN BEFORE THE REFUSAL (fix round 2). A read already
+     running - the two-minute read's shape - answers protocol 1 from before
+     the switch, after the guard's refusal; a read made after it says
+     switching. The read trusted must be one that began after the refusal. */
+  const guardWithStaleRead = (page, stale) => page.evaluate(async (stale) => {
+    const f = window.fetch; let n = 0;
+    let releaseInsert; const ig = new Promise(r => { releaseInsert = r; });
+    let releaseStale; const sg = new Promise(r => { releaseStale = r; });
+    let insertAsked = false, staleAsked = false;
+    window.fetch = async (u, io) => {
+      const s = String(u), m = (io && io.method) || 'GET';
+      if (m === 'POST' && s.indexOf('/rest/v1/traits') >= 0) { insertAsked = true; await ig; return f(u, io); }
+      if (s.indexOf('select=id,protocol,switching_at') >= 0 && ++n === 2 && stale) {
+        staleAsked = true; await sg; await f(u, io);
+        return new Response(JSON.stringify([{ id: 'c1', protocol: 1, switching_at: null }]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return f(u, io);
+    };
+    const why = {};
+    const saving = cloudSyncOne(await dbGet('t_cap_hats_wip'), null, why);
+    for (let i = 0; i < 300 && !insertAsked; i++) await new Promise(r => setTimeout(r, 10));
+    let outside = null;
+    if (stale) { outside = s0Check(true); for (let i = 0; i < 300 && !staleAsked; i++) await new Promise(r => setTimeout(r, 10)); }
+    releaseInsert();
+    await new Promise(r => setTimeout(r, 150));
+    releaseStale();
+    await saving; if (outside) await outside;
+    window.fetch = f;
+    return { insertAsked, staleAsked, reason: why.reason || null, held: s0Held(), reads: window.__s0.reads };
+  }, stale);
+
+  test('the guard\'s P0001 while a read begun before it is still running, which answers protocol 1: held, on a read made after the refusal', async ({ page }) => {
+    await armStage0(page, { protocol: 1, after: { switching: '2026-09-27T12:00:00+00:00' }, insert: { status: 400, body: { code: 'P0001', message: 'project switched: reload' } } });
+    await seedTrait(page, { name: 'cap', layer: 'hats' });
+    expect(await guardWithStaleRead(page, true)).toEqual({ insertAsked: true, staleAsked: true, reason: 'held', held: 'switching', reads: 3 });
+  });
+
+  test('THE CONTROL: the same refusal with no read running: held, on its own read', async ({ page }) => {
+    await armStage0(page, { protocol: 1, after: { switching: '2026-09-27T12:00:00+00:00' }, insert: { status: 400, body: { code: 'P0001', message: 'project switched: reload' } } });
+    await seedTrait(page, { name: 'cap', layer: 'hats' });
+    expect(await guardWithStaleRead(page, false)).toEqual({ insertAsked: true, staleAsked: false, reason: 'held', held: 'switching', reads: 2 });
   });
 
   test('a bare P0001 from reorder_traits ("trait outside project"), the read after it answering protocol 1: an ordinary refusal - the old order back, no bar, nothing resent', async ({ page }) => {
@@ -758,21 +824,22 @@ const seedMany = async (page, n) => { for (let i = 0; i < n; i++) await seedTrai
    `flagOnStaleDelete`, this account's migration flag is set as the
    stale-row DELETE goes out - after the run's first end-of-run check and
    before the sweep's (pushEnd takes the flag off at the end). */
-const personalEndOfRun = (page, flagOnStaleDelete) => page.evaluate(async (flagOnStaleDelete) => {
-  await dbPut({ id: GONE_ID, kind: 'settings', rows: [{ rowId: 'row-old', path: 'me/c1/trait-old-hats-wip.png', name: 'old', at: 1 }], at: Date.now() });
+const personalEndOfRun = (page, flagOnStaleDelete, twoRows) => page.evaluate(async ([flagOnStaleDelete, twoRows]) => {
+  const stale = [{ id: 'row-old', path: 'me/c1/trait-old-hats-wip.png' }].concat(twoRows ? [{ id: 'row-old1', path: 'me/c1/trait-old1-hats-wip.png' }] : []);
+  await dbPut({ id: GONE_ID, kind: 'settings', rows: stale.map((r, i) => ({ rowId: r.id, path: r.path, name: 'old' + (i || ''), at: 1 })), at: Date.now() });
   const f = window.fetch;
   const json = (x, h) => new Response(JSON.stringify(x), { status: 200, headers: Object.assign({ 'Content-Type': 'application/json' }, h || {}) });
   window.fetch = async (u, io) => {
     const s = String(u), m = (io && io.method) || 'GET';
-    if (flagOnStaleDelete && m === 'DELETE' && s.indexOf('/rest/v1/traits?id=eq.row-old') >= 0) localStorage.setItem('pb.migrating.' + wsDbName() + '.u1', String(Date.now()));
+    if (flagOnStaleDelete && m === 'DELETE' && /\/rest\/v1\/traits\?id=eq\.row-old(&|$)/.test(s)) localStorage.setItem('pb.migrating.' + wsDbName() + '.u1', String(Date.now()));
     const r = await f(u, io);
     if (m === 'POST' && s.indexOf('/storage/v1/object/list/') >= 0)
       return json((JSON.parse(io.body || '{}').offset || 0) > 0 ? [] : [{ name: 'trait-a-hats-wip.png' }, { name: 'trait-orphan-hats-wip.png' }]);
     if (m === 'GET' && s.indexOf('/rest/v1/traits?select=id,path') >= 0)
-      return json(/[?&]offset=0(&|$)/.test(s) ? [{ id: 'row-old', path: 'me/c1/trait-old-hats-wip.png' }] : [], { 'Content-Range': '0-0/1' });
+      return json(/[?&]offset=0(&|$)/.test(s) ? stale : [], { 'Content-Range': '0-' + (stale.length - 1) + '/' + stale.length });
     return r;
   };
-}, !!flagOnStaleDelete);
+}, [!!flagOnStaleDelete, !!twoRows]);
 const endWrites = async (page) => (await log(page)).filter(l => l.startsWith('PATCH /rest/v1/collections') || l.startsWith('DELETE /rest/v1/traits?id=eq.row-old') || l === 'DELETE /storage/v1/object/traits');
 
 /* REMOVE FROM SERVER, with the server holding two rows (fix round 1). */
@@ -791,25 +858,111 @@ const removeFromServer = (page) => page.evaluate(async () => {
   return { asked, reads: window.__s0.reads, toasts, shown: !document.getElementById('s0bar').hidden };
 });
 const serverCleared = async (page) => (await log(page)).filter(l => l.startsWith('DELETE /rest/v1/traits?collection_id=') || l === 'DELETE /storage/v1/object/traits');
+/* The same, with a read begun while the confirm is open (the two-minute
+   read's shape) that answers protocol 1, from before the switch, 150 ms
+   after the confirm closes (fix round 2). */
+const removeWithStaleRead = (page) => page.evaluate(async () => {
+  const f = window.fetch; let n = 0, staleAsked = false;
+  let releaseStale; const sg = new Promise(r => { releaseStale = r; });
+  window.fetch = async (u, io) => {
+    const s = String(u), m = (io && io.method) || 'GET';
+    if (s.indexOf('select=id,protocol,switching_at') >= 0 && ++n === 2) {
+      staleAsked = true; await sg; await f(u, io);
+      return new Response(JSON.stringify([{ id: 'c1', protocol: 1, switching_at: null }]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    const r = await f(u, io);
+    if (m === 'GET' && s.indexOf('/rest/v1/traits?select=id&collection_id=') >= 0)
+      return new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json', 'Content-Range': '0-0/2' } });
+    return r;
+  };
+  const toasts = [], shown = window.toast; window.toast = (m) => { toasts.push(String(m)); try { shown(m); } catch (_) {} };
+  let asked = 0; const rc = window.confirm;
+  window.confirm = () => { asked++; s0Check(true); setTimeout(() => releaseStale(), 150); return true; };
+  try { await clearCloudNow(); } finally { window.fetch = f; window.toast = shown; window.confirm = rc; }
+  return { asked, staleAsked, reads: window.__s0.reads, toasts, shown: !document.getElementById('s0bar').hidden };
+});
 
-/* A SEND WHOSE READ THE PAGE MOVES AWAY FROM (fix round 1). cloudSyncOne
-   takes team7's collection, then reads; the read is held, and with
-   `doSwitch` the page moves to My page before it answers. */
-const sendAcrossSwitch = (page, doSwitch) => page.evaluate(async (doSwitch) => {
-  const f = window.fetch; let answer; const held = new Promise(r => { answer = r; });
-  let asked = false;
-  window.fetch = async (u, io) => { if (!asked && String(u).indexOf('select=id,protocol,switching_at') >= 0) { asked = true; await held; } return f(u, io); };
-  const why = {};
-  const sending = cloudSyncOne(await dbGet('t_cap_hats_wip'), null, why);
+/* SUPERSEDED (fix round 2): fix round 1's sendAcrossSwitch and its two
+   tests, "a switch to My page during a save's read: nothing is sent to the
+   project left" and its control. They pinned "a move during the read
+   answers held", which the re-review of 443a022 measured losing the change:
+   the callers wrote their unsent marks into the store moved to, and the
+   store left kept the change marked synced. What replaces them is below:
+   judged for the store the send is for. */
+
+/* THE PAGE MOVES DURING A SENDER'S READ (fix round 2). team7 holds cap
+   (row-1, synced, weight 1); My page holds its own records under the same
+   ids (row-me-*, weight 7) - where a write resolved through db() after the
+   move would land. `o.what` is the sender: 'weight' (setRarity), 'weights'
+   (setRarityMany), 'status' (setTraitStatus, through cloudMoveOne), 'shelf'
+   (commitShelfMove) or 'bulk' (bulkMoveToLayer). The sender's first
+   protocol read is held; with `o.move` the page moves to My page; the read
+   then answers `o.answer`: 'one' (protocol 1) or 'two' (protocol 2). With
+   `o.seen2`, team7 is remembered on protocol 2 (s0Seen2, set directly: a
+   read of it earlier in the tab); with `o.flag`, u1's migration flag is set
+   for team7. Answers what was sent, and each store's traits. */
+const moveDuringRead = (page, o) => page.evaluate(async (o) => {
+  const put = (recs) => db().then(d => new Promise((res, rej) => {
+    const t = d.transaction('items', 'readwrite'); for (const r of recs) t.objectStore('items').put(r);
+    t.oncomplete = () => res(); t.onerror = () => rej(t.error); }));
+  const blob = (n) => new Blob([new Uint8Array(n)], { type: 'image/png' });
+  const shelf = o.what === 'shelf' || o.what === 'bulk';
+  LAYERS = ['skins', 'hats', 'unsorted'];
+  const base = { kind: 'trait', name: 'cap', w: 16, h: 16, at: 1, synced: true };
+  activeWs = null; dbp = null; dbpName = null;
+  await put([
+    Object.assign({}, base, { id: 't_cap_hats_wip', layer: 'hats', status: 'wip', rarity: 7, blob: blob(32), rowId: 'row-me-1', path: 'me/cme/trait-cap-hats-wip.png', lid: 'l_me1' }),
+    Object.assign({}, base, { id: 't_cap_hats_approved', layer: 'hats', status: 'approved', rarity: 7, blob: blob(32), rowId: 'row-me-2', path: 'me/cme/trait-cap-hats-approved.png', lid: 'l_me2' }),
+    Object.assign({}, base, { id: 't_cap_skins_approved', layer: 'skins', status: 'approved', rarity: 7, blob: blob(32), rowId: 'row-me-3', path: 'me/cme/trait-cap-skins-approved.png', lid: 'l_me3' }),
+  ]);
+  activeWs = 'team7'; dbp = null; dbpName = null;
+  if (shelf) {
+    await put([{ id: 'settings.layers', kind: 'settings', at: 1, layers: ['skins', 'hats', 'unsorted'], hidden: [] },
+      Object.assign({}, base, { id: 't_cap_skins_approved', layer: 'skins', status: 'approved', rarity: 1, blob: blob(16), shelfOrder: 10,
+        rowId: 'row-1', rowAt: '2026-01-01T00:00:00Z', path: 'team7/c1/trait-cap-skins-approved.png', lid: 'l_t7' })]);
+    await renderShelf();
+  } else {
+    await put([Object.assign({}, base, { id: 't_cap_hats_wip', layer: 'hats', status: 'wip', rarity: 1, blob: blob(16),
+      rowId: 'row-1', rowAt: '2026-01-01T00:00:00Z', path: 'team7/c1/trait-cap-hats-wip.png', lid: 'l_t7' })]);
+  }
+  if (o.seen2) s0Seen2.add('chatnft.ws.team7|u1');
+  if (o.flag) localStorage.setItem('pb.migrating.chatnft.ws.team7.u1', '1');
+  const f = window.fetch; let release; const gate = new Promise(r => { release = r; });
+  let asked = false, n = 0;
+  window.fetch = async (u, io) => {
+    if (String(u).indexOf('select=id,protocol,switching_at') >= 0 && ++n === 1) {
+      asked = true; await gate; await f(u, io);
+      return new Response(JSON.stringify([{ id: 'c1', protocol: o.answer === 'two' ? 2 : 1, switching_at: null }]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    return f(u, io);
+  };
+  const rec = await dbGet(shelf ? 't_cap_skins_approved' : 't_cap_hats_wip');
+  const mark = window.__s0.log.length;
+  let acting = null;
+  if (o.what === 'weight') acting = setRarity(rec, 50);
+  if (o.what === 'weights') acting = setRarityMany([rec], 50);
+  if (o.what === 'status') acting = setTraitStatus(rec, 'approved');
+  if (o.what === 'shelf') acting = commitShelfMove({ recordKey: 'row-1', toLayer: 'hats', beforeKey: null });
+  if (o.what === 'bulk') { shelfPick.clear(); shelfPick.add('row-1'); acting = bulkMoveToLayer('hats'); }
   for (let i = 0; i < 300 && !asked; i++) await new Promise(r => setTimeout(r, 10));
   const readHeld = asked;
-  if (doSwitch) await wsSwitch(null);
+  if (o.move) await wsSwitch(null);
   const moved = activeWs === null;
-  answer();
-  const ok = !!(await sending);
+  release();
+  try { await acting; } catch (e) { return { threw: String(e) }; }
+  await new Promise(r => setTimeout(r, 300));
   window.fetch = f;
-  return { readHeld, moved, ok, reason: why.reason || null };
-}, doSwitch);
+  localStorage.removeItem('pb.migrating.chatnft.ws.team7.u1');
+  const traits = async (ws) => { activeWs = ws; dbp = null; dbpName = null;
+    return (await dbAll()).filter(i => i.kind === 'trait').map(i => i.id + '[' + i.rowId + ' ' + i.rarity + (i.synced ? ' synced' : ' unsent') + ']').sort(); };
+  const out = { readHeld, moved,
+    sent: window.__s0.log.slice(mark).filter(l => /^(PATCH|POST|DELETE) \/rest\/v1\/(traits|rpc\/reorder_traits)|^POST \/storage\/v1\/object\/traits\//.test(l)),
+    me: await traits(null), team7: await traits('team7') };
+  activeWs = null; dbp = null; dbpName = null;
+  return out;
+}, o);
+/* My page's three records, exactly as seeded. */
+const ME = ['t_cap_hats_approved[row-me-2 7 synced]', 't_cap_hats_wip[row-me-1 7 synced]', 't_cap_skins_approved[row-me-3 7 synced]'];
 
 test.describe('stage 0: fix round 1 - what the review of 60ecb5d found', () => {
   test.beforeEach(async ({ page }) => {
@@ -865,6 +1018,22 @@ test.describe('stage 0: fix round 1 - what the review of 60ecb5d found', () => {
     expect(await endWrites(page)).toEqual(['DELETE /rest/v1/traits?id=eq.row-old']);
   });
 
+  test('on My page, two stale rows, the migration flag set as the first one\'s DELETE goes: the second is not sent, nor the sweep or the PATCH', async ({ page }) => {
+    await armStage0(page, { ws: null, protocol: 1 });
+    await seedTrait(page, { name: 'a', layer: 'hats' });
+    await personalEndOfRun(page, true, true);
+    expect(await pushEnd(page, 'none', 1)).toEqual({ heldPartway: null, heldItems: 0, heldAtEnd: 'migrating' });
+    expect(await endWrites(page)).toEqual(['DELETE /rest/v1/traits?id=eq.row-old']);
+  });
+
+  test('THE CONTROL: the same two stale rows with nothing held: both go, then the sweep and the PATCH', async ({ page }) => {
+    await armStage0(page, { ws: null, protocol: 1 });
+    await seedTrait(page, { name: 'a', layer: 'hats' });
+    await personalEndOfRun(page, false, true);
+    expect(await pushEnd(page, 'none', 1)).toEqual({ heldPartway: null, heldItems: 0, heldAtEnd: null });
+    expect(await endWrites(page)).toEqual(['DELETE /rest/v1/traits?id=eq.row-old', 'DELETE /rest/v1/traits?id=eq.row-old1', 'DELETE /storage/v1/object/traits', 'PATCH /rest/v1/collections?id=eq.c1']);
+  });
+
   test('THE CONTROL: the same on My page with nothing held: the stale row, the orphan picture and the layers all go', async ({ page }) => {
     await armStage0(page, { ws: null, protocol: 1 });
     await seedTrait(page, { name: 'a', layer: 'hats' });
@@ -878,6 +1047,14 @@ test.describe('stage 0: fix round 1 - what the review of 60ecb5d found', () => {
     await armStage0(page, { protocol: 1, after: { switching: '2026-09-27T12:00:00+00:00' } });
     const r = await removeFromServer(page);
     expect([r.asked, r.reads, r.shown]).toEqual([1, 2, true]);
+    expect(r.toasts).toContain(S0_SWITCHING);
+    expect(await serverCleared(page)).toEqual([]);
+  });
+
+  test('Remove from server: a read begun while the confirm was open answers protocol 1 after it closes, and a read made after says switching: nothing is removed', async ({ page }) => {
+    await armStage0(page, { protocol: 1, after: { switching: '2026-09-27T12:00:00+00:00' } });
+    const r = await removeWithStaleRead(page);
+    expect([r.asked, r.staleAsked, r.reads, r.shown]).toEqual([1, true, 3, true]);
     expect(r.toasts).toContain(S0_SWITCHING);
     expect(await serverCleared(page)).toEqual([]);
   });
@@ -897,19 +1074,59 @@ test.describe('stage 0: fix round 1 - what the review of 60ecb5d found', () => {
     expect(await serverCleared(page)).toEqual(['DELETE /rest/v1/traits?collection_id=eq.c1']);
   });
 
-  /* A sender whose read the page moves away from. */
-  test('a switch to My page during a save\'s read: nothing is sent to the project left', async ({ page }) => {
+  /* A sender whose read the page moves away from (fix round 2; see
+     moveDuringRead). Not held for its own store, it is sent there, as
+     60ecb5d sent it, and My page is untouched. Held there, nothing is sent
+     and nothing is written into My page. The first three fail on fix round
+     1's "a move answers held" (nothing sent). */
+  test('the page moves during a weight\'s read, team7 not held: the PATCH goes to team7\'s row, and My page\'s own cap is untouched', async ({ page }) => {
     await armStage0(page, { protocol: 1 });
-    await seedTrait(page, { name: 'cap', layer: 'hats' });
-    expect(await sendAcrossSwitch(page, true)).toEqual({ readHeld: true, moved: true, ok: false, reason: 'held' });
-    expect(await traitSends(page)).toEqual([]);
+    expect(await moveDuringRead(page, { what: 'weight', move: true, answer: 'one' })).toEqual({ readHeld: true, moved: true,
+      sent: ['PATCH /rest/v1/traits?id=eq.row-1'], me: ME, team7: ['t_cap_hats_wip[row-1 50 synced]'] });
   });
 
-  test('THE CONTROL: the same save, its read held and released with no switch, is sent', async ({ page }) => {
+  test('the page moves during a weight on many\'s read, team7 not held: the PATCH goes, and My page is untouched', async ({ page }) => {
     await armStage0(page, { protocol: 1 });
-    await seedTrait(page, { name: 'cap', layer: 'hats' });
-    expect(await sendAcrossSwitch(page, false)).toEqual({ readHeld: true, moved: false, ok: true, reason: null });
-    expect((await traitSends(page)).some(l => l.startsWith('POST /rest/v1/traits'))).toBe(true);
+    expect(await moveDuringRead(page, { what: 'weights', move: true, answer: 'one' })).toEqual({ readHeld: true, moved: true,
+      sent: ['PATCH /rest/v1/traits?id=in.(row-1)'], me: ME, team7: ['t_cap_hats_wip[row-1 50 synced]'] });
+  });
+
+  test('the page moves during a shelf move\'s read, team7 not held: the order goes to team7, and My page is untouched', async ({ page }) => {
+    await armStage0(page, { protocol: 1 });
+    expect(await moveDuringRead(page, { what: 'shelf', move: true, answer: 'one' })).toEqual({ readHeld: true, moved: true,
+      sent: ['POST /rest/v1/rpc/reorder_traits'], me: ME, team7: ['t_cap_hats_approved[row-1 1 synced]'] });
+  });
+
+  test('the page moves during a batch move\'s read, team7 not held: the order goes, and My page is not marked unsent', async ({ page }) => {
+    await armStage0(page, { protocol: 1 });
+    const r = await moveDuringRead(page, { what: 'bulk', move: true, answer: 'one' });
+    expect([r.readHeld, r.moved, r.sent, r.me]).toEqual([true, true, ['POST /rest/v1/rpc/reorder_traits'], ME]);
+  });
+
+  test('THE CONTROL: the same weight, its read held and released with no move: the PATCH goes', async ({ page }) => {
+    await armStage0(page, { protocol: 1 });
+    expect(await moveDuringRead(page, { what: 'weight', move: false, answer: 'one' })).toEqual({ readHeld: true, moved: false,
+      sent: ['PATCH /rest/v1/traits?id=eq.row-1'], me: ME, team7: ['t_cap_hats_wip[row-1 50 synced]'] });
+  });
+
+  for (const what of ['weight', 'weights', 'status', 'shelf', 'bulk']) {
+    test('the page moves during a ' + what + ' send\'s read, and the read says team7 is on protocol 2: nothing is sent, and nothing is written into My page', async ({ page }) => {
+      await armStage0(page, { protocol: 1 });
+      const r = await moveDuringRead(page, { what, move: true, answer: 'two' });
+      expect([r.readHeld, r.moved, r.sent, r.me]).toEqual([true, true, [], ME]);
+    });
+  }
+
+  test('the page moves during a weight\'s read, team7 remembered on protocol 2 and the read saying 1: nothing is sent, and My page is untouched', async ({ page }) => {
+    await armStage0(page, { protocol: 1 });
+    const r = await moveDuringRead(page, { what: 'weight', move: true, answer: 'one', seen2: true });
+    expect([r.readHeld, r.moved, r.sent, r.me]).toEqual([true, true, [], ME]);
+  });
+
+  test('the page moves during a weight\'s read, u1\'s migration flag set for team7 and the read saying 1: nothing is sent, and My page is untouched', async ({ page }) => {
+    await armStage0(page, { protocol: 1 });
+    const r = await moveDuringRead(page, { what: 'weight', move: true, answer: 'one', flag: true });
+    expect([r.readHeld, r.moved, r.sent, r.me]).toEqual([true, true, [], ME]);
   });
 
   /* The inline words. */

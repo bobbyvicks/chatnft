@@ -76,9 +76,29 @@
    - Remove from server read only before its confirm; it reads again after.
    - A sender whose re-read the page moved away from judged the store
      moved to, and sent to the one it left. s0Blocked answers held when
-     the store or account moved during its read.
+     the store or account moved during its read. (SUPERSEDED by fix round
+     2, below: that answer was measured to lose the change.)
    - The inline message lowercased the brand: only "This project..." is
-     lowercased now. */
+     lowercased now.
+
+   Fix round 2 (the re-review of 443a022; each measured red on 443a022
+   first):
+   - Fix round 1's "a move during the read answers held" was wrong: the
+     callers that write on a held answer wrote their unsent marks and
+     rollbacks through db(), into the store moved to - over My page's own
+     record with the same id - while the store the send was for kept the
+     change marked synced, so nothing sent it; 60ecb5d had sent it. A send
+     is judged for the store and account it is FOR now (s0HeldFor): the
+     flag, protocol 2 remembered, or what that read answered - s0Check
+     hands back its answer, keyed, when the page moved. Not held there, the
+     send goes to its own target. Held there, it is not sent, and the five
+     callers that write on a held answer write nothing into a store the
+     page moved to (8b).
+   - s0Recheck and Remove from server's read after its confirm joined a
+     read already running, which can answer from before the refusal or the
+     confirm (a poll read, measured). Each waits for it and reads again
+     (s0Fresh).
+   - The stale-row DELETEs ask on each row, not once on entry. */
 const s0 = require('./stage0-common.cjs');
 const doc = s0.start([['function s0Uid(){', 'patch601 is not applied']]);
 
@@ -166,7 +186,10 @@ doc.swap('const TEAM_PROJECT_PICK="&order=created_at.asc,id.asc&limit=1";', [
   '  s0FlightKey=key;',
   '  const p=(async()=>{',
   '    const got=await s0Read();',
-  '    if(wsDbName()!==dbn||(s0Uid()||null)!==uid) return s0State;',
+  '    /* The page moved during the read: the state is not written for a store',
+  '       or account no longer shown, but the answer is handed back, keyed, so a',
+  '       sender can judge the store its send is for (fix round 2). */',
+  '    if(wsDbName()!==dbn||(s0Uid()||null)!==uid) return {db:dbn, uid:uid, moved:true, got:got};',
   '    const mine=s0Mine(dbn,uid);',
   '    const wasHeld=mine&&(s0State.protocol>=2||s0State.switching);',
   '    const seen=Math.max((mine&&s0State.protocol>=2) ? s0State.protocol : 1, s0Seen2.has(key) ? 2 : 1);',
@@ -203,13 +226,14 @@ doc.swap('const TEAM_PROJECT_PICK="&order=created_at.asc,id.asc&limit=1";', [
   '   and the stored session\'s, whose token every send carries. The page has',
   '   no storage listener, so another tab that signs A out and B in leaves',
   '   this tab on A while it sends with B\'s token; B\'s flag holds it. */',
-  'function s0FlagSet(){',
-  '  for(const u of [s0Uid(), s0SessionUid(sbLoadSession())]){',
+  'function s0FlagOn(dbn,uids){',
+  '  for(const u of uids){',
   '    if(!u) continue;',
-  '    try{ if(localStorage.getItem("pb.migrating."+wsDbName()+"."+u)!==null) return true; }catch(_){ }',
+  '    try{ if(localStorage.getItem("pb.migrating."+dbn+"."+u)!==null) return true; }catch(_){ }',
   '  }',
   '  return false;',
   '}',
+  'function s0FlagSet(){ return s0FlagOn(wsDbName(), [s0Uid(), s0SessionUid(sbLoadSession())]); }',
   'function s0Held(){',
   '  if(s0FlagSet()) return "migrating";',
   '  const dbn=wsDbName(), uid=s0Uid()||null;',
@@ -224,17 +248,47 @@ doc.swap('const TEAM_PROJECT_PICK="&order=created_at.asc,id.asc&limit=1";', [
   '   "This project..." takes a small letter there: the other begins with the',
   '   brand, which is always "BuildaNFT" (fix round 1). */',
   'function s0Inline(why){ return why==="switching" ? S0_SWITCHING.charAt(0).toLowerCase()+S0_SWITCHING.slice(1) : S0_SWITCHED; }',
-  '/* Before a send: held, or not. The store and account are noted before the',
-  '   read: if the page moved during it, s0Check drops the read and s0Held',
-  '   would judge the store moved to, while the send goes to the one left',
-  '   (fix round 1, measured). A move answers held: this send is dropped and',
-  '   writes nothing, and what it would have sent stays unsent for the next',
-  '   send or the online event. */',
+  '/* Whether the store and account a send is FOR are held, judged when the',
+  '   page has moved off them during the send\'s read: this account\'s flag',
+  '   for that store (the pinned uid or the session\'s, noted before the',
+  '   read), protocol 2 remembered for it, or what that read answered - r is',
+  '   s0Check\'s answer, the keyed {moved, got} a move leaves, or the state',
+  '   it wrote for that key. */',
+  'function s0HeldFor(dbn,uid,sid,r){',
+  '  if(s0FlagOn(dbn,[uid,sid])) return true;',
+  '  if(s0Seen2.has(dbn+"|"+(uid||""))) return true;',
+  '  const got=(r&&r.moved) ? r.got : (r&&r.db===dbn&&r.uid===uid ? r : null);',
+  '  return !!got&&(got.protocol>=2||!!got.switching);',
+  '}',
+  '/* Whether the read after a refusal answered, for the store and account it',
+  '   was for (see s0HeldFor for r). */',
+  'function s0AnsweredFor(dbn,uid,r){ return (r&&r.moved) ? !!r.got : !!(r&&r.db===dbn&&r.uid===uid&&r.ok); }',
+  '/* Before a send: held, or not - for the store and account the send is FOR,',
+  '   noted before the read. When the page has not moved, that is s0Held().',
+  '   When it moved during the read, s0Held() would judge the store moved to:',
+  '   fix round 1 answered "held" then, and was wrong (measured by the review',
+  '   of 443a022). A held answer makes setRarity, setRarityMany and a shelf',
+  '   move\'s rollback write their unsent marks through db(), which resolves',
+  '   the store moved to - over a record of My page\'s with the same id -',
+  '   while the store the send was for kept the change marked synced, so',
+  '   nothing ever sent it. Judged for its own store now (fix round 2): not',
+  '   held there, the send goes to its own target, as 60ecb5d sent it - a row',
+  '   id PATCH, a delete or the rpc names its row, and reaches its project. */',
   'async function s0Blocked(){',
-  '  const dbn=wsDbName(), uid=s0Uid()||null;',
-  '  try{ await s0Check(false); }catch(_){ }',
-  '  if(wsDbName()!==dbn||(s0Uid()||null)!==uid) return true;',
+  '  const dbn=wsDbName(), uid=s0Uid()||null, sid=s0SessionUid(sbLoadSession());',
+  '  let r=null;',
+  '  try{ r=await s0Check(false); }catch(_){ r=null; }',
+  '  if(wsDbName()!==dbn||(s0Uid()||null)!==uid) return s0HeldFor(dbn,uid,sid,r);',
   '  return !!s0Held();',
+  '}',
+  '/* A read that begins after now. s0Check joins a read already running for',
+  '   the same store and account, and one that began before a refusal, or',
+  '   before a confirm closed, can answer from before the switch: the',
+  '   guard\'s P0001 was trusted away on it (fix round 2, measured). Any read',
+  '   running is let finish first, then a new one is made. */',
+  'async function s0Fresh(){',
+  '  if(s0Flight){ try{ await s0Flight; }catch(_){ } }',
+  '  try{ return await s0Check(true); }catch(_){ return null; }',
   '}',
   '/* Change B\'s guard: P0001 with the design\'s message, "project switched:',
   '   reload". P0001 alone is PostgreSQL\'s code for any bare RAISE, and the',
@@ -242,21 +296,22 @@ doc.swap('const TEAM_PROJECT_PICK="&order=created_at.asc,id.asc&limit=1";', [
   '   project", "invalid shelf order"): each is an ordinary refusal (fix',
   '   round 1, measured). */',
   'function s0Guard(err){ return !!err&&err.code==="P0001"&&typeof err.message==="string"&&err.message.indexOf("project switched")===0; }',
-  '/* After a refusal, before it is reported: read again. err is the refusal\'s',
-  '   body where the sender has it. true: report it as held.',
+  '/* After a refusal, before it is reported: read again - a read that began',
+  '   after the refusal (s0Fresh). err is the refusal\'s body where the sender',
+  '   has it. true: report it as held.',
   '     - The read answers: it is trusted. Protocol 2 or switching is held;',
   '       neither, after the guard\'s refusal, means the switch has just ended,',
   '       and it is reported as refused, so the next send goes.',
   '     - The read cannot answer: only the guard\'s refusal is taken as',
   '       switching - kept here and sent after. s0State.ok stays false, as',
   '       the read reported; it is never written over a read that answered.',
-  '     - The page moved during the read, which was then dropped: the',
-  '       refusal\'s own answer decides, for the store it came from, and',
-  '       nothing is written for the store moved to. */',
+  '     - The page moved during the read: the same, judged for the store and',
+  '       account the refused send was for (s0HeldFor), and nothing is',
+  '       written for the store moved to (fix round 2). */',
   'async function s0Recheck(err){',
-  '  const dbn=wsDbName(), uid=s0Uid()||null, guard=s0Guard(err);',
-  '  try{ await s0Check(true); }catch(_){ }',
-  '  if(wsDbName()!==dbn||(s0Uid()||null)!==uid) return guard;',
+  '  const dbn=wsDbName(), uid=s0Uid()||null, sid=s0SessionUid(sbLoadSession()), guard=s0Guard(err);',
+  '  const r=await s0Fresh();',
+  '  if(wsDbName()!==dbn||(s0Uid()||null)!==uid) return s0HeldFor(dbn,uid,sid,r)||(guard&&!s0AnsweredFor(dbn,uid,r));',
   '  if(s0Held()) return true;',
   '  if(guard&&!(s0Mine(dbn,uid)&&s0State.ok)){',
   '    s0State={db:dbn, uid:uid, protocol:(s0Mine(dbn,uid) ? s0State.protocol : 1), switching:true, ok:false, at:Date.now()};',
@@ -266,9 +321,12 @@ doc.swap('const TEAM_PROJECT_PICK="&order=created_at.asc,id.asc&limit=1";', [
   '  return false;',
   '}',
   '/* Before Clear, an import, Leave and Remove from server: a fresh read; if',
-  '   held, it says so and the action does nothing. true when refused. */',
-  'async function s0Refuse(){',
-  '  try{ await s0Check(true); }catch(_){ }',
+  '   held, it says so and the action does nothing. true when refused. after:',
+  '   the read must begin now, not be one already running (Remove from',
+  '   server\'s read after its confirm; see s0Fresh). */',
+  'async function s0Refuse(after){',
+  '  if(after) await s0Fresh();',
+  '  else{ try{ await s0Check(true); }catch(_){ } }',
   '  const why=s0Held();',
   '  if(!why) return false;',
   '  s0Show();',
@@ -508,10 +566,67 @@ doc.swap('  say("Clearing the server\\u2026");', [
   '  /* STAGE 0 (D1): and again after the confirm, which can sit open for as long',
   '     as the person thinks. What follows removes every picture and every row',
   '     of the project, and it went on a verdict as old as that pause (fix',
-  '     round 1, measured); the tile removals read again after theirs too. */',
-  '  if(await s0Refuse()) return;',
+  '     round 1, measured); the tile removals read again after theirs too.',
+  '     A read that began after the confirm closed (fix round 2): one already',
+  '     running - the two-minute read, say - can answer from before it. */',
+  '  if(await s0Refuse(true)) return;',
   '  say("Clearing the server\\u2026");',
 ]);
+/* The stale-row DELETEs, each (fix round 2): a hold that arrives during the
+   block - the flag is read live - stops the rest, and the sweep after them. */
+doc.swap('        const kept=[], done=[];', [
+  '        const kept=[], done=[];',
+  '        let s0Cut=false;',
+]);
+doc.swap('            const q="id=eq."+encodeURIComponent(r.id);', [
+  '            /* STAGE 0 (D1): each stale-row DELETE asks again; a hold that came',
+  '               during the block stops the rest, and serverPaths stays null so',
+  '               the sweep does not run on a partial list (fix round 2). */',
+  '            if(s0End()){ s0Cut=true; break; }',
+  '            const q="id=eq."+encodeURIComponent(r.id);',
+]);
+doc.swap('        serverPaths=kept.map(r=>r.path).filter(Boolean);',
+  '        serverPaths=s0Cut ? null : kept.map(r=>r.path).filter(Boolean);');
+
+/* ---- 8b. no unsent mark in a store the page moved to (fix round 2) --------
+   A send held for its own store while the page moved during its read (see
+   s0Blocked) is not sent; the callers below then write an unsent mark, or
+   roll back, through db(), which resolves the store moved to - over or
+   beside a record of that store with the same id. Each notes the store
+   before its send and writes nothing when the page has moved off it. What
+   the store left keeps is the push-in-flight class Task 10 left open: a
+   write addressed to a store other than the one shown. */
+doc.swap('  const sent=await cloudRarity(next);', [
+  '  const s0Home=wsDbName();   /* STAGE 0 (fix round 2): see 8b in patch602 */',
+  '  const sent=await cloudRarity(next);',
+]);
+doc.swap('  if((sent==="unreachable"||sent==="nogroup") && next.rowId && next.synced) await dbPut({...next, synced:false, unsent:"meta"});',
+  '  if((sent==="unreachable"||sent==="nogroup") && next.rowId && next.synced && wsDbName()===s0Home) await dbPut({...next, synced:false, unsent:"meta"});');
+doc.swap('  await dbApplyShelfRecords([],changed);', [
+  '  await dbApplyShelfRecords([],changed);',
+  '  const s0Home=wsDbName();   /* STAGE 0 (fix round 2): see 8b in patch602 */',
+]);
+doc.swap('  if(behind.length) await dbApplyShelfRecords([],behind.map(r=>Object.assign({},r,{synced:false, unsent:"meta"})));',
+  '  if(behind.length && wsDbName()===s0Home) await dbApplyShelfRecords([],behind.map(r=>Object.assign({},r,{synced:false, unsent:"meta"})));');
+doc.swap('  const r=await cloudSendShelfPlan(updates);', [
+  '  const s0Home=wsDbName();   /* STAGE 0 (fix round 2): see 8b in patch602 */',
+  '  const r=await cloudSendShelfPlan(updates);',
+  '  if(wsDbName()!==s0Home) return r;',
+]);
+doc.swap(['  const shared=await cloudSaveShelfPlan(plan.updates,true);', '  if(!shared.ok){'], [
+  '  const s0Home=wsDbName();   /* STAGE 0 (fix round 2): see 8b in patch602 */',
+  '  const shared=await cloudSaveShelfPlan(plan.updates,true);',
+  '  if(!shared.ok){',
+  '    /* STAGE 0: the page moved off this project during the send; the rollback',
+  '       would write this project\'s records into the store moved to. */',
+  '    if(wsDbName()!==s0Home) return false;',
+]);
+doc.swap('async function cloudMoveOne(oldRec,newRec,why){', [
+  'async function cloudMoveOne(oldRec,newRec,why){',
+  '  const s0Home=wsDbName();   /* STAGE 0 (fix round 2): see 8b in patch602 */',
+]);
+doc.swap('  if(!arrived){ await markUnsent(newRec); return null; }',
+  '  if(!arrived){ if(wsDbName()===s0Home) await markUnsent(newRec); return null; }');
 
 /* ---- 9. removals, Clear, imports, the fixer's line ----------------------- */
 doc.swap('async function dbDelShared(rec){', [
@@ -614,7 +729,7 @@ doc.finish(({ code, must }) => {
   must('wsGen++; s0SeenUid=null;' + NL + '  s0Show();', 'sign-out leaves the bar up');
   must('authed=false;' + NL + '  s0SeenUid=null;   ' + NL + '  s0Show();', 'a refused session leaves the bar up');
   must('activeWs = id||null;' + NL + '  s0Show();', 'a switch leaves the bar up');
-  must('for(const u of [s0Uid(), s0SessionUid(sbLoadSession())]){', 'the flag is read for the pinned uid only');
+  must('function s0FlagSet(){ return s0FlagOn(wsDbName(), [s0Uid(), s0SessionUid(sbLoadSession())]); }', 'the flag is read for the pinned uid only');
   must('e.data.uid===s0Uid()||e.data.uid===s0SessionUid(sbLoadSession())', 'a flag heard for the stored session is ignored');
   must('async function cloudPush(){' + NL + '  ' + NL + '  const s0PushGen=wsGen;', 'Save to cloud does not note its project first');
   must('  await s0Check(true);' + NL + '  ' + NL + '  if(!wsStill(s0PushGen)) return;', 'Save to cloud goes on after a move during its read');
@@ -623,19 +738,30 @@ doc.finish(({ code, must }) => {
   must('if(s0Seen2.has(dbn+"|"+(uid||""))) return "switched";', 'protocol 2 remembered is not held');
   must('function s0Guard(err){ return !!err&&err.code==="P0001"&&typeof err.message==="string"&&err.message.indexOf("project switched")===0; }', 'any P0001 is taken for the guard');
   must('if(guard&&!(s0Mine(dbn,uid)&&s0State.ok)){', 'the guard\'s refusal overrides a read that answered');
-  must('if(wsDbName()!==dbn||(s0Uid()||null)!==uid) return true;', 'a sender judges the store moved to');
+  /* Fix round 2 (superseding fix round 1's "a move answers held"). */
+  must('if(wsDbName()!==dbn||(s0Uid()||null)!==uid) return {db:dbn, uid:uid, moved:true, got:got};', 'a read the page moved away from is thrown away');
+  must('if(wsDbName()!==dbn||(s0Uid()||null)!==uid) return s0HeldFor(dbn,uid,sid,r);', 'a sender judges the store moved to');
+  must('if(wsDbName()!==dbn||(s0Uid()||null)!==uid) return s0HeldFor(dbn,uid,sid,r)||(guard&&!s0AnsweredFor(dbn,uid,r));', 'a refusal is judged for the store moved to');
+  must('if(s0Flight){ try{ await s0Flight; }catch(_){ } }', 'a read already running is trusted after a refusal or a confirm');
+  must('  const r=await s0Fresh();', 'the read after a refusal can be one that began before it');
+  must('if(s0End()){ s0Cut=true; break; }', 'the stale-row DELETEs are checked once, on entry');
+  must('serverPaths=s0Cut ? null : kept.map(r=>r.path).filter(Boolean);', 'the sweep can run on a list cut short');
+  {
+    const homes = (code.match(/wsDbName\(\)===s0Home|wsDbName\(\)!==s0Home/g) || []).length;
+    if (homes !== 5) throw new Error('expected 5 writes that stay out of a store the page moved to, found ' + homes);
+  }
   must('const s0End=()=>!!s0Held()||!!reasons.held;', 'Save to cloud\'s end of run is not held');
   must('if(!s0End()) try{', 'Save to cloud\'s layers PATCH is not held');
-  must('if(await s0Refuse()) return;' + NL + '  say("Clearing the server\\u2026");', 'Remove from server does not read after its confirm');
+  must('if(await s0Refuse(true)) return;' + NL + '  say("Clearing the server\\u2026");', 'Remove from server does not read, afresh, after its confirm');
   if ((code.match(/if\(!s0End\(\)/g) || []).length !== 3) throw new Error('expected Save to cloud\'s 3 end-of-run writes held, found ' + (code.match(/if\(!s0End\(\)/g) || []).length);
   /* Nine senders read before they send (await s0Blocked): cloudSyncOne,
      cloudDropOne, cloudPatchOne, cloudRarity, setRarityMany,
      cloudSendShelfPlan, saveLayers, shareRules, dbDelShared. Save to cloud
      reads afresh at its start and holds its end of run on what the run saw
      (s0End). Seven refusals read afresh (await s0Refuse): Remove from
-     server, before its confirm and after it; the two tile removals; Clear;
-     a folder import; a project file. */
+     server, before its confirm and after it (a read begun after it); the
+     two tile removals; Clear; a folder import; a project file. */
   if ((code.match(/await s0Blocked\(\)/g) || []).length !== 9) throw new Error('expected 9 held senders, found ' + (code.match(/await s0Blocked\(\)/g) || []).length);
-  if ((code.match(/await s0Refuse\(\)/g) || []).length !== 7) throw new Error('expected 7 refused actions, found ' + (code.match(/await s0Refuse\(\)/g) || []).length);
+  if ((code.match(/await s0Refuse\(/g) || []).length !== 7) throw new Error('expected 7 refused actions, found ' + (code.match(/await s0Refuse\(/g) || []).length);
   if (/setItem\(\s*["']pb\.migrating/.test(code)) throw new Error('stage 0 must never set the migration flag (B1)');
 });

@@ -6351,6 +6351,8 @@ async function saveTraitNow(){
       if(base.rowId) rec.rowId=base.rowId;
       /* STAGE 0: the local id goes wherever the row id goes (design B1). */
       if(base.lid) rec.lid=base.lid;
+      /* STAGE 0 (A2): and the row it stands in for, until it is sent. */
+      if(base.s0Replaces) rec.s0Replaces=base.s0Replaces;
       /* AND THE QUEUE ENTRY. The record key carries the name, so a rename
          makes a different record - which is exactly the thing a review pass
          must survive. Entry 12 is still entry 12 after it is renamed. */
@@ -11747,6 +11749,9 @@ async function sortApply(plan){
   let items=[]; try{ items=await dbAll(); }catch(_){ }
   const taken=new Set(items.filter(i=>i.kind==="trait").map(i=>i.id));
   const rows=plan.both.concat(plan.move,plan.rename);
+  /* STAGE 0 (Decision 20, Ruling F-18): the moves' attempts, noted together. */
+  const s0Run=s0AttemptRun(rows.map(r=>{ const old=items.find(i=>i.id===r.id);
+    return old ? Object.assign({},old,{id:"t_"+r.toName+"_"+r.toLayer+"_"+(r.status||"wip"), name:r.toName, layer:r.toLayer, rowId:null}) : null; }));
   for(const r of rows){
     const old=items.find(i=>i.id===r.id);
     if(!old) continue;
@@ -11765,7 +11770,7 @@ async function sortApply(plan){
       /* ALWAYS, as retagLayer calls it: on your own page this is what marks
          the move as not yet sent (patch525), and skipping it let the next
          Load from cloud put the old layer back (measured). */
-      const shared=await cloudMoveOne(old,rec);
+      const shared=await cloudMoveOne(old,rec,undefined,s0Run);
       if(activeWs&&!shared) stranded++;
       moved++;
     }catch(_){ failed++; }
@@ -12574,7 +12579,7 @@ async function bulkImport(files,opts){
   async function uploadCtx(){
     if(!pushCtx){
       const u=await sbUser();
-      pushCtx={u:u, team:await cloudTeam(), c:u?await cloudCollection(u):null};
+      pushCtx={u:u, team:await cloudTeam(), c:u?await cloudCollection(u):null, s0Run:s0Run};
     }
     return pushCtx;
   }
@@ -12591,6 +12596,37 @@ async function bulkImport(files,opts){
      and "Retro Jazz Cup Skin and Retro Jazz Cup Skin v2" is a pair somebody
      can recognise as right or wrong at a glance. */
   const sameArt=[];
+  /* STAGE 0 (Decision 20, Ruling F-18): WHAT THIS IMPORT WILL SEND, worked
+     out before the loop, so its attempts are noted together (uploadCtx
+     hands them to each send). In a group each file is sent as the loop
+     reaches it, and noted one by one that rewrote settings.attempts once
+     per file. From the path: the id, and the row a same-id replacement
+     deletes. A file already here and unchanged sends nothing and is left
+     out - its picture is hashed here, and the loop takes that hash rather
+     than hashing it again. A file the import names from its picture
+     (looksUnnamed) is named only by the loop, and notes itself when sent. */
+  const s0Sigs=new Map();
+  let s0Run=null;
+  if(activeWs){
+    try{
+      const plan=[], seen=new Set();
+      for(const f of list){
+        const info=readPath(f.webkitRelativePath||f.name);
+        if(info.isRef&&!info.layer){ plan.push({id:"ref_"+info.name, kind:"ref", name:info.name}); continue; }
+        if(looksUnnamed(info.name)) continue;
+        const layer=info.layer||"unsorted", status=info.status||"wip";
+        const tid="t_"+info.name+"_"+layer+"_"+status;
+        const prev=seen.has(tid) ? null : (beforeById.get(tid)||null);
+        seen.add(tid);
+        const pic=await fileSig(f);
+        s0Sigs.set(f,pic);
+        if(prev&&pic&&await recSig(prev)===pic) continue;
+        plan.push({id:tid, kind:"trait", name:info.name, layer:layer, status:status,
+          rowId:(prev&&prev.rowId)||null, lid:(prev&&prev.lid)||null});
+      }
+      s0Run=s0AttemptRun(plan);
+    }catch(_){ s0Run=null; }
+  }
   for(let i=0;i<list.length;i++){
     const f=list[i];
     if(i%12===0){
@@ -12628,7 +12664,7 @@ async function bulkImport(files,opts){
            a second record rather than a better-named one. */
         /* Hashed BEFORE the name is worked out, because for an auto-named
            file the bytes are the only thing that says which trait it is. */
-        const sig=await fileSig(f);
+        const sig=s0Sigs.has(f) ? s0Sigs.get(f) : await fileSig(f);   /* STAGE 0: hashed above, in a group */
         if(looksUnnamed(info.name)){
           const lay=info.layer||"unsorted";
           /* THE PICTURE, NOT THE POSITION. The number used to come from a
@@ -12718,6 +12754,7 @@ async function bulkImport(files,opts){
         if(prev&&typeof prev.rarity==="number") trec.rarity=prev.rarity;
         if(prev&&prev.rowId) trec.rowId=prev.rowId;
         if(prev&&prev.lid) trec.lid=prev.lid;   /* STAGE 0: as rowId (B1) */
+        if(prev&&prev.s0Replaces) trec.s0Replaces=prev.s0Replaces;   /* STAGE 0 (A2): as rowId */
         /* A file re-imported under the same name, layer and status has the same
            id and REPLACES its trait - which is how an edit on disk reaches the
            project. Counted separately so the report can say so. The
@@ -12816,6 +12853,8 @@ async function bulkImport(files,opts){
       if(to) await carryDecided(rec,to.id);
       try{ await dbDel(rec.id); }catch(_){ continue; }
       /* The server copy too, or the next pull brings it back. */
+      /* STAGE 0 (A2): first, the moved file's record names the row it replaces. */
+      if(to&&freshIds.has(to.id)) await s0StandsIn(rec,to.id);
       try{ await cloudDropOne(rec); }catch(_){}
       moved++; movedIds.add(rec.id);
     }
@@ -12876,6 +12915,7 @@ async function bulkImport(files,opts){
          set belongs to the trait rather than to the filename. */
       await carryDecided(rec,onto.id);
       try{ await dbDel(rec.id); }catch(_){ continue; }
+      await s0StandsIn(rec,onto.id);   /* STAGE 0 (A2): the renamed file stands in for this row */
       try{ await cloudDropOne(rec); }catch(_){}
       mergedAway.push(rec.name+" into "+onto.name);
       mergedIds.add(rec.id);
@@ -16314,6 +16354,9 @@ async function saveLayers(){
    trait silently replaces another and the count still looks right. */
 async function retagLayer(items,from,to){
   const mine=items.filter(i=>i.kind==="trait"&&i.layer===from);
+  /* STAGE 0 (Decision 20, Ruling F-18): the moves' attempts, noted together.
+     A name taken on the new layer is renamed below and notes itself. */
+  const s0Run=s0AttemptRun(mine.map(t=>Object.assign({},t,{id:"t_"+t.name+"_"+to+"_"+(t.status||"wip"), layer:to, rowId:null})));
   const taken=new Set(items.map(i=>i.id));
   /* stranded: moves this browser made that the group never received. It was
      being counted as done - measured, three traits with the connection down
@@ -16341,7 +16384,7 @@ async function retagLayer(items,from,to){
     /* activeWs, because cloudMoveOne returns null when there is no group at
        all - nothing left the browser and nothing was meant to. Without this
        every rename on a personal page would warn about a group. */
-    const shared=await cloudMoveOne(t,rec);
+    const shared=await cloudMoveOne(t,rec,undefined,s0Run);
     if(activeWs && !shared) stranded++;
     moved++;
   }
@@ -19621,7 +19664,24 @@ async function cloudSyncOne(rec,ctx,why,seq){
         +"&name=eq."+encodeURIComponent(rec.name)
         +"&layer=eq."+encodeURIComponent(rec.layer||"unsorted")
         +"&status=eq."+encodeURIComponent(rec.status||"wip"));
-    await fetch(SB_URL+"/rest/v1/traits?"+q,{method:"DELETE",headers:h});
+    /* STAGE 0 (D1, A2): THE ROW THIS INSERT STANDS IN FOR, sent as replaces
+       so Change A can pair the two exactly: a move's source (cloudMoveOne
+       passes ctx.replaces), else the row the record holds, else the row a
+       folder import found it replaces (s0Replaces), else the one row this
+       delete removes - it now asks for the removed rows back. Noted first
+       in settings.attempts, so a page closed between the delete and the
+       insert still has it: on its own for a single save, with the rest of
+       its loop for Save to cloud, an import, a layer rename or a sort
+       (ctx.s0Run, Decision 20). */
+    let replaces=ctx.replaces||rec.rowId||rec.s0Replaces||null;
+    await s0Attempted(rec,ctx.s0Run);
+    const dr=await fetch(SB_URL+"/rest/v1/traits?"+q,{method:"DELETE",
+      headers:Object.assign({Prefer:"return=representation"},h)});
+    if(!replaces && dr && dr.ok){
+      try{ const gone=await dr.json(); if(Array.isArray(gone)&&gone.length===1&&gone[0]&&gone[0].id) replaces=gone[0].id; }catch(_){ }
+    }
+    /* A uuid or nothing: anything else would fail the insert (22P02). */
+    if(!(typeof replaces==="string"&&S0_UUID.test(replaces))) replaces=null;
     /* THE UPLOAD'S RETRY, FOR THE ROW TOO. The delete above has already
        run, so one failed insert here left the group with no row for this
        trait - and every teammate's next open deleted it as "removed by
@@ -19630,12 +19690,15 @@ async function cloudSyncOne(rec,ctx,why,seq){
        answer was lost: that row is read back by its identity and adopted.
        Reported as refused, the record would keep pointing at the deleted
        row and every later save from here would collide the same way. */
-    const rowBody=JSON.stringify([{collection_id:c.id, team_id:team, owner:u.id,
+    const row={collection_id:c.id, team_id:team, owner:u.id,
         kind:rec.kind, name:rec.name,
         layer:rec.layer||"unsorted", status:rec.status||"wip",
         rarity:(typeof rec.rarity==="number"?rec.rarity:1),
         shelf_order:(typeof rec.shelfOrder==="number"?rec.shelfOrder:null),
-        w:rec.w||1, h:rec.h||1, path:p}]);
+        w:rec.w||1, h:rec.h||1, path:p};
+    /* STAGE 0: only with a predecessor, so a first insert is today's body. */
+    if(replaces) row.replaces=replaces;
+    const rowBody=JSON.stringify([row]);
     const ident="collection_id=eq."+c.id
         +"&kind=eq."+encodeURIComponent(rec.kind||"trait")
         +"&name=eq."+encodeURIComponent(rec.name)
@@ -19697,6 +19760,16 @@ async function cloudSyncOne(rec,ctx,why,seq){
        status change kept the OLD row's stamp and every upload read as a
        newer row. The insert answers with the row it made. */
     let madeId=null, madeAt=null;
+    /* STAGE 0 (A2): THIS INSERT MADE A ROW THAT NAMES WHAT IT REPLACES, so
+       a pairing the record kept for its insert (s0Replaces) has been told,
+       and the two writes below stop keeping it: left, it outlived the row
+       it paired and read as the predecessor of every later one (the
+       controller's audit, its note on the sent write). Only when this
+       insert made the row - an adopted row was found by its identity, not
+       known to carry it - and only the pairing the insert carried: when
+       the record's own row went first, the older pairing is the only
+       note of that one, and stays. */
+    const s0Told=!adopted&&!!r&&r.ok&&!!replaces;
     if(adopted){ madeId=adopted.id||null; madeAt=adopted.updated_at||null; }
     else if(r.ok){ try{ const made=(await r.json())[0]||{}; madeId=made.id||null; madeAt=made.updated_at||null; }
       catch(_){ madeId=null; madeAt=null; } }
@@ -19709,10 +19782,15 @@ async function cloudSyncOne(rec,ctx,why,seq){
        the server when the one there is the old one. */
     if((adopted||r.ok) && rec.id && touchedSince(rec.id,readAt)){
       let cur=null; try{ cur=await dbGet(rec.id); }catch(_){ cur=null; }
-      if(cur && !cur.synced){ try{ await dbPut(Object.assign({},cur,{rowId:madeId, rowAt:madeAt})); }catch(_){} }
+      if(cur && !cur.synced){
+        const nx=Object.assign({},cur,{rowId:madeId, rowAt:madeAt});
+        if(s0Told&&nx.s0Replaces===replaces) delete nx.s0Replaces;   /* STAGE 0 (A2), above */
+        try{ await dbPut(nx); }catch(_){}
+      }
     }
     else if((adopted||r.ok) && rec.id){ const up=Object.assign({},rec,
       {synced:true, rowId:madeId, path:p, rowAt:madeAt}); delete up.unsent;
+      if(s0Told&&up.s0Replaces===replaces) delete up.s0Replaces;   /* STAGE 0 (A2), above */
       try{ await dbPut(up,"sent"); }catch(_){} }
     return true;
   }catch(_){ return say("unreachable"); }
@@ -19837,6 +19915,180 @@ async function goneForget(keys){
   const list=(await goneLoad()).filter(g=>!drop.has(goneKey(g)));
   try{ await dbPut({id:GONE_ID, kind:"settings", rows:list, at:Date.now()}); }catch(_){}
 }
+/* STAGE 0 (D1): A BOOKKEEPING RECORD, APPENDED TO IN ONE TRANSACTION.
+   settings.attempts (below) and settings.gonemarks are read by the new
+   page's migration and by nothing in this one, so they are written on
+   their own: not through dbPut, so they tell no other tab to redraw and
+   carry no stamp; and read and written in one readwrite transaction,
+   which IndexedDB runs one at a time per store, so two tabs appending at
+   once keep both. keep = {ms, max}: entries older than ms go, then all but
+   the newest max, as it writes - each record is rewritten whole on every
+   append and read by every redraw, so it must stay small (Decision 20).
+   Answers false on failure and never throws: a note must not fail what
+   it notes. */
+async function s0Append(id,field,entries,keep){
+  const add=(Array.isArray(entries)?entries:[entries]).filter(Boolean);
+  if(!add.length) return true;
+  let d=null; try{ d=await db(); }catch(_){ return false; }
+  return new Promise(res=>{
+    try{
+      const t=d.transaction(STORE,"readwrite"), s=t.objectStore(STORE), q=s.get(id);
+      q.onsuccess=()=>{
+        const cur=(q.result&&typeof q.result==="object") ? q.result : {id:id, kind:"settings"};
+        const now=Date.now();
+        let list=Array.isArray(cur[field]) ? cur[field] : [];
+        if(keep&&keep.ms) list=list.filter(x=>x&&typeof x.at==="number"&&now-x.at<keep.ms);
+        list=list.concat(add);
+        if(keep&&keep.max&&list.length>keep.max) list=list.slice(list.length-keep.max);
+        s.put(Object.assign({},cur,{[field]:list, at:now}));
+      };
+      t.oncomplete=()=>res(true); t.onerror=()=>res(false); t.onabort=()=>res(false);
+    }catch(_){ res(false); }
+  });
+}
+/* settings.attempts (D1): one entry per delete-then-insert this device
+   began, kept 7 days and at most 1,000, so the new page can put back a
+   row whose insert never landed (design D2: a tombstone of this
+   account's within a minute of one of these, just before the switch -
+   the newest ones, which a cap keeps). */
+const S0_ATTEMPTS_ID="settings.attempts", S0_ATTEMPTS_KEEP={ms:7*24*60*60*1000, max:1000};
+function s0Attempt(entry){
+  const u=s0Uid(); if(u) entry.by=u;
+  return s0Append(S0_ATTEMPTS_ID,"entries",entry,S0_ATTEMPTS_KEEP);
+}
+/* What one attempt names: the record, its local id, and the row its
+   delete removes - by row id, or, when the record holds none, by the
+   identity cloudSyncOne's delete matches. */
+function s0AttemptOf(rec){
+  return {id:rec.id||null, lid:rec.lid||null, rowId:rec.rowId||null,
+    ident:rec.rowId ? null : {kind:rec.kind||"trait", name:rec.name, layer:rec.layer||"unsorted", status:rec.status||"wip"}};
+}
+function s0AttemptKey(e){ return JSON.stringify([e.id, e.rowId, e.ident]); }
+/* A LOOP'S ATTEMPTS, NOTED TOGETHER (Decision 20, Ruling F-18). Save to
+   cloud, a group folder import, a layer rename and a sort send trait
+   after trait, and settings.attempts is rewritten whole on every append:
+   noted one by one, it was rewritten once per trait. Such a loop works
+   out first what it will send (s0AttemptRun) and hands that to each send
+   (ctx.s0Run); the first send notes itself and what is still to go, at
+   most S0_ATTEMPT_CHUNK entries, in one append, and the rest go by that
+   note.
+   A NOTE GOES STALE. The new page pairs a failed attempt with a tombstone
+   within a minute of it (design D2), and a push of a few hundred traits
+   runs longer than that (the controller's audit, Finding 7). So a send
+   whose note is S0_ATTEMPT_FRESH_MS old notes again, with what is still
+   to go: no entry is older than that when its delete goes.
+   A send the loop did not foresee - a record changed since, a file the
+   import names from its picture - notes itself, with what comes after
+   it. An entry noted for a send that then deletes nothing (a file that
+   would not decode, a send held) names a row that was not removed, which
+   the proof never pairs. An entry foreseen for a record not yet written
+   carries no local id; its id and identity name it. */
+let S0_ATTEMPT_FRESH_MS=30000, S0_ATTEMPT_CHUNK=100;   /* lets, so a spec can shorten them */
+function s0AttemptRun(recs){
+  const queue=[], index=new Map();
+  for(const r of (recs||[])){
+    if(!r||!r.id) continue;
+    const e=s0AttemptOf(r), k=s0AttemptKey(e);
+    if(!index.has(k)){ index.set(k,queue.length); queue.push({e:e, k:k}); }
+  }
+  return {queue:queue, index:index, noted:new Map(), done:new Set(), next:0, flight:null};
+}
+/* Before a delete-then-insert: its attempt noted, and fresh. run is the
+   loop's (s0AttemptRun), or nothing: a single save notes itself. */
+async function s0Attempted(rec,run){
+  const e=s0AttemptOf(rec);
+  if(!run) return s0Attempt(Object.assign({at:Date.now()},e));
+  const k=s0AttemptKey(e), qi=run.index.get(k);
+  const fresh=(x,now)=>{ const at=run.noted.get(x); return at!==undefined&&now-at<S0_ATTEMPT_FRESH_MS; };
+  const done=()=>{ run.done.add(k); if(qi!==undefined&&qi+1>run.next) run.next=qi+1; };
+  for(;;){
+    if(fresh(k,Date.now())){ done(); return true; }
+    if(!run.flight) break;
+    try{ await run.flight; }catch(_){ }
+  }
+  /* This one, then what is still to go after it: foreseen, and neither
+     sent nor noted fresh. No wait from the check above to run.flight. */
+  const now=Date.now(), add=[Object.assign({at:now},e)], keys=[k];
+  for(let j=(qi!==undefined ? qi+1 : run.next); j<run.queue.length&&add.length<S0_ATTEMPT_CHUNK; j++){
+    const q=run.queue[j];
+    if(q.k===k||run.done.has(q.k)||fresh(q.k,now)) continue;
+    add.push(Object.assign({at:now},q.e)); keys.push(q.k);
+  }
+  const u=s0Uid(); if(u) for(const a of add) a.by=u;
+  const p=s0Append(S0_ATTEMPTS_ID,"entries",add,S0_ATTEMPTS_KEEP).then(ok=>{
+    if(ok) for(const x of keys) run.noted.set(x,now);
+    return ok;
+  });
+  run.flight=p;
+  let ok=false;
+  try{ ok=await p; }catch(_){ ok=false; }
+  if(run.flight===p) run.flight=null;
+  done();
+  return ok;
+}
+const S0_UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/* STAGE 0 (A2): A FOLDER IMPORT'S MOVED FILE OR MERGED RENAME STANDS IN
+   FOR THE OLD ROW. Both are found after bulkImport's loop has already
+   sent the new record (in a group it sends each file as it goes), so:
+   if the new record's row is made, that row is told which row it
+   replaces, before the old one is dropped. If the server cannot be told
+   - not sent yet (your own page sends at Save to cloud), held, or
+   refused - the record keeps the old row id as s0Replaces: the insert
+   that sends it uses it, and the new page's migration reads it. A row
+   id on a fresh record can only be this import's, so it is told whether
+   or not a later weight is still unsent (carryDecided can leave it so).
+   The old row is the old record's own, or, for one never sent, the row
+   it already stands in for: a file moved twice before Save to cloud
+   still names the first (the controller's audit). Only a uuid.
+   Written as its owner's: a sign-out, or a session refused during the
+   waits above, leaves nobody signed in, and dbPut would take the owner
+   off the record (Finding 4). And only into the store it read: a
+   sign-out or a switch during those waits moves db() to another store,
+   where the same id is another trait (Finding 5). Never throws: a
+   pairing that cannot be written leaves Change A's other pairing, never
+   a failed import.
+   TOLD MEANS THE ROW CAME BACK, AND THE RECORD LEARNS ITS NEW TIME (fix
+   round 1, the review of Task 12). The PATCH is an update, so the
+   server's touch trigger moves the row's updated_at; the record kept
+   the time of the write before, and the next Load from cloud or
+   catch-up found the row newer than it: the person's own import was
+   counted "changed in place by the group" and the record rewritten
+   (measured against PGlite with A0). So the PATCH asks for its row
+   back; it has told the server only when exactly one row comes back -
+   a 204, or [] for a row gone, told nobody - and the record then takes
+   that row's updated_at as rowAt, as cloudPatchOne does for the
+   weight. Only while it still holds that row and has nothing unsent:
+   unsent work is based on the row as it was at rowAt, and moving that
+   past a change nobody here saw would hide it from the pull's clash
+   check. */
+async function s0StandsIn(old,newId){
+  const gen=wsGen;
+  const was=(old&&old.rowId)||(old&&old.s0Replaces);
+  if(!(typeof was==="string"&&S0_UUID.test(was))) return false;
+  try{
+    const rec=await dbGet(newId);
+    if(!rec||rec.rowId===was) return false;
+    let told=false, at=null;
+    if(rec.rowId&&activeWs&&!(await s0Blocked())){
+      const h=await sbHeaders({"Content-Type":"application/json"});
+      if(h){
+        const r=await fetch(SB_URL+"/rest/v1/traits?id=eq."+encodeURIComponent(rec.rowId),
+          {method:"PATCH", headers:Object.assign({Prefer:"return=representation"},h), body:JSON.stringify({replaces:was})});
+        let rows=[];
+        if(r&&r.ok){ try{ rows=await r.json(); }catch(_){ rows=[]; } }
+        told=Array.isArray(rows)&&rows.length===1&&!!rows[0];
+        if(told) at=rows[0].updated_at||null;
+      }
+    }
+    const cur=await dbGet(newId);
+    /* No wait from here to dbPut, which picks its store as it is called. */
+    if(!wsStill(gen)) return told;
+    if(told){
+      if(at&&cur&&cur.rowId===rec.rowId&&cur.synced){ try{ await dbPut(Object.assign({},cur,{rowAt:at}),"sent",cur.by===undefined?null:cur.by); }catch(_){} }
+    }else if(cur&&cur.s0Replaces!==was){ cur.s0Replaces=was; await dbPut(cur,undefined,cur.by===undefined?null:cur.by); }
+    return told;
+  }catch(_){ return false; }
+}
 async function dbDelShared(rec){
   /* STAGE 0 (D1): a removal waits while this project is held. Nothing leaves
      this device's store either, and the tile says why. */
@@ -19895,7 +20147,9 @@ async function markUnsent(rec){
   if(!stored || !(stored.synced||stored.path)) return;
   try{ await dbPut(unsentOf(stored)); }catch(_){}
 }
-async function cloudMoveOne(oldRec,newRec,why){
+/* s0Run: the attempts of the loop this move is one of (s0AttemptRun), when
+   a loop calls it - a layer rename, a sort. */
+async function cloudMoveOne(oldRec,newRec,why,s0Run){
   const s0Home=wsDbName();   /* STAGE 0 (fix round 2): see 8b in patch602 */
   /* No group means nothing was sent, and on a personal page the record
      still describes a row the personal collection holds the old way. */
@@ -19922,7 +20176,8 @@ async function cloudMoveOne(oldRec,newRec,why){
       if(team&&c) ctx={u:who.user, team:team, c:c};
     }
   }
-  const arrived=await cloudSyncOne(fresh,ctx,why);
+  /* STAGE 0 (A2): this insert stands in for the row the old copy is on. */
+  const arrived=await cloudSyncOne(fresh,Object.assign({},ctx||{},{replaces:(oldRec&&oldRec.rowId)||null, s0Run:s0Run||null}),why);
   if(!arrived){ if(wsDbName()===s0Home) await markUnsent(newRec); return null; }
   /* Only now, once the new copy has landed. */
   /* READ, NOT DISCARDED. The comment above calls a half-finished move
@@ -20120,6 +20375,10 @@ async function cloudPush(){
     else if(!it.synced && it.unsent==="meta" && it.rowId && it.path===p && it.kind==="trait") fresh.push({light:true, it:it});
     else fresh.push({light:false, it:it});
   }
+  /* STAGE 0 (Decision 20, Ruling F-18): this run's attempts, noted
+     together (s0AttemptRun). A light one is patched, not deleted; if its
+     row is gone and it falls through to the upload, it notes itself. */
+  ctx.s0Run=s0AttemptRun(fresh.filter(j=>!j.light).map(j=>j.it));
   async function pusher(){
     /* THREE IN A ROW THAT COULD NOT REACH THE SERVER end the run: every
        picture after them would find the same, three attempts and a backoff

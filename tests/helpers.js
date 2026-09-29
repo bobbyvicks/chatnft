@@ -381,7 +381,8 @@ export async function seedDraft(page, d) {
      after: the same keys, for the second and later protocol reads;
      insert: {status, body} to answer the trait insert with (default: 201);
      deleted: the rows a DELETE on traits answers (default []);
-     keepState: true leaves s0State as it is (default: reset), for a spec
+     keepState: true leaves s0State, and the set of stores seen on
+       protocol 2 (s0Seen2), as they are (default: both reset), for a spec
        about what one tab remembers across accounts.
    Every request is logged in window.__s0.log as "METHOD path", every body
    sent in window.__s0.bodies, and protocol reads are counted in
@@ -403,6 +404,9 @@ export async function armStage0(page, o = {}) {
     cloudTeamId = null; dbp = null; dbpName = null; groupCaughtUp = true;
     /* In a try: the rollback spec runs this on the page before stage 0, which has no s0State. */
     if (!o.keepState) { try { s0State = { db: null, uid: null, protocol: 1, switching: false, ok: false, at: 0 }; } catch (_) {} }
+    /* And the stores and accounts this tab has seen on protocol 2 (patch602's
+       fix round 1): a reset is a fresh tab. In a try for the same reason. */
+    if (!o.keepState) { try { s0Seen2.clear(); } catch (_) {} }
     const uid = o.uid || 'u1';
     localStorage.setItem('chatnft.session', JSON.stringify({ access_token: 'not-a-real-token', refresh_token: 'not-a-real-refresh',
       expires_at: Math.floor(Date.now() / 1000) + 3600, user: { id: uid } }));

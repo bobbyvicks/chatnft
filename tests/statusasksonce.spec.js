@@ -22,13 +22,13 @@ const press = (page, o) => page.evaluate(async (o) => {
     blob: new Blob([new Uint8Array(64)]), w: 16, h: 16, rarity: 1, at: 1, shelfOrder: 1, rowId: 'row_hat', synced: true,
     path: 'ws1/c1/hats/wip/hat.png' };
   await dbPut(t);
-  const S = { rows: [{ id: 'row_hat', name: 'hat', layer: 'hats', status: 'wip' }], log: [] };
+  const S = { rows: [{ id: 'row_hat', name: 'hat', layer: 'hats', status: 'wip' }], log: [], protoAt: [] };
   const json = (x, st) => new Response(JSON.stringify(x), { status: st || 200, headers: { 'Content-Type': 'application/json' } });
   const real = window.fetch;
   window.fetch = async (u, io) => {
     const s = String(u), m = (io && io.method) || 'GET';
     if (s.indexOf('/auth/v1/user') >= 0) { S.log.push('user'); return o.authDown ? Promise.reject(new TypeError('Failed to fetch')) : json({ id: 'u1' }); }
-    if (s.indexOf('select=id,protocol,switching_at') >= 0) { S.log.push('protocol'); return json([]); }
+    if (s.indexOf('select=id,protocol,switching_at') >= 0) { S.log.push('protocol'); S.protoAt.push(Date.now()); return json([]); }
     if (s.indexOf('/rest/v1/collections') >= 0) { S.log.push('collection'); return json([{ id: 'c1', layers: ['hats'] }]); }
     if (s.indexOf('/storage/v1/object/traits') >= 0) { S.log.push('storage-' + m); return json({}); }
     if (s.indexOf('/rest/v1/traits') >= 0 && m === 'POST') {
@@ -55,7 +55,7 @@ const press = (page, o) => page.evaluate(async (o) => {
     now = (await dbAll()).filter(i => i.kind === 'trait').map(i => i.id + ':' + i.status + ':' + (i.synced ? 'sent' : 'unsent'));
   }
   finally { window.fetch = real; window.toast = tt; activeWs = null; }
-  return { log: S.log, rows: S.rows.map(x => x.id + ':' + x.status), shared: !!(r && r.shared), said: said.join(' | '),
+  return { log: S.log, protoAt: S.protoAt, rows: S.rows.map(x => x.id + ':' + x.status), shared: !!(r && r.shared), said: said.join(' | '),
     now, why: r && r.why };
 }, o || {});
 
@@ -71,8 +71,16 @@ test.describe('a status press in a group', () => {
     expect(r.log.filter(x => x === 'user').length).toBe(1);
     expect(r.log.filter(x => x === 'collection').length).toBe(1);
     /* Stage 0 reads the protocol before the upload, and the removal that
-       follows within two seconds uses the same read (design D1). */
-    expect(r.log.filter(x => x === 'protocol').length).toBe(1);
+       follows within two seconds uses the same read (design D1).
+       AT MOST ONE READ IN ANY 2 S (patch602's fix round 1). "Exactly one"
+       held only while the upload and the insert finished inside
+       S0_REUSE_MS, which a slow machine need not do. A read is reused for
+       S0_REUSE_MS after it finished, so reads start at least that far
+       apart; a page that read before every half would read twice within
+       milliseconds and fail here. */
+    expect(r.protoAt.length, 'the protocol was read').toBeGreaterThan(0);
+    for (let i = 1; i < r.protoAt.length; i++)
+      expect(r.protoAt[i] - r.protoAt[i - 1], 'protocol reads at least S0_REUSE_MS apart').toBeGreaterThanOrEqual(2000);
   });
 
   test('the control: the move still happens - the new row is there and the old one gone', async ({ page }) => {

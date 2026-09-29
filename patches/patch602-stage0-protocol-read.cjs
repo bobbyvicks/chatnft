@@ -22,8 +22,14 @@
    was kept here is sent (groupResend), as the bar promised - unless the
    page is moving off that project (below).
 
-   A P0001 (Change B's guard) is read again like any refusal; if that read
-   cannot answer, it is taken as switching, never as a refusal.
+   A refusal is Change B's guard only when it is P0001 AND its message
+   starts "project switched" (the design's "project switched: reload");
+   P0001 is also PostgreSQL's code for any bare RAISE, and the live
+   reorder_traits raises three, so any other P0001 is an ordinary refusal.
+   The guard's refusal is read again like any other: a read that answers is
+   trusted (protocol 2 or switching: held; neither: the switch has just
+   ended, and it is reported refused so the next send goes). Only when that
+   read cannot answer is the guard's refusal taken as switching.
 
    Not held: cloudCollection's insert of a project that has no row (a
    project with no row cannot be switched); reads that are not pulls
@@ -53,7 +59,26 @@
    - Save to cloud took its collection and team, then read; a switch during
      the read left the hold judged for the store switched to, with no read,
      and sent that store's traits into the first project. It stops when
-     the project moved during its read (Finding 5). */
+     the project moved during its read (Finding 5).
+
+   Fix round 1 (the three-lens review of 60ecb5d; each measured red on
+   60ecb5d before it was changed here):
+   - Protocol 2 was sticky only while the one-slot s0State still held that
+     store: a read on My page, another group or another account evicted
+     it, and coming back a failed read counted as protocol 1 again - the
+     catch-up pulled, a save sent, Clear deleted. Every (store, account)
+     pair read on protocol 2 is kept in s0Seen2 for the life of the tab,
+     and s0Check and s0Held answer from it.
+   - Any P0001 was taken as Change B's guard (above).
+   - Save to cloud's end-of-run writes - the stale-row DELETE, the sweep
+     and the layers PATCH - went out after a mid-push read found the
+     project held. They are skipped when it is held or any item was.
+   - Remove from server read only before its confirm; it reads again after.
+   - A sender whose re-read the page moved away from judged the store
+     moved to, and sent to the one it left. s0Blocked answers held when
+     the store or account moved during its read.
+   - The inline message lowercased the brand: only "This project..." is
+     lowercased now. */
 const s0 = require('./stage0-common.cjs');
 const doc = s0.start([['function s0Uid(){', 'patch601 is not applied']]);
 
@@ -76,8 +101,10 @@ doc.swap('const TEAM_PROJECT_PICK="&order=created_at.asc,id.asc&limit=1";', [
   '   An error, a missing field, no project row or no answer within',
   '   S0_READ_MS counts as protocol 1 and not switching. One exception: a',
   '   store this tab has read as protocol 2, for the account signed in, stays',
-  '   on 2, because the switch is one way (design E1). Keyed by store AND',
-  '   account: pixelbench is every account\'s personal store (B1).',
+  '   on 2 for the life of the tab, because the switch is one way (design',
+  '   E1) - remembered in s0Seen2, apart from the one-slot s0State, so a read',
+  '   of another store or account in between does not undo it. Keyed by',
+  '   store AND account: pixelbench is every account\'s personal store (B1).',
   '',
   '   It saves on the device only - sending, pulling, removing, clearing,',
   '   importing and leaving nothing - in three cases (D1):',
@@ -92,6 +119,12 @@ doc.swap('const TEAM_PROJECT_PICK="&order=created_at.asc,id.asc&limit=1";', [
   'const S0_SWITCHING="This project is being updated: your change is kept here and will be sent after it";',
   'const S0_SWITCHED="BuildaNFT was updated: reload to send what you saved";',
   'let s0State={db:null, uid:null, protocol:1, switching:false, ok:false, at:0};',
+  '/* Every store and account ("<store>|<uid>") this tab has read on protocol 2',
+  '   or above. Never cleared: the switch is one way (E1). s0State is one slot,',
+  '   and a read on My page, another group or another account took it, so',
+  '   coming back a failed read counted as protocol 1 again: the catch-up',
+  '   pulled, a save sent and Clear deleted (fix round 1, measured). */',
+  'const s0Seen2=new Set();',
   'let s0Flight=null, s0FlightKey=null;',
   'function s0Mine(dbn,uid){ return s0State.db===dbn&&s0State.uid===uid; }',
   'async function s0ReadNow(signal){',
@@ -136,8 +169,9 @@ doc.swap('const TEAM_PROJECT_PICK="&order=created_at.asc,id.asc&limit=1";', [
   '    if(wsDbName()!==dbn||(s0Uid()||null)!==uid) return s0State;',
   '    const mine=s0Mine(dbn,uid);',
   '    const wasHeld=mine&&(s0State.protocol>=2||s0State.switching);',
-  '    const seen=(mine&&s0State.protocol>=2) ? s0State.protocol : 1;',
+  '    const seen=Math.max((mine&&s0State.protocol>=2) ? s0State.protocol : 1, s0Seen2.has(key) ? 2 : 1);',
   '    s0State={db:dbn, uid:uid, protocol:Math.max(seen, got?got.protocol:1), switching:!!(got&&got.switching), ok:!!got, at:Date.now()};',
+  '    if(s0State.protocol>=2) s0Seen2.add(key);',
   '    s0Show();',
   '    /* A switch called off (abort_switch clears switching_at): what was kept',
   '       here while it ran is sent now, in a group, as the bar promised - the',
@@ -178,25 +212,58 @@ doc.swap('const TEAM_PROJECT_PICK="&order=created_at.asc,id.asc&limit=1";', [
   '}',
   'function s0Held(){',
   '  if(s0FlagSet()) return "migrating";',
-  '  if(!s0Mine(wsDbName(),s0Uid()||null)) return null;',
+  '  const dbn=wsDbName(), uid=s0Uid()||null;',
+  '  if(s0Seen2.has(dbn+"|"+(uid||""))) return "switched";',
+  '  if(!s0Mine(dbn,uid)) return null;',
   '  if(s0State.protocol>=2) return "switched";',
   '  if(s0State.switching) return "switching";',
   '  return null;',
   '}',
   'function s0Words(why){ return why==="switching" ? S0_SWITCHING : S0_SWITCHED; }',
-  'function s0Inline(why){ const w=s0Words(why); return w.charAt(0).toLowerCase()+w.slice(1); }',
-  'async function s0Blocked(){ try{ await s0Check(false); }catch(_){ } return !!s0Held(); }',
-  '/* After a refusal, before it is reported: read again. A P0001 is Change',
-  '   B\'s guard ("project switched: reload"); when the read cannot say, it is',
-  '   taken as switching - kept here and sent after - never as a refusal. */',
-  'async function s0Recheck(code){',
+  '/* D1\'s sentence inside another one ("Saved cap here only - ..."). Only',
+  '   "This project..." takes a small letter there: the other begins with the',
+  '   brand, which is always "BuildaNFT" (fix round 1). */',
+  'function s0Inline(why){ return why==="switching" ? S0_SWITCHING.charAt(0).toLowerCase()+S0_SWITCHING.slice(1) : S0_SWITCHED; }',
+  '/* Before a send: held, or not. The store and account are noted before the',
+  '   read: if the page moved during it, s0Check drops the read and s0Held',
+  '   would judge the store moved to, while the send goes to the one left',
+  '   (fix round 1, measured). A move answers held: this send is dropped and',
+  '   writes nothing, and what it would have sent stays unsent for the next',
+  '   send or the online event. */',
+  'async function s0Blocked(){',
+  '  const dbn=wsDbName(), uid=s0Uid()||null;',
+  '  try{ await s0Check(false); }catch(_){ }',
+  '  if(wsDbName()!==dbn||(s0Uid()||null)!==uid) return true;',
+  '  return !!s0Held();',
+  '}',
+  '/* Change B\'s guard: P0001 with the design\'s message, "project switched:',
+  '   reload". P0001 alone is PostgreSQL\'s code for any bare RAISE, and the',
+  '   live reorder_traits raises three ("trait outside project", "not your',
+  '   project", "invalid shelf order"): each is an ordinary refusal (fix',
+  '   round 1, measured). */',
+  'function s0Guard(err){ return !!err&&err.code==="P0001"&&typeof err.message==="string"&&err.message.indexOf("project switched")===0; }',
+  '/* After a refusal, before it is reported: read again. err is the refusal\'s',
+  '   body where the sender has it. true: report it as held.',
+  '     - The read answers: it is trusted. Protocol 2 or switching is held;',
+  '       neither, after the guard\'s refusal, means the switch has just ended,',
+  '       and it is reported as refused, so the next send goes.',
+  '     - The read cannot answer: only the guard\'s refusal is taken as',
+  '       switching - kept here and sent after. s0State.ok stays false, as',
+  '       the read reported; it is never written over a read that answered.',
+  '     - The page moved during the read, which was then dropped: the',
+  '       refusal\'s own answer decides, for the store it came from, and',
+  '       nothing is written for the store moved to. */',
+  'async function s0Recheck(err){',
+  '  const dbn=wsDbName(), uid=s0Uid()||null, guard=s0Guard(err);',
   '  try{ await s0Check(true); }catch(_){ }',
-  '  if(!s0Held()&&code==="P0001"){',
-  '    const dbn=wsDbName(), uid=s0Uid()||null;',
+  '  if(wsDbName()!==dbn||(s0Uid()||null)!==uid) return guard;',
+  '  if(s0Held()) return true;',
+  '  if(guard&&!(s0Mine(dbn,uid)&&s0State.ok)){',
   '    s0State={db:dbn, uid:uid, protocol:(s0Mine(dbn,uid) ? s0State.protocol : 1), switching:true, ok:false, at:Date.now()};',
   '    s0Show();',
+  '    return true;',
   '  }',
-  '  return !!s0Held();',
+  '  return false;',
   '}',
   '/* Before Clear, an import, Leave and Remove from server: a fresh read; if',
   '   held, it says so and the action does nothing. true when refused. */',
@@ -283,8 +350,8 @@ doc.swap('    if(!up.ok) return say(cloudLater(up.status)?"unreachable":"refused
 doc.swap('    if(!adopted && !r.ok) return say(r.status===403 ? "notallowed"', [
   '    if(!adopted && !r.ok && r.status!==401){',
   '      /* STAGE 0 (D1): read again before saying what happened. */',
-  '      let code=null; try{ code=(await r.clone().json()).code||null; }catch(_){ code=null; }',
-  '      if(await s0Recheck(code)) return say("held",r.status);',
+  '      let err=null; try{ err=await r.clone().json(); }catch(_){ err=null; }',
+  '      if(await s0Recheck(err)) return say("held",r.status);',
   '    }',
   '    if(!adopted && !r.ok) return say(r.status===403 ? "notallowed"',
 ]);
@@ -339,7 +406,7 @@ doc.swap('  if(!activeWs) return {ok:true};', [
 ]);
 doc.swap('    let detail={}; try{ detail=await r.json(); }catch(_){}', [
   '    let detail={}; try{ detail=await r.json(); }catch(_){}',
-  '    if(r.status!==401&&await s0Recheck(detail&&detail.code)) return {ok:false,reason:"held"};',
+  '    if(r.status!==401&&await s0Recheck(detail)) return {ok:false,reason:"held"};',
 ]);
 doc.swap("      : 'Move did not sync, so the old order was restored');", [
   "      : shared.reason==='held' ? s0Words(s0Held()||'switched')+' - the old order is back'",
@@ -400,6 +467,29 @@ doc.swap(['  const team=await cloudTeam();', '  if(!team){ toast("Could not open
   '  { const why=s0Held(); if(why){ s0Show(); toast(s0Words(why)); return; } }',
   '  let items=[];',
 ]);
+/* The end of the run (fix round 1). Every item reads for itself, but the
+   three writes after them read nothing: they went out after a read in the
+   run had found the project held. */
+doc.swap('  let stale=0, notHere=0, serverPaths=null;', [
+  '  /* STAGE 0 (D1): THE END OF THE RUN IS HELD TOO. The stale-row DELETE, the',
+  '     sweep and the layers PATCH below read nothing of their own, and went',
+  '     out after a read during the run had found the project switching, or',
+  '     with the migration flag set during the last upload (fix round 1,',
+  '     measured). Each is skipped while the project is held, or when any',
+  '     item was held - a hold the run saw is not undone by a read after it.',
+  '     The layer list stays unshared here, as saveLayers leaves it. */',
+  '  const s0End=()=>!!s0Held()||!!reasons.held;',
+  '  let stale=0, notHere=0, serverPaths=null;',
+]);
+doc.swap('  if(!activeWs && !failed && !notTried && !changed){',
+  '  if(!s0End() && !activeWs && !failed && !notTried && !changed){');
+doc.swap('    if(!activeWs && !failed && !changed && serverPaths) swept=await cloudSweep(team,c,[...new Set(rows.map(r=>r.path).concat(serverPaths))]);',
+  '    if(!s0End() && !activeWs && !failed && !changed && serverPaths) swept=await cloudSweep(team,c,[...new Set(rows.map(r=>r.path).concat(serverPaths))]);');
+doc.swap(['  try{', '    h=(await sbHeaders({"Content-Type":"application/json"}))||h;', '    await fetch(SB_URL+"/rest/v1/collections?id=eq."+c.id,{method:"PATCH",headers:h,'], [
+  '  if(!s0End()) try{',
+  '    h=(await sbHeaders({"Content-Type":"application/json"}))||h;',
+  '    await fetch(SB_URL+"/rest/v1/collections?id=eq."+c.id,{method:"PATCH",headers:h,',
+]);
 doc.swap(['  const u=who.user;', '  const c=await cloudCollection(u);', '  if(!c){ toast("Nothing on the server yet"); return; }'], [
   '  const u=who.user;',
   '  /* STAGE 0 (D1): a pull reads afresh first, and a held project pulls nothing. */',
@@ -413,6 +503,14 @@ doc.swap(['async function clearCloudNow(){', '  const note=$("cloudnote");'], [
   '  /* STAGE 0 (D1): removing from the server waits while this project is held. */',
   '  if(await s0Refuse()) return;',
   '  const note=$("cloudnote");',
+]);
+doc.swap('  say("Clearing the server\\u2026");', [
+  '  /* STAGE 0 (D1): and again after the confirm, which can sit open for as long',
+  '     as the person thinks. What follows removes every picture and every row',
+  '     of the project, and it went on a verdict as old as that pause (fix',
+  '     round 1, measured); the tile removals read again after theirs too. */',
+  '  if(await s0Refuse()) return;',
+  '  say("Clearing the server\\u2026");',
 ]);
 
 /* ---- 9. removals, Clear, imports, the fixer's line ----------------------- */
@@ -520,7 +618,24 @@ doc.finish(({ code, must }) => {
   must('e.data.uid===s0Uid()||e.data.uid===s0SessionUid(sbLoadSession())', 'a flag heard for the stored session is ignored');
   must('async function cloudPush(){' + NL + '  ' + NL + '  const s0PushGen=wsGen;', 'Save to cloud does not note its project first');
   must('  await s0Check(true);' + NL + '  ' + NL + '  if(!wsStill(s0PushGen)) return;', 'Save to cloud goes on after a move during its read');
+  /* Fix round 1. */
+  must('if(s0State.protocol>=2) s0Seen2.add(key);', 'protocol 2 is not remembered past the one slot');
+  must('if(s0Seen2.has(dbn+"|"+(uid||""))) return "switched";', 'protocol 2 remembered is not held');
+  must('function s0Guard(err){ return !!err&&err.code==="P0001"&&typeof err.message==="string"&&err.message.indexOf("project switched")===0; }', 'any P0001 is taken for the guard');
+  must('if(guard&&!(s0Mine(dbn,uid)&&s0State.ok)){', 'the guard\'s refusal overrides a read that answered');
+  must('if(wsDbName()!==dbn||(s0Uid()||null)!==uid) return true;', 'a sender judges the store moved to');
+  must('const s0End=()=>!!s0Held()||!!reasons.held;', 'Save to cloud\'s end of run is not held');
+  must('if(!s0End()) try{', 'Save to cloud\'s layers PATCH is not held');
+  must('if(await s0Refuse()) return;' + NL + '  say("Clearing the server\\u2026");', 'Remove from server does not read after its confirm');
+  if ((code.match(/if\(!s0End\(\)/g) || []).length !== 3) throw new Error('expected Save to cloud\'s 3 end-of-run writes held, found ' + (code.match(/if\(!s0End\(\)/g) || []).length);
+  /* Nine senders read before they send (await s0Blocked): cloudSyncOne,
+     cloudDropOne, cloudPatchOne, cloudRarity, setRarityMany,
+     cloudSendShelfPlan, saveLayers, shareRules, dbDelShared. Save to cloud
+     reads afresh at its start and holds its end of run on what the run saw
+     (s0End). Seven refusals read afresh (await s0Refuse): Remove from
+     server, before its confirm and after it; the two tile removals; Clear;
+     a folder import; a project file. */
   if ((code.match(/await s0Blocked\(\)/g) || []).length !== 9) throw new Error('expected 9 held senders, found ' + (code.match(/await s0Blocked\(\)/g) || []).length);
-  if ((code.match(/await s0Refuse\(\)/g) || []).length !== 6) throw new Error('expected 6 refused actions');
+  if ((code.match(/await s0Refuse\(\)/g) || []).length !== 7) throw new Error('expected 7 refused actions, found ' + (code.match(/await s0Refuse\(\)/g) || []).length);
   if (/setItem\(\s*["']pb\.migrating/.test(code)) throw new Error('stage 0 must never set the migration flag (B1)');
 });

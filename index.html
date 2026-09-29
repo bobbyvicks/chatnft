@@ -18823,8 +18823,10 @@ const TEAM_PROJECT_PICK="&order=created_at.asc,id.asc&limit=1";
    An error, a missing field, no project row or no answer within
    S0_READ_MS counts as protocol 1 and not switching. One exception: a
    store this tab has read as protocol 2, for the account signed in, stays
-   on 2, because the switch is one way (design E1). Keyed by store AND
-   account: pixelbench is every account's personal store (B1).
+   on 2 for the life of the tab, because the switch is one way (design
+   E1) - remembered in s0Seen2, apart from the one-slot s0State, so a read
+   of another store or account in between does not undo it. Keyed by
+   store AND account: pixelbench is every account's personal store (B1).
 
    It saves on the device only - sending, pulling, removing, clearing,
    importing and leaving nothing - in three cases (D1):
@@ -18839,6 +18841,12 @@ let S0_READ_MS=5000;   /* a let, so a spec can shorten it */
 const S0_SWITCHING="This project is being updated: your change is kept here and will be sent after it";
 const S0_SWITCHED="BuildaNFT was updated: reload to send what you saved";
 let s0State={db:null, uid:null, protocol:1, switching:false, ok:false, at:0};
+/* Every store and account ("<store>|<uid>") this tab has read on protocol 2
+   or above. Never cleared: the switch is one way (E1). s0State is one slot,
+   and a read on My page, another group or another account took it, so
+   coming back a failed read counted as protocol 1 again: the catch-up
+   pulled, a save sent and Clear deleted (fix round 1, measured). */
+const s0Seen2=new Set();
 let s0Flight=null, s0FlightKey=null;
 function s0Mine(dbn,uid){ return s0State.db===dbn&&s0State.uid===uid; }
 async function s0ReadNow(signal){
@@ -18883,8 +18891,9 @@ async function s0Check(force){
     if(wsDbName()!==dbn||(s0Uid()||null)!==uid) return s0State;
     const mine=s0Mine(dbn,uid);
     const wasHeld=mine&&(s0State.protocol>=2||s0State.switching);
-    const seen=(mine&&s0State.protocol>=2) ? s0State.protocol : 1;
+    const seen=Math.max((mine&&s0State.protocol>=2) ? s0State.protocol : 1, s0Seen2.has(key) ? 2 : 1);
     s0State={db:dbn, uid:uid, protocol:Math.max(seen, got?got.protocol:1), switching:!!(got&&got.switching), ok:!!got, at:Date.now()};
+    if(s0State.protocol>=2) s0Seen2.add(key);
     s0Show();
     /* A switch called off (abort_switch clears switching_at): what was kept
        here while it ran is sent now, in a group, as the bar promised - the
@@ -18925,25 +18934,58 @@ function s0FlagSet(){
 }
 function s0Held(){
   if(s0FlagSet()) return "migrating";
-  if(!s0Mine(wsDbName(),s0Uid()||null)) return null;
+  const dbn=wsDbName(), uid=s0Uid()||null;
+  if(s0Seen2.has(dbn+"|"+(uid||""))) return "switched";
+  if(!s0Mine(dbn,uid)) return null;
   if(s0State.protocol>=2) return "switched";
   if(s0State.switching) return "switching";
   return null;
 }
 function s0Words(why){ return why==="switching" ? S0_SWITCHING : S0_SWITCHED; }
-function s0Inline(why){ const w=s0Words(why); return w.charAt(0).toLowerCase()+w.slice(1); }
-async function s0Blocked(){ try{ await s0Check(false); }catch(_){ } return !!s0Held(); }
-/* After a refusal, before it is reported: read again. A P0001 is Change
-   B's guard ("project switched: reload"); when the read cannot say, it is
-   taken as switching - kept here and sent after - never as a refusal. */
-async function s0Recheck(code){
+/* D1's sentence inside another one ("Saved cap here only - ..."). Only
+   "This project..." takes a small letter there: the other begins with the
+   brand, which is always "BuildaNFT" (fix round 1). */
+function s0Inline(why){ return why==="switching" ? S0_SWITCHING.charAt(0).toLowerCase()+S0_SWITCHING.slice(1) : S0_SWITCHED; }
+/* Before a send: held, or not. The store and account are noted before the
+   read: if the page moved during it, s0Check drops the read and s0Held
+   would judge the store moved to, while the send goes to the one left
+   (fix round 1, measured). A move answers held: this send is dropped and
+   writes nothing, and what it would have sent stays unsent for the next
+   send or the online event. */
+async function s0Blocked(){
+  const dbn=wsDbName(), uid=s0Uid()||null;
+  try{ await s0Check(false); }catch(_){ }
+  if(wsDbName()!==dbn||(s0Uid()||null)!==uid) return true;
+  return !!s0Held();
+}
+/* Change B's guard: P0001 with the design's message, "project switched:
+   reload". P0001 alone is PostgreSQL's code for any bare RAISE, and the
+   live reorder_traits raises three ("trait outside project", "not your
+   project", "invalid shelf order"): each is an ordinary refusal (fix
+   round 1, measured). */
+function s0Guard(err){ return !!err&&err.code==="P0001"&&typeof err.message==="string"&&err.message.indexOf("project switched")===0; }
+/* After a refusal, before it is reported: read again. err is the refusal's
+   body where the sender has it. true: report it as held.
+     - The read answers: it is trusted. Protocol 2 or switching is held;
+       neither, after the guard's refusal, means the switch has just ended,
+       and it is reported as refused, so the next send goes.
+     - The read cannot answer: only the guard's refusal is taken as
+       switching - kept here and sent after. s0State.ok stays false, as
+       the read reported; it is never written over a read that answered.
+     - The page moved during the read, which was then dropped: the
+       refusal's own answer decides, for the store it came from, and
+       nothing is written for the store moved to. */
+async function s0Recheck(err){
+  const dbn=wsDbName(), uid=s0Uid()||null, guard=s0Guard(err);
   try{ await s0Check(true); }catch(_){ }
-  if(!s0Held()&&code==="P0001"){
-    const dbn=wsDbName(), uid=s0Uid()||null;
+  if(wsDbName()!==dbn||(s0Uid()||null)!==uid) return guard;
+  if(s0Held()) return true;
+  if(guard&&!(s0Mine(dbn,uid)&&s0State.ok)){
     s0State={db:dbn, uid:uid, protocol:(s0Mine(dbn,uid) ? s0State.protocol : 1), switching:true, ok:false, at:Date.now()};
     s0Show();
+    return true;
   }
-  return !!s0Held();
+  return false;
 }
 /* Before Clear, an import, Leave and Remove from server: a fresh read; if
    held, it says so and the action does nothing. true when refused. */
@@ -19177,6 +19219,11 @@ async function clearCloudNow(){
     +(activeWs?"\n\nThis is a group project, so it clears the server for"
       +" everyone. Their own copies on their own devices are not touched.":"")
     +"\n\nYour copy on this device is kept. Save to cloud puts it back.")) return;
+  /* STAGE 0 (D1): and again after the confirm, which can sit open for as long
+     as the person thinks. What follows removes every picture and every row
+     of the project, and it went on a verdict as old as that pause (fix
+     round 1, measured); the tile removals read again after theirs too. */
+  if(await s0Refuse()) return;
   say("Clearing the server\u2026");
   let files=0, rowsGone=false;
   try{
@@ -19592,8 +19639,8 @@ async function cloudSyncOne(rec,ctx,why,seq){
        to the sign-in box is a slow way to find that out. */
     if(!adopted && !r.ok && r.status!==401){
       /* STAGE 0 (D1): read again before saying what happened. */
-      let code=null; try{ code=(await r.clone().json()).code||null; }catch(_){ code=null; }
-      if(await s0Recheck(code)) return say("held",r.status);
+      let err=null; try{ err=await r.clone().json(); }catch(_){ err=null; }
+      if(await s0Recheck(err)) return say("held",r.status);
     }
     if(!adopted && !r.ok) return say(r.status===403 ? "notallowed"
       : r.status===401 ? "signedout"
@@ -19866,7 +19913,7 @@ async function cloudSendShelfPlan(updates){
     });
     if(r.ok) return {ok:true};
     let detail={}; try{ detail=await r.json(); }catch(_){}
-    if(r.status!==401&&await s0Recheck(detail&&detail.code)) return {ok:false,reason:"held"};
+    if(r.status!==401&&await s0Recheck(detail)) return {ok:false,reason:"held"};
     return {ok:false,reason:(r.status===409||detail.code==="23505")?"duplicate":"server"};
   }catch(_){ return {ok:false,reason:"network"}; }
 }
@@ -20084,10 +20131,18 @@ async function cloudPush(){
      while a live record here still uses it, and every other row this
      device does not hold is kept and counted. serverPaths is what the
      rows still name after the uploads, for the sweep below. */
+  /* STAGE 0 (D1): THE END OF THE RUN IS HELD TOO. The stale-row DELETE, the
+     sweep and the layers PATCH below read nothing of their own, and went
+     out after a read during the run had found the project switching, or
+     with the migration flag set during the last upload (fix round 1,
+     measured). Each is skipped while the project is held, or when any
+     item was held - a hold the run saw is not undone by a read after it.
+     The layer list stays unshared here, as saveLayers leaves it. */
+  const s0End=()=>!!s0Held()||!!reasons.held;
   let stale=0, notHere=0, serverPaths=null;
   /* Not after a run that stopped early either: what is left is unknown. */
   /* Nor after one that something changed under. */
-  if(!activeWs && !failed && !notTried && !changed){
+  if(!s0End() && !activeWs && !failed && !notTried && !changed){
     try{
       const here=new Set(items.map(i=>cloudPath(team,c,i)));
       const live=new Set(items.map(i=>i.rowId).filter(Boolean));
@@ -20142,9 +20197,9 @@ async function cloudPush(){
     /* Every picture a server row still names is kept, as well as this
        device's own; keeping only this device's list is what took the 311
        pictures. No reliable read of the rows, no sweep. */
-    if(!activeWs && !failed && !changed && serverPaths) swept=await cloudSweep(team,c,[...new Set(rows.map(r=>r.path).concat(serverPaths))]);
+    if(!s0End() && !activeWs && !failed && !changed && serverPaths) swept=await cloudSweep(team,c,[...new Set(rows.map(r=>r.path).concat(serverPaths))]);
   }catch(_){ }
-  try{
+  if(!s0End()) try{
     h=(await sbHeaders({"Content-Type":"application/json"}))||h;
     await fetch(SB_URL+"/rest/v1/collections?id=eq."+c.id,{method:"PATCH",headers:h,
       body:JSON.stringify({layers:LAYERS})});

@@ -11,6 +11,8 @@ import { armStage0, seedTrait, findTrait, S0_SWITCHING, S0_SWITCHED, S0_REFUSED 
 
 /* patch602's fix round 3: what a shelf move says when the page left its project before the send. */
 const S0_LEFT = 'Not sent: you left the project first. The move is kept there, and its next Save to cloud sends it';
+/* patch602's fix round 4: what an action says when the page left its project before anything of it was written. */
+const S0_LEFT_UNMADE = 'Not saved: you left the project before it was written';
 
 const log = (page) => page.evaluate(() => window.__s0.log);
 const sends = async (page) => (await log(page)).filter(l => /^(POST|PATCH|DELETE) /.test(l) && l.indexOf('/rpc/my_team') < 0);
@@ -1242,10 +1244,17 @@ test.describe('stage 0: fix round 1 - what the review of 60ecb5d found', () => {
      the live reorder_traits refuses, and the stand-in answered 200. Ruling 3:
      the move stays in team7, marked unsent. Was: "the order goes to team7",
      sent ['POST /rest/v1/rpc/reorder_traits'], '... 1 synced'.) */
-  test('the page moves during a shelf move\'s read, team7 not held: held since fix round 3 - nothing sent, My page untouched, the move kept in team7', async ({ page }) => {
+  /* (Final fixes, ruling B1: a drag in a group reads the hold before it
+     writes anything, so the read held here is that one, and the page leaves
+     before the move is made: team7 keeps cap where it was, synced, and
+     nothing is sent. The move made and then held at the send is still
+     pinned, by "the page moves during a shelf move's sign-in check, after
+     its read" below. Was: "... the move kept in team7",
+     't_cap_hats_approved[row-1 1 unsent]'.) */
+  test('the page moves during a shelf move\'s read, team7 not held: nothing sent, My page untouched, and the move not made in team7', async ({ page }) => {
     await armStage0(page, { protocol: 1 });
     expect(await moveDuringRead(page, { what: 'shelf', move: true, answer: 'one' })).toEqual({ readHeld: true, moved: true,
-      sent: [], me: ME, team7: ['t_cap_hats_approved[row-1 1 unsent]'] });
+      sent: [], me: ME, team7: ['t_cap_skins_approved[row-1 1 synced]'] });
   });
 
   /* (Fix round 3, ruling 1, as for the shelf move above. Was: "the order
@@ -1433,8 +1442,11 @@ test.describe('stage 0: fix round 3 - every sender, the page moving during its r
     ['a status change (cloudMoveOne)', 'status',
       { ret: { shared: null }, sent: [], team7: ['t_cap_hats_approved[row-1 1 unsent]'] },
       { ret: { shared: true }, sent: STATUS.concat(DROP), team7: ['t_cap_hats_approved[row-new 1 synced]'] }],
+    /* (Final fixes, ruling B1: the read is the drag's own, before it writes,
+       so the page leaves before the move is made. Was: toast S0_LEFT,
+       team7 't_cap_hats_approved[row-1 1 unsent]'.) */
     ['a shelf move (cloudSendShelfPlan)', 'shelf',
-      { ret: false, sent: [], toast: S0_LEFT, team7: ['t_cap_hats_approved[row-1 1 unsent]'] },
+      { ret: false, sent: [], toast: S0_LEFT_UNMADE, team7: ['t_cap_skins_approved[row-1 1 synced]'] },
       { ret: true, sent: ['POST /rest/v1/rpc/reorder_traits'], rpc: ['c1'], team7: ['t_cap_hats_approved[row-1 1 synced]'] }],
     ['a batch move (cloudSendShelfPlan)', 'bulk',
       { sent: [], team7: ['t_cap_hats_approved[row-1 1 unsent]'] },
@@ -1531,14 +1543,23 @@ test.describe('stage 0: fix round 3 - every sender, the page moving during its r
   /* RULING 3: HELD FOR ITS OWN PROJECT AFTER A MOVE (the read says protocol
      2). Nothing is sent and nothing is written into My page (fix round 2),
      and the change is not lost: team7 keeps it, marked unsent. */
+  /* (Final fixes, ruling B1: 'shelf' is taken out of this list - its read is
+     the drag's own, before anything is written, so there is no change to
+     keep; it has its own test below. Was: ['shelf',
+     't_cap_hats_approved[row-1 1 unsent]'] here.) */
   for (const [what, kept] of [['weight', 't_cap_hats_wip[row-1 50 unsent]'], ['weights', 't_cap_hats_wip[row-1 50 unsent]'],
-    ['status', 't_cap_hats_approved[row-1 1 unsent]'], ['shelf', 't_cap_hats_approved[row-1 1 unsent]'], ['bulk', 't_cap_hats_approved[row-1 1 unsent]']]) {
+    ['status', 't_cap_hats_approved[row-1 1 unsent]'], ['bulk', 't_cap_hats_approved[row-1 1 unsent]']]) {
     test('held for team7 after a move (' + what + '): nothing sent, nothing written into My page, and team7 keeps the change, unsent', async ({ page }) => {
       await arm(page);
       const r = await senderMoves(page, { what, at: 'read', move: true, answer: 'two' });
       expect([r.held, r.moved, r.sent, r.meSame, r.team7]).toEqual([true, true, [], true, [kept]]);
     });
   }
+  test('held for team7 after a move (shelf): nothing sent, nothing written into My page, and the move not made in team7 - the drag reads before it writes (final fixes, B1)', async ({ page }) => {
+    await arm(page);
+    const r = await senderMoves(page, { what: 'shelf', at: 'read', move: true, answer: 'two' });
+    expect([r.held, r.moved, r.sent, r.meSame, r.team7]).toEqual([true, true, [], true, ['t_cap_skins_approved[row-1 1 synced]']]);
+  });
 
   /* Save to cloud, and a move while its first six uploads are in flight:
      the seventh is not sent, the six do not write "sent" into My page, and
@@ -1702,5 +1723,122 @@ test.describe('stage 0 (final fixes, B3): a refused action says it was not done;
     const h = await heard(page);
     expect(h.said).toEqual([S0_SWITCHED]);
     expect(await sends(page)).toEqual([]);
+  });
+});
+
+/* Final fixes, B1. A HELD DRAG WRITES NOTHING, AND A DRAG PUT BACK TAKES ITS
+   DRAWING BACK. A drag across layers was applied here first - the records
+   under their new ids and, by draftsFollow, the trait's unsaved drawing
+   with them - and then its send was held, and the old records were put
+   back; the drawing was not. It stayed under the new id, which no trait
+   had, and opening the trait no longer offered it (measured by the final
+   review, and older than stage 0 for a failed send). Now a drag in a group
+   reads the hold before it writes anything and, held, is refused in the
+   refusal's own words; and every put-back - held at the send, refused,
+   a server error, no connection - takes the drawing back with the
+   records. cap is synced on skins with a drawing (20) over its saved
+   picture (90); it is dragged to hats. "Offered" is what opening the trait
+   the way a click does shows: 20 is the drawing, 90 the saved picture. */
+const dragWithDrawing = (page, o) => page.evaluate(async (o) => {
+  LAYERS = ['skins', 'hats', 'unsorted'];
+  await dbPut({ id: 'settings.layers', kind: 'settings', at: 1, layers: ['skins', 'hats', 'unsorted'], hidden: [] });
+  const png = async (v) => {
+    const c = document.createElement('canvas'); c.width = 16; c.height = 16;
+    const g = c.getContext('2d'); g.fillStyle = 'rgb(' + v + ',' + v + ',' + v + ')'; g.fillRect(0, 0, 16, 16);
+    return new Promise(r => c.toBlob(r, 'image/png'));
+  };
+  await dbPut({ id: 't_cap_skins_approved', kind: 'trait', name: 'cap', layer: 'skins', status: 'approved', blob: await png(90), w: 16, h: 16,
+    rarity: 1, at: 1000, shelfOrder: 10, rowId: 'row-1', rowAt: '2026-01-01T00:00:00Z', path: 'team7/c1/trait-cap-skins-approved.png', synced: true });
+  await dbPut({ id: 'autosave.t_cap_skins_approved', kind: 'autosave', traitId: 't_cap_skins_approved', name: 'cap.png', w: 16, h: 16,
+    blob: await png(20), at: 2000 });
+  await renderShelf();
+  const snap = async () => (await dbAll()).map(r => { const x = Object.assign({}, r); delete x.blob; return JSON.stringify(x); }).sort();
+  const before = await snap();
+  const toasts = [], shown = window.toast;
+  window.toast = (m) => { toasts.push(String(m)); try { shown(m); } catch (_) {} };
+  const f = window.fetch; let rpc = 0;
+  window.fetch = async (u, io) => {
+    if (String(u).indexOf('/rest/v1/rpc/reorder_traits') >= 0) {
+      rpc++;
+      if (o.rpc === 'no connection') { window.__s0.log.push('POST /rest/v1/rpc/reorder_traits'); throw new TypeError('Failed to fetch'); }
+      if (o.rpc) { window.__s0.log.push('POST /rest/v1/rpc/reorder_traits'); return new Response(JSON.stringify(o.rpc.body), { status: o.rpc.status, headers: { 'Content-Type': 'application/json' } }); }
+    }
+    return f(u, io);
+  };
+  /* lateHold: the send's own read is a new one (the redraw before the send
+     passes the reuse window), and it is that read that finds the hold. */
+  const rs = window.renderShelf;
+  if (o.lateHold) window.renderShelf = (...a) => { s0State.at = 0; return rs(...a); };
+  let moved;
+  try { moved = await commitShelfMove({ recordKey: 'row-1', toLayer: 'hats', beforeKey: null }); }
+  finally { window.fetch = f; window.toast = shown; window.renderShelf = rs; }
+  const untouched = JSON.stringify(await snap()) === JSON.stringify(before);
+  const all = await dbAll();
+  const traits = all.filter(r => r.kind === 'trait').map(r => r.id);
+  const drafts = all.filter(r => r.kind === 'autosave').map(r => r.id + ' -> ' + r.traitId);
+  const rec = all.find(r => r.kind === 'trait' && r.name === 'cap');
+  window.toast = () => {};
+  try { await openTraitRecord(rec); } finally { window.toast = shown; }
+  await new Promise(r => setTimeout(r, 150));
+  return { moved, rpc, toast: toasts[toasts.length - 1] || null, traits, drafts, offered: ctx.getImageData(0, 0, 1, 1).data[0], untouched };
+}, o);
+const BACK = { traits: ['t_cap_skins_approved'], drafts: ['autosave.t_cap_skins_approved -> t_cap_skins_approved'], offered: 20 };
+
+test.describe('stage 0 (final fixes, B1): a held drag writes nothing; a drag put back takes its drawing back', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/index.html');
+    await page.waitForFunction(() => typeof s0Check === 'function');
+    await page.evaluate(async () => { activeWs = 'team7'; dbp = null; dbpName = null; await dbClear(); });
+  });
+  test.afterEach(async ({ page }) => {
+    const unknown = await page.evaluate(() => (window.__s0 && window.__s0.unknown) || []);
+    await page.evaluate(() => {
+      if (window.__s0real) window.fetch = window.__s0real;
+      activeWs = null; localStorage.removeItem('chatnft.session');
+    });
+    expect(unknown, 'every request had a named answer (design E2)').toEqual([]);
+  });
+
+  test('protocol 2: a drag of a trait with a drawing is refused before anything is written, and the drawing is still offered on it', async ({ page }) => {
+    await armStage0(page, { protocol: 2 });
+    const r = await dragWithDrawing(page, {});
+    expect(r).toEqual({ moved: false, rpc: 0, toast: S0_REFUSED, ...BACK, untouched: true });
+    expect(await sends(page)).toEqual([]);
+  });
+
+  test('switching: the same drag is refused before anything is written, and the drawing is still offered on it', async ({ page }) => {
+    await armStage0(page, { switching: SWITCHING_AT });
+    const r = await dragWithDrawing(page, {});
+    expect(r).toEqual({ moved: false, rpc: 0, toast: S0_REFUSED, ...BACK, untouched: true });
+    expect(await sends(page)).toEqual([]);
+  });
+
+  test('held only at the send (its own read finds switching): put back, and the drawing with it', async ({ page }) => {
+    await armStage0(page, { protocol: 1, after: { switching: SWITCHING_AT } });
+    const r = await dragWithDrawing(page, { lateHold: true });
+    const { untouched, ...rest } = r;
+    expect({ ...rest, reads: await page.evaluate(() => window.__s0.reads) }).toEqual({ moved: false, rpc: 0, toast: S0_REFUSED, ...BACK, reads: 2 });
+    expect(await sends(page)).toEqual([]);
+  });
+
+  test('a server error puts the drag back, and the drawing with it', async ({ page }) => {
+    await armStage0(page, { protocol: 1 });
+    const r = await dragWithDrawing(page, { rpc: { status: 500, body: { code: 'XX000', message: 'down' } } });
+    const { untouched, ...rest } = r;
+    expect(rest).toEqual({ moved: false, rpc: 1, toast: 'Move did not sync, so the old order was restored', ...BACK });
+  });
+
+  test('no connection puts the drag back, and the drawing with it', async ({ page }) => {
+    await armStage0(page, { protocol: 1 });
+    const r = await dragWithDrawing(page, { rpc: 'no connection' });
+    const { untouched, ...rest } = r;
+    expect(rest).toEqual({ moved: false, rpc: 1, toast: 'Move did not sync, so the old order was restored', ...BACK });
+  });
+
+  test('THE CONTROL: the same drag with nothing held sticks, and the drawing goes with it', async ({ page }) => {
+    await armStage0(page, { protocol: 1 });
+    const r = await dragWithDrawing(page, {});
+    const { untouched, toast, ...rest } = r;
+    expect(rest).toEqual({ moved: true, rpc: 1, traits: ['t_cap_hats_approved'], drafts: ['autosave.t_cap_hats_approved -> t_cap_hats_approved'], offered: 20 });
   });
 });

@@ -1017,6 +1017,40 @@ doc.swap('      plan.updates.map(update=>activeWs?update.record:unsentOf(update.
 ]);
 doc.swap('  try{ await draftsFollow(plan.updates.map(u=>({from:u.oldId, to:u.record.id}))); }catch(_){}',
   '  try{ await draftsFollow(plan.updates.map(u=>({from:u.oldId, to:u.record.id})),s0Home); }catch(_){}');
+/* Final fixes, B1: the hold is read before anything is written, and a
+   put-back takes the drawing back. */
+doc.swap([
+  '  try{',
+  '  let items=[];',
+  '  try{ items=await dbAll(); }',
+  "  catch(_){ toast('Could not read the project'); return false; }",
+], [
+  '  try{',
+  '  /* STAGE 0 (FINAL FIXES, B1): IN A GROUP, THE HOLD IS READ BEFORE ANYTHING',
+  '     IS WRITTEN. The move was applied here first - the records under',
+  '     their new ids, and the trait\'s unsaved drawing with them - and only',
+  '     the send found the hold (Decision 13), so every held drag was put',
+  '     back, and the drawing was left under an id no trait has (measured by',
+  '     the final review). Held now, the drag is refused in the refusal\'s',
+  '     own words (B3) and nothing is written. A page that left home during',
+  '     this read goes on to the check after the reads below, which says so',
+  '     and writes nothing, as before. My page sends no order, so it has no',
+  '     hold to ask: a drop there is kept, marked unsent, as it always was. */',
+  '  if(s0Home.db!==DBN&&(await s0Blocked(false,s0Home))===true){ toast(S0_REFUSED); return false; }',
+  '  let items=[];',
+  '  try{ items=await dbAll(); }',
+  "  catch(_){ toast('Could not read the project'); return false; }",
+]);
+doc.swap('      await dbApplyShelfRecords(plan.updates.map(update=>update.record.id),originals);', [
+  '      await dbApplyShelfRecords(plan.updates.map(update=>update.record.id),originals);',
+  '      /* STAGE 0 (FINAL FIXES, B1): AND THE DRAWING WITH THEM. draftsFollow',
+  '         moved it to the new id before the send; put back without it, it',
+  '         stayed under an id no trait has, and opening the trait offered',
+  '         nothing - on a held send, a refusal, a server error or no',
+  '         connection alike (measured by the final review; older than stage',
+  '         0 for a failed send). */',
+  '      try{ await draftsFollow(plan.updates.map(u=>({from:u.record.id, to:u.oldId})),s0Home); }catch(_){}',
+]);
 doc.swap(['  const shared=await cloudSaveShelfPlan(plan.updates,true);', '  if(!shared.ok){'], [
   '  const s0Seq=touchSeq, s0Group=s0Home.db!==DBN;   /* STAGE 0: see 8b in patch602 */',
   '  const shared=await cloudSaveShelfPlan(plan.updates,true,s0Home);',
@@ -1935,7 +1969,8 @@ doc.finish(({ code, must }) => {
   must('if(await s0Blocked(true,s0Home)) return "unreachable";', 'cloudRarity is not addressed');
   must('const s0h=await s0Blocked(true,s0Home);', 'setRarityMany is not addressed');
   if ((code.match(/await s0Blocked\(true,/g) || []).length !== 2) throw new Error('expected 2 addressed senders, found ' + (code.match(/await s0Blocked\(true,/g) || []).length);
-  if ((code.match(/await s0Blocked\(false,s0Home\)/g) || []).length !== 7) throw new Error('expected 7 senders held for their home, found ' + (code.match(/await s0Blocked\(false,s0Home\)/g) || []).length);
+  /* (Final fixes, B1: and a drag's read before its first write - 8, was 7.) */
+  if ((code.match(/await s0Blocked\(false,s0Home\)/g) || []).length !== 8) throw new Error('expected 8 senders held for their home, found ' + (code.match(/await s0Blocked\(false,s0Home\)/g) || []).length);
   must('const s0Want=s0Ahead ? {...next, synced:false, unsent:"meta"} : next;', 'a weight is not marked unsent ahead of its send');
   must('await dbApplyShelfRecords([t.id],[moved.synced ? unsentOf(moved) : moved]);', 'a status change is not marked unsent ahead of its send, in one write');
   must('if(!s0AtHome(s0Home)){ toast(S0_LEFT); return false; }', 'a shelf move the page left says nothing');
@@ -1972,8 +2007,10 @@ doc.finish(({ code, must }) => {
      reads afresh at its start and holds its end of run on what the run saw
      (s0End). Seven refusals read afresh (await s0Refuse): Remove from
      server, before its confirm and after it (a read begun after it); the
-     two tile removals; Clear; a folder import; a project file. */
-  if ((code.match(/await s0Blocked\(/g) || []).length !== 9) throw new Error('expected 9 held senders, found ' + (code.match(/await s0Blocked\(/g) || []).length);
+     two tile removals; Clear; a folder import; a project file.
+     (Final fixes, B1: and a drag in a group reads before its first write,
+     commitShelfMove - 10 reads, was 9.) */
+  if ((code.match(/await s0Blocked\(/g) || []).length !== 10) throw new Error('expected 10 held senders, found ' + (code.match(/await s0Blocked\(/g) || []).length);
   if ((code.match(/await s0Refuse\(/g) || []).length !== 7) throw new Error('expected 7 refused actions, found ' + (code.match(/await s0Refuse\(/g) || []).length);
   if (/setItem\(\s*["']pb\.migrating/.test(code)) throw new Error('stage 0 must never set the migration flag (B1)');
   /* Final fixes, B3: every refusal says it was not done, in its own words;
@@ -1982,6 +2019,17 @@ doc.finish(({ code, must }) => {
   if ((code.match(/gone==="held" \? S0_REFUSED : gone \?/g) || []).length !== 2) throw new Error('a tile\'s held removal says it is kept');
   must("shared.reason==='held' ? S0_REFUSED", 'a drag put back says it is kept');
   must('if(!opts.quiet) toast(S0_REFUSED); return;', 'a refused pull says a change is kept');
+  /* Final fixes, B1: a drag in a group reads the hold before its first write,
+     and a put-back moves the drawing back. */
+  {
+    const f = code.indexOf('async function commitShelfMove(spec,home){'), e = code.indexOf('\n}', f), b = f >= 0 && e > f ? code.slice(f, e) : '';
+    const pre = b.indexOf('if(s0Home.db!==DBN&&(await s0Blocked(false,s0Home))===true){ toast(S0_REFUSED); return false; }');
+    const firstWrite = Math.min(...['setTraitStatus(', 'dbApplyShelfRecords(', 'draftsFollow('].map(s => { const i = b.indexOf(s); return i < 0 ? Infinity : i; }));
+    if (pre < 0 || !(pre < firstWrite)) throw new Error('a drag in a group does not read the hold before it writes');
+    const back = b.indexOf('await dbApplyShelfRecords(plan.updates.map(update=>update.record.id),originals);');
+    if (back < 0 || b.indexOf('try{ await draftsFollow(plan.updates.map(u=>({from:u.record.id, to:u.oldId})),s0Home); }catch(_){}', back) < 0)
+      throw new Error('a drag put back leaves its drawing under the new id');
+  }
   {
     const f = code.indexOf('async function s0Refuse('), e = code.indexOf('\n}', f), b = f >= 0 && e > f ? code.slice(f, e) : '';
     if (!b || b.indexOf('s0Words(') >= 0 || b.indexOf('toast(S0_REFUSED);') < 0) throw new Error('s0Refuse does not say it refused, or still says D1\'s kept words');

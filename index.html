@@ -4642,6 +4642,17 @@ async function commitShelfMove(spec,home){
      fetches - so one dropped connection threw past all six and reordering
      stayed disabled until a reload. */
   try{
+  /* STAGE 0 (FINAL FIXES, B1): IN A GROUP, THE HOLD IS READ BEFORE ANYTHING
+     IS WRITTEN. The move was applied here first - the records under
+     their new ids, and the trait's unsaved drawing with them - and only
+     the send found the hold (Decision 13), so every held drag was put
+     back, and the drawing was left under an id no trait has (measured by
+     the final review). Held now, the drag is refused in the refusal's
+     own words (B3) and nothing is written. A page that left home during
+     this read goes on to the check after the reads below, which says so
+     and writes nothing, as before. My page sends no order, so it has no
+     hold to ask: a drop there is kept, marked unsent, as it always was. */
+  if(s0Home.db!==DBN&&(await s0Blocked(false,s0Home))===true){ toast(S0_REFUSED); return false; }
   let items=[];
   try{ items=await dbAll(); }
   catch(_){ toast('Could not read the project'); return false; }
@@ -4723,6 +4734,13 @@ async function commitShelfMove(spec,home){
     if(!s0AtHome(s0Home)){ toast(S0_LEFT); return false; }
     try{
       await dbApplyShelfRecords(plan.updates.map(update=>update.record.id),originals);
+      /* STAGE 0 (FINAL FIXES, B1): AND THE DRAWING WITH THEM. draftsFollow
+         moved it to the new id before the send; put back without it, it
+         stayed under an id no trait has, and opening the trait offered
+         nothing - on a held send, a refusal, a server error or no
+         connection alike (measured by the final review; older than stage
+         0 for a failed send). */
+      try{ await draftsFollow(plan.updates.map(u=>({from:u.record.id, to:u.oldId})),s0Home); }catch(_){}
       for(const update of plan.updates) state.transfer(shelfCore.recordKey(update.record),update.oldKey);
       await renderShelf();
     }catch(_){}

@@ -741,7 +741,10 @@ test.describe('stage 0: the audit of the read against the page Task 10 left', ()
   test('a tab still on account A, B\'s session stored by another tab: B\'s migration flag holds what this tab would send with B\'s token', async ({ page }) => {
     await armStage0(page, { uid: 'u2', protocol: 1 });
     await seedTrait(page, { name: 'cap', layer: 'hats' });
-    await page.evaluate(() => { s0SeenUid = 'u1'; localStorage.setItem('pb.migrating.chatnft.ws.team7.u2', String(Date.now())); });
+    /* Task 15: the reload guard for the account this tab is pinned to, as
+       armStage0 sets it for u2's - held by B's flag with nothing in hand,
+       the page would reload itself (patch606). */
+    await page.evaluate(() => { s0SeenUid = 'u1'; sessionStorage.setItem('pb.s0.reloaded.chatnft.ws.team7.u1', '1'); localStorage.setItem('pb.migrating.chatnft.ws.team7.u2', String(Date.now())); });
     expect(await page.evaluate(() => s0Uid()), 'this tab is still on A').toBe('u1');
     expect((await save(page)).reason).toBe('held');
     expect(await page.evaluate(() => s0Held())).toBe('migrating');
@@ -761,6 +764,7 @@ test.describe('stage 0: the audit of the read against the page Task 10 left', ()
     await armStage0(page, { uid: 'u2', protocol: 1 });
     const r = await page.evaluate(async () => {
       s0SeenUid = 'u1';
+      sessionStorage.setItem('pb.s0.reloaded.chatnft.ws.team7.u1', '1');   /* Task 15: as above */
       localStorage.setItem('pb.migrating.chatnft.ws.team7.u2', '1');
       new BroadcastChannel('pixelbench').postMessage({ db: 'chatnft.ws.team7', uid: 'u2', migrating: true });
       await new Promise(res => setTimeout(res, 400));

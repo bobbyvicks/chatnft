@@ -3435,7 +3435,7 @@ footer .mono{color:var(--ink);}
 <!-- STAGE 0 (auto cloud save design, D1): why this page is saving on the device
      only. On every page and over the editor; hidden while nothing is held.
      The Reload button shows only when reloading is the answer. -->
-<div class="s0bar" id="s0bar" role="alert" hidden><span id="s0text"></span> <button type="button" id="s0reload" hidden>Reload</button></div>
+<div class="s0bar" id="s0bar" role="alert" hidden><span id="s0text"></span><span id="s0kept" hidden></span> <button type="button" id="s0reload" hidden>Reload</button></div>
 
 <script>
 "use strict";
@@ -19125,6 +19125,96 @@ function s0Show(){
     if(why&&(!fx.textContent||ours)) fx.textContent=text;
     else if(!why&&ours) fx.textContent="";
   }
+  s0Reload(why);
+}
+/* STAGE 0: RELOADING INTO THE NEW PAGE (design D1, B5's rule). For
+   protocol 2 and the migration flag; a switching project is waited out.
+   By itself only with nothing in hand and at most once per tab session
+   per store and account; otherwise the Reload button, which writes the
+   draft first. */
+const S0_RELOADED="pb.s0.reloaded.";
+const S0_KEPT=". Your drawings and saved fixes are kept.";
+const S0_FIXER_FIRST=" Save the fixer's results first: unsaved ones are not kept.";
+const S0_RELOAD_WAIT="Saving your drawing first - press Reload again in a moment";
+/* Per store AND account, like s0State: another account on this browser
+   has its own reload to make. */
+function s0ReloadKey(){ return S0_RELOADED+wsDbName()+"."+(s0Uid()||""); }
+/* IN HAND: the editor open, a gesture running, or the drawing's last save
+   or a move of the store still under way. closeEditor hides #app before
+   its closing draft write lands - s0SaveInFlight covers that write, and
+   the sign-out and switch waits (s0SignOutWait, s0WsWant) wait for it
+   before they move the store, the uid and wsGen. A switch to My page
+   waits with s0WsWant===null, so it is read as "not undefined". A flag
+   that cannot be read is busy: a missed reload costs a press, a reload
+   over what it guards costs that work (test/stage0-source.test.mjs keeps
+   every name here declared). */
+function s0Busy(){
+  const on=f=>{ try{ return !!f(); }catch(_){ return true; } };
+  const app=$("app");
+  if(app&&!app.hidden) return true;
+  return on(()=>painting) || on(()=>moveBuf) || on(()=>moveFrom)
+    || on(()=>seDrag) || on(()=>seLift) || on(()=>textDrag) || on(()=>pendingTouch)
+    || on(()=>shelfDrag) || on(()=>shelfMoveBusy) || on(()=>layerDrag) || on(()=>exDrag) || on(()=>gdDrag)
+    || on(()=>autoPending) || on(()=>s0SaveInFlight) || on(()=>s0SignOutWait) || on(()=>s0WsWant!==undefined);
+}
+/* The fixer's results live only in memory in stage 0: a single fix's
+   (FIX.out) and a folder's (fixBatchFiles) - and the fixer at work on
+   them: one image being fixed (FIX.worker), or a folder run, whose
+   list is empty until its first file is done (fixBatchRunning). */
+function s0FixerHolds(){
+  try{ return !!(FIX&&(FIX.out||FIX.worker)) || !!fixBatchRunning || !!(fixBatchFiles&&fixBatchFiles.length); }catch(_){ return false; }
+}
+function s0Reload(why){
+  const switched=why==="switched"||why==="migrating";
+  const btn=$("s0reload"), kept=$("s0kept");
+  if(btn) btn.hidden=!switched;
+  const fixer=switched&&s0FixerHolds();
+  if(kept){ kept.hidden=!switched; kept.textContent=switched ? S0_KEPT+(fixer?S0_FIXER_FIRST:"") : ""; }
+  if(!switched) return;
+  let done=true;
+  try{ done=sessionStorage.getItem(s0ReloadKey())==="1"; }catch(_){ done=true; }
+  if(done||fixer||s0Busy()) return;
+  try{ sessionStorage.setItem(s0ReloadKey(),"1"); }catch(_){ return; }
+  location.reload();
+}
+/* THE DRAFT WRITE THE PRESS AWAITS (B5). The editor open: its draft,
+   written now; false if the write was refused (autosaveNow says so).
+   The editor closed: closeEditor wrote it where it was drawn, so nothing
+   new is written - the press waits for that write if it is still being
+   written (and writes one still waiting, which autosave() does not leave
+   while #app is hidden). Not bounded: see s0ReloadNow. */
+async function s0DraftLanded(){
+  try{
+    if(!$("app").hidden) return await autosaveNow();
+    if(autoPending) autosaveNow();
+    const p=s0SaveInFlight;
+    return p ? await p : true;
+  }catch(_){ return false; }
+}
+/* THE BAR'S RELOAD. Not during a sign-out's or a switch's wait: a draft
+   write started then lands in the store the page moves to - it says to
+   press again, the wait being at most S0_FLUSH_MS. Not when this store
+   and account are no longer held: the bar is redrawn instead, and
+   nothing is written for a store or an account that has gone. The draft
+   write is awaited without a bound - with an encode that never calls
+   back, the page on screen is the only copy - and the button says so
+   meanwhile. A write that failed does not reload: the canvas and the
+   warning would go with it. Asked again after the wait. */
+let s0Reloading=false;
+async function s0ReloadNow(){
+  if(s0Reloading) return;
+  if(s0SignOutWait||s0WsWant!==undefined){ toast(S0_RELOAD_WAIT); return; }
+  if(!s0Held()){ s0Show(); return; }
+  const b=$("s0reload"), was=b ? b.textContent : "";
+  s0Reloading=true;
+  if(b){ b.disabled=true; b.textContent="Saving..."; }
+  let ok=false;
+  try{ ok=await s0DraftLanded(); }
+  finally{ s0Reloading=false; if(b){ b.disabled=false; b.textContent=was; } }
+  if(!ok) return;
+  if(s0SignOutWait||s0WsWant!==undefined||!s0Held()){ s0Show(); return; }
+  try{ sessionStorage.setItem(s0ReloadKey(),"1"); }catch(_){ }
+  location.reload();
 }
 async function cloudCollection(u){
   /* Its two fetches were the only unguarded ones on this path - cloudTeam and
@@ -22981,6 +23071,8 @@ setInterval(()=>{
     s0Check(true).catch(()=>{});
   }catch(_){ }
 },S0_POLL_MS);
+/* STAGE 0 (D1, B5): the bar's Reload writes the editor's draft first. */
+{ const b=$("s0reload"); if(b) b.onclick=()=>{ s0ReloadNow(); }; }
 /* Read the sign-in fragment BEFORE the first render, so someone arriving from
    the email sees themselves signed in rather than the form again. */
 /* A recovery link carries a session, so without this it reads as an ordinary

@@ -19367,7 +19367,8 @@ async function s0Blocked(addressed,home){
        away). A local write does nothing once this is false.
      - s0SendHome: and the same account, whose token the send carries. A
        send is held once this is false, except by the two addressed
-       senders (s0Blocked).
+       senders (s0Blocked). (Close fixes: and cloudSyncOne's insert once
+       its DELETE is out, which asks for the account only - see there.)
    A call to a function that notes its own home first is a write or send
    too: its caller asks just before calling, so the callee's home is the
    caller's. */
@@ -20328,7 +20329,24 @@ async function cloudSyncOne(rec,ctx,why,seq){
     let r=null, adopted=null;
     for(let attempt=0; attempt<PULL_TRIES; attempt++){
       try{
-        if(!s0SendHome(s0Home)) return say(s0LeftReason(s0Home));   /* STAGE 0 (fix round 4) */
+        /* STAGE 0 (CLOSE FIXES): THE DELETE'S OTHER HALF. Once the DELETE
+           above is out, the row it removes comes back only when this
+           insert lands, and all the insert sends - the collection, the
+           team, the owner, the row and the headers - is what this call
+           held before that DELETE: an addressed send (s0Blocked). Asked
+           for the whole home here, as every send after a wait was (fix
+           round 4), a move while the DELETE or a retry's wait was out
+           held it: the group was left with no row for this trait - the
+           harm the retry comment above measured - and the person was
+           told it was not sent (measured by the final review, 3 of 3).
+           So a move does not stop it. The "sent" write after it still
+           does not follow the page (8b, below): the record stays unsent
+           where it was made, and its next Save to cloud replaces the row.
+           The account still stops it: the headers carry its session, and
+           whether a sign-out, or another account signing in, lets the
+           insert go with the session that ended is not decided here -
+           held as before, it waits for a ruling. */
+        if(s0Home.uid!==(s0Uid()||null)) return say(s0LeftReason(s0Home));
         r=await fetch(SB_URL+"/rest/v1/traits",{method:"POST",
           headers:Object.assign({Prefer:"return=representation"},h), body:rowBody});
         if(r.ok) break;

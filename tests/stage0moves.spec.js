@@ -139,6 +139,10 @@ function router(st) {
       if (m === 'DELETE') {
         const hit = [...S.rows.values()].filter(sel);
         for (const r of hit) S.rows.delete(r.id);
+        /* (Close fixes: 'rowdel' holds the answer to a row DELETE - by
+           st.hold.id when given - after the rows are gone, as the server
+           removes them when the request arrives.) */
+        await hold('rowdel', () => !st.hold.id || one === 'eq.' + st.hold.id);
         return json(hit.map(r => ({ id: r.id, path: r.path })));
       }
       if (m === 'POST') {
@@ -743,6 +747,117 @@ test.describe('stage 0, fix round 4: the action\'s home', () => {
     const { st, out } = await run(page, { t7: [T7CAP, T7HAT], hold: { kind: 'read' }, move: false, act: clearAct });
     expect(out.meSame).toBe(true);
     expect(out.team7).toEqual([]);
+    expect(st.unknown).toEqual([]);
+  });
+});
+
+/* Close fixes: AN INSERT IS ITS DELETE'S OTHER HALF. cloudSyncOne sends
+   DELETE (the record's row) and then the insert that puts the row back.
+   Fix round 4 asked for the whole home before the insert as before every
+   send after a wait, so a move while the DELETE (or a retry's wait) was out
+   held the insert: the group was left with no row for the trait, and the
+   person was told the change was not sent (measured by the final review,
+   probe save_del_m, 3 of 3). The insert's target and body were all fixed
+   before the DELETE - an addressed send - so a move no longer stops it. The
+   record's "sent" write still does not follow the page (Ruling 2 of fix
+   round 3): it stays unsent where it was made, and its next Save to cloud
+   replaces the row. The checks before the upload and before the DELETE stay:
+   a move during the attempt note sends no DELETE. team7's cap is edited
+   here, unsent, on the row U1 the server holds; the ids are made up. */
+const U1 = '00000000-0000-4000-8000-00000000c0f1';
+const T7EDIT = Object.assign({}, T7CAP, { rowId: U1, synced: false, at: 2000 });
+const insertOf = (st) => st.log.filter(e => e.m === 'POST' && e.path === '/rest/v1/traits')
+  .map(e => { const x = JSON.parse(e.body)[0]; return { collection_id: x.collection_id, team_id: x.team_id, name: x.name, replaces: x.replaces || null }; });
+const saveAct = "const why={}; const ok=await cloudSyncOne(await dbGet('t_cap_hats_wip'),{home:s0HomeNow()},why); return {ok:!!ok, reason:why.reason||null};";
+const SAVED = ['POST /storage/v1/object/traits/team7/c1/trait-cap-hats-wip.png', 'DELETE /rest/v1/traits?id=eq.' + U1, 'POST /rest/v1/traits'];
+const INTO_C1 = [{ collection_id: 'c1', team_id: 'team7', name: 'cap', replaces: U1 }];
+
+test.describe('stage 0 (close fixes): an insert is its DELETE\'s other half', () => {
+  test.afterEach(async ({ page }) => {
+    await page.evaluate(() => { try { activeWs = null; localStorage.removeItem('chatnft.session'); } catch (_) {} }).catch(() => {});
+  });
+
+  test('a group save, the page moving to My page while its row DELETE is out: the insert still goes into team7, naming the row it replaces', async ({ page }) => {
+    const { st, out } = await run(page, { t7: [T7EDIT], hold: { kind: 'rowdel', id: U1 }, move: true, act: saveAct });
+    expect([out.heldAt, out.moved]).toEqual(['rowdel', true]);
+    expect(out.writes).toEqual(SAVED);
+    expect(insertOf(st)).toEqual(INTO_C1);
+    expect(out.server, 'the group has the trait').toEqual(ME_ROWS.concat(['row-new-1{c1 cap/hats/wip r1}']).sort());
+    expect(out.ret).toEqual({ ok: true, reason: null });
+    expect(namesMe(out)).toEqual([]);
+    expect(out.meSame).toBe(true);
+    /* Ruling 2 of fix round 3: the "sent" write does not follow the page. */
+    expect(out.team7).toEqual(['t_cap_hats_wip[' + U1 + ' 1 hats unsent]']);
+    expect(st.unknown).toEqual([]);
+  });
+  test('THE CONTROL: the same save, its row DELETE held and released with no move: the insert goes, and the record is synced to the new row', async ({ page }) => {
+    const { st, out } = await run(page, { t7: [T7EDIT], hold: { kind: 'rowdel', id: U1 }, move: false, act: saveAct });
+    expect([out.heldAt, out.moved]).toEqual(['rowdel', false]);
+    expect(out.writes).toEqual(SAVED);
+    expect(insertOf(st)).toEqual(INTO_C1);
+    expect(out.server).toEqual(ME_ROWS.concat(['row-new-1{c1 cap/hats/wip r1}']).sort());
+    expect(out.ret).toEqual({ ok: true, reason: null });
+    expect(out.team7).toEqual(['t_cap_hats_wip[row-new-1 1 hats synced]']);
+    expect(st.unknown).toEqual([]);
+  });
+  test('the page moving to My page during the attempt note: no row DELETE and no insert - the group keeps its row, and it says the page left', async ({ page }) => {
+    const { st, out } = await run(page, { t7: [T7EDIT], move: true,
+      act: "(()=>{ const real=s0Attempted; s0Attempted=async (...a)=>{ const r=await real(...a); s0Attempted=real; await new Promise(res=>{ window.__gate=res; }); return r; }; })(); " + saveAct });
+    expect([out.heldAt, out.moved]).toEqual(['gate', true]);
+    expect(out.writes).toEqual(['POST /storage/v1/object/traits/team7/c1/trait-cap-hats-wip.png']);
+    expect(out.server).toEqual(ME_ROWS.concat([U1 + '{c1 cap/hats/wip r1}']).sort());
+    expect(out.ret).toEqual({ ok: false, reason: 'left' });
+    expect(out.meSame).toBe(true);
+    expect(out.team7).toEqual(['t_cap_hats_wip[' + U1 + ' 1 hats unsent]']);
+    expect(st.unknown).toEqual([]);
+  });
+  test('the editor\'s save, the page moving to My page while its row DELETE is out: it says the save reached the group, and the group has it', async ({ page }) => {
+    const { st, out } = await run(page, { t7: [Object.assign({}, T7CAP, { rowId: U1 })], hold: { kind: 'rowdel', id: U1 }, move: true,
+      act: "await openTraitRecord(await dbGet('t_cap_hats_wip')); return saveTraitNow();" });
+    expect([out.heldAt, out.moved]).toEqual(['rowdel', true]);
+    expect(out.ret).toBe(true);
+    expect(insertOf(st)).toEqual(INTO_C1);
+    expect(out.server).toEqual(ME_ROWS.concat(['row-new-1{c1 cap/hats/wip r1}']).sort());
+    const said = out.toasts.filter(t => /^Saved cap/.test(t));
+    expect(said.length, JSON.stringify(out.toasts)).toBe(1);
+    expect(said[0]).toMatch(/^Saved cap and shared it with the group/);
+    expect(out.toasts.filter(t => /not sent/i.test(t)), 'no "not sent" words').toEqual([]);
+    expect(out.meSame).toBe(true);
+    expect(namesMe(out)).toEqual([]);
+    expect(st.unknown).toEqual([]);
+  });
+  test('Save to cloud, the page moving to My page while its row DELETE is out: the insert still goes into team7, and it says the push stopped', async ({ page }) => {
+    const { st, out } = await run(page, { t7: [T7EDIT, T7HAT], hold: { kind: 'rowdel', id: U1 }, move: true,
+      act: "s0State=Object.assign({},s0State,{at:0}); await cloudPush(); return 'done';" });
+    expect([out.heldAt, out.moved]).toEqual(['rowdel', true]);
+    expect(insertOf(st)).toEqual(INTO_C1);
+    expect(out.server).toEqual(ME_ROWS.concat(['row-2{c1 hat/hats/wip r1}', 'row-new-1{c1 cap/hats/wip r1}']).sort());
+    expect(out.toasts[out.toasts.length - 1]).toBe(S0_LEFT_PUSH);
+    expect(out.meSame).toBe(true);
+    expect(namesMe(out)).toEqual([]);
+    expect(out.team7).toEqual(['t_cap_hats_wip[' + U1 + ' 1 hats unsent]', 't_hat_hats_wip[row-2 1 hats synced]']);
+    expect(st.unknown).toEqual([]);
+  });
+  test('THE CONTROL: the same Save to cloud with no move saves it, and the record is synced to the new row', async ({ page }) => {
+    const { st, out } = await run(page, { t7: [T7EDIT, T7HAT], hold: { kind: 'rowdel', id: U1 }, move: false,
+      act: "s0State=Object.assign({},s0State,{at:0}); await cloudPush(); return 'done';" });
+    expect(insertOf(st)).toEqual(INTO_C1);
+    expect(out.toasts[out.toasts.length - 1]).toMatch(/^Saved 1 to the cloud/);
+    expect(out.team7).toEqual(['t_cap_hats_wip[row-new-1 1 hats synced]', 't_hat_hats_wip[row-2 1 hats synced]']);
+    expect(st.unknown).toEqual([]);
+  });
+  /* THE ACCOUNT STILL STOPS IT. The insert's headers carry the session that
+     signed out; sending with them is not decided here, so a sign-out while
+     the DELETE is out holds the insert as before - the group has no row for
+     cap until the next Save to cloud. Pinned so a ruling that changes it
+     changes this test with it. */
+  test('a sign-out while the row DELETE is out: the insert is not sent with the session that ended (kept as before, for a ruling)', async ({ page }) => {
+    const { st, out } = await run(page, { t7: [T7EDIT], hold: { kind: 'rowdel', id: U1 }, move: false,
+      during: (pg) => pg.evaluate(() => cloudSignOut()), act: saveAct });
+    expect(out.heldAt).toBe('rowdel');
+    expect(out.writes).toEqual(SAVED.slice(0, 2));
+    expect(out.server).toEqual(ME_ROWS);
+    expect(out.ret).toEqual({ ok: false, reason: 'left' });
     expect(st.unknown).toEqual([]);
   });
 });

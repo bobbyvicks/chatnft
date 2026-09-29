@@ -140,7 +140,14 @@
      unsent, the next Save to cloud undid a teammate's removal.
    - A status change moved during its row insert says the old copy is
      kept; every sender that is not addressed says the page left; Save to
-     cloud says it stopped; protocol 2 from a moved read is remembered. */
+     cloud says it stopped; protocol 2 from a moved read is remembered.
+
+   Close fixes (the final review's last round; measured red on 78ae809
+   first, tests/stage0moves.spec.js "close fixes"):
+   - cloudSyncOne's insert is its DELETE's other half. Once the DELETE is
+     out, a move no longer holds the insert - it asks for the account
+     only - so a move never leaves the group without the trait's row, nor
+     tells the person a change was not sent when its row was deleted. */
 const s0 = require('./stage0-common.cjs');
 const doc = s0.start([['function s0Uid(){', 'patch601 is not applied']]);
 
@@ -388,7 +395,8 @@ doc.swap('const TEAM_PROJECT_PICK="&order=created_at.asc,id.asc&limit=1";', [
   '       away). A local write does nothing once this is false.',
   '     - s0SendHome: and the same account, whose token the send carries. A',
   '       send is held once this is false, except by the two addressed',
-  '       senders (s0Blocked).',
+  '       senders (s0Blocked). (Close fixes: and cloudSyncOne\'s insert once',
+  '       its DELETE is out, which asks for the account only - see there.)',
   '   A call to a function that notes its own home first is a write or send',
   '   too: its caller asks just before calling, so the callee\'s home is the',
   '   caller\'s. */',
@@ -613,8 +621,30 @@ doc.swap('    await fetch(SB_URL+"/rest/v1/traits?"+q,{method:"DELETE",headers:h
   '    if(!s0SendHome(s0Home)) return say(s0LeftReason(s0Home));   /* STAGE 0 (fix round 4) */',
   '    await fetch(SB_URL+"/rest/v1/traits?"+q,{method:"DELETE",headers:h});',
 ]);
+/* Close fixes: the insert after its DELETE asks for the account only (the
+   comment it writes says why). Fix round 4 asked for the whole home here;
+   a move while the DELETE or a retry's wait was out then held the insert,
+   and the group was left with no row for the trait (measured by the final
+   review, 3 of 3; tests/stage0moves.spec.js, "close fixes"). */
 doc.swap('        r=await fetch(SB_URL+"/rest/v1/traits",{method:"POST",', [
-  '        if(!s0SendHome(s0Home)) return say(s0LeftReason(s0Home));   /* STAGE 0 (fix round 4) */',
+  '        /* STAGE 0 (CLOSE FIXES): THE DELETE\'S OTHER HALF. Once the DELETE',
+  '           above is out, the row it removes comes back only when this',
+  '           insert lands, and all the insert sends - the collection, the',
+  '           team, the owner, the row and the headers - is what this call',
+  '           held before that DELETE: an addressed send (s0Blocked). Asked',
+  '           for the whole home here, as every send after a wait was (fix',
+  '           round 4), a move while the DELETE or a retry\'s wait was out',
+  '           held it: the group was left with no row for this trait - the',
+  '           harm the retry comment above measured - and the person was',
+  '           told it was not sent (measured by the final review, 3 of 3).',
+  '           So a move does not stop it. The "sent" write after it still',
+  '           does not follow the page (8b, below): the record stays unsent',
+  '           where it was made, and its next Save to cloud replaces the row.',
+  '           The account still stops it: the headers carry its session, and',
+  '           whether a sign-out, or another account signing in, lets the',
+  '           insert go with the session that ended is not decided here -',
+  '           held as before, it waits for a ruling. */',
+  '        if(s0Home.uid!==(s0Uid()||null)) return say(s0LeftReason(s0Home));',
   '        r=await fetch(SB_URL+"/rest/v1/traits",{method:"POST",',
 ]);
 doc.swap('    if(!adopted && !r.ok) return say(r.status===403 ? "notallowed"', [
@@ -1933,8 +1963,9 @@ doc.swap('            if(dr && dr.blob){', '            if(dr && dr.blob && wsSt
    builds (s0AtHome before a local write, s0SendHome before a send). Not
    counted: the definitions, and s0LeftReason's own use. A
    check removed, or one added, fails the build until this is changed with
-   it. */
-const S0_AT_HOME = 79, S0_SEND_HOME = 31;
+   it. (Close fixes: 30 send checks, was 31 - the insert after its DELETE
+   asks for the account only; the finish checks below pin where.) */
+const S0_AT_HOME = 79, S0_SEND_HOME = 30;
 doc.finish(({ code, must }) => {
   must('"/rest/v1/collections?select=id,protocol,switching_at&team_id=eq."', 'the protocol read is not there');
   must('{ const s0b=await s0Blocked(false,s0Home); if(s0b) return say(s0b==="left"?s0LeftReason(s0Home):"held"); }', 'cloudSyncOne is not held');
@@ -2033,5 +2064,21 @@ doc.finish(({ code, must }) => {
   {
     const f = code.indexOf('async function s0Refuse('), e = code.indexOf('\n}', f), b = f >= 0 && e > f ? code.slice(f, e) : '';
     if (!b || b.indexOf('s0Words(') >= 0 || b.indexOf('toast(S0_REFUSED);') < 0) throw new Error('s0Refuse does not say it refused, or still says D1\'s kept words');
+  }
+  /* Close fixes: in cloudSyncOne the home is asked right before the row
+     DELETE, with no wait between; from the DELETE to the insert - its
+     retries and their waits included - nothing asks for the home, and the
+     account is asked right before each insert, with no wait between. */
+  {
+    const f = code.indexOf('async function cloudSyncOne(rec,ctx,why,seq){'), e = code.indexOf('\n}', f), b = f >= 0 && e > f ? code.slice(f, e) : '';
+    const HOME = 'if(!s0SendHome(s0Home)) return say(s0LeftReason(s0Home));', ACCT = 'if(s0Home.uid!==(s0Uid()||null)) return say(s0LeftReason(s0Home));';
+    const del = b.indexOf('fetch(SB_URL+"/rest/v1/traits?"+q,{method:"DELETE"'), post = b.indexOf('r=await fetch(SB_URL+"/rest/v1/traits",{method:"POST",');
+    if (!(del > 0 && post > del)) throw new Error('cloudSyncOne\'s row DELETE and insert are not where this expects');
+    const home = b.lastIndexOf(HOME, del);
+    if (home < 0 || !/^\s*(?:const dr=)?await $/.test(b.slice(home + HOME.length, del))) throw new Error('the row DELETE does not ask for its home right before it is sent');
+    const between = b.slice(del, post), acct = between.lastIndexOf(ACCT);
+    if (/s0SendHome\(|s0AtHome\(/.test(between)) throw new Error('the insert after its DELETE asks for the home again - a move would leave the group with no row');
+    if (acct < 0 || /await /.test(between.slice(acct + ACCT.length))) throw new Error('the insert does not ask for the account right before it is sent');
+    if ((b.match(/s0Uid\(\)\|\|null\)\) return say/g) || []).length !== 1) throw new Error('expected the one account check, before the insert');
   }
 });

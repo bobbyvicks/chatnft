@@ -4421,6 +4421,26 @@ function touchedSince(id,seq){ return id!=null && (touchedAt.get(String(id))||0)
 function dbAborted(t){ return t.error || new DOMException("The write was aborted","AbortError"); }
 function storeFull(e){ return !!e && (e.name==="QuotaExceededError" || /quota/i.test(String(e.message||""))); }
 const STORE_FULL="this device is out of storage space";
+/* FOLLOW-UP X3 (patch609): A REFUSAL NAMES ITSELF. A request that fails
+   fires its error event on the transaction too, before the transaction
+   aborts - and until it aborts the transaction's error is null, so
+   dbPut, dbDel and dbClear rejected with null (measured, Chromium and
+   WebKit) and every message downstream said "storage error", "could not
+   be read" or nothing. The request that failed is the event's target,
+   and its error is the refusal. */
+function dbRefused(t,ev){
+  const q=ev&&ev.target;
+  return (q&&q!==t&&q.error) || t.error || new DOMException("The browser refused the write and gave no reason","UnknownError");
+}
+/* A WINDOW THAT CANNOT KEEP PICTURES. WebKit's private-style storage
+   refuses every picture with this (Task 16 Step 2b, measured; inferred,
+   not measured, for a private window on an iPhone). The owner's answer:
+   say so clearly, and suggest a normal window. Like a full device, every
+   later picture write meets it the same way, so what stops for one stops
+   for both (storeStops). */
+function storeNoPictures(e){ return !!e && e.name==="UnknownError" && String(e.message||"").indexOf("Blob/File data")>=0; }
+const STORE_NO_PICTURES="this window cannot keep pictures, as a private window cannot - open PixelBench in a normal window";
+function storeStops(e){ return storeFull(e) || storeNoPictures(e); }
 /* STAGE 0 (design B1 and D1): WHOSE RECORD, AND WHAT KIND OF WRITE.
    Every trait, reference and draft this page writes carries:
      by   the uid it belongs to: the one signed in when a person wrote it,
@@ -4508,7 +4528,7 @@ async function dbPut(rec,wk,uid,was){ touch(rec&&rec.id); const d=await db(); re
   else if(s0Stamps(rec)&&rec.kind==="autosave"&&wk!=="pull") s.put(s0Stamp(rec,null,wk,uid));
   else if(s0Stamps(rec)){ const q=s.get(rec.id); q.onsuccess=()=>{ s.put(s0Stamp(rec,q.result,wk,uid)); }; }
   else s.put(rec);
-  t.oncomplete=()=>res(put); t.onerror=()=>rej(t.error); t.onabort=()=>rej(dbAborted(t)); }); }
+  t.oncomplete=()=>res(put); t.onerror=(ev)=>rej(dbRefused(t,ev)); t.onabort=()=>rej(dbAborted(t)); }); }
 /* ONE RECORD, BY KEY. dbAll reads every row in the project including every
    picture, and several places wanted a single record and paid that price -
    which at 324 traits and 1.5 GB of blobs is the whole collection to answer
@@ -4521,12 +4541,12 @@ async function dbAll(){ const d=await db(); return new Promise((res,rej)=>{
   q.onsuccess=()=>res(q.result||[]); q.onerror=()=>rej(q.error); }); }
 async function dbDel(id){ touch(id); const d=await db(); return new Promise((res,rej)=>{
   const t=d.transaction(STORE,'readwrite'); t.objectStore(STORE).delete(id);
-  t.oncomplete=()=>res(); t.onerror=()=>rej(t.error); t.onabort=()=>rej(dbAborted(t)); }); }
+  t.oncomplete=()=>res(); t.onerror=(ev)=>rej(dbRefused(t,ev)); t.onabort=()=>rej(dbAborted(t)); }); }
 /* Touches, like every other write: the shelf decides whether it is current
    by the sequence, and a cleared store must not look like an unchanged one. */
 async function dbClear(){ touch("\u0000clear"); const d=await db(); return new Promise((res,rej)=>{
   const t=d.transaction(STORE,'readwrite'); t.objectStore(STORE).clear();
-  t.oncomplete=()=>res(); t.onerror=()=>rej(t.error); t.onabort=()=>rej(dbAborted(t)); }); }
+  t.oncomplete=()=>res(); t.onerror=(ev)=>rej(dbRefused(t,ev)); t.onabort=()=>rej(dbAborted(t)); }); }
 
 /* Hiding is deliberately session-only. Keeping one state per open project
    prevents a local id such as t_hat_hats_wip from hiding an unrelated card
@@ -6693,6 +6713,7 @@ async function saveTraitNow(){
     }
     return true;
   }catch(e){ toast('Could not save: '+(storeFull(e) ? STORE_FULL+' - Download it to keep it, then free some space'
+    : storeNoPictures(e) ? STORE_NO_PICTURES+'. Download it to keep it'   /* FOLLOW-UP X3 (patch609) */
     : (e&&e.name||'storage error'))); return false; }
 }
 $('saveproj').onclick=saveTrait;
@@ -11524,9 +11545,45 @@ function s0FlushAutosave(){
   if(!p) return null;
   return Promise.race([p, new Promise(r=>setTimeout(r,S0_FLUSH_MS))]).then(()=>{},()=>{});
 }
+/* FOLLOW-UP S21, fix round 1 (patch609): THE DRAFT WRITE THAT DID NOT LAND.
+   closeEditor hides the editor whatever its own write answers. When that
+   write is refused, or the encode gives nothing, the drawing is only on
+   the hidden canvas, and the next caller's write was its second chance:
+   on 91eb861 the tab hidden after a refused close wrote it (measured).
+   The closed-editor answer in autosaveNow took that chance away, so the
+   last draft write that did not land is noted here - its key, the store
+   it went to and whose drawing it was - and a closed editor still writes
+   while all three are what they are now. After a switch, or with another
+   account signed in, it still writes nothing.
+   A write of that key that lands, in any store, ends it: either it is
+   this drawing, written, or the canvas has since been loaded with
+   another picture and the refused drawing is gone from it. Kept past a
+   landing in another store, it would file that store's picture here
+   once the page came back (measured, by a mutant). */
+let draftUnwritten=null;
+function draftStillOwed(){
+  const u=draftUnwritten;
+  return !!u && u.key===draftId() && u.db===wsDbName() && u.by===s0Uid();
+}
 function autosaveNow(){
+  const waiting=!!autoPending;   /* FOLLOW-UP S21 (patch609): read before it is cleared */
   clearTimeout(autoPending); autoPending=null;
   if(!ctx) return Promise.resolve(false);
+  /* FOLLOW-UP S21 (patch609): A CLOSED EDITOR WRITES NOTHING. closeEditor
+     writes the drawing's last draft before it hides the editor, and keeps
+     ctx and openRec - so the tab hidden or left, a trait opened from the
+     shelf and a sign-in the server ended all wrote the closed canvas
+     again, into whichever project was current by then: after a switch,
+     as a draft of the other project's trait of the same id, or over the
+     draft that trait already had (measured). With the editor hidden and
+     nothing waiting there is nothing to write. A write still waiting
+     (the timer's own call, or s0FlushAutosave's and s0DraftLanded's for
+     one) is written as before.
+     SUPERSEDED IN PART (fix round 1): "nothing to write" was false when
+     closeEditor's own write did not land. The drawing was then only on
+     the canvas, and this answer lost it (measured). That write is still
+     owed, in its own store and for its own account: draftStillOwed. */
+  if($("app").hidden && !waiting && !draftStillOwed()) return Promise.resolve(true);
   /* CAPTURED BEFORE THE ENCODE, not read after it. toBlob is asynchronous
      and openRec can change while it runs, which would file this canvas
      under whichever trait was opened in the meantime. */
@@ -11569,11 +11626,24 @@ function autosaveNow(){
      draft key it writes (adjudication C3). */
   return s0Saving(done=>{
     art.toBlob(b=>{
-      if(!b){ done(false); return; }
+      /* FOLLOW-UP S21, fix round 1 (patch609): the store this write goes to
+         (dbPut opens it in this call), noted with a write that does not
+         land - an encode that gave nothing, or a refusal. */
+      const into=wsDbName();
+      if(!b){ draftUnwritten={key:key, db:into, by:by}; done(false); return; }
       dbPut({id:key, kind:"autosave", traitId:of, name:nm,
              w:W, h:H, blob:b, at:Date.now()},"person",by)
-        .then(()=>done(true), ()=>{
-          try{ toast("Could not save your work to this browser - copy it out"
+        .then(()=>{
+          /* FOLLOW-UP S21, fix round 1 (patch609): landed - nothing of this key is owed now. */
+          if(draftUnwritten&&draftUnwritten.key===key) draftUnwritten=null;
+          done(true);
+        }, (e)=>{
+          draftUnwritten={key:key, db:into, by:by};   /* FOLLOW-UP S21, fix round 1 (patch609) */
+          /* FOLLOW-UP X3 (patch609): and why, when it is one a person can act on. */
+          const why=storeFull(e) ? STORE_FULL : storeNoPictures(e) ? STORE_NO_PICTURES : "";
+          try{ toast(why ? "Could not save your work to this browser: "+why+". Copy it out"
+            +" with Download before closing the tab."
+            : "Could not save your work to this browser - copy it out"
             +" with Download before closing the tab."); }catch(_){}
           done(false);
         });
@@ -13113,7 +13183,9 @@ async function s0BulkImport(files,opts){
       ok++;
     }catch(e){
       /* Full: the rest would be refused the same way. Stopped and said. */
-      if(storeFull(e)){ full=true; break; }
+      /* FOLLOW-UP X3 (patch609): and so is every picture in a window that
+         cannot keep pictures. full holds the refusal, for the words. */
+      if(storeStops(e)){ full=e; break; }
       failed++;
     }
   }
@@ -13327,7 +13399,8 @@ async function s0BulkImport(files,opts){
   if(noLayer.length) bits.push(noLayer.length+" had no layer in the path and went to unsorted"+
     (noLayer.length<=4?" ("+noLayer.join(", ")+")":""));
   if(failed) bits.push(failed+" could not be read");
-  if(full) bits.push(STORE_FULL+" - "+ok+" of "+list.length+" imported before it filled; free some space and import the rest");
+  if(full) bits.push(storeNoPictures(full) ? STORE_NO_PICTURES+" - "+ok+" of "+list.length+" imported"   /* FOLLOW-UP X3 (patch609) */
+    : STORE_FULL+" - "+ok+" of "+list.length+" imported before it filled; free some space and import the rest");
   /* SAID, because the alternative is finding out when a teammate opens the
      project and half the collection is not there. The traits are in this
      browser either way - this is a wrong message, not lost work - and
@@ -18849,13 +18922,14 @@ async function s0ImportProject(file){
       if(typeof it.shelfOrder==="number") rec.shelfOrder=it.shelfOrder; }
     /* Full is not unreadable, and the rest would be refused the same way. */
     if(!s0Go()) break;   /* STAGE 0 (fix round 4) */
-    try{ await dbPut(rec); added++; }catch(e){ if(storeFull(e)){ full=true; break; } failed++; }
+    try{ await dbPut(rec); added++; }catch(e){ if(storeStops(e)){ full=e; break; } failed++; }   /* FOLLOW-UP X3 (patch609): full holds the refusal */
   }
   /* The settings are writes too. Left for the import that finishes the job:
      what landed here is "already here" by its bytes then. */
   if(full){
     await renderShelf();
-    toast(STORE_FULL+" - "+added+" of "+doc.items.length+" imported before it filled; free some space and import the file again");
+    toast(storeNoPictures(full) ? STORE_NO_PICTURES+" - "+added+" of "+doc.items.length+" imported"   /* FOLLOW-UP X3 (patch609) */
+      : STORE_FULL+" - "+added+" of "+doc.items.length+" imported before it filled; free some space and import the file again");
     return;
   }
   /* THE SETTINGS. Rules and answers MERGE, always: the importer already
@@ -22225,7 +22299,9 @@ async function cloudPull(opts){
       }catch(e){
         /* The device is full: every picture after this would be refused
            the same way, so the pull stops here and says so. */
-        if(storeFull(e)){ full=true; return; }
+        /* FOLLOW-UP X3 (patch609): and so is every picture in a window that
+           cannot keep pictures. full holds the refusal, for the words. */
+        if(storeStops(e)){ full=e; return; }
         failed++;
       }
       done++;
@@ -22395,7 +22471,8 @@ async function cloudPull(opts){
   else if(newLayers) bits.push(newLayers+" new layer"+(newLayers===1?"":"s"));
   if(failed) bits.push(failed+" could not be read");
   if(broke) bits.push("the server stopped answering, so "+(wanted.length-done)+" were left for the next Load");
-  if(full) bits.push(STORE_FULL+" - "+added+" of "+wanted.length+" saved here; free some space and Load again");
+  if(full) bits.push(storeNoPictures(full) ? STORE_NO_PICTURES+" - "+added+" of "+wanted.length+" saved here"   /* FOLLOW-UP X3 (patch609) */
+    : STORE_FULL+" - "+added+" of "+wanted.length+" saved here; free some space and Load again");
   if(skipped) bits.push(skipped+" changed here while loading, kept as changed");
   /* Only reachable on a collection past half a million rows, and said out
      loud rather than left to look like a complete answer - which is exactly

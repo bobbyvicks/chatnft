@@ -226,21 +226,41 @@ test.describe('stage 0: Leave', () => {
      reloading, as the toast says; then the request runs, is aborted, and
      the open goes ahead at version 1. This pins that, so a browser that
      changes it is noticed. */
+  /* SUPERSEDED IN PART by follow-up D (S16, task-14-report Concern 1 option
+     b): the browser's wait is still what this pins, but through an open of
+     its own - db() no longer waits. This tab remembers the request it left
+     queued, and db() refuses at once, saying to close or reload that tab
+     (leavesayswhathappened.spec.js pins what wsSwitch and a rejoin say).
+     Once that tab closes, both open at version 1. */
   test('after that, opening the project in this tab waits for that tab, and goes ahead at version 1 once it closes', async ({ page, context }) => {
     const old = await openTheOldWay(context);
     const r = await leave(page, {});
     expect(r.said).toContain('from before this update has it open');
     await page.evaluate(() => {
       window.__opened = null;
-      activeWs = 'team7'; dbp = null; dbpName = null;
-      db().then(d => { window.__opened = d.version; }, e => { window.__opened = 'error ' + (e && e.name); });
+      const q = indexedDB.open('chatnft.ws.team7', 1);
+      q.onsuccess = () => { window.__opened = q.result.version; q.result.close(); };
+      q.onerror = () => { window.__opened = 'error ' + (q.error && q.error.name); };
     });
     await page.waitForTimeout(1000);
     expect(await page.evaluate(() => window.__opened), 'the open waits behind the version-2 request, which waits for that tab').toBe(null);
+    const refused = await page.evaluate(async () => {
+      activeWs = 'team7'; dbp = null; dbpName = null;
+      const got = await Promise.race([db().then(() => 'opened', e => 'refused: ' + (e && e.message)), new Promise(res => setTimeout(() => res('waiting'), 1000))]);
+      activeWs = null; dbp = null; dbpName = null;
+      return got;
+    });
+    expect(refused, 'db() says why instead of waiting (follow-up D, S16)').toContain('refused: A BuildaNFT tab from before this update still has this project open');
     await old.evaluate(() => window.__raw.close());
     await old.close();
     await expect.poll(() => page.evaluate(() => window.__opened)).toBe(1);
-    await page.evaluate(async () => { if (dbp) (await dbp).close(); dbp = null; dbpName = null; });
+    const v = await page.evaluate(async () => {
+      activeWs = 'team7'; dbp = null; dbpName = null;
+      const d = await db(); const v = d.version;
+      d.close(); dbp = null; dbpName = null; activeWs = null;
+      return v;
+    });
+    expect(v, 'and db() opens it, at version 1').toBe(1);
   });
 
   /* And a version-2 request whose page has gone does not upgrade the store
@@ -369,6 +389,36 @@ test.describe('stage 0: Leave', () => {
     const r = await done(page);
     expect(r.left).toBe(true);
     expect(r.pteam).toEqual(['team7']);
+    expect(r.dbs).toContain('chatnft.ws.team7');
+    /* SUPERSEDED IN PART by follow-up D (S18): a save that lands while the
+       question is open is now counted after the confirm and asked about
+       again (leavesayswhathappened.spec.js), so this Leave keeps the copy
+       as "what the group has not got", no longer through the probe's
+       "held". The probe's "held" is pinned by the next test, with the save
+       landing after that second count. */
+    expect(r.said).toContain('what the group has not got is kept on this device');
+    expect(r.said).not.toContain('cleared');
+    expect(await inTeam7(page, 'autosave.t_cap_hats_approved'), 'the drawing is still in the group\'s copy').toBe(true);
+    expect(r.unknown).toEqual([]);
+  });
+
+  /* Follow-up D (S18): the save that lands only during leave_team's send -
+     after the question and the count after it - is filed in the group's
+     store by the switch off it, and the store is judged as it is when
+     deleted: "held", kept. */
+  test('a drawing\'s save that lands only during the send: the store is judged as it is when deleted, and kept', async ({ page }) => {
+    await arm(page, {});
+    await drawOn(page, { trait: true });
+    await page.evaluate(async () => {
+      closeEditor();
+      if (!s0SaveInFlight) throw new Error('the closing save is not in flight');
+      window.__L.onLeft = () => window.__release();
+      await wsLeave();
+    });
+    const r = await done(page);
+    expect(r.left).toBe(true);
+    expect(r.pteam).toEqual(['team7']);
+    expect(r.asked, 'asked once, before the save landed').toContain('Your own page is untouched');
     expect(r.dbs).toContain('chatnft.ws.team7');
     expect(r.said).toContain('something was saved to its copy while leaving, so it is kept on this device');
     expect(r.said).not.toContain('cleared');

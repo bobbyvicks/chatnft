@@ -28,11 +28,22 @@ import { armStage0, S0_SWITCHED, S0_REFUSED } from './helpers.js';
 
 const MEMBER = "Only this project's owner can remove it from the server. Your copy on this device is untouched.";
 const UNKNOWN = 'Could not check who owns this project, so nothing was changed.';
-const TITLE = 'Removes this project from the server for everyone. On a group page only the owner can.';
+/* SUPERSEDED by follow-up D (owner's answer 2, P7): the button is "Remove
+   from server", and its hover text is the page's own. This was the one text
+   for both pages; test 7 now reads the page as it opens, on your own page.
+   removefromserversays.spec.js pins the group page's text and the switch. */
+const TITLE = 'Removes your project from the server. Your copy on this device is kept.';
 const DONE = 'The server copy is gone. 2 pictures removed from storage.';
 const MOVED = 'The page moved to another project, so nothing was changed.';
 /* The role read, for group team7 and account u1 (armStage0's). */
 const ROLE_READ = 'GET /rest/v1/team_members?select=role&team_id=eq.team7&user_id=eq.u1';
+/* Follow-up D (owner's answer 1, P6): a member's press also asks whether the
+   group still has an owner, because a group whose owner has left may be
+   removed by any member. armStage0 answers every team_members read with its
+   role option's row, so this read gets a row, which counts as an owner: the
+   member tests below are still a member of a group that has one.
+   removefromserversays.spec.js covers the group with no owner. */
+const OWNER_READ = 'GET /rest/v1/team_members?select=role&team_id=eq.team7&role=eq.owner&limit=1';
 const isRole = (l) => l.indexOf('/rest/v1/team_members') >= 0;
 const isDelete = (l) => l.startsWith('DELETE ');
 const isStorage = (l) => l.indexOf('/storage/v1/') >= 0;
@@ -87,9 +98,12 @@ const press = async (page) => {
 
 /* Nothing but the role read went out: no confirm, no DELETE, no storage
    call, no protocol read; the note says why and the button is back. */
-const onlyTheRoleRead = (r, note) => {
+const onlyTheRoleRead = (r, note, reads = [ROLE_READ]) => {
   expect(r.unknown, 'every request was one the stand-in names').toEqual([]);
-  expect(r.log, 'exactly one request, the role read').toEqual([ROLE_READ]);
+  /* SUPERSEDED IN PART by follow-up D (P6): for a member, the role read and
+     then the owner read (`reads`); for a failed read or no membership row,
+     the role read alone, as before. */
+  expect(r.log, 'exactly the role read (and, for a member, the owner read)').toEqual(reads);
   expect(r.asked, 'no confirm').toEqual([]);
   expect(r.log.filter(isDelete), 'no DELETE').toEqual([]);
   expect(r.log.filter(isStorage), 'no storage call').toEqual([]);
@@ -255,7 +269,7 @@ test.describe('Remove from server is the group owner\'s', () => {
   test('2. group page, member: only the role read goes out, and the note says whose it is', async ({ page }) => {
     await armStage0(page, { role: 'member' });
     await holding(page);
-    onlyTheRoleRead(await press(page), MEMBER);
+    onlyTheRoleRead(await press(page), MEMBER, [ROLE_READ, OWNER_READ]);
   });
 
   test('3. group page, the role read answers 500: nothing more goes out, and the note says it could not check', async ({ page }) => {
@@ -289,7 +303,7 @@ test.describe('Remove from server is the group owner\'s', () => {
     await armStage0(page, { role: 'member', protocol: 2 });
     await holding(page);
     const r = await press(page);
-    onlyTheRoleRead(r, MEMBER);
+    onlyTheRoleRead(r, MEMBER, [ROLE_READ, OWNER_READ]);
     expect(r.reads, 'no protocol read').toBe(0);
     expect(r.toasts, 'not the held text').not.toContain(S0_SWITCHED);
     /* Final fixes, ruling B3: a refused Remove from server now says it was
@@ -323,7 +337,8 @@ test.describe('Remove from server is the group owner\'s', () => {
       return { title: el.getAttribute('title'), text: el.textContent, cls: el.className, hidden: el.hasAttribute('hidden') };
     });
     expect(b.title).toBe(TITLE);
-    expect(b.text).toBe('Clear the cloud');
+    /* SUPERSEDED by follow-up D (P7): renamed from "Clear the cloud". */
+    expect(b.text).toBe('Remove from server');
     expect(b.cls).toBe('mini');
     expect(b.hidden).toBe(true);
   });

@@ -594,6 +594,11 @@ button.planhead:focus-visible{outline:2px solid var(--accent); outline-offset:2p
    line of their own inside it rather than sitting beside the picker */
 .wsrow #teamrow, .wsrow #teamnote{width:100%;}
 .wsrow #teamnote{margin:0;}
+.wsrow #wsleft{width:100%;}
+#wsleftlist{list-style:none; margin:4px 0 0; padding:0;}
+#wsleftlist li{display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:12px; margin:2px 0;}
+#wsleftlist .leftsize{color:var(--dim);}
+#wsleftlist .leftsaid{width:100%; font-size:11.5px; color:var(--dim);}
 @media (max-width:620px){
   /* Restating top and right here drops the insets the base rule pays, and
      this is the width where a notch exists. */
@@ -1983,13 +1988,18 @@ footer .mono{color:var(--ink);}
           <button class="mini" id="teamcopy">Copy</button>
         </div>
         <p class="note" id="teamnote" hidden></p>
+        <!-- FOLLOW-UP D (owner's answer 3): the copies kept here after Leave. -->
+        <div id="wsleft" hidden>
+          <p class="note">Group projects kept on this device. A copy you left here since this update, with nothing unsent, is cleared by itself once no tab has it open.</p>
+          <ul id="wsleftlist"></ul>
+        </div>
       </div>
       <span class="count" id="cloudwho">not signed in</span>
       <div class="acts" id="cloudacts">
         <button class="mini" id="cloudpush" hidden>Save to cloud</button>
         <button class="mini" id="cloudpull" hidden>Load from cloud</button>
         <button class="mini" id="cloudclear" hidden
-          title="Removes this project from the server for everyone. On a group page only the owner can.">Clear the cloud</button>
+          title="Removes your project from the server. Your copy on this device is kept.">Remove from server</button>
         <button class="mini" id="cloudout" hidden>Sign out</button>
         <button class="mini" id="setpass" hidden>Set a password</button>
         <button class="mini" id="setname" hidden>Change your name</button>
@@ -4258,7 +4268,7 @@ function s0Hold(name){
   });
 }
 function s0Track(name,d,hold){
-  const entry={d:d, hold:hold};
+  const entry={d:d, hold:hold, busy:0, onidle:[]};
   if(!s0OpenDbs.has(name)) s0OpenDbs.set(name,new Set());
   s0OpenDbs.get(name).add(entry);
   const done=()=>{
@@ -4267,8 +4277,27 @@ function s0Track(name,d,hold){
     const r=entry.hold&&entry.hold.release;
     if(r){ entry.hold.release=null; try{ r(); }catch(_){} }
   };
+  /* FOLLOW-UP D (S17): ITS TRANSACTIONS, COUNTED until each completes or
+     aborts. A handle closed while one still runs stays open - "close
+     pending" - until it ends, and a version-2 request made meanwhile is
+     blocked by it: Leave's probe answered "old" and Leave named a tab from
+     before this update that did not exist (measured). A closed handle
+     still at work is now known as this tab's own (s0Closing). */
+  const tx=d.transaction.bind(d);
+  d.transaction=(...a)=>{
+    const t=tx(...a);
+    entry.busy++;
+    let ended=false;
+    const end=()=>{
+      if(ended) return;
+      ended=true; entry.busy--;
+      if(!entry.busy){ const w=entry.onidle; entry.onidle=[]; for(const f of w){ try{ f(); }catch(_){ } } }
+    };
+    t.addEventListener("complete",end); t.addEventListener("abort",end);
+    return t;
+  };
   const close=d.close.bind(d);
-  d.close=()=>{ try{ close(); } finally{ done(); } };
+  d.close=()=>{ try{ close(); } finally{ s0Closing(name,entry); done(); } };
   /* The browser can close it too: storage cleared, the disk gone. */
   d.onclose=done;
   return d;
@@ -4288,12 +4317,57 @@ async function s0CloseAllGone(name){
   const waits=set ? [...set].map(e=>e.hold&&e.hold.gone&&e.hold.gone()).filter(Boolean) : [];
   const n=s0CloseAll(name);
   try{ await Promise.all(waits); }catch(_){ }
+  /* FOLLOW-UP D (S17): and this tab's own handles on it that are closed but
+     still finishing a transaction - Leave's switch closes the one it used
+     - have finished, or S0_CLOSE_MS has passed (s0StillClosing says which). */
+  const closing=s0ClosingDbs.get(name);
+  if(closing&&closing.size)
+    await Promise.race([Promise.all([...closing].map(s0Idle)), new Promise(r=>setTimeout(r,S0_CLOSE_MS))]);
   return n;
 }
+/* FOLLOW-UP D (S16): STORES WHOSE VERSION-2 REQUEST OR DELETE THIS TAB LEFT
+   QUEUED. Leave's probe (s0OthersOpen) or its delete, blocked by a tab from
+   before this update, cannot be withdrawn (measured, patch605): it stays
+   queued until that tab closes or reloads, and every later open of the
+   store waits behind it - a rejoin in this tab hung with nothing said
+   (measured). This tab remembers each such store, name -> how many of its
+   requests are still queued, until each has run; db() and wsSwitch say so
+   instead of waiting (task-14-report Concern 1, option b). Other tabs do
+   not know, and a page loaded later does not either. */
+const s0Queued=new Map();
+const S0_QUEUED="A BuildaNFT tab from before this update still has this project open, so this device cannot open it yet. Close or reload that tab, then open the project again.";
+function s0QueuedAdd(name){ s0Queued.set(name,(s0Queued.get(name)||0)+1); }
+function s0QueuedDone(name){ const n=(s0Queued.get(name)||0)-1; if(n>0) s0Queued.set(name,n); else s0Queued.delete(name); }
+function s0IsQueued(name){ return s0Queued.has(name); }
+/* FOLLOW-UP D (S17): HANDLES THIS TAB CLOSED WHILE ONE OF THEIR TRANSACTIONS
+   STILL RAN - database name -> Set of their s0Track entries, until each is
+   idle - and how long Leave waits for them (S0_CLOSE_MS). */
+const s0ClosingDbs=new Map();
+const S0_CLOSE_MS=5000;
+function s0Idle(entry){ return entry.busy ? new Promise(r=>entry.onidle.push(r)) : Promise.resolve(); }
+function s0Closing(name,entry){
+  if(!entry.busy) return;
+  if(!s0ClosingDbs.has(name)) s0ClosingDbs.set(name,new Set());
+  s0ClosingDbs.get(name).add(entry);
+  entry.onidle.push(()=>{ const set=s0ClosingDbs.get(name); if(set&&set.delete(entry)&&!set.size) s0ClosingDbs.delete(name); });
+}
+function s0StillClosing(name){ const set=s0ClosingDbs.get(name); return !!(set&&set.size); }
+/* FOLLOW-UP D (owner's answer 3, P9): the copies this browser kept after a
+   Leave, in localStorage as {<store>: {team, name, uid, at}}; the stores this
+   tab is deciding about now - a Leave, a Clear, a tidy, a size read - which
+   nothing else here touches meanwhile; and the team list last read. */
+const S0_LEFT_KEY="pb.left";
+const s0LeftBusy=new Set();
+let s0LeftTeams=null;
 let dbpName=null;
 let dbp=null;
 function db(){
   if(dbp && dbpName===wsDbName()) return dbp;
+  /* FOLLOW-UP D (S16): never behind a request this tab left queued - it
+     would wait until that other tab closes, with nothing said. Refused at
+     once with the reason, and not kept as dbp, so the next call asks again
+     (the request runs, and is forgotten, when that tab closes). */
+  if(s0IsQueued(wsDbName())) return Promise.reject(new Error(S0_QUEUED));
   dbp=new Promise((res,rej)=>{
     /* The name, once, now - not when the lock comes (see wsGen above). */
     const name=wsDbName();
@@ -19350,7 +19424,7 @@ async function cloudRender(again){
   const inn=a.state==="in";
   $("cloudwho").textContent = inn ? (displayName(u)||"signed in") : "not signed in";
   $("cloudpush").hidden=!inn; $("cloudpull").hidden=!inn; $("cloudout").hidden=!inn;
-  $("cloudclear").hidden=!inn;
+  $("cloudclear").hidden=!inn; cloudClearTitle();   /* FOLLOW-UP D (P7) */
   /* Set BEFORE gateShow, because gateShow(false) reveals a page whose
      controls ask mayUse() the moment they are touched. */
   authed=inn;
@@ -20181,15 +20255,6 @@ async function cloudFilesLeft(team,c){
    PICTURES FIRST, THEN ROWS. The rows are what name the files; deleting them
    first strands the pictures for ever, which is precisely how the bucket got
    into the state it is in. */
-/* ONE AT A TIME, taken on the first synchronous line.
-
-   Disabling the button after the confirmation left the measuring phase open
-   - four round trips - so a second press there produced a second dialog for
-   the same collection, and answering both started two clears. Same shape as
-   renderUpdates: the lock and the button live in the wrapper, the work lives
-   underneath, and every early return passes through one finally so a path
-   that decided to do nothing cannot leave the button dead. */
-let clearingCloud=false;
 /* TASK 17 (design E3, controller ruling F-04): REMOVE FROM SERVER IS THE
    GROUP OWNER'S. This account's role in the group shown: "owner",
    "member" (a member, or no membership row at all), or null when it could
@@ -20203,6 +20268,19 @@ const CLOUD_OWNER_ONLY="Only this project's owner can remove it from the server.
 const CLOUD_OWNER_UNKNOWN="Could not check who owns this project, so nothing was changed.";
 /* Said by clearCloudNow when the page moved after the press (fix round 1). */
 const CLOUD_MOVED="The page moved to another project, so nothing was changed.";
+/* FOLLOW-UP D (owner's answer 1, P6): A GROUP WITH NO OWNER may be removed
+   from the server by any member. leave_team lets the owner leave without
+   handing the project on, and then nobody could remove it. So a member's
+   press asks one more thing - whether the group still has an owner - and
+   cloudRole answers "ownerless" when it has none. Measured on the repo's
+   SQL harness, which replays the live catalog of 2026-09-28: a member
+   reads the owner's row while the owner is in (members_read); once the
+   owner has left (leave_team deletes that row) the same read answers [];
+   and someone who is not a member gets [] for both reads - so "no owner"
+   is concluded only after this account's own member row was read. Any
+   row answering the owner read counts as an owner: a reply that ignored
+   the filter refuses, never grants. */
+const CLOUD_OWNERLESS="This project has no owner now, so any member may remove it from the server.";
 async function cloudRole(){
   const team=activeWs;
   if(!team) return null;
@@ -20216,9 +20294,36 @@ async function cloudRole(){
     if(!r.ok) return null;
     const rows=await r.json();
     if(!Array.isArray(rows)) return null;
-    return (rows[0]&&rows[0].role==="owner") ? "owner" : "member";
+    if(rows[0]&&rows[0].role==="owner") return "owner";
+    if(!rows[0]) return "member";
+    const o=await fetch(SB_URL+"/rest/v1/team_members?select=role&team_id=eq."+encodeURIComponent(team)
+      +"&role=eq.owner&limit=1",{headers:h});
+    if(!o.ok) return null;
+    const owners=await o.json();
+    if(!Array.isArray(owners)) return null;
+    return owners.length ? "member" : "ownerless";
   }catch(_){ return null; }
 }
+/* FOLLOW-UP D (owner's answer 2, P7): WHAT THE BUTTON SAYS ON HOVER IS THE
+   PAGE'S OWN. One text read "for everyone" on your own page, and neither
+   said whose copies are kept. Set wherever the page changes project
+   (wsSwitch) and wherever the button is shown (cloudRender). */
+function cloudClearTitle(){
+  const b=$("cloudclear");
+  if(!b) return;
+  b.title=activeWs
+    ? "Removes this project from the server for everyone in the group. Only its owner can - or any member, once it has no owner. Every device keeps its own copy."
+    : "Removes your project from the server. Your copy on this device is kept.";
+}
+/* ONE AT A TIME, taken on the first synchronous line.
+
+   Disabling the button after the confirmation left the measuring phase open
+   - four round trips - so a second press there produced a second dialog for
+   the same collection, and answering both started two clears. Same shape as
+   renderUpdates: the lock and the button live in the wrapper, the work lives
+   underneath, and every early return passes through one finally so a path
+   that decided to do nothing cannot leave the button dead. */
+let clearingCloud=false;
 async function clearCloud(){
   if(clearingCloud) return;
   clearingCloud=true;
@@ -20234,14 +20339,19 @@ async function clearCloud(){
        clearCloudNow is held to it too (fix round 1). */
     const gen=wsGen;
     if(activeWs){
-      const role=await cloudRole();
+      /* FOLLOW-UP D (S12): A DEADLINE, as cloudRender's. A role read that never
+         answered kept the button disabled with nothing said (measured). Past
+         CLOUD_DEADLINE_MS it is "could not check", and nothing is sent. */
+      const role=await Promise.race([cloudRole(), new Promise(r=>setTimeout(()=>r(null),CLOUD_DEADLINE_MS))]);
       const note=$("cloudnote");
       const say=m=>{ if(note) note.textContent=m; };
       /* The page moved during the read: the answer is about a project no
          longer shown, and going on would clear the one moved to. */
       if(!wsStill(gen)){ say(CLOUD_OWNER_UNKNOWN); return; }
       if(role===null){ say(CLOUD_OWNER_UNKNOWN); return; }
-      if(role!=="owner"){ say(CLOUD_OWNER_ONLY); return; }
+      /* FOLLOW-UP D (P6): or a member of a group with no owner. */
+      if(role!=="owner"&&role!=="ownerless"){ say(CLOUD_OWNER_ONLY); return; }
+      if(role==="ownerless") say(CLOUD_OWNERLESS);
     }
     await clearCloudNow(gen);
   }
@@ -22734,7 +22844,17 @@ async function wsSwitch(id,s0Waited){
     s0WsWanted=mine;
     return mine;
   }
+  /* FOLLOW-UP D (S16): a store this tab left a request queued on would wait
+     until that other tab closes (s0Queued): said now, and the page stays
+     where it is, the dropdown with it. Answers false, so a caller that goes
+     on only once the page has moved can tell (joinIfPending). */
+  if(s0IsQueued(id ? "chatnft.ws."+id : DBN)){
+    toast(S0_QUEUED);
+    try{ $("wssel").value=activeWs||""; }catch(_){ }
+    return false;
+  }
   activeWs = id||null;
+  cloudClearTitle();   /* FOLLOW-UP D (P7): the button's words are the page's */
   s0Show();   /* STAGE 0 (D1): the bar is about the project shown, not the one left. */
   /* Anything already in flight for the old project stops here. */
   wsGen++;
@@ -22814,6 +22934,10 @@ async function wsRender(){
   /* Leaving a group has to take its invite link off the screen with it. */
   $("teaminvite").hidden=!activeWs;
   if(!activeWs){ $("teamrow").hidden=true; $("teamnote").hidden=true; }
+  /* FOLLOW-UP D (owner's answer 3, P9): with the list read, the copies this
+     account left and kept are cleared if nothing holds them now, and the
+     list in the account panel is drawn. Not awaited. */
+  if(got.ok){ s0LeftTeams=teams; s0LeftTidy(teams); }
 }
 
 async function wsCreate(){
@@ -22846,10 +22970,13 @@ async function wsCreate(){
    has gone, by the browser - the store stayed at version 1 both ways. */
 function s0OthersOpen(name){
   return new Promise(res=>{
-    let r=null, verdict=null;
+    let r=null, verdict=null, queued=false;
+    /* FOLLOW-UP D (S16): remembered while it waits, forgotten once it runs. */
+    const ran=()=>{ if(queued){ queued=false; s0QueuedDone(name); } };
     try{ r=indexedDB.open(name,2); }catch(_){ res("unknown"); return; }
-    r.onblocked=()=>res("blocked");
+    r.onblocked=()=>{ if(!queued){ queued=true; s0QueuedAdd(name); } res("blocked"); };
     r.onupgradeneeded=()=>{
+      ran();
       const t=r.transaction;
       const stop=()=>{ try{ t.abort(); }catch(_){ } };
       try{
@@ -22865,10 +22992,10 @@ function s0OthersOpen(name){
         c.onerror=()=>stop();
       }catch(_){ stop(); }
     };
-    r.onsuccess=()=>{ try{ r.result.close(); }catch(_){ } res("unknown"); };
+    r.onsuccess=()=>{ ran(); try{ r.result.close(); }catch(_){ } res("unknown"); };
     /* Aborted is the answer read (verdict); anything else, or a read that
        failed and aborted it, is "unknown": keep. */
-    r.onerror=(e)=>{ try{ if(e&&e.preventDefault) e.preventDefault(); }catch(_){ }
+    r.onerror=(e)=>{ ran(); try{ if(e&&e.preventDefault) e.preventDefault(); }catch(_){ }
       res(r.error&&r.error.name==="AbortError"&&verdict ? verdict : "unknown"); };
   });
 }
@@ -22881,10 +23008,18 @@ function s0OthersOpen(name){
    holding the lock. */
 async function s0DeleteIfAlone(name){
   await s0CloseAllGone(name);
+  /* FOLLOW-UP D (S17): this tab's own handle, closed and still writing past
+     S0_CLOSE_MS, is this tab's - never "old". Nothing is asked: a version-2
+     request now would be blocked by it. Kept, and cleared later (P9). */
+  if(s0StillClosing(name)) return "busy";
   const del=()=>new Promise(res=>{
     try{
       const q=indexedDB.deleteDatabase(name);
-      q.onsuccess=()=>res(true); q.onerror=()=>res(false); q.onblocked=()=>res("blocked");
+      /* FOLLOW-UP D (S16): a blocked delete is queued too, until it runs. */
+      let queued=false;
+      const ran=()=>{ if(queued){ queued=false; s0QueuedDone(name); } };
+      q.onsuccess=()=>{ ran(); res(true); }; q.onerror=()=>{ ran(); res(false); };
+      q.onblocked=()=>{ if(!queued){ queued=true; s0QueuedAdd(name); } res("blocked"); };
     }catch(_){ res(false); }
   });
   const probeThenDelete=async()=>{
@@ -22899,6 +23034,191 @@ async function s0DeleteIfAlone(name){
     return await navigator.locks.request(S0_LOCK_PREFIX+name,{mode:"exclusive",ifAvailable:true},
       lock=>lock ? probeThenDelete() : "other");
   }catch(_){ return false; }
+}
+/* FOLLOW-UP D (owner's answer 3, P9): COPIES KEPT AFTER LEAVE.
+
+   Leave clears the group's copy when nothing is unsent (about 66 MB a
+   group). It kept it - for good, nothing cleared it later - when another
+   tab had it open, a tab from before this update had it, the page still
+   showed it, the check failed, this tab was still writing to it, or it
+   held unsent work. The owner's answer: "Clear safely, plus a list".
+   - Every copy Leave keeps is written down (S0_LEFT_KEY), with the
+     project, its name and the account that left.
+   - s0LeftTidy, run each time the team list is read (wsRender), clears
+     each of this account's kept copies by s0DeleteIfAlone - the same
+     decision Leave made: nothing unsent (drafts included), no stage-0 tab
+     holding it, no connection open - and forgets it once gone. A project
+     rejoined is forgotten and kept. The copy the page shows, one this tab
+     left a request queued on (S16), and one this tab is deciding about
+     are not touched.
+   - s0LeftRender lists them in the account panel, "Projects you have
+     left", with each copy's size, and a Clear button that asks
+     s0DeleteIfAlone and says what it answered: a copy with unsent work
+     is never cleared. A group copy on this device that was not written
+     down - kept by a Leave before this update - is listed too, as a
+     project this account is not in now, and cleared only by its button:
+     another account on this browser may be in it.
+     (Fix round 1: AND ITS ROW SAYS SO, S0_LEFT_UNNOTED. The panel's note
+     said, above every row, "A copy with nothing unsent is cleared by
+     itself once no tab has it open" - true only of a copy written down:
+     one never written down, nothing unsent and no tab holding it, stayed
+     through every list read beside those words (measured, review of
+     ce6d786). The note now speaks only of copies left here since this
+     update, under a heading that fits every row. Not written down is
+     wider than a Leave before this update: a Leave on another device
+     and another account's project here look the same from this page
+     (only wsLeave here writes S0_LEFT_KEY), so the row says what is true
+     of each - no note of leaving it - and gives causes only as examples.)
+   Sizes are measured only while the panel is open: measuring opens the
+   copy (s0InStore, locked and tracked as db() is), briefly. */
+function s0LeftLoad(){
+  try{ const m=JSON.parse(localStorage.getItem(S0_LEFT_KEY)||"{}"); return (m&&typeof m==="object"&&!Array.isArray(m)) ? m : {}; }
+  catch(_){ return {}; }
+}
+function s0LeftSave(m){ try{ Object.keys(m).length ? localStorage.setItem(S0_LEFT_KEY,JSON.stringify(m)) : localStorage.removeItem(S0_LEFT_KEY); }catch(_){ } }
+function s0LeftKeep(db,team,name,uid){ const m=s0LeftLoad(); m[db]={team:team, name:name||null, uid:uid||null, at:Date.now()}; s0LeftSave(m); }
+function s0LeftDrop(db){ const m=s0LeftLoad(); if(m[db]){ delete m[db]; s0LeftSave(m); } }
+/* The stores on this device, or null where the browser cannot list them. */
+async function s0LeftStores(){
+  try{ if(!indexedDB.databases) return null; return new Set((await indexedDB.databases()).map(d=>d.name)); }
+  catch(_){ return null; }
+}
+let s0LeftTidying=false;
+async function s0LeftTidy(teams){
+  if(s0LeftTidying) return;
+  s0LeftTidying=true;
+  try{
+    const uid=s0Uid()||null;
+    if(!uid) return;
+    /* WHAT IS WRITTEN DOWN AS THIS STARTS. Leave reads the list itself
+       (wsRender) before it writes its copy down, so a tidy that read the
+       record after its first wait cleared, a moment later, a copy Leave had
+       just said it kept (measured: the read-failed Leave). A copy written
+       down after this began - or written down again, a new "at" - waits
+       for the next read of the list. */
+    const m=s0LeftLoad();
+    const mine=new Set((teams||[]).map(t=>"chatnft.ws."+t.id));
+    const have=await s0LeftStores();
+    for(const name of Object.keys(m)){
+      const e=m[name]||{};
+      if(e.uid!==uid) continue;
+      const now=s0LeftLoad()[name];
+      if(!now||now.at!==e.at) continue;
+      /* Rejoined: the project is this account's again, and so is its copy. Gone: nothing to clear. */
+      if(mine.has(name)||(have&&!have.has(name))){ s0LeftDrop(name); continue; }
+      if(name===wsDbName()||s0IsQueued(name)||s0LeftBusy.has(name)) continue;
+      s0LeftBusy.add(name);
+      let got=false;
+      try{ got=await s0DeleteIfAlone(name); }catch(_){ got=false; }
+      finally{ s0LeftBusy.delete(name); }
+      if(got===true) s0LeftDrop(name);
+    }
+  }finally{ s0LeftTidying=false; }
+  s0LeftRender();
+}
+/* How much a copy holds: its pictures' bytes and the rest as text. null
+   when it cannot be opened in S0_SIZE_MS - one a tab from before this
+   update holds behind a request queued by an earlier page, say. */
+const S0_SIZE_MS=3000;
+const s0Sizing=new Map();
+function s0RecordBytes(v){
+  let n=0;
+  try{
+    for(const k of Object.keys(v||{})) if(v[k] instanceof Blob) n+=v[k].size;
+    n+=JSON.stringify(v,(k,x)=>(x instanceof Blob) ? undefined : x).length;
+  }catch(_){ }
+  return n;
+}
+async function s0CopySize(name){
+  if(s0IsQueued(name)||s0LeftBusy.has(name)) return null;
+  const open=s0InStore(name);
+  const d=await Promise.race([open.catch(()=>null), new Promise(r=>setTimeout(()=>r(null),S0_SIZE_MS))]);
+  if(!d){ open.then(x=>{ try{ x.close(); }catch(_){ } },()=>{ }); return null; }
+  try{
+    return await new Promise(res=>{
+      let n=0;
+      const t=d.transaction(STORE,"readonly"), c=t.objectStore(STORE).openCursor();
+      c.onsuccess=()=>{ const cur=c.result; if(!cur) return; n+=s0RecordBytes(cur.value); cur.continue(); };
+      t.oncomplete=()=>res(n); t.onerror=()=>res(null); t.onabort=()=>res(null);
+    });
+  }catch(_){ return null; }
+  finally{ try{ d.close(); }catch(_){ } }
+}
+function s0SizeWords(n){
+  if(n===null||n===undefined) return "size not known";
+  return n<1048576 ? Math.max(1,Math.round(n/1024))+" KB" : (n/1048576).toFixed(1)+" MB";
+}
+/* Fix round 1: the line on the row of a copy never written down. */
+const S0_LEFT_UNNOTED="Not cleared by itself: this device has no note of you leaving it - as after a Leave before this update, or on another device - and another account here may be in it. Press Clear to remove it from this device.";
+let s0LeftDrawn=0;
+async function s0LeftRender(){
+  const box=$("wsleft"), list=$("wsleftlist"), panel=$("acctpanel");
+  if(!box||!list) return;
+  const uid=s0Uid()||null;
+  if(!uid){ box.hidden=true; list.innerHTML=""; return; }
+  if(panel&&panel.hidden) return;
+  const gen=++s0LeftDrawn;
+  const have=await s0LeftStores();
+  if(gen!==s0LeftDrawn) return;
+  const m=s0LeftLoad(), rows=[];
+  for(const name of Object.keys(m)){
+    const e=m[name]||{};
+    if(e.uid===uid) rows.push({db:name, name:e.name||"A group project"});
+  }
+  if(have&&s0LeftTeams){
+    const mine=new Set(s0LeftTeams.map(t=>"chatnft.ws."+t.id));
+    for(const name of have)
+      if(name.indexOf("chatnft.ws.")===0&&!m[name]&&!mine.has(name)) rows.push({db:name, name:"A group project you are not in now", said:S0_LEFT_UNNOTED});
+  }
+  const shown=rows.filter(r=>(!have||have.has(r.db))&&r.db!==wsDbName()&&!s0LeftBusy.has(r.db));
+  list.innerHTML="";
+  box.hidden=!shown.length;
+  for(const r of shown){
+    const li=document.createElement("li");
+    li.dataset.db=r.db;
+    const nm=document.createElement("span"); nm.className="leftname"; nm.textContent=r.name;
+    const sz=document.createElement("span"); sz.className="leftsize"; sz.textContent="measuring...";
+    const b=document.createElement("button"); b.type="button"; b.className="mini"; b.textContent="Clear";
+    b.title="Clears this copy from this device. A copy holding work the group has not got is never cleared.";
+    const said=document.createElement("span"); said.className="leftsaid"; said.textContent=r.said||"";
+    b.onclick=()=>s0LeftClear(r.db,b,said);
+    li.append(nm,sz,b,said);
+    list.appendChild(li);
+  }
+  for(const r of shown){
+    if(gen!==s0LeftDrawn) return;
+    const p=s0CopySize(r.db);
+    s0Sizing.set(r.db,p);
+    let n=null;
+    try{ n=await p; }finally{ if(s0Sizing.get(r.db)===p) s0Sizing.delete(r.db); }
+    const li=[...list.children].find(x=>x.dataset.db===r.db);
+    if(li&&gen===s0LeftDrawn) li.querySelector(".leftsize").textContent=s0SizeWords(n);
+  }
+}
+async function s0LeftClear(name,btn,said){
+  const say=m=>{ if(said) said.textContent=m; toast(m); };
+  if(s0LeftBusy.has(name)) return;
+  if(name===wsDbName()){ say("Not cleared: this page has that project open."); return; }
+  if(s0IsQueued(name)){ say(S0_QUEUED); return; }
+  s0LeftBusy.add(name);
+  if(btn) btn.disabled=true;
+  let got=false;
+  try{
+    /* A size read still open on it would read as another tab. */
+    const sizing=s0Sizing.get(name);
+    if(sizing){ try{ await sizing; }catch(_){ } }
+    got=await s0DeleteIfAlone(name);
+  }catch(_){ got=false; }
+  finally{ s0LeftBusy.delete(name); if(btn) btn.disabled=false; }
+  if(got===true) s0LeftDrop(name);
+  say(got===true ? "Cleared from this device."
+    : got==="held" ? "Not cleared: this copy holds work the group has not got. Rejoin the project to send it."
+    : got==="other" ? "Not cleared: another BuildaNFT tab has it open. Close that tab, then press Clear again."
+    : got==="old" ? "Not cleared: a BuildaNFT tab from before this update has it open. Close or reload that tab, then press Clear again."
+    : got==="blocked" ? "A BuildaNFT tab from before this update opened it just now; it is cleared when that tab closes."
+    : got==="busy" ? "Not cleared: this tab is still writing to it. Press Clear again in a moment."
+    : "Could not clear it. Press Clear again.");
+  if(got===true) s0LeftRender();
 }
 const S0_LEAVE_MOVING="Did not leave - the page is still moving to another project";
 const S0_LEAVE_MOVED="Did not leave - the page moved to another project, or signed out, while Leave was checking";
@@ -22941,47 +23261,79 @@ async function wsLeave(){
      fixed sentence whatever was there (measured: three unsent traits, the
      same words as with none). */
   /* (leaving and dbName are taken at the top: STAGE 0, Finding 3.) */
-  let unsent=[], drawings=0, pictures=0, unread=false;
-  try{
-    const all=await dbAll();
-    unsent=all.filter(i=>(i.kind==="trait"||i.kind==="ref")&&!i.synced).map(i=>i.name);
-    /* STAGE 0 (Finding 1): EVERY DRAFT. Only those with a traitId counted,
-       and the canvas that is not a trait yet (AUTO_ID, traitId null: an
-       imported PNG, an extraction) - the only copy of that picture - was
-       deleted with "Your own page is untouched" (measured). It is named
-       apart, because Save to cloud sends no draft. */
-    const drafts=all.filter(i=>i.kind==="autosave");
-    pictures=drafts.filter(i=>!i.traitId).length;
-    drawings=drafts.length-pictures;
-  /* STAGE 0 (D1): a read that fails is "unknown: keep". This said "nothing
-     to keep", and the copy it could not read was deleted. */
-  }catch(_){ unsent=[]; drawings=0; pictures=0; unread=true; }
+  /* FOLLOW-UP D (S18): the count and the question, each a function of what
+     the store holds, because both are made again after the question
+     (below). Their words are as they were. */
+  const count=async()=>{
+    let unsent=[], drawings=0, pictures=0, unread=false;
+    try{
+      const all=await dbAll();
+      unsent=all.filter(i=>(i.kind==="trait"||i.kind==="ref")&&!i.synced).map(i=>i.name);
+      /* STAGE 0 (Finding 1): EVERY DRAFT. Only those with a traitId counted,
+         and the canvas that is not a trait yet (AUTO_ID, traitId null: an
+         imported PNG, an extraction) - the only copy of that picture - was
+         deleted with "Your own page is untouched" (measured). It is named
+         apart, because Save to cloud sends no draft. */
+      const drafts=all.filter(i=>i.kind==="autosave");
+      pictures=drafts.filter(i=>!i.traitId).length;
+      drawings=drafts.length-pictures;
+    /* STAGE 0 (D1): a read that fails is "unknown: keep". This said "nothing
+       to keep", and the copy it could not read was deleted. */
+    }catch(_){ unsent=[]; drawings=0; pictures=0; unread=true; }
+    const held=[];
+    if(unsent.length) held.push(unsent.length+" change"+(unsent.length===1?"":"s")+" the group has not got ("
+      +unsent.slice(0,3).join(", ")+(unsent.length>3?" and "+(unsent.length-3)+" more":"")+")");
+    if(drawings) held.push(drawings+" unsaved drawing"+(drawings===1?"":"s"));
+    if(pictures) held.push((pictures===1 ? "an unsaved picture" : pictures+" unsaved pictures")
+      +" (open it from the restore bar and Save to project)");
+    const keeps=held.length>0||unread||unchecked;
+    return {unread:unread, keeps:keeps, question:unread
+      ? "Leave this group project? This device could not read what it holds for the group, so its copy stays here -"
+        +" it may hold changes the group has not got. The project stays for everyone else."
+      : unchecked
+      ? "Leave this group project? This device could not check the project with the server, so its copy stays here -"
+        +" it may hold changes the group has not got. The project stays for everyone else."
+      : keeps
+      ? "Leave this group project? This device has "+held.join(" and ")+"."
+        +" After leaving you cannot open them unless you rejoin - press Cancel and Save to cloud first,"
+        +" or OK to leave anyway (they stay on this device). The project stays for everyone else."
+      : "Leave this group project? Your own page is untouched, and the project stays for everyone else."};
+  };
+  let now=await count();
   /* STAGE 0 (Finding 3): still on the project counted, with no switch
      waiting and still signed in - or nothing is asked and nothing sent. */
   if(moved()){ toast(S0_LEAVE_MOVED); return; }
-  const held=[];
-  if(unsent.length) held.push(unsent.length+" change"+(unsent.length===1?"":"s")+" the group has not got ("
-    +unsent.slice(0,3).join(", ")+(unsent.length>3?" and "+(unsent.length-3)+" more":"")+")");
-  if(drawings) held.push(drawings+" unsaved drawing"+(drawings===1?"":"s"));
-  if(pictures) held.push((pictures===1 ? "an unsaved picture" : pictures+" unsaved pictures")
-    +" (open it from the restore bar and Save to project)");
-  const keeps=held.length>0||unread||unchecked;
-  if(!confirm(unread
-    ? "Leave this group project? This device could not read what it holds for the group, so its copy stays here -"
-      +" it may hold changes the group has not got. The project stays for everyone else."
-    : unchecked
-    ? "Leave this group project? This device could not check the project with the server, so its copy stays here -"
-      +" it may hold changes the group has not got. The project stays for everyone else."
-    : keeps
-    ? "Leave this group project? This device has "+held.join(" and ")+"."
-      +" After leaving you cannot open them unless you rejoin - press Cancel and Save to cloud first,"
-      +" or OK to leave anyway (they stay on this device). The project stays for everyone else."
-    : "Leave this group project? Your own page is untouched, and the project stays for everyone else.")) return;
+  if(!confirm(now.question)) return;
+  /* FOLLOW-UP D (S18): COUNTED AGAIN AFTER THE QUESTION, AND ASKED AGAIN WHEN
+     IT HOLDS WHAT THE QUESTION DID NOT SAY. A drawing's save that landed
+     while the question was open - past the first wait's bound, or started
+     after the count (a tab hidden) - was named only by the toast: the
+     question had said "Your own page is untouched" (measured). The same
+     wait and the same count follow the confirm; a store that now holds
+     something, told differently, is asked about again in its own words, and
+     Cancel leaves nothing. What a question said stays said: once it has
+     told the person the copy stays, it stays (so a read that failed and
+     then worked is still kept, as it was). At most three questions; the
+     delete below still decides on the store as it is then ("held"). */
+  let unread=now.unread, keeps=now.keeps;
+  for(let asked=1;;asked++){
+    { const f=s0FlushAutosave(); if(f) await f; }
+    const again=await count();
+    if(moved()){ toast(S0_LEAVE_MOVED); return; }
+    if(!again.keeps||again.question===now.question) break;
+    now=again; keeps=true; unread=unread||again.unread;
+    if(asked>=3) break;
+    if(!confirm(now.question)) return;
+  }
+  /* FOLLOW-UP D (P9): the name the project is listed under if its copy is
+     kept here, read while the page still shows it. */
+  const leftName=(()=>{ try{ const o=[...$("wssel").options].find(x=>x.value===leaving); if(o) return o.textContent; }catch(_){ } return wsNameLoad(); })();
   /* STAGE 0 (final fixes, B5): asked again next to the send. Nothing is
      awaited between the question and here; kept beside the send, a wait
      added before it later cannot send for a page that has moved. */
   if(moved()){ toast(S0_LEAVE_MOVED); return; }
   try{
+    s0LeftBusy.add(dbName);   /* FOLLOW-UP D (P9): nothing else here touches it meanwhile */
     const r=await fetch(SB_URL+"/rest/v1/rpc/leave_team",{method:"POST",headers:h,
       body:JSON.stringify({p_team:leaving})});
     if(!r.ok){ toast("Could not leave"); return; }
@@ -23008,8 +23360,15 @@ async function wsLeave(){
         +" Close or reload that tab: until then this device cannot open the project again"
       : freed==="held" ? "Left the project - something was saved to its copy while leaving, so it is kept on this device"
       : freed==="blocked" ? "Left the project - a BuildaNFT tab from before this update opened it just now; its copy is cleared when that tab closes"
+      /* FOLLOW-UP D (S17): this tab's own write, still running past the wait. */
+      : freed==="busy" ? "Left the project - this device was still writing to its copy, so it is kept here for now"
       : "Left the project");
+    /* FOLLOW-UP D (owner's answer 3, P9): a copy kept here is written down, so
+       it is cleared later once nothing holds it, and listed meanwhile. */
+    if(freed===true) s0LeftDrop(dbName);
+    else if(dbName&&dbName!==DBN) s0LeftKeep(dbName,leaving,leftName,s0Home.uid);
   }catch(_){ toast("Could not reach the server"); }
+  finally{ s0LeftBusy.delete(dbName); s0LeftRender(); }
 }
 
 /* ================= teams =========================================
@@ -23180,8 +23539,10 @@ async function joinIfPending(){
     joinClear();
     const joined=await r.json();
     await wsRender();
-    await wsSwitch(joined);
-    toast("You have joined the project");
+    const went=await wsSwitch(joined);
+    /* FOLLOW-UP D (S16): joined, but this device cannot open it until the
+       tab from before this update closes - said, not covered by this toast. */
+    toast(went===false ? "You have joined the project. "+S0_QUEUED : "You have joined the project");
     await cloudRender();
   }catch(_){ toast("Could not reach the server"); }
 }

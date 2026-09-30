@@ -51,6 +51,7 @@
    * @param {number} width
    * @param {number} height
    * @param {{mode?:string, forceStep?:number, kColors?:number, reference?:boolean,
+   *          repair8?:{labOf:function, deltaE2000:function},
    *          onProgress?:function(number,string)}} [opts]
    * @returns {{cols,rows,stepX,stepY,consensus,confidence,width,height,
    *            data:Uint8ClampedArray, detectMs, reconMs}}
@@ -117,8 +118,13 @@
     /* opts.reference: the reference's own vote and mean, for the parity
        harness. The default is this port's measured departure - see the
        comment in two_stage_pack. */
-    var low = PF.two_stage_pack(rgba, r.cols, r.rows, opts.kColors || 0,
-      { reference: !!opts.reference });
+    /* opts.repair8: two_stage_pack with the size-8 rules (pf-42-repair8.js),
+       for a step the caller gave. It carries the page's own colour
+       functions, which the rules compare colours with. */
+    var low = (opts.repair8 && opts.forceStep > 0)
+      ? PF.repair8_pack(rgba, r.cols, r.rows, opts.repair8)
+      : PF.two_stage_pack(rgba, r.cols, r.rows, opts.kColors || 0,
+        { reference: !!opts.reference });
     var reconMs = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - t1;
     onProgress(1, 'done');
 

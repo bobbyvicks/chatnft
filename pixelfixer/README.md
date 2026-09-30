@@ -123,6 +123,13 @@ runs the reference's own rule and is what `tools/test-endtoend.cjs` compares.
   folder orders). A fresh engine starts at the same state, so single runs
   are unchanged and a batch now equals them.
 
+- **At a given step of 8 on a mouth, eyes or chain (`opts.repair8`), four
+  rules keep lines whole.** `src/pf-42-repair8.js` is `two_stage_pack` plus
+  a straddle rescue, an undouble, a stroke connector and a speck cleanup,
+  each explained there with what it was measured on. The page passes it
+  its own `labOf` and `deltaE2000`. With every rule off it is
+  `two_stage_pack` byte for byte on 283 of 283 files.
+
 ## Where it is not faithful
 
 - `src/pf-05-mathshim.js` - `PF.exp` and `PF.log` are the platform's, not

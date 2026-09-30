@@ -6,6 +6,7 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { join, dirname } from 'node:path';
 import { findSecrets } from './secrets.mjs';
+import { foldAll, firstArgOf } from './jsfold.mjs';
 
 /* GUARDS ON WHAT THE REPO PUBLISHES, for rules no behaviour test can pin
    because they are about what must never be there. Comments are stripped
@@ -27,6 +28,81 @@ test('stage 0 never opens a chatnft.v2 store and never sets the migration flag (
   /* The control: it does read the flag - in s0FlagOn, for a store and each
      of this account's uids (patch602, the audit's Finding 4). */
   assert.ok(code.includes('localStorage.getItem("pb.migrating."+dbn+"."+u)'), 'the control: it does read the flag');
+});
+
+/* FOLLOW-UP P4: THE SAME TWO RULES, FOR A NAME BUILT FROM PIECES. Test 1
+   reads the text, so it passes a name that is never written out whole:
+   localStorage.setItem(S0_MIG+db+'.x','1'), S0_MIG a constant holding the
+   flag's prefix, and indexedDB.deleteDatabase('chatnft'+'.v2.x') both passed
+   it (measured). jsfold.mjs folds every + chain of the script - literals,
+   constants, and functions of no arguments that return one - and these
+   read what the pieces can say:
+   - the migration flag: a chain that can hold "pb.migrating" is allowed
+     only as getItem's first argument, or as the initialiser of a constant
+     that folds completely (its every use is a chain read here too). So a
+     setItem, a removeItem, a localStorage[...] write, or a key kept in a
+     variable part-built from it, is found wherever its pieces come from.
+   - chatnft.v2: no chain can say it, in a run of known text or with the
+     unknown parts left out ("chatnft"+x+".v2").
+   Out of reach, and so not claimed: a name made by anything the folder does
+   not follow (an array join, a replace, a +=, a value read at run time). */
+const MIG = /pb\.migrating/;
+const V2 = /chatnft\.v2/;
+function migrationUses(src) {
+  const f = foldAll(src);
+  const hits = f.chains.filter(c => c.texts.some(s => MIG.test(s)));
+  const declOf = (c) => {
+    const eq = f.toks[c.start - 1], name = f.toks[c.start - 2], kw = f.toks[c.start - 3];
+    if (!eq || eq.v !== '=' || !name || name.t !== 'id' || !kw) return null;
+    return (kw.t === 'id' && /^(const|let|var)$/.test(kw.v)) || kw.v === ',' ? name.v : null;
+  };
+  const allowed = (c) => firstArgOf(f.toks, c, 'getItem') || (!!declOf(c) && c.known);
+  return { reads: hits.filter(c => firstArgOf(f.toks, c, 'getItem')).map(c => c.src),
+    others: hits.filter(c => !allowed(c)).map(c => c.src), env: f.env, strings: f.toks.filter(t => t.t === 'str').length };
+}
+const v2Names = (src) => foldAll(src).chains.filter(c => c.texts.some(s => V2.test(s))).map(c => c.src);
+test('the migration flag is only read, and no chatnft.v2 name is built, however the name is put together (follow-up P4)', () => {
+  const script = kit.scriptOf(page);
+  const m = migrationUses(script);
+  /* The folder read the script: its strings, and the constants the page's
+     own keys are made from. */
+  assert.ok(m.strings > 5000, 'the tokenizer read only ' + m.strings + ' strings');
+  assert.deepEqual([m.env.consts.get('DBN'), m.env.consts.get('STORE'), m.env.consts.get('SB_SESSION')],
+    [['pixelbench'], ['items'], ['chatnft.session']], 'the constants a key is built from are read');
+  /* The control: it finds the flag where the page does read it (s0FlagOn). */
+  assert.deepEqual(m.reads, ['"pb.migrating."+dbn+"."+u'], 'the control: the one read of the flag is found');
+  assert.deepEqual(m.others, [], 'the flag is built only to be read');
+  assert.deepEqual(v2Names(script), [], 'no chatnft.v2 name');
+
+  /* THE CALIBRATION: each case is added to the page's script, and must be
+     found. The first of each pair is the bypass measured against test 1. */
+  const plus = (s) => script + '\n;(function(){ ' + s + ' })();\n';
+  const caught = [
+    ['const S0_MIG="pb.migrating."; function s0Bypass(db){ localStorage.setItem(S0_MIG+db+\'.x\',\'1\'); }', "S0_MIG+db+'.x'"],
+    ['const S0_MIG="pb.mig"+"rating."; function s0Bypass(db){ localStorage.setItem(S0_MIG+db,\'1\'); }', 'S0_MIG+db'],
+    ['function s0Bypass(db){ const k="pb."+"migrating."+db; localStorage.setItem(k,\'1\'); }', '"pb."+"migrating."+db'],
+    ['function s0Bypass(db){ localStorage["pb.migr"+"ating."+db]="1"; }', '"pb.migr"+"ating."+db'],
+    ['function s0Bypass(db){ localStorage.removeItem(`pb.migrating.${db}`); }', '`pb.migrating.${db}`'],
+  ];
+  for (const [add, src] of caught) {
+    assert.doesNotMatch(add, /setItem\(\s*["']pb\.migrating/, 'test 1\'s text check cannot see it: ' + add);
+    assert.ok(migrationUses(plus(add)).others.includes(src), 'the flag built from pieces is found: ' + add);
+  }
+  const v2 = [
+    ["indexedDB.deleteDatabase('chatnft'+'.v2.x');", "'chatnft'+'.v2.x'"],
+    ['const V=".v"+2; indexedDB.open("chatnft"+V,1);', '"chatnft"+V'],
+    ['function s0Bypass(sep){ return indexedDB.open("chatnft"+sep+".v2",1); }', '"chatnft"+sep+".v2"'],
+    ['const VN=2; const n=`chatnft.v${VN}`;', '`chatnft.v${VN}`'],
+  ];
+  for (const [add, src] of v2) {
+    assert.doesNotMatch(add, V2, "test 1's text check cannot see it: " + add);
+    assert.ok(v2Names(plus(add)).includes(src), 'a chatnft.v2 name built from pieces is found: ' + add);
+  }
+  /* And what must pass: a read of the flag through a constant, and a
+     chatnft name that is not v2. */
+  const fine = plus('const S0_MIG2="pb.migrating."; function s0Fine(db){ return localStorage.getItem(S0_MIG2+db); } indexedDB.open("chatnft.ws."+"v2team",1);');
+  assert.deepEqual(migrationUses(fine).others, [], 'a read through a constant is a read');
+  assert.deepEqual(v2Names(fine), [], 'chatnft.ws. is not chatnft.v2');
 });
 
 test('no key or token that is not public, in the page or in any file the repo tracks', () => {
@@ -133,4 +209,114 @@ test('the store is opened for use in one place, at version 1; the other opens ar
   assert.ok(body.includes('r.onupgradeneeded=()=>{'));
   assert.ok(body.includes('const t=r.transaction;'));
   assert.ok(body.includes('const stop=()=>{ try{ t.abort(); }catch(_){ } };'));
+});
+
+/* FOLLOW-UP P5: LEAVE'S PROBE, RUN. Test 5 finds the abort's text, and a
+   probe whose "alone" branch skipped t.abort() passed it (measured): the
+   stop() line was still there. This runs s0OthersOpen itself - the
+   function's own text, cut from the page - against a stand-in for
+   indexedDB that behaves as the browser does for this one request: a
+   version-2 open whose upgrade is aborted ends in an error named AbortError
+   and the store stays at version 1; an upgrade not aborted commits, the
+   store is at version 2, and the request succeeds. The browser's own side
+   of that (the version really stays 1) is stage0leave.spec.js's version
+   and reopen checks; this is the probe's side: that every verdict it
+   reaches, it reaches by aborting. */
+function probeSource(src) {
+  const lines = kit.lines(src);
+  const at = kit.inFunction(lines, 'function s0OthersOpen(name){');
+  return lines.slice(at.start, at.end + 1).join('\n');
+}
+function runProbe(fnSrc, scene) {
+  const seen = { aborts: 0, version: 1, queuedAdd: 0, queuedDone: 0, closed: 0 };
+  const STORE_NAME = 'items';
+  const idb = {
+    open(name, version) {
+      const r = { result: undefined, transaction: null, error: null };
+      setImmediate(() => {
+        if (scene.blocked) { if (r.onblocked) r.onblocked(); return; }
+        let aborted = false, pending = 0, finished = false;
+        const settle = () => {
+          if (finished || pending) return;
+          finished = true;
+          if (aborted) { r.error = { name: 'AbortError' }; r.result = undefined; if (r.onerror) r.onerror({ preventDefault() {} }); }
+          else { seen.version = version; if (r.onsuccess) r.onsuccess(); }
+        };
+        const later = (fn) => { pending++; setImmediate(() => { pending--; if (!aborted) fn(); settle(); }); };
+        const t = {
+          abort() { if (aborted) throw new Error('InvalidStateError'); aborted = true; seen.aborts++; },
+          objectStore(n) {
+            if (n !== STORE_NAME || scene.store === null) throw new Error('NotFoundError');
+            return { openCursor() {
+              const c = { result: null };
+              let i = 0;
+              const step = () => later(() => {
+                const v = scene.store[i];
+                c.result = v === undefined ? null : { value: v, continue() { i++; step(); } };
+                if (c.onsuccess) c.onsuccess();
+              });
+              step();
+              return c;
+            } };
+          },
+        };
+        r.result = { objectStoreNames: { contains: (n) => scene.store !== null && n === STORE_NAME }, close() { seen.closed++; } };
+        r.transaction = t;
+        if (r.onupgradeneeded) r.onupgradeneeded();
+        settle();
+      });
+      return r;
+    },
+  };
+  // eslint-disable-next-line no-new-func
+  const probe = new Function('indexedDB', 'STORE', 's0QueuedAdd', 's0QueuedDone', fnSrc + '\nreturn s0OthersOpen;')(
+    idb, STORE_NAME, () => { seen.queuedAdd++; }, () => { seen.queuedDone++; });
+  return Promise.race([
+    probe('chatnft.ws.team7').then(v => ({ v, seen })),
+    new Promise(res => setTimeout(() => res({ v: 'no answer', seen }), 2000)),
+  ]);
+}
+const trait = (synced) => ({ id: 't', kind: 'trait', synced });
+const PROBE_SCENES = [
+  ['no store in it', { store: null }, 'alone'],
+  ['an empty store', { store: [] }, 'alone'],
+  ['only what the group has', { store: [trait(true), { id: 'r', kind: 'ref', synced: true }, { id: 's', kind: 'settings' }] }, 'alone'],
+  ['a trait the group has not got', { store: [trait(true), trait(false)] }, 'held'],
+  ['a draft', { store: [trait(true), { id: 'a', kind: 'autosave' }] }, 'held'],
+];
+/* Every scene the probe answers from inside the upgrade: the verdict, one
+   abort, and the store still at version 1. Blocked is answered without an
+   upgrade, and is remembered as queued. Returns what went wrong. */
+async function probeFaults(fnSrc) {
+  const bad = [];
+  for (const [label, scene, want] of PROBE_SCENES) {
+    const { v, seen } = await runProbe(fnSrc, scene);
+    if (v !== want) bad.push(label + ': answered ' + v + ', not ' + want);
+    if (seen.aborts !== 1) bad.push(label + ': aborted ' + seen.aborts + ' times');
+    if (seen.version !== 1) bad.push(label + ': the store is at version ' + seen.version);
+  }
+  const b = await runProbe(fnSrc, { blocked: true, store: [] });
+  if (b.v !== 'blocked' || b.seen.queuedAdd !== 1) bad.push('blocked: answered ' + b.v + ', queued ' + b.seen.queuedAdd);
+  return bad;
+}
+test('Leave\'s probe, run: each verdict is reached by aborting its upgrade, so the store stays at version 1 (follow-up P5)', async () => {
+  const src = probeSource(kit.scriptOf(page));
+  assert.deepEqual(await probeFaults(src), [], 'the probe as the page has it');
+  /* THE CALIBRATION: the probe with one abort taken out must fail here. The
+     first is the bypass measured against test 5, which still passes it. */
+  const cut = (find, repl) => {
+    assert.equal(src.split(find).length, 2, 'exactly one of: ' + find);
+    return src.split(find).join(repl);
+  };
+  const mutants = [
+    ['the "alone" branch at the end of the store skips the abort', cut('if(!cur){ verdict="alone"; stop(); return; }', 'if(!cur){ verdict="alone"; return; }')],
+    ['the "alone" branch for a store with nothing in it skips the abort', cut('if(!r.result.objectStoreNames.contains(STORE)){ verdict="alone"; stop(); return; }', 'if(!r.result.objectStoreNames.contains(STORE)){ verdict="alone"; return; }')],
+    ['the "held" branch skips the abort', cut('verdict="held"; stop(); return;', 'verdict="held"; return;')],
+  ];
+  for (const [label, m] of mutants) {
+    const faults = await probeFaults(m);
+    assert.ok(faults.length > 0, 'this check must fail on a probe where ' + label);
+  }
+  /* The first mutant is exactly what test 5 cannot see. */
+  assert.ok(mutants[0][1].includes('const stop=()=>{ try{ t.abort(); }catch(_){ } };'), 'test 5\'s text is still in the first mutant');
 });

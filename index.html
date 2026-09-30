@@ -19144,8 +19144,12 @@ async function sbHeaders(extra){
 /* A recovery link and a sign-in link arrive in the same shape, carrying the
    same tokens, and only the type tells them apart. */
 let sbRecovery=false;
-function sbCaptureFromHash(){
-  const h=location.hash||"";
+function sbCaptureFromHash(from){
+  /* FOLLOW-UP C (S8): or a fragment taken out of the address bar earlier
+     and kept until sign-out's wait was over (the hashchange handler).
+     The address bar was cleaned then and is not touched now: by now it
+     may hold the page the person has gone to. */
+  const h=(from===undefined) ? (location.hash||"") : from;
   if(h.indexOf("access_token=")<0) return false;
   const p=new URLSearchParams(h.slice(1));
   const at=p.get("access_token");
@@ -19153,7 +19157,7 @@ function sbCaptureFromHash(){
   sbRecovery = p.get("type")==="recovery";
   sbSaveSession({access_token:at, refresh_token:p.get("refresh_token"),
     expires_at:Math.floor(Date.now()/1000)+(parseInt(p.get("expires_in"),10)||3600), user:null});
-  history.replaceState(null,"",location.pathname+location.search);
+  if(from===undefined) history.replaceState(null,"",location.pathname+location.search);
   return true;
 }
 
@@ -19170,10 +19174,17 @@ function sbCaptureFromHash(){
    clears the session ONLY on a definitive 400, 401 or 403, so a session that
    is still in storage after sbToken came back empty means the question never
    got an answer. */
-async function sbAuthState(again){
+async function sbAuthState(again,q){
   const s=sbLoadSession();
   if(!s||!s.access_token) return {state:"out"};
+  /* FOLLOW-UP C (S1): THE TOKEN THIS ANSWER IS ABOUT, for cloudRender (q),
+     which shows an answer only while that token is still the one stored:
+     the stored session's as the question goes out, then the one sbToken
+     hands back - the renewed one when this renewed it. sbToken's null
+     leaves it at the first. */
+  if(q) q.about=s.access_token;
   const t=await sbToken();
+  if(q&&t) q.about=t;
   if(!t) return sbLoadSession() ? {state:"unknown"} : {state:"out"};
   try{
     const r=await fetch(SB_URL+"/auth/v1/user",{headers:{apikey:SB_KEY,Authorization:"Bearer "+t}});
@@ -19190,7 +19201,7 @@ async function sbAuthState(again){
     if(r.status===401||r.status===403){
       const now=sbLoadSession();
       if(!now || now.access_token===t){ sbSaveSession(null); sessionEnded(); return {state:"out"}; }
-      return again ? {state:"unknown"} : sbAuthState(true);
+      return again ? {state:"unknown"} : sbAuthState(true,q);
     }
     /* A 500, a 429, a gateway page: the server did not answer the question. */
     if(!r.ok) return {state:"unknown"};
@@ -19240,7 +19251,7 @@ function bootLocal(){
   restoreRef();
 }
 
-async function cloudRender(){
+async function cloudRender(again){
   /* A DEADLINE. Nothing in this file has one - no AbortController, no
      signal: anywhere - and a phone's ordinary network failure is a request
      that never answers rather than one that is refused. Without this the
@@ -19250,8 +19261,38 @@ async function cloudRender(){
      It resolves to the state this function already handles and already has
      a message for, so a timeout is not a new outcome - it is the existing
      one, arriving in six seconds instead of never. */
-  const a=await Promise.race([sbAuthState(),
+  const q={about:null};
+  const a=await Promise.race([sbAuthState(false,q),
     new Promise(r=>setTimeout(()=>r({state:"unknown"}),CLOUD_DEADLINE_MS))]);
+  /* FOLLOW-UP C (S1): AN ANSWER IS ABOUT THE SESSION IT WAS ASKED OF, and
+     is shown only while that session is still the one stored. q.about is
+     the token the question went out with (sbAuthState sets it). When the
+     session stored now is another - the person signed out and another
+     account signed in, or another tab of the account renewed first - the
+     answer, or this deadline, is about a session that has gone, and
+     shown it was false (all measured, tests/switchmidrenewal.spec.js):
+       - "unknown" wrote "Cannot reach the server just now" over a working
+         connection. sbToken answers null for a renewal whose session has
+         gone; and past the deadline, the deadline wrote the same note
+         after the new account's own start had shown it signed in;
+       - "in" drew the leaving account's name and uid over the new
+         account's session, or over none after a plain sign-out.
+     So it is not shown: the question is asked again, once, of the
+     session stored now, and that answer is shown as before - a second
+     change during the second question is not chased. "out" is not asked
+     again: sbAuthState answers it only when nothing is stored, or when it
+     has just cleared the session it was asked of.
+     ONLY A START ASKS AGAIN. An action (Save to cloud, Load from cloud, a
+     save) still reads "unknown" as before. Asked again, an action pressed
+     by the leaving account ran on as the account signed in since, sending
+     the leaving account's trait under the new one's token (the fix first
+     proposed, measured on its own page, 53e7c7a plus that fix, in
+     t10fin/refute-tokennull). A start renders whoever is stored; an
+     action is the account that pressed it. */
+  if(!again && (a.state==="unknown"||a.state==="in")){
+    const now=sbLoadSession();
+    if(((now&&now.access_token)||null)!==q.about) return cloudRender(true);
+  }
   /* NEVER DOWNGRADE ON A FAILED QUESTION. Measured before this: one dropped
      request to /auth/v1/user set authed=false and raised the gate, and
      gateShow(true) calls forgetLocalView - so six shelf cards, the project
@@ -19416,6 +19457,18 @@ function cloudSignOutNow(){
      and its confirmation - cloudSyncOne's "sent" write - lands in the
      personal store, marked synced and with no owner, while the group's
      own record stays unsent (measured, fix round 1). */
+  /* (Follow-up C, D2: SUPERSEDED. That "sent" write no longer lands. Since
+     fix round 4 (8b), cloudSyncOne writes it, and cloudPatchOne its own,
+     only past `if(!s0AtHome(s0Home)) return true;`, which asks wsGen and
+     the store; the wsGen bump below and activeWs=null above fail it. A
+     save whose row insert was out when the person signed out on a group
+     page: the insert lands, the personal store is untouched and the
+     group's record stays unsent; with cloudSyncOne's check removed, the
+     "sent" copy overwrote My page's record of the same id, its row and
+     weight replaced by the group's (both measured on 91eb861, a probe on
+     stage0moves' stateful server; follow-up C report). cloudPatchOne's
+     check was read, not measured here. What still carries on is the
+     insert itself - it was sent before the sign-out.) */
   wsGen++; s0SeenUid=null;
   s0Show();   /* STAGE 0 (D1): the bar was the account's that just left. */
   /* The invite leaves with the person who signed out. Without this, the
@@ -23986,10 +24039,58 @@ $('gatereset').onclick=gateReset;
    again, run when the address changes underneath a page that is already up. */
 addEventListener("hashchange",()=>{
   const joined=joinFromHash();
+  /* FOLLOW-UP C (S8): A SIGN-IN LINK OPENED WHILE SIGN-OUT WAITS for the
+     drawing's last save (s0SignOutWait). Until the wait ends the page is
+     still the leaving account's - its project, its store, its wsGen -
+     which is why the sign-in card takes no sign-in then (fix round 4).
+     The link's session was stored here at once, and the page started as
+     the link's account on the leaving account's group store (measured,
+     tests/signinelsewhere.spec.js). Refused as the card is, the person
+     would need another email. So its tokens leave the address bar now,
+     and the session is stored and the page started once the wait is over
+     - after cloudSignOutNow has taken the page off the group and said
+     "Signed out" - and then "Signed in", once the start has verified the
+     session (the boot path says it for a link before its check). The
+     person has just been told "Signed out"; the handler says nothing on
+     a link with no wait, as before. The wait ends by the save landing
+     or by its bound (S0_FLUSH_MS); either is the end of it. The session's
+     expiry is counted from then, up to that bound late; sbToken renews a
+     minute early. */
+  if(s0SignOutWait && (location.hash||"").indexOf("access_token=")>=0){
+    const h=location.hash;
+    history.replaceState(null,"",location.pathname+location.search);
+    const later=()=>{ if(!sbCaptureFromHash(h)) return;
+      cloudRender().then(u=>{ if(sbRecovery) enterResetMode(); else if(u) toast("Signed in"); }); };
+    s0SignOutWait.then(later,later);
+    return;
+  }
   const signedIn=sbCaptureFromHash();
   if(!joined && !signedIn) return;
   if(joined) joinShowPending();
   cloudRender().then(()=>{ if(signedIn && sbRecovery) enterResetMode(); });
+});
+/* FOLLOW-UP C (S6): ANOTHER TAB ENDED THE SIGN-IN. The session is in
+   localStorage, which every tab of this site shares, and a tab whose
+   session another tab cleared - Sign out there, a refusal there, the
+   site's storage cleared - kept its panel signed in (the name, Save to
+   cloud, no wall to sign in through) over a device with no session
+   stored, until something started it again (measured,
+   tests/signinelsewhere.spec.js).
+   It ends here as a refusal ends it (sessionEnded: the drawing saved,
+   the wall up, "signed out on this device"), and only when nothing is
+   stored now. A session another tab stored - the same account renewed,
+   or another account signed in - is not acted on: which account a tab
+   runs as, across tabs, is plan 2's cross-tab uid work.
+   ONLY THE SESSION'S OWN KEY, or a clear of the whole store (key null).
+   This tab's own sign-out clears the session before it waits for the
+   drawing's save, and no storage event reaches the tab that made the
+   change, so for that wait it is signed in with nothing stored: another
+   tab writing any other key then is not a sign-in ending (measured, the
+   same spec). */
+addEventListener("storage",e=>{
+  if(e.key!==SB_SESSION && e.key!==null) return;
+  if(sbLoadSession()) return;
+  sessionEnded();
 });
 $('gotosignup').onclick=()=>gateMode('signup');
 $('gotosignin').onclick=()=>gateMode('signin');

@@ -409,12 +409,32 @@ const pullRowsHeldMaybeSignOut = (page, signOut) => page.evaluate(async (signOut
    first page only, as a server does: answering every page, it made a pull
    see the row once per page, 500 times (measured, round 5). Records read as
    id[lid synced|unsent], drawings as id@at ('moved' once re-stamped);
-   `told` is what the other tabs were told, on the page's BroadcastChannel. */
+   `told` is what the other tabs were told, on the page's BroadcastChannel.
+
+   SUPERSEDED (follow-up A, S9): was built on the id collision S9 removes.
+   The `unsent` case and its three tests - "a re-id of unsent work whose id
+   collides with the server's row, stopped just before its transaction:
+   ...", "..., stopped just after its transaction: ..." and "the control:
+   a re-id of unsent work ..., nobody stopping: ..." - are removed, not
+   rebuilt: on the page with S9, no path re-ids unsent work. The pull
+   merged the server's "cap" on top_hats into this device's other trait,
+   "cap_top" on hats, and moved it to t_cap_top_top_hats_wip: that was S9's
+   defect. Now "cap" arrives beside it as cap-2, and cap_top stays where it
+   is, unsent (tests/pullidentitybyname.spec.js). Measured:
+   - read: a pull's re-id is s0ReidTx, called from one place, cloudPull's
+     repair loop, for a repair whose record id is not its old id. Repairs
+     are planned in two places: the held branch, only for a synced record,
+     and branch 2, now only for the same trait by its parts, whose merge
+     keeps its id (localTraitId of the same name, layer and status). The
+     re-id's plan check refuses a record changed since, synced included;
+   - an instrument that reports every re-id s0ReidTx commits, and whether
+     the record was synced (follow-up A's fa-work/s9/instrument.cjs). On
+     the page before S9 (65b6baa) it reported 6 re-ids of unsent work,
+     exactly from these three tests and stage0marks.spec.js's three. On
+     the page with S9, over the 92 spec files that pull, import or open a
+     group (998 tests), it reported 26 re-ids, every one of a synced
+     copy, and none of unsent work. */
 const repairCases = {
-  unsent: { layers: ['hats', 'top_hats'], oldId: 't_cap_top_hats_wip', newId: 't_cap_top_top_hats_wip',
-    row: { id: 'row-9', kind: 'trait', name: 'cap', layer: 'top_hats', status: 'wip', path: 'team1/c1/trait-cap-top_hats-wip.png',
-      w: 16, h: 16, rarity: 1, updated_at: '2026-09-27T12:00:00+00:00' },
-    mine: { name: 'cap_top', layer: 'hats', status: 'wip', synced: false, lid: 'l_mine', by: 'u1', wk: 'person' } },
   synced: { layers: ['hats', 'hair'], oldId: 't_cap_hats_wip', newId: 't_cap_hair_wip',
     row: { id: 'row-1', kind: 'trait', name: 'cap', layer: 'hair', status: 'wip', path: 'team1/c1/trait-cap-hats-wip.png',
       w: 16, h: 16, rarity: 1, updated_at: '2026-09-27T12:00:00+00:00' },
@@ -557,7 +577,9 @@ test.describe('stage 0: signing out stops a running pull', () => {
   const personalUntouched = (c) => ['autosave.' + c.oldId + '@7', c.oldId + '[l_personal unsent]'];
   const asSeeded = (c) => ['autosave.' + c.oldId + '@9', c.oldId + '[' + c.mine.lid + (c.mine.synced ? ' synced' : ' unsent') + ']'];
   const whole = (c) => ['autosave.' + c.newId + '@moved', c.newId + '[' + c.mine.lid + (c.mine.synced ? ' synced' : ' unsent') + ']'];
-  for (const [key, what] of [['unsent', 'unsent work whose id collides with the server\'s row'], ['synced', 'a synced trait the server moved to another layer']]) {
+  /* SUPERSEDED (follow-up A, S9): the `unsent` case's three tests, removed
+     (see repairCases). */
+  for (const [key, what] of [['synced', 'a synced trait the server moved to another layer']]) {
     const c = repairCases[key];
 
     test('a re-id of ' + what + ', stopped just before its transaction: the store exactly as it was, and the next pull makes it whole', async ({ page }) => {

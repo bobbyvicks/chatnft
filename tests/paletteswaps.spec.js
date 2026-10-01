@@ -8,6 +8,8 @@
    close in the new palette.
 
      (patch617 swapped 8 more - SWAPS_617 below - under the same rules.)
+     (patch621 swapped 4 more - SWAPS_621 below - crimson, two violets and hot pink;
+       THEIR removed colours keep one within 3.0 dE, the owner's limit for them.)
      TEST 1 what the palette is: 256 distinct colours, the 20 added in, the
        20 removed out, and PALETTE_SOURCE saying so - its hash made the way
        Edition 03's was (sha256 of the upper-case list joined by ","), so the
@@ -33,6 +35,16 @@ const SWAPS_617 = [
   ['#21c8aa', '#aeaeae'], ['#7df2d8', '#dbdbdb'], ['#37395c', '#161616'], ['#55a2e9', '#ecc900'],
 ];
 
+/* patch621: crimson, a dark violet, a bright violet and hot pink - what the collection draws most
+   that no palette colour came near (audit classes K1 / K2). To make room the owner widened the
+   twin limit for THESE removals only (2026-10-01): "Yes, allow up to 3", and then "Yes, add the
+   bright violet". The four removed are near-copies - a dark plum, a dusky plum, a mauve, a coral
+   pink - each with a kept colour under 3.0 dE; one of them, #4a2d3d, is drawn by New York Twin Towers
+   Skyline and lands 2.3 dE away on #4c2938. */
+const SWAPS_621 = [
+  ['#3c2d3b', '#5f0084'], ['#4a2d3d', '#b60020'], ['#974768', '#6f01d5'], ['#f36a7d', '#fd66ad'],
+];
+
 const ready = async (page) => {
   await page.goto('/index.html');
   await page.waitForFunction(() => typeof snapToPalette === 'function' && typeof paletteList === 'function');
@@ -41,7 +53,7 @@ const ready = async (page) => {
 test.describe('the palette swap', () => {
   test.beforeEach(async ({ page }) => { await ready(page); });
 
-  test('256 distinct colours, the 20 added in, the 20 removed out, and the record says so', async ({ page }) => {
+  test('256 distinct colours, the 32 added in, the 32 removed out, and the record says so', async ({ page }) => {
     const r = await page.evaluate(async () => {
       const list = paletteList().map(h => h.toLowerCase());
       const bytes = new TextEncoder().encode(list.map(h => h.toUpperCase()).join(','));
@@ -50,12 +62,12 @@ test.describe('the palette swap', () => {
     });
     expect(r.list.length).toBe(256);
     expect(r.distinct, 'no colour twice').toBe(256);
-    for (const [out, inn] of SWAPS.concat(SWAPS_617)) {
+    for (const [out, inn] of SWAPS.concat(SWAPS_617, SWAPS_621)) {
       expect(r.list, inn + ' is in').toContain(inn);
       expect(r.list, out + ' is out').not.toContain(out);
     }
-    expect(r.source.edition).toBe('Edition 03, 28 colours swapped');
-    expect(r.source.swapped).toEqual(SWAPS.concat(SWAPS_617).map(s => s.join('>')));
+    expect(r.source.edition).toBe('Edition 03, 32 colours swapped');
+    expect(r.source.swapped).toEqual(SWAPS.concat(SWAPS_617, SWAPS_621).map(s => s.join('>')));
     expect(r.source.colours, 'the hash is of these colours').toBe(r.hash);
   });
 
@@ -72,12 +84,28 @@ test.describe('the palette swap', () => {
     }
   });
 
-  test('every removed colour lands under 2.3 dE from where it was', async ({ page }) => {
-    const r = await page.evaluate((removed) => removed.map(h => {
-      const k = parseInt(h.slice(1), 16), n = nearestPaletteColour((k >> 16) & 255, (k >> 8) & 255, k & 255);
-      return { h, to: n.hex, dE: n.dE };
-    }), SWAPS.concat(SWAPS_617).map(s => s[0]));
+  /* The twin rule, checked on the FINAL palette (a removal can take away another removed colour's twin -
+     round 3 did that). The 28 removed by patch615 / patch617 keep a colour under 2.3 dE; the 4 removed by
+     patch621 keep one under 3.0 dE - the owner, asked about crimson, violet and hot pink: "Yes, allow up to 3"
+     (2026-10-01), and for the bright violet: "Yes, add the bright violet". Neither limit may creep: the 3.0 is
+     for those four colours and the test names them. */
+  const nearestOf = (page, removed) => page.evaluate((removed) => removed.map(h => {
+    const k = parseInt(h.slice(1), 16), n = nearestPaletteColour((k >> 16) & 255, (k >> 8) & 255, k & 255);
+    return { h, to: n.hex, dE: n.dE };
+  }), removed);
+
+  test('every colour removed by patch615 / patch617 lands under 2.3 dE from where it was', async ({ page }) => {
+    const r = await nearestOf(page, SWAPS.concat(SWAPS_617).map(s => s[0]));
+    expect(r.length).toBe(28);
     for (const x of r) expect(x.dE, x.h + ' -> ' + x.to).toBeLessThan(2.3);
+  });
+
+  test('the four removed by patch621 land under 3.0 dE from where they were (the owner: "Yes, allow up to 3")', async ({ page }) => {
+    const r = await nearestOf(page, SWAPS_621.map(s => s[0]));
+    expect(r.length).toBe(4);
+    for (const x of r) expect(x.dE, x.h + ' -> ' + x.to).toBeLessThan(3.0);
+    /* and the limit was needed: none of the four has a colour under 2.3 (else 2.3 would have done) */
+    for (const x of r) expect(x.dE, x.h + ' needed the 3.0 limit').toBeGreaterThanOrEqual(2.3);
   });
 
   test('the original Resurrect 64 and the brand colours are all still there', async ({ page }) => {

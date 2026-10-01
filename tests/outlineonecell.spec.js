@@ -20,6 +20,21 @@
    ignored failed only the switch-off control; the folder's own call taken
    out failed only the two folder tests.
 
+   SUPERSEDED (round 6, 2026-10-01): the chain was left alone because its FOLDER was on a skip list
+   (backgrounds, chains, eyes, mouth, ears). The owner: "i dont want specific rules for certain traits". The
+   list is gone; the pass decides from the picture. So: the outlined hair filed under chains/ is made one cell
+   thick, and under ears/ its cells are those it gets under hair/ (RUN AGAINST base-620 THIS FAILS: there the
+   chains/ and ears/ copies keep their doubled line),
+   and a chain drawn WITHOUT an outline - grey links with black link lines - is left alone because its edge is
+   not black (the gate: black share of the edge, and the source gate), in chains/ and in hats/ alike. That
+   control can fail: with the gate's black-share test taken out (OUTLINED_FRAC 0) the chain's short grey edge
+   runs between the link lines are blackened as gaps and it fails.
+   (Round 6 judge: size 8's line rules now run on every picture too, so hair/, chains/ and ears/ give the hair the
+   same cells, hash for hash. And EVERY PICTURE GETS ITS SOURCE: a 20 px border at size 8 - kept 2 cells thick only
+   because the pass reads the source - comes out the same under hats/, chains/, ears/, mouth/, eyes/ and
+   backgrounds/; with the source withheld it is one cell thick, so a folder rule that withheld it would fail. A
+   mutant withholding the source for chains/ and ears/ passed every other test here.)
+
    SIZE 8 KEEPS A THICKER LINE (owner, 2026-10-01: "a 2-cell outline stays 2 cells, not thinned to 1"). At Pixel
    size 8 the pass measures the line on the SOURCE picture and keeps it that many cells thick (16 px -> 2 cells;
    the hair's 10 px -> 1); at every other size the outline is one cell, as before. The readout says which:
@@ -88,15 +103,34 @@ const fixAndMeasure = (page, o) => page.evaluate(async ({ b64, rel, line }) => {
     if (!op(i)) continue; const x = i % W, y = (i / W) | 0;
     if ((x > 0 && !op(i - 1)) || (x < W - 1 && !op(i + 1)) || (y > 0 && !op(i - W)) || (y < H - 1 && !op(i + W))) ring[i] = 1;
   }
-  let edge = 0, notBlack = 0, doubled = 0; const cols = new Set();
+  let edge = 0, notBlack = 0, doubled = 0, opaque = 0, black = 0, hash = 2166136261; const cols = new Set();
+  for (let i = 0; i < d.length; i++) hash = Math.imul(hash ^ d[i], 16777619) >>> 0;
   for (let i = 0; i < W * H; i++) {
     if (!op(i)) continue; cols.add(d[i * 4] + ',' + d[i * 4 + 1] + ',' + d[i * 4 + 2]);
+    opaque++; if (blk(i)) black++;
     if (ring[i]) { edge++; if (!blk(i)) notBlack++; continue; }
     const x = i % W, y = (i / W) | 0;
     if (blk(i) && [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]].some(([a, b]) => a >= 0 && b >= 0 && a < W && b < H && ring[b * W + a] && blk(b * W + a))) doubled++;
   }
-  return { cells: W + 'x' + H, edge, notBlack, doubled, colours: [...cols].sort(), said: document.getElementById('fixout').textContent };
+  return { cells: W + 'x' + H, edge, notBlack, doubled, opaque, black, hash, colours: [...cols].sort(), said: document.getElementById('fixout').textContent };
 }, { b64: o.b64, rel: o.rel, line: o.line });
+
+/* A chain drawn WITHOUT an outline: light grey links in 10 px blocks, a highlight row, a black link line every
+   4 blocks running edge to edge, and a black hole in each link - black that is drawing, not an outline. */
+const drawChain = (page) => page.evaluate(async () => {
+  const B = 10, N = 128, c = document.createElement('canvas'); c.width = c.height = B * N;
+  const g = c.getContext('2d');
+  for (let y = 50; y <= 62; y++) for (let x = 20; x <= 108; x++) {
+    let col = y === 52 ? '#e0e0e0' : '#b8b8b8';
+    if ((x - 20) % 4 === 0) col = '#000000';                          // the link lines, edge to edge
+    else if ((x - 22) % 4 === 0 && y >= 55 && y <= 57) col = '#000000';  // the hole in each link
+    g.fillStyle = col; g.fillRect(x * B, y * B, B, B);
+  }
+  const blob = await new Promise(r => c.toBlob(r, 'image/png'));
+  const u8 = new Uint8Array(await blob.arrayBuffer()); let s = '';
+  for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+  return btoa(s);
+});
 
 test.describe('the outline Fix pixels leaves', () => {
   let hair;
@@ -128,11 +162,49 @@ test.describe('the outline Fix pixels leaves', () => {
     expect(r.said).not.toContain('outline made one cell thick');
   });
 
-  test('the control: a chain, drawn without an outline by design, is left alone', async ({ page }) => {
-    const on = await fixAndMeasure(page, { b64: hair, rel: 'chains/wip/spiky.png', line: true });
-    const off = await fixAndMeasure(page, { b64: hair, rel: 'chains/wip/spiky.png', line: false });
-    expect(on.doubled).toBe(off.doubled);
-    expect(on.colours).toEqual(off.colours);
+  test('THE FOLDER DECIDES NOTHING: the outlined hair filed under chains/ or ears/ is outlined as under hair/', async ({ page }) => {
+    const asHair = await fixAndMeasure(page, { b64: hair, rel: 'hair/wip/spiky.png', line: true });
+    const asChain = await fixAndMeasure(page, { b64: hair, rel: 'chains/wip/spiky.png', line: true });
+    const asEars = await fixAndMeasure(page, { b64: hair, rel: 'ears/wip/spiky.png', line: true });
+    console.log('hair as chains/: ' + JSON.stringify({ ...asChain, said: undefined, colours: undefined }));
+    expect(asChain.doubled, 'one cell thick in chains/ too').toBe(0);
+    expect(asChain.notBlack, 'no gap in chains/ either').toBe(0);
+    expect(asChain.said).toContain('outline made one cell thick');
+    /* SUPERSEDED (round 6 judge): "ears/ is on no other folder list (chains/ is on repair8's, which changes the
+       cells before this pass)" - repair8's folder list is gone too, so all three give the same cells. */
+    expect(asEars.hash, 'the same cells as under hair/').toBe(asHair.hash);
+    expect(asChain.hash, 'and under chains/').toBe(asHair.hash);
+  });
+
+  test('the control: a chain drawn without an outline is left alone - because of its picture, in any folder', async ({ page }) => {
+    const chain = await drawChain(page);
+    for (const rel of ['chains/wip/chain.png', 'hats/wip/chain.png']) {
+      const on = await fixAndMeasure(page, { b64: chain, rel, line: true });
+      const off = await fixAndMeasure(page, { b64: chain, rel, line: false });
+      console.log(rel + ' on: ' + JSON.stringify({ ...on, said: undefined }) + ' | off hash ' + off.hash);
+      /* the cells the fixer gives the pass (switch off): big enough that the area test is not what spares the
+         chain, its drawn black there, and its edge mostly grey - so what decides is the edge's colour */
+      expect(off.opaque, 'big enough that the area test is not what spares it').toBeGreaterThan(400);
+      expect(off.black, 'its drawn black is there').toBeGreaterThan(50);
+      expect(off.notBlack, 'its edge is mostly grey').toBeGreaterThan(off.edge / 2);
+      expect(on.hash, 'left exactly as the fixer drew it').toBe(off.hash);
+      expect(on.said).not.toContain('outline');
+    }
+  });
+
+  /* fixOutlineRuns is what other steps ask (lines16's gate) instead of a folder list. */
+  test('fixOutlineRuns: the switch and the grid decide whether the pass runs, never the file', async ({ page }) => {
+    const r = await page.evaluate(() => {
+      showPage('fixer', false);
+      const sw = document.getElementById('fixline'), was = sw.checked, out = {};
+      sw.checked = true;
+      out.on = fixOutlineRuns(); out.on160 = fixOutlineRuns(160, 160); out.on640 = fixOutlineRuns(640, 640);
+      out.arity = fixOutlineRuns.length;
+      sw.checked = false; out.off = fixOutlineRuns();
+      sw.checked = was;
+      return out;
+    });
+    expect(r).toEqual({ on: true, on160: true, on640: false, arity: 2, off: false });
   });
 
   /* A FOLDER takes the same step in its own place (fixBatchRun's finish),
@@ -217,7 +289,8 @@ const fixBox = (page, o) => page.evaluate(async ({ b64, rel, line, size, rects }
     }
     return kb + '/' + k;
   });
-  return { cells: W + 'x' + H, edge: n[1], edgeNotBlack: n[1] - b[1], depth2Black: +(b[2] / n[2]).toFixed(3),
+  let hash = 2166136261; for (let i = 0; i < d.length; i++) hash = Math.imul(hash ^ d[i], 16777619) >>> 0;
+  return { cells: W + 'x' + H, hash, edge: n[1], edgeNotBlack: n[1] - b[1], depth2Black: +(b[2] / n[2]).toFixed(3),
     depth3Black: +(b[3] / n[3]).toFixed(3), inner, said: document.getElementById('fixout').textContent };
 }, { b64: o.b64, rel: o.rel, line: o.line !== false, size: o.size, rects: o.rects });
 
@@ -239,6 +312,22 @@ test.describe('the outline at Pixel size 8 keeps the thickness the picture draws
     expect(r.depth2Black, 'the second cell of the line is black').toBeGreaterThanOrEqual(0.95);
     expect(r.depth3Black, 'and the third is fill again').toBeLessThanOrEqual(0.05);
     expect(r.said).toContain('outline kept 2 cells thick, as drawn');
+  });
+
+  test('EVERY PICTURE GETS ITS SOURCE: the 20 px border is 2 cells thick in every folder; without the source, 1', async ({ page }) => {
+    const b64 = await drawBox(page, 20), got = {};
+    for (const layer of ['hats', 'chains', 'ears', 'mouth', 'eyes', 'backgrounds']) got[layer] = await fixBox(page, { b64, rel: layer + '/wip/box20.png', size: 8 });
+    /* THE CAN-FAIL ARM: the same picture with the pass given no source (what a folder rule withholding it did) */
+    await page.evaluate(() => { window.__realSrc = window.fixOutlineSource; window.fixOutlineSource = () => null; });
+    let none; try { none = await fixBox(page, { b64, rel: 'hats/wip/box20.png', size: 8 }); }
+    finally { await page.evaluate(() => { window.fixOutlineSource = window.__realSrc; }); }
+    console.log('box20 by folder: ' + JSON.stringify(Object.fromEntries(Object.entries(got).map(([k, v]) => [k, v.depth2Black + ' #' + v.hash]))) + ' | no source ' + none.depth2Black);
+    expect(none.depth2Black, 'PRECONDITION: without the source the border is one cell thick').toBeLessThanOrEqual(0.05);
+    expect(none.edgeNotBlack, 'and still whole').toBe(0);
+    for (const [layer, r] of Object.entries(got)) {
+      expect(r.depth2Black, layer + '/: the second cell of the line is black').toBeGreaterThanOrEqual(0.95);
+      expect(r.hash, layer + '/: the same cells as under hats/').toBe(got.hats.hash);
+    }
   });
 
   test('the control: a 10 px border at size 8 is still made one cell thick', async ({ page }) => {

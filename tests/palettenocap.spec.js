@@ -12,10 +12,12 @@
    merged figure, under the old cap and past it. */
 import { test, expect } from '@playwright/test';
 
-/* n distinct colours on a 1280 x 1280 picture, neighbours about 1 dE apart. */
-const build = (n) => `(() => {
+/* n distinct colours on a 1280 x 1280 picture, neighbours about 1 dE apart.
+   equal: every colour on exactly floor(W*W/n) pixels, the rest left empty. */
+const build = (n, equal) => `(() => {
   const W = 1280, d = new Uint8ClampedArray(W * W * 4);
-  for (let p = 0; p < W * W; p++) {
+  const end = ${equal ? 'Math.floor(W * W / ' + n + ') * ' + n : 'W * W'};
+  for (let p = 0; p < end; p++) {
     const k = p % ${n}, o = p * 4;
     d[o] = 60 + (k & 31) * 2; d[o + 1] = 60 + ((k >> 5) & 31) * 2; d[o + 2] = 60 + ((k >> 10) & 15) * 2; d[o + 3] = 255;
   }
@@ -67,8 +69,8 @@ const REFERENCE = `function refSnap(d, n) {
   return { groups: groups.length, merged };
 }`;
 
-const run = (page, n) => page.evaluate(`(() => {
-  const d = ${build(n)};
+const run = (page, n, equal) => page.evaluate(`(() => {
+  const d = ${build(n, equal)};
   const t0 = performance.now();
   const r = snapToPalette(d, 1280 * 1280);
   return { ms: Math.round(performance.now() - t0), seen: r.seen, groups: r.groups, merged: r.merged };
@@ -97,7 +99,17 @@ test.describe('the palette groups every picture, however many colours it has', (
   });
 
   test('ONE COLOUR MORE changes nothing but that colour', async ({ page }) => {
-    const a = await run(page, 8192), b = await run(page, 8193);
+    /* EQUAL WEIGHTS (2026-09-30). On the picture above, 8,193 colours over
+       1280 x 1280 is not one colour more: 200 of the others drop from 200 to
+       199 pixels and move to the back of the largest-first sort, so 13 of 305
+       groups change membership. Edition 03 happened to keep merged within 2;
+       the palette swap of patch615 moved it by 4, and a bound raised to 10 on
+       a mechanism claim that a reviewer measured to be false was put back.
+       Here every colour has the same weight on both sides (200 and 199
+       pixels), so the 8,193rd is the only difference - measured: groups and
+       merged move by 0 on Edition 03 and on the swapped palette. The cap
+       failure this guards moved merged by thousands. */
+    const a = await run(page, 8192, true), b = await run(page, 8193, true);
     console.log('8,192: ' + JSON.stringify(a) + '  8,193: ' + JSON.stringify(b));
     expect(Math.abs(b.groups - a.groups), 'groups').toBeLessThanOrEqual(1);
     expect(Math.abs(b.merged - a.merged), 'shades merged').toBeLessThanOrEqual(2);

@@ -13,8 +13,8 @@
    sensitive to a pooled census. So this spec carries its own proof of
    sensitivity first, and only then asserts the thing it is guarding:
 
-     TEST 1 the precondition. #585858 alone lands on #625565. Pooled with
-       #585856, 1.28 dE away, both land on #344241 - 20.4 dE from where the
+     TEST 1 the precondition. #182000 alone lands on #000000. Pooled with
+       #182200, 1.14 dE away, both land on #1a4c07 - 29.6 dE from where the
        first one was. A fixture whose two arms cannot differ can never fail.
      TEST 2 the guard. That same file, run alone and run in a batch beside
        the other one, comes out the same colour - in both batch orders.
@@ -24,7 +24,12 @@
    change the output is the palette step. */
 import { test, expect } from '@playwright/test';
 
-const A = '#585858', B = '#585856';
+/* WAS #585858 / #585856 (-> #625565, pooled #344241, 20.4 dE). patch615 put a
+   true grey, #5b5b5c, about 1 dE from both, so that pair no longer splits; this
+   pair was found on the swapped palette by scratchpad/fix8/judge/fixtures615.cjs,
+   away from the #9a8201/#954209 boundary palettegroups' browns sit on, so one
+   later palette change does not break both. */
+const A = '#182000', B = '#182200';
 
 const ready = async (page) => {
   await page.goto('/index.html');
@@ -76,9 +81,9 @@ test.describe('the palette map is per picture', () => {
       }, { A, B });
       expect(r.src, 'the two sources are inside the grouping threshold')
         .toBeLessThan(r.threshold);
-      expect(r.alone, 'alone it goes here').toBe('#625565');
-      expect(r.other, 'and the other one goes somewhere else').toBe('#344241');
-      expect(r.pooled, 'pooled, the first follows the second').toEqual(['#344241', '#344241']);
+      expect(r.alone, 'alone it goes here').toBe('#000000');
+      expect(r.other, 'and the other one goes somewhere else').toBe('#1a4c07');
+      expect(r.pooled, 'pooled, the first follows the second').toEqual(['#1a4c07', '#1a4c07']);
       expect(r.moved, 'which is a different colour by any measure').toBeGreaterThan(20);
     });
 
@@ -133,12 +138,12 @@ test.describe('the palette map is per picture', () => {
         return { single, fwd, rev };
       }, { a: flat(A), b: flat(B) });
 
-      expect(r.single, 'the single run puts it where it goes alone').toEqual(['#625565']);
-      expect(r.fwd['a.png'], 'and a batch does not move it').toEqual(['#625565']);
-      expect(r.rev['a.png'], 'whichever census was seen first').toEqual(['#625565']);
+      expect(r.single, 'the single run puts it where it goes alone').toEqual(['#000000']);
+      expect(r.fwd['a.png'], 'and a batch does not move it').toEqual(['#000000']);
+      expect(r.rev['a.png'], 'whichever census was seen first').toEqual(['#000000']);
       /* The other file is in the same run and keeps its own answer, so the
          assertion above is not passing because the batch did nothing. */
-      expect(r.fwd['b.png'], 'the other file is there and is snapped too').toEqual(['#344241']);
-      expect(r.rev['b.png']).toEqual(['#344241']);
+      expect(r.fwd['b.png'], 'the other file is there and is snapped too').toEqual(['#1a4c07']);
+      expect(r.rev['b.png']).toEqual(['#1a4c07']);
     });
 });

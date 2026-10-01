@@ -24663,7 +24663,15 @@ cloudRender().then(()=>{ if(cameFromEmail && sbRecovery) enterResetMode(); });
    you were. An unknown hash is the main page rather than an error: a stale
    link should land somewhere useful. */
 /* ================= the collection rules ========================== */
-/* Mrkt Mkrs 256, Resurrect expansion, every colour, in order.
+/* Mrkt Mkrs 256, Resurrect expansion, every colour, in order - WITH 20
+   SWAPPED (patch615, 2026-09-30). The collection draws colours this palette
+   did not have: 39.7% of the 232 saved traits' painted cells at size 8 sat
+   more than 8 dE from every colour in it (no neutral grey - every grey
+   leans purple - no strong blue or navy, few browns and greens, no cream),
+   while it held about 35 pairs under 2.3 dE apart. The owner chose to stay
+   at 256 and swap 20 near-copies for 20 drawn colours; each new colour sits
+   in the slot of the one it replaced. Measured: 39.7% -> 15.1%. The swaps
+   are listed in PALETTE_SOURCE.swapped, removed first.
 
    Baked in rather than fetched: the palette is a settled decision, the site
    works with no network and no file, and an agent needs no path to it. The
@@ -24675,21 +24683,24 @@ const PALETTE_HEX=
   +"91db69cddf6c313638374e4a547e6492a984b2ba900b5e650b8a8f0eaf9b30e1b98ff8e2323353484a774d65b44d9be6"
   +"8fd3ff45293f6b3e75905ea9a884f3eaaded753c54a24b6fcf657fed8099831c5dc32454f04f78f68181fca790fdcbb0"
   +"0000000b070c1c131d3c2d3b4b38485045555a43557f5d67706277a180738d8d9eb3a68fbab8a4b1c3c1c1cabae3ede7"
-  +"47262d5b272b7629287f2b2a872d2b90302c98322ea1342faa3630c03e32ce4334dc4935ed5b3bf06740f37245fa966e"
-  +"602933862935bc2936cb2f38d23239d93539ed4936f25530f66028fa771cfa811bf88c19f8a11cf9ac22f9b726face64"
-  +"4c2938632d3e8335438c3b4095403da4493aaa4e3ab5563cc15f3cd37241da7c45e0864aeb9a50f1a451f6af53fcc679"
+  +"47262d5b272b762928009f20872d2b90302c00e3f4a1342fff0000c03e32ce4334dc49351c27a3f06740f37245fa966e"
+  +"602933862935bc2936cb2f385b5b5cd93539ed4936f25530f66028fa771cfa811bf88c19f8a11cf9ac22f9b726face64"
+  +"4c2938632d3e8335438c3b4095403d1a4c07aa4e3ab5563cc15f3cd37241da7c45e0864aeb9a50f1a451f6af53fcc679"
   +"3a2d2c4336295348285a522c605c2f6e6e367576387d7e3b84873d9398429aa045afb648bbc44ac8d24ae8ef6afbffa8"
-  +"2c383b26494318614f1967521b6e551c74581e7b5b20825d229b6722a66b20b16f49c47164cc6f7cd36cb1dd6bd6e58a"
-  +"302a33303035333c3c3442413648453b544d3e5a514260544566574d725e50786164896c739374829e7ca2b18abfc6a4"
-  +"2c3a44244c540b696f0c747a0b7f840b93920c9c950da69818bba21dc1a621c8aa29d4b151e7c368edcd7df2d8a7fae7"
-  +"30293d312e4837395c3d3e6542446e4a51864b57954c5ea44e72c04f80cd4e8dd955a2e95ea9ec6eb7f37fc5f9a5dbff"
-  +"3725353e273a4e2e4c5833596139677446827d4e8f87569c9667bb9c71cda27ae0b089f3b88ff2c899f1d9a3efeebcf1"
-  +"4a2d3d5f344980405b8b4461974768a84e71ad5173b35575b85877be5b79c45e7bc9627dd66c85de728ce57992f398ab"
+  +"2c383b26494318614f6131051b6e551c74581e7b5b20825d229b6722a66b20b16f49c47164cc6f7cd36cb1dd6bd6e58a"
+  +"302a33303035333c3c3442413648453b544d050c304260544566574d725e50786164896c739374829e7ca2b18abfc6a4"
+  +"2c3a44244c540b696f0c747a0b7f840b93920c9c950da6988c8b8a1dc1a621c8aa29d4b151e7c32536f67df2d8a7fae7"
+  +"30293d312e4837395c40140242446e4a51864b57954c5ea44e72c04f80cd4e8dd955a2e95ea9ec6eb7f37fc5f9a5dbff"
+  +"372535c4c2c24e2e4c5833596139677446827d4e8f87569c9667bb9c71cda27ae0954209b88ff2c899f1d9a3efeebcf1"
+  +"4a2d3d5f344980405b8b4461974768537521ad5173f9e7c4c4a503be5b791210616044389a8201de728c0e6491f398ab"
   +"50244169224f921f5ca2215ab32357ce305dd93b66e5456ff25d7af36a7df5767ff88b85f99488fb9e8cfdb9a0fed4be";
 const PALETTE_SOURCE={name:"Mrkt Mkrs 256 - Resurrect Expansion",
-  edition:"Edition 03",
+  edition:"Edition 03, 20 colours swapped",
+  swapped:["#7f2b2a>#009f20","#98322e>#00e3f4","#aa3630>#ff0000","#ed5b3b>#1c27a3","#d23239>#5b5b5c","#a4493a>#1a4c07","#196752>#613105","#3e5a51>#050c30","#18bba2>#8c8b8a","#68edcd>#2536f6","#3d3e65>#401402","#3e273a>#c4c2c2","#b089f3>#954209","#a84e71>#537521","#b35575>#f9e7c4","#b85877>#c4a503","#c45e7b>#121061","#c9627d>#604438","#d66c85>#9a8201","#e57992>#0e6491"],
   from:"resurrect-expansion-256/mrkt-mkrs-resurrect-256.json",
-  colours:"1ddf5cbdf68f8eb9aa345d79b1c4b3103ee36f3bf718f80edd1eaf02e77ff089"};
+  /* sha256 of these colours, upper-case "#RRGGBB" joined by ",", the way the
+     Edition 03 hash 1ddf5cbdf68f... was made. */
+  colours:"e9c7ab20d1822c89b719abf309c0c1a860c32642b666938a9acc9953642e3d42"};
 function paletteList(){
   const out=[];
   for(let i=0;i+6<=PALETTE_HEX.length;i+=6) out.push("#"+PALETTE_HEX.slice(i,i+6));
@@ -24939,8 +24950,11 @@ function nearestPaletteColour(r,g,b,pal,palLab){
    SO IT STAYS PER FILE, and not as a sentence. tests/palettescope.spec.js
    runs one file alone and in a batch and asserts it comes out the same
    colour, on a fixture that is shown first to be able to tell the two apart:
-   #585858 alone lands on #625565, and pooled with #585856 - 1.28 dE away,
-   inside SNAP_GROUP_DE - both land on #344241, 20.4 dE from where it was.
+   #585858 alone landed on #625565, and pooled with #585856 - 1.28 dE away,
+   inside SNAP_GROUP_DE - both landed on #344241, 20.4 dE from where it was.
+   (SUPERSEDED as a fixture by patch615, whose swap put #5b5b5c 1 dE from
+   both: the spec now uses #182000 / #182200, alone #000000 / #1a4c07,
+   pooled both #1a4c07, 29.6 dE. The decision and its measurements stand.)
    orderfree.spec.js:118 already asserts a batch result "equals its own
    single-image run", but its fixture was built for the engine's k-means RNG
    and nothing shows it sensitive to this, which is why the new one exists.

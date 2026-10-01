@@ -24,8 +24,42 @@
      TEST 4 the fixer's worker: a flat navy picture through Fix pixels at
        size 8 comes out #323353. The worker carries its own copy of the
        palette step as text, so a helper left out of that text would break
-       only here. */
+       only here.
+
+   ON EDITION 03, THE PALETTE THE FAULT WAS MEASURED ON. patch615 then swapped
+   20 near-copies for colours the collection draws - a navy among them - and
+   on the swapped palette the rule changes no colour of a 32,768-colour sweep
+   (scratchpad/fix8/judge/fixtures615.cjs): navy now has a navy to go to. The
+   rule stays, as the guard for a palette that loses a colour again, so these
+   tests put Edition 03 back for the page (PALETTE_RGB, the cache paletteRGB
+   answers from, which is also what the fixer hands its worker) and test the
+   rule where it fires. The last test says what the swapped palette does. */
 import { test, expect } from '@playwright/test';
+
+/* Mrkt Mkrs 256 - Resurrect Expansion, Edition 03, as it was before patch615. */
+const EDITION_03 =
+  '2e222f3e3546625565966c6cab947a694f627f708a9babb2c7dcd0ffffff6e2727b33831ea4f36f57d4aae2334e83b3b'
+  +'fb6b1df79617f9c22b7a30459e4539cd683de6904efbb9544c3e24676633a2a947d5e04bfbff86165a4c2390631ebc73'
+  +'91db69cddf6c313638374e4a547e6492a984b2ba900b5e650b8a8f0eaf9b30e1b98ff8e2323353484a774d65b44d9be6'
+  +'8fd3ff45293f6b3e75905ea9a884f3eaaded753c54a24b6fcf657fed8099831c5dc32454f04f78f68181fca790fdcbb0'
+  +'0000000b070c1c131d3c2d3b4b38485045555a43557f5d67706277a180738d8d9eb3a68fbab8a4b1c3c1c1cabae3ede7'
+  +'47262d5b272b7629287f2b2a872d2b90302c98322ea1342faa3630c03e32ce4334dc4935ed5b3bf06740f37245fa966e'
+  +'602933862935bc2936cb2f38d23239d93539ed4936f25530f66028fa771cfa811bf88c19f8a11cf9ac22f9b726face64'
+  +'4c2938632d3e8335438c3b4095403da4493aaa4e3ab5563cc15f3cd37241da7c45e0864aeb9a50f1a451f6af53fcc679'
+  +'3a2d2c4336295348285a522c605c2f6e6e367576387d7e3b84873d9398429aa045afb648bbc44ac8d24ae8ef6afbffa8'
+  +'2c383b26494318614f1967521b6e551c74581e7b5b20825d229b6722a66b20b16f49c47164cc6f7cd36cb1dd6bd6e58a'
+  +'302a33303035333c3c3442413648453b544d3e5a514260544566574d725e50786164896c739374829e7ca2b18abfc6a4'
+  +'2c3a44244c540b696f0c747a0b7f840b93920c9c950da69818bba21dc1a621c8aa29d4b151e7c368edcd7df2d8a7fae7'
+  +'30293d312e4837395c3d3e6542446e4a51864b57954c5ea44e72c04f80cd4e8dd955a2e95ea9ec6eb7f37fc5f9a5dbff'
+  +'3725353e273a4e2e4c5833596139677446827d4e8f87569c9667bb9c71cda27ae0b089f3b88ff2c899f1d9a3efeebcf1'
+  +'4a2d3d5f344980405b8b4461974768a84e71ad5173b35575b85877be5b79c45e7bc9627dd66c85de728ce57992f398ab'
+  +'50244169224f921f5ca2215ab32357ce305dd93b66e5456ff25d7af36a7df5767ff88b85f99488fb9e8cfdb9a0fed4be';
+const onEdition03 = (page) => page.evaluate((hex) => {
+  PALETTE_RGB = [];
+  for (let i = 0; i < hex.length; i += 6) PALETTE_RGB.push({ h: '#' + hex.slice(i, i + 6),
+    r: parseInt(hex.slice(i, i + 2), 16), g: parseInt(hex.slice(i + 2, i + 4), 16), b: parseInt(hex.slice(i + 4, i + 6), 16) });
+  return PALETTE_RGB.length;
+}, EDITION_03);
 
 const ready = async (page) => {
   await page.goto('/index.html');
@@ -35,7 +69,7 @@ const ready = async (page) => {
 
 test.describe('the palette keeps a colourful colour colourful', () => {
   test.setTimeout(180000);
-  test.beforeEach(async ({ page }) => { await ready(page); });
+  test.beforeEach(async ({ page }) => { await ready(page); expect(await onEdition03(page), 'Edition 03 is the palette for these').toBe(256); });
 
   test('the plain nearest sends navy to grey; palettePick sends it to a blue and leaves the rest alone',
     async ({ page }) => {
@@ -137,5 +171,18 @@ test.describe('the palette keeps a colourful colour colourful', () => {
     });
     expect(r.error, 'the fixer ran').toBeUndefined();
     expect(r.colours).toEqual(['#323353']);
+  });
+
+  test('on the swapped palette navy has a navy of its own', async ({ page }) => {
+    /* PALETTE_RGB back to the page's own: paletteRGB rebuilds it from PALETTE_HEX. */
+    const r = await page.evaluate(() => {
+      PALETTE_RGB = null;
+      const n = nearestPaletteColour(0x00, 0x11, 0x65), q = labOf(n.r, n.g, n.b);
+      return { hex: n.hex, dE: n.dE, chroma: Math.hypot(q[1], q[2]), size: paletteRGB().length };
+    });
+    expect(r.size).toBe(256);
+    expect(r.hex, 'patch615 added #121061').toBe('#121061');
+    expect(r.dE, 'which is close').toBeLessThan(5);
+    expect(r.chroma, 'and a blue, not a grey').toBeGreaterThan(40);
   });
 });

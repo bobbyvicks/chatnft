@@ -20,9 +20,17 @@
    this spec's first run found it (readout "medium confidence (forced) -
    0.0s" with two colours moved).
 
-   The yellow pair below is 9.7 dE apart by the page's own CIEDE2000; the
+   The yellow pair below is 8.7 dE apart by the page's own CIEDE2000; the
    review quoted 20.35, which is that file's furthest merged pair. The
-   precondition asserts what the page measures. */
+   precondition asserts what the page measures.
+
+   FIXTURES MOVED BY patch615 (2026-09-30), which swapped 20 near-copies in
+   the palette for colours the collection draws. The browns were #66402d /
+   #67402e (19 dE apart alone) and the yellows #ecc900 / #c4a600 (9.7 apart):
+   the new brown #604438 and mustard #c4a503 now sit next to them, so neither
+   pair shows the thing any more, and #66402d moves only 4.2 now, "slight".
+   The pairs below were found on the swapped palette by scratchpad/fix8/judge/
+   fixtures615.cjs; each test still asserts its own premise first. */
 import { test, expect } from '@playwright/test';
 
 const ready = async (page) => {
@@ -49,9 +57,9 @@ test.describe('the palette snap', () => {
   test.beforeEach(async ({ page }) => { await ready(page); });
 
   test('TWO BROWNS NOBODY CAN TELL APART LAND ON ONE PALETTE COLOUR', async ({ page }) => {
-    const r = await snap(page, ['#66402d', '#67402e']);
+    const r = await snap(page, ['#8a6012', '#8b6013']);
     expect(r.sourceDE, 'the pair really is invisible').toBeLessThan(1);
-    expect(r.targets[0], 'and on their own they went two ways, 19 dE apart').not.toBe(r.targets[1]);
+    expect(r.targets[0], 'and on their own they go two ways, 29 dE apart').not.toBe(r.targets[1]);
     expect(r.outColours, 'together they land on one').toBe(1);
     expect(r.r.groups).toBe(1);
     expect(r.r.colours).toBe(2);
@@ -65,8 +73,8 @@ test.describe('the palette snap', () => {
   });
 
   test('SHADES MERGED INTO ONE PALETTE COLOUR ARE COUNTED', async ({ page }) => {
-    const r = await snap(page, ['#ecc900', '#c4a600']);
-    expect(r.sourceDE, 'two drawn shades, more than slight apart (9.7 by the page\'s own CIEDE2000)').toBeGreaterThan(5);
+    const r = await snap(page, ['#d4ac20', '#b89020']);
+    expect(r.sourceDE, 'two drawn shades, more than slight apart (8.7 by the page\'s own CIEDE2000)').toBeGreaterThan(5);
     expect(r.sourceDE).toBeLessThan(10);
     expect(r.targets[0], 'with the same nearest palette colour').toBe(r.targets[1]);
     expect(r.outColours).toBe(1);
@@ -75,9 +83,9 @@ test.describe('the palette snap', () => {
   });
 
   test('THE WORST MOVE IS KEPT UNROUNDED, and the word follows the true value', async ({ page }) => {
-    const r = await snap(page, ['#66402d']);
+    const r = await snap(page, ['#d5e0f3']);
     expect(Number.isInteger(r.r.worst)).toBe(false);
-    expect(r.r.worst).toBeCloseTo(11.44, 1);
+    expect(r.r.worst).toBeCloseTo(10.81, 1);
     expect(r.word).toBe('a clear change');
   });
 
@@ -146,8 +154,8 @@ test.describe('the palette snap', () => {
          one is a claim that can be wrong. A batch of two identical files
          cannot tell the right name from the last name, and a mutation that
          kept the last name survived the first draft. `far` holds the brown
-         the palette moves 11 dE; `near` holds a colour a hair off a palette
-         entry, which moves under 1. */
+         the palette moves 4.2 dE (11 before patch615 added #604438); `near`
+         holds a colour a hair off a palette entry, which moves under 1. */
       const pal2 = paletteRGB();
       /* a colour four steps off a palette entry: off the palette, so it moves,
          but only a little - derived by SUBTRACTING so it cannot overflow */

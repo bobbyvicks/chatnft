@@ -18,7 +18,19 @@
    drawn without an outline by design - is left alone. Mutants: the chain
    left off the skip list failed only the chain control; a switch that is
    ignored failed only the switch-off control; the folder's own call taken
-   out failed only the two folder tests. */
+   out failed only the two folder tests.
+
+   SIZE 8 KEEPS A THICKER LINE (owner, 2026-10-01: "a 2-cell outline stays 2 cells, not thinned to 1"). At Pixel
+   size 8 the pass measures the line on the SOURCE picture and keeps it that many cells thick (16 px -> 2 cells;
+   the hair's 10 px -> 1); at every other size the outline is one cell, as before. The readout says which:
+   "outline made one cell thick" or "outline kept 2 cells thick, as drawn", and a folder's note counts the two
+   apart. The box tests below draw a grey square with a black border 3 px off the 8 px grid. RUN IN NODE
+   THROUGH THE PAGE'S PATH BEFORE THE FIX (harness, live 46f1c01): a 20 px border came out one cell thick
+   (cells at depth 2 black: none); after: all of them, and none at depth 3. The controls: a 10 px border stays
+   one cell (a version that rounds widths up gave 0.504 black at depth 2); at size 16 a 32 px border stays one
+   cell (the width rule left on at every size gave 1.0); two 3-cell inner lines off a 16 px (2-cell) border
+   stay black (round 3's version of this change, which moved the line-art depth with the width, removed both).
+*/
 import { test, expect } from '@playwright/test';
 
 /* The spiky hair, as PNG bytes in base64. Blocks on a 128 grid: seven
@@ -155,5 +167,122 @@ test.describe('the outline Fix pixels leaves', () => {
     expect(off.folder).toBe(off.one);
     expect(off.folder).not.toBe(on.folder);
     expect(off.note).not.toContain('outline');
+  });
+});
+
+/* A grey square, black border `line` px wide, 3 px off the 8 px grid; optional inner black lines (x, y, w, h in px). */
+const drawBox = (page, line, stubs) => page.evaluate(async ({ line, stubs }) => {
+  const c = document.createElement('canvas'); c.width = c.height = 1280;
+  const g = c.getContext('2d');
+  g.fillStyle = '#000000'; g.fillRect(403, 403, 480, 480);
+  g.fillStyle = '#8b93af'; g.fillRect(403 + line, 403 + line, 480 - 2 * line, 480 - 2 * line);
+  g.fillStyle = '#000000'; for (const [x, y, w, h] of stubs || []) g.fillRect(x, y, w, h);
+  const blob = await new Promise(r => c.toBlob(r, 'image/png'));
+  const u8 = new Uint8Array(await blob.arrayBuffer()); let s = '';
+  for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+  return btoa(s);
+}, { line, stubs });
+
+/* Fix it at a pixel size through the single run and measure the cell grid by depth from empty space:
+   edge cells (depth 1), how many are not black, the share of black at depth 2 and 3, and how many cells of
+   each inner line (cells whose centre lies in its rectangle) are black. */
+const fixBox = (page, o) => page.evaluate(async ({ b64, rel, line, size, rects }) => {
+  try { authed = true; } catch (_) {}
+  gateShow(false); showPage('fixer', false);
+  const set = (id, v) => { const e = document.getElementById(id); if (!e) return;
+    if (e.type === 'checkbox') e.checked = v; else e.value = v; e.dispatchEvent(new Event('change')); e.dispatchEvent(new Event('input')); };
+  set('fixforce', String(size)); set('fixgrid', true); set('fixpal', true); set('fixline', line);
+  const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+  if (!await fixLoad(fileWithPath(bytes, rel))) return { error: document.getElementById('fixout').textContent };
+  const r = await fixRun();
+  const W = r.width, H = r.height, d = r.data;
+  const op = i => d[i * 4 + 3] >= 128, blk = i => op(i) && !d[i * 4] && !d[i * 4 + 1] && !d[i * 4 + 2];
+  const D = new Int32Array(W * H), q = []; let h = 0;
+  for (let i = 0; i < W * H; i++) {
+    if (!op(i)) continue; const x = i % W, y = (i / W) | 0;
+    if ((x > 0 && !op(i - 1)) || (x < W - 1 && !op(i + 1)) || (y > 0 && !op(i - W)) || (y < H - 1 && !op(i + W))) { D[i] = 1; q.push(i); }
+  }
+  while (h < q.length) {
+    const i = q[h++], x = i % W, y = (i / W) | 0;
+    for (const j of [x > 0 ? i - 1 : -1, x < W - 1 ? i + 1 : -1, y > 0 ? i - W : -1, y < H - 1 ? i + W : -1])
+      if (j >= 0 && op(j) && !D[j]) { D[j] = D[i] + 1; q.push(j); }
+  }
+  const n = [0, 0, 0, 0], b = [0, 0, 0, 0];
+  for (let i = 0; i < W * H; i++) if (D[i] >= 1 && D[i] <= 3) { n[D[i]]++; if (blk(i)) b[D[i]]++; }
+  const cs = 1280 / W, inner = (rects || []).map(rc => {
+    let k = 0, kb = 0;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const cx = (x + 0.5) * cs, cy = (y + 0.5) * cs;
+      if (cx >= rc[0] && cx < rc[0] + rc[2] && cy >= rc[1] && cy < rc[1] + rc[3]) { k++; if (blk(y * W + x)) kb++; }
+    }
+    return kb + '/' + k;
+  });
+  return { cells: W + 'x' + H, edge: n[1], edgeNotBlack: n[1] - b[1], depth2Black: +(b[2] / n[2]).toFixed(3),
+    depth3Black: +(b[3] / n[3]).toFixed(3), inner, said: document.getElementById('fixout').textContent };
+}, { b64: o.b64, rel: o.rel, line: o.line !== false, size: o.size, rects: o.rects });
+
+/* Two inner lines 8 px wide running 24 px (3 cells) in from the inside of a 16 px border: down from the top side
+   and across from the left side. */
+const STUBS = [[639, 419, 8, 24], [419, 639, 24, 8]];
+
+test.describe('the outline at Pixel size 8 keeps the thickness the picture draws', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/index.html');
+    await page.waitForFunction(() => typeof fixRun === 'function' && typeof fileWithPath === 'function');
+  });
+
+  test('A 20 PX BORDER AT SIZE 8 IS MADE 2 CELLS THICK, NOT 1, and the run says so', async ({ page }) => {
+    const r = await fixBox(page, { b64: await drawBox(page, 20), rel: 'hats/wip/box20.png', size: 8 });
+    console.log('box20 @8: ' + JSON.stringify({ ...r, said: undefined }) + ' | ' + r.said);
+    expect(r.cells).toBe('160x160');
+    expect(r.edgeNotBlack, 'no gap in the outline').toBe(0);
+    expect(r.depth2Black, 'the second cell of the line is black').toBeGreaterThanOrEqual(0.95);
+    expect(r.depth3Black, 'and the third is fill again').toBeLessThanOrEqual(0.05);
+    expect(r.said).toContain('outline kept 2 cells thick, as drawn');
+  });
+
+  test('the control: a 10 px border at size 8 is still made one cell thick', async ({ page }) => {
+    const r = await fixBox(page, { b64: await drawBox(page, 10), rel: 'hats/wip/box10.png', size: 8 });
+    expect(r.edgeNotBlack).toBe(0);
+    expect(r.depth2Black).toBeLessThanOrEqual(0.05);
+    expect(r.said).toContain('outline made one cell thick');
+  });
+
+  test('the control: at size 16 a 32 px border is one cell - the rule is for size 8 only', async ({ page }) => {
+    const r = await fixBox(page, { b64: await drawBox(page, 32), rel: 'hats/wip/box32.png', size: 16 });
+    expect(r.cells).toBe('80x80');
+    expect(r.edgeNotBlack).toBe(0);
+    expect(r.depth2Black).toBeLessThanOrEqual(0.05);
+    expect(r.said).toContain('outline made one cell thick');
+  });
+
+  test('AN INNER LINE 3 CELLS DEEP OFF A 2-CELL BORDER IS KEPT', async ({ page }) => {
+    const r = await fixBox(page, { b64: await drawBox(page, 16, STUBS), rel: 'hats/wip/stubs.png', size: 8, rects: STUBS });
+    console.log('stubs @8: ' + JSON.stringify({ ...r, said: undefined }));
+    expect(r.depth2Black).toBeGreaterThanOrEqual(0.95);
+    expect(r.inner).toEqual(['3/3', '3/3']);
+  });
+
+  test('A FOLDER RUN GIVES THE SAME 2-CELL BORDER, and its note counts it apart', async ({ page }) => {
+    const b64 = await drawBox(page, 20);
+    const r = await page.evaluate(async ({ b64 }) => {
+      try { authed = true; } catch (_) {}
+      gateShow(false); showPage('fixer', false);
+      const set = (id, v) => { const e = document.getElementById(id); if (!e) return;
+        if (e.type === 'checkbox') e.checked = v; else e.value = v; e.dispatchEvent(new Event('change')); e.dispatchEvent(new Event('input')); };
+      set('fixforce', '8'); set('fixgrid', true); set('fixpal', true); set('fixline', true);
+      const sig = async (u8) => { const p = await pngDecode(u8);
+        return p.width + 'x' + p.height + '#' + Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', p.data))).slice(0, 8).join('.'); };
+      const file = () => fileWithPath(Uint8Array.from(atob(b64), c => c.charCodeAt(0)), 'hats/wip/box20.png');
+      if (!await fixLoad(file())) return { error: document.getElementById('fixout').textContent };
+      const one = await sig(await fixResultBytes(await fixRun()));
+      await fixBatch([file()]);
+      const f = fixBatchFiles[0];
+      return { one, folder: f ? await sig(f.data) : null, note: document.getElementById('fixbatchout').textContent };
+    }, { b64 });
+    console.log('box20 folder: ' + JSON.stringify(r));
+    expect(r.folder).toBe(r.one);
+    expect(r.note).toContain('1 outline kept as thick as drawn');
+    expect(r.note).not.toContain('made one cell thick');
   });
 });

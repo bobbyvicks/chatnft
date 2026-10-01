@@ -2069,9 +2069,9 @@ footer .mono{color:var(--ink);}
       <input type="checkbox" id="fixpal" checked>
       <span>Colours to palette</span></label>
     <label class="olrow" style="gap:6px"
-      title="Make the black outline exactly one cell thick: close its gaps, thin the doubled parts back to the fill, keep every spike and the line art inside. Only on shapes that are drawn with a black outline; backgrounds, chains, eyes, mouths and ears are left alone.">
+      title="Clean up the black outline: close its gaps, thin the doubled parts back to the fill, keep every spike and the line art inside. One cell thick; at Pixel size 8 a line the picture draws thicker keeps its thickness (a 16 px line stays 2 cells). Only on shapes that are drawn with a black outline; backgrounds, chains, eyes, mouths and ears are left alone.">
       <input type="checkbox" id="fixline" checked>
-      <span>One-cell black outline</span></label>
+      <span>Clean black outline</span></label>
     <button class="btn" id="fixrun" disabled>Fix it</button>
     <button class="btn ghost" id="fixstop" hidden>Stop</button>
   </div>
@@ -26684,7 +26684,7 @@ let fixPalMoved=0, fixPalPixels=0, fixPalFiles=0;
 let fixPalWorst=0, fixPalMerged=0, fixPalWorstFile="";
 function fixPalWanted(){ const b=$("fixpal"); return !!(b&&b.checked); }
 /* fixOutlineOnce(cells, opts) - "peel and retrace", final2. Works on the CELL grid (one cell = one "square").
-   Starts from cand-final.cjs; round-3 changes are marked [B1][B2][B3][M1]..[M5].
+   Starts from cand-final.cjs; round-3 changes are marked [B1][B2][B3][M1]..[M5]; [S1][S2] 2026-10-01, [S2] amended in round 4.
 
    opts.layer in OUTLINE_SKIP_LAYERS -> the input is returned unchanged (a copy).
    0. Parts: 8-connected opaque parts. A part is worked on only when ALL of:
@@ -26729,6 +26729,28 @@ function fixPalWanted(){ const b=$("fixpal"); return !!(b&&b.checked); }
         unfilled), and a colour that reads as black (luminance < DARK_FILL_LUM) is the last resort. Fill flows
         from cells at depth >= 2 only (never from the ring); a cell no fill reaches stays black, or keeps its
         own colour if it was debris (Jason Mask's maroon strap has no other colour to take).
+   [S1][S2] opts.source = fixOutlineSource(picture, W, H) (2026-10-01, owner decisions 4 and the gate miss):
+   [S1] GATE FROM THE SOURCE. A part the cell gate skips is still worked on when 80%+ of its SOURCE edge is dark
+        (luminance <= 40) AND that line is drawn, not traced: its mean width (black px behind each edge px, within one
+        cell) is >= SRC_MIN_LINE_PX = 2. Measured on the 212 traits of the 8 outlined layers: drawn lines 2.3-10.9,
+        1 px traced hairlines 1.08-1.56 (Punk Frumpy Hair, Divine Ponytail, Mandalorian, Mime, Anonymous, Sun Baby,
+        Green Slogan Hoodie - left as today). Such a part gets the ring only, and only on cells whose 3x3 neighbourhood
+        carries a drawn line in the source (Red Lightsaber's blade glow stays red); nothing inside it is peeled (its
+        line lost the vote, so there is no doubled border; peeling ate the lightsaber's hilt bands).
+   [S2] WIDTH FROM THE SOURCE - AT PIXEL SIZE 8 ONLY (a cell of WIDTH_RULE_CELL_PX = 8 source px; owner decision 4
+        is about size 8). The outline is w = round(source width / cell size) cells (half rounds down, 1..3), the source
+        width being the depth from the edge where the share of pure-ish black (luminance <= 8) FALLS hardest (score
+        fall^2/share; a RISE scores 0). Skins drawn with a 16 px line keep 2 cells at size 8. The first w depths of the
+        band are the line (black); only black behind them peels (PEEL_DEPTH, NEAR_PEEL_DEPTH and the depth tests built
+        on them move w-1 deeper) - but NOT the depth a small bit of black must reach to count as line art ([B2]'s
+        PEEL_DEPTH + 1 stays put, ART_W_SHIFT = 0), so a 3-cell inner line off a 2-cell outline stays, as it does today.
+        Superseded (round 3, 2026-10-01): "score fall^2/share" without the fall check, at every cell size, and the art
+        depth moved w-1 deeper. The rise was scored as a cliff: Dark Lens Sunglasses read its lens ring (a black share
+        RISING 0.14 -> 0.45 at depth 20) as a 20 px line, w = 2 at size 8, and peeled the ring round the right lens;
+        Eight Lines Specs (26 px, w 3 at 8) and Black Headset (40 px, w 2 at 16) read the same way and changed nothing
+        only by luck. Moving the art depth ate 3-cell inner lines next to a 2-cell outline (round-4 control C).
+        At 16 with the fall check no part of the 212 traits changes through [S2] even with the rule on at every size.
+   Without opts.source both are off and the pass is byte-identical to before (424/424 runs).
    opts.debug attaches the internal masks as res._dbg (probe use only).
    Plain JS, no require(), input never mutated. */
 var OUTLINE_SKIP_LAYERS = ['backgrounds', 'chains', 'eyes', 'mouth', 'ears'];
@@ -26741,7 +26763,9 @@ function fixOutlineOnce(c, opts) {
 
   var OUTLINED_FRAC = 0.5, OUTLINED_NEAR_FRAC = 0.6, MIN_AREA = 200, MIN_RING = 6, BLACK_BODY_FRAC = 0.4,
       NEAR_BLACK_LUM = 16, MAX_WHISKER = 2, PEEL_DEPTH = 3, NEAR_PEEL_DEPTH = 2, JUNK_LUM = 40, JUNK_DEPTH = 6,
-      OFF_LUM = 64, OFF_DEPTH = 4, DARK_RING_LUM = 80, MAX_GAP = 6, MAX_DEBRIS = 3, MAX_FILL_ROUNDS = 16, MIN_FILL_INSIDE = 6, DARK_FILL_LUM = 24;
+      OFF_LUM = 64, OFF_DEPTH = 4, DARK_RING_LUM = 80, MAX_GAP = 6, MAX_DEBRIS = 3, MAX_FILL_ROUNDS = 16, MIN_FILL_INSIDE = 6, DARK_FILL_LUM = 24,
+      SRC_GATE = true, SRC_OUTLINED_FRAC = 0.8, SRC_WIDTH_FRAC = 0.1, MAX_LINE_CELLS = 3, WIDTH_ROUND_BIAS = 0.01, SRC_MIN_LINE_PX = 2,
+      WIDTH_RULE_CELL_PX = 8, ART_W_SHIFT = 0;
   var i, j, k, x, y, p, a, t;
   var nb = [0, 0, 0, 0];
   function nb4(i, out) {
@@ -26782,6 +26806,58 @@ function fixOutlineOnce(c, opts) {
     nearInk[p] = pAllNear[p] < BLACK_BODY_FRAC * pArea[p] ? 1 : 0;
     if (pPure[p] >= OUTLINED_FRAC * pRing[p] || pNear[p] >= OUTLINED_NEAR_FRAC * pRing[p]) { sel[p] = 1; any = true; }
   }
+  // [S1][S2] what the SOURCE picture says about each part (opts.source = fixOutlineSource(...)); without it,
+  // every part keeps the cell gate and a 1-cell outline, as before
+  var S = opts && opts.source, pW = new Int32Array(nParts).fill(1), pShare = new Float64Array(nParts).fill(-1), pWpx = new Float64Array(nParts), pMean = new Float64Array(nParts);
+  if (S && S.W === W && S.H === H) {
+    var DM = S.DMAX, own = new Int32Array(N).fill(-1), sRn = new Float64Array(nParts), sRd = new Float64Array(nParts),
+        sO = new Float64Array(nParts * (DM + 1)), sK = new Float64Array(nParts * (DM + 1));
+    for (i = 0; i < N; i++) {
+      if (part[i] >= 0) { own[i] = part[i]; continue; }
+      // an empty cell: its source pixels (a thin outline that lost the vote) belong to the part next to it
+      x = i % W; y = (i / W) | 0;
+      for (var oy2 = -1; oy2 <= 1 && own[i] < 0; oy2++) for (var ox2 = -1; ox2 <= 1; ox2++) {
+        var qx = x + ox2, qy = y + oy2; if (qx < 0 || qy < 0 || qx >= W || qy >= H) continue;
+        if (part[qy * W + qx] >= 0) { own[i] = part[qy * W + qx]; break; }
+      }
+    }
+    for (i = 0; i < N; i++) {
+      p = own[i]; if (p < 0) continue;
+      sRn[p] += S.ringN[i]; sRd[p] += S.ringDark[i];
+      for (t = 1; t <= DM; t++) { sO[p * (DM + 1) + t] += S.opqD[i * (DM + 1) + t]; sK[p * (DM + 1) + t] += S.darkD[i * (DM + 1) + t]; }
+    }
+    for (p = 0; p < nParts; p++) {
+      if (sRn[p] > 0) pShare[p] = sRd[p] / sRn[p];
+      // the outline's width in source px: the depth where the share of black (luminance <= 8) falls hardest, scored
+      // fall x fall / share - a cliff, not a slope. A stair-stepped line is full width only on its flats (Diamond Ore:
+      // 98% black at depth 1, 18% at 16, 2% at 17), and a dark pattern behind the line (Red Camo) falls slowly.
+      var bestT = 0, bestFall = 0;
+      for (t = 1; t < DM; t++) {
+        var o2 = sO[p * (DM + 1) + t], o3 = sO[p * (DM + 1) + t + 1]; if (!o2) break;
+        var f2 = sK[p * (DM + 1) + t] / o2, f3 = o3 ? sK[p * (DM + 1) + t + 1] / o3 : 0;
+        if (f2 < SRC_WIDTH_FRAC) continue;
+        var sc2 = f2 > f3 ? (f2 - f3) * (f2 - f3) / f2 : 0;   // only a FALL counts: a rise is a ring or band behind the line (Dark Lens Sunglasses' lens ring)
+        if (sc2 > bestFall) { bestFall = sc2; bestT = t; }
+      }
+      pWpx[p] = bestT;
+      // the line's MEAN width in source px (black area behind the edge / edge length, within one cell of it): a traced
+      // 1 px hairline (Punk Frumpy Hair, Green Slogan Hoodie, Mandalorian) reads about 1.1-1.6, a drawn line 2.5 and up
+      var mw = 0; for (t = 1; t <= Math.min(DM, Math.ceil(S.cs)); t++) { var o4 = sO[p * (DM + 1) + t]; if (o4) mw += sK[p * (DM + 1) + t] / o4; }
+      pMean[p] = mw;
+      // [S2] the width rule is for Pixel size 8 only (owner decision 4); at any other cell size the outline stays 1 cell
+      if (Math.round(S.cs) === WIDTH_RULE_CELL_PX)
+        pW[p] = Math.max(1, Math.min(MAX_LINE_CELLS, Math.floor(pWpx[p] / S.cs + 0.5 - WIDTH_ROUND_BIAS)));
+      if (pArea[p] < MIN_AREA || pRing[p] < MIN_RING || sel[p]) continue;
+      // [S1] selected by the source: the line lost the vote, so the cells hold no doubled border to peel - the
+      // ring is redrawn (where the source has a line) and nothing inside is touched (Red Lightsaber's hilt bands, hand lines)
+      if (SRC_GATE && pShare[p] >= SRC_OUTLINED_FRAC && pMean[p] >= SRC_MIN_LINE_PX) { sel[p] = 2; noPeel[p] = 1; any = true; }
+    }
+  }
+  // [S2] the outline widths this run draws, for the readout (1 everywhere unless the source says otherwise at size 8)
+  var wLo = 0, wHi = 0;
+  for (p = 0; p < nParts; p++) if (sel[p]) { if (!wLo || pW[p] < wLo) wLo = pW[p]; if (pW[p] > wHi) wHi = pW[p]; }
+  res.wMin = wLo; res.wMax = wHi;
+  if (opts && opts.debug) res._parts = { n: nParts, area: pArea, ring: pRing, pure: pPure, near: pNear, sel: sel, share: pShare, wpx: pWpx, mean: pMean, w: pW, cs: S ? S.cs : 0 };
   if (!any) return res;
   var work = new Uint8Array(N), blk = new Uint8Array(N), pure = new Uint8Array(N);
   for (i = 0; i < N; i++) if (part[i] >= 0 && sel[part[i]]) {
@@ -26891,11 +26967,23 @@ function fixOutlineOnce(c, opts) {
   }
   var paint = new Uint8Array(N);
   function limb(i) { var r = freg[i]; return r >= 0 && fInside[r] < MIN_FILL_INSIDE && !fSpeck[r]; }
+  // [S1] a part the SOURCE gate selected (sel 2) is outlined only where the source draws a line there: the cell and
+  // its 8 neighbours (an empty neighbour holds a line that lost the vote) carry at least SRC_MIN_LINE_PX of black
+  // per source edge pixel. Red Lightsaber's blade has a 1 px hairline (its red glow stays red) while its hand is drawn.
+  function srcLine(i) {
+    if (!S || sel[part[i]] !== 2) return true;
+    var lx = i % W, ly = (i / W) | 0, rn = 0, bk2 = 0, tt, lim = Math.min(S.DMAX, Math.ceil(S.cs));
+    for (var vy = -1; vy <= 1; vy++) for (var vx = -1; vx <= 1; vx++) {
+      var ux = lx + vx, uy = ly + vy; if (ux < 0 || uy < 0 || ux >= W || uy >= H) continue;
+      var c2 = uy * W + ux; rn += S.ringN[c2]; for (tt = 1; tt <= lim; tt++) bk2 += S.darkD[c2 * (S.DMAX + 1) + tt];
+    }
+    return rn > 0 && bk2 >= SRC_MIN_LINE_PX * rn;
+  }
   function lightRing(j) { return work[j] && ring[j] && !blk[j] && !junk[j] && lumOf(j) > DARK_RING_LUM; }
   for (i = 0; i < N; i++) {
     if (!work[i] || !ring[i] || pure[i]) continue;
     if (blk[i] || junk[i]) { paint[i] = 1; continue; }                 // near-black ink, debris
-    if (lumOf(i) <= DARK_RING_LUM && !limb(i)) paint[i] = 1;            // a dark rim colour: always black
+    if (lumOf(i) <= DARK_RING_LUM && !limb(i) && srcLine(i)) paint[i] = 1;            // a dark rim colour: always black
   }
   // light colours: a short run along the ring is a gap in the line; a long one is a drawn coloured edge
   var seen = new Uint8Array(N), run2 = [];
@@ -26909,14 +26997,14 @@ function fixOutlineOnce(c, opts) {
         j = my * W + mx; if (lightRing(j) && !seen[j]) { seen[j] = 1; q[qt++] = j; }
       }
     }
-    if (run2.length <= MAX_GAP) for (k = 0; k < run2.length; k++) if (!limb(run2[k])) paint[run2[k]] = 1;
+    if (run2.length <= MAX_GAP) for (k = 0; k < run2.length; k++) if (!limb(run2[k]) && srcLine(run2[k])) paint[run2[k]] = 1;
   }
 
   // ---- 3. the band: black / debris chained to the (new) black ring
   var band = new Uint8Array(N); qh = 0; qt = 0;
   function bandable(j) {
     if (noPeel[part[j]]) return false;
-    if (blk[j]) return D[j] <= (pure[j] ? PEEL_DEPTH : NEAR_PEEL_DEPTH);
+    if (blk[j]) return D[j] <= (pure[j] ? PEEL_DEPTH : NEAR_PEEL_DEPTH) + pW[part[j]] - 1;   // [S2] a w-cell line peels w-1 deeper
     if (junk[j] === 1) return D[j] <= JUNK_DEPTH;
     if (junk[j] === 2) return De[j] <= OFF_DEPTH;
     return false;
@@ -26938,7 +27026,7 @@ function fixOutlineOnce(c, opts) {
     for (k = 0; k < 4; k++) { j = nb[k]; if (j >= 0 && band[j] && blk[j] && !ring[j] && bd[j] < 0) { bd[j] = bd[i] + 1; par[j] = i; q[qt++] = j; } }
   }
   // line art: black beyond the band depth
-  function deepB(j) { return work[j] && blk[j] && !ring[j] && !noPeel[part[j]] && D[j] > (pure[j] ? PEEL_DEPTH : NEAR_PEEL_DEPTH); }
+  function deepB(j) { return work[j] && blk[j] && !ring[j] && !noPeel[part[j]] && D[j] > (pure[j] ? PEEL_DEPTH : NEAR_PEEL_DEPTH) + pW[part[j]] - 1; }
   var keep = new Uint8Array(N), artSeen = new Uint8Array(N), clump = new Uint8Array(N), art = [];
   function touchesBand(i) { var o = [0, 0, 0, 0]; nb4(i, o); for (var t = 0; t < 4; t++) if (o[t] >= 0 && band[o[t]]) return true; return false; }
   for (i = 0; i < N; i++) {
@@ -26955,7 +27043,11 @@ function fixOutlineOnce(c, opts) {
     // round the side of it are one thing (HODLING's and Blonde Bowl's clumps) - [R4] compared colours and
     // kept those.
     var divides = false;
-    if (art.length <= MAX_DEBRIS && maxD <= PEEL_DEPTH + 1) {
+    // [S2] how deep a small bit of black must reach to count as line art is NOT moved deeper by a w-cell line:
+    // a 3-cell inner line off a 2-cell outline (reaching depth 5) is line art, as it is to the page today, which
+    // sees that outline doubled (round 3 moved it, ART_W_SHIFT 1, and ate such lines: ctl/ C_2cell_16px_stubs)
+    var artEx = ART_W_SHIFT ? pW[part[art[0]]] - 1 : 0;
+    if (art.length <= MAX_DEBRIS && maxD <= PEEL_DEPTH + artEx + 1) {
       var bx0 = W, by0 = H, bx1 = -1, by1 = -1, sideCells = [];
       for (k = 0; k < art.length; k++) { var ax = art[k] % W, ay = (art[k] / W) | 0; if (ax < bx0) bx0 = ax; if (ay < by0) by0 = ay; if (ax > bx1) bx1 = ax; if (ay > by1) by1 = ay; }
       for (k = 0; k < art.length; k++) {
@@ -26996,7 +27088,7 @@ function fixOutlineOnce(c, opts) {
         }
       }
     }
-    if (divides || art.length > MAX_DEBRIS || maxD > PEEL_DEPTH + 1) {      // [B2] line art (not a tiny, shallow corner of a clump)
+    if (divides || art.length > MAX_DEBRIS || maxD > PEEL_DEPTH + artEx + 1) {      // [B2] line art (not a tiny, shallow corner of a clump)
       var best = -1, bestD = 1 << 30;
       for (k = 0; k < art.length; k++) {
         keep[art[k]] = 1; nb4(art[k], nb);
@@ -27017,7 +27109,10 @@ function fixOutlineOnce(c, opts) {
     for (k = 0; k < 4; k++) { j = nb[k]; if (j >= 0 && band[j] && blk[j] && !ring[j] && !keep[j] && D[j] === D[a] - 1) { keep[j] = 1; q[qt++] = j; } }
   }
   var peel = new Uint8Array(N);
-  for (i = 0; i < N; i++) if (work[i] && !ring[i] && D[i] >= 2 && !keep[i] && (band[i] || clump[i])) peel[i] = 1;
+  for (i = 0; i < N; i++) if (work[i] && !ring[i] && !keep[i] && (band[i] || clump[i])) {
+    // [S2] the source draws a w-cell line: the first w depths of the band ARE the line (black); only what lies behind it peels
+    if (D[i] > pW[part[i]]) peel[i] = 1; else if (D[i] >= 2) paint[i] = 1;
+  }
   // a 1-cell tick sticking sideways out of kept line art (a snapping leftover, Noun Glasses Original's inner
   // frame line) joins the fill: the tick is black with ONE black 4-neighbour, that neighbour is part of a
   // straight line running across the tick's direction, and nothing else black is around the tick
@@ -27046,7 +27141,7 @@ function fixOutlineOnce(c, opts) {
   // it becomes the black line, or that stretch of the part would have no outline at all (Yellow Hard Hat top)
   for (i = 0; i < N; i++) {
     if (!work[i] || !ring[i] || pure[i] || paint[i]) continue;
-    nb4(i, nb); for (k = 0; k < 4; k++) if (nb[k] >= 0 && peel[nb[k]] && blk[nb[k]]) { paint[i] = 1; break; }
+    nb4(i, nb); for (k = 0; k < 4; k++) if (nb[k] >= 0 && peel[nb[k]] && blk[nb[k]] && srcLine(i)) { paint[i] = 1; break; }
   }
   // [B1] orphans: interior black that touched what was peeled and is no longer 4-connected to the black ring.
   // Dropped only when tiny and shallow; anything bigger or deeper is the artist's line art.
@@ -27056,7 +27151,7 @@ function fixOutlineOnce(c, opts) {
     cells.length = 0; qh = 0; qt = 0; q[qt++] = i; comp[i] = 1;
     var toRing = false, toPeel = false, shallow = true;
     while (qh < qt) {
-      a = q[qh++]; cells.push(a); if (D[a] > PEEL_DEPTH) shallow = false; nb4(a, nb);
+      a = q[qh++]; cells.push(a); if (D[a] > PEEL_DEPTH + pW[part[a]] - 1) shallow = false; nb4(a, nb);
       for (k = 0; k < 4; k++) {
         j = nb[k]; if (j < 0 || !work[j]) continue;
         if (ring[j] && (pure[j] || paint[j] || blk[j])) toRing = true;
@@ -27132,19 +27227,76 @@ function fixOutlineOnce(c, opts) {
   }
   return res;
 }
+/* fixOutlineSource(pic, W, H) - [S1][S2] what the SOURCE picture says about its outline, cell by cell.
+   The pass works on cells AFTER the vote, and a thin outline that lost the vote is no longer there to be
+   seen (Green Slogan Hoodie: 97-100% of the source edge is black, 1-44% of the cell edge); a 2-cell outline
+   at size 8 looks like any other doubled border. So the source is measured once, at full resolution:
+   per cell, its source pixels on the edge of the drawing (opaque, 4-touching transparency inside the
+   picture; the canvas edge does not count), how many of those are dark (luminance <= SRC_DARK_LUM), and,
+   per depth from that edge (1..DMAX source px), how many pixels are opaque and how many dark.
+   pic = {data, width, height} as the engine was given it; W x H = the cell grid. */
+function fixOutlineSource(pic, W, H) {
+  var sw = pic.width, sh = pic.height, s = pic.data, n = sw * sh, N = W * H, SRC_DARK_LUM = 40, SRC_LINE_LUM = 8;
+  var cs = sw / W, DMAX = Math.min(64, Math.ceil(4 * cs)), D1 = DMAX + 1;
+  var dep = new Int32Array(n), q = new Int32Array(n), qh = 0, qt = 0, i, j, x, y, c, k;
+  var cx = new Int32Array(sw), cy = new Int32Array(sh);
+  for (x = 0; x < sw; x++) cx[x] = Math.min(W - 1, Math.floor(x * W / sw));
+  for (y = 0; y < sh; y++) cy[y] = Math.min(H - 1, Math.floor(y * H / sh));
+  function op(j) { return s[j * 4 + 3] >= 128; }
+  for (i = 0; i < n; i++) {
+    if (!op(i)) { dep[i] = 0; continue; }
+    x = i % sw; y = (i / sw) | 0;
+    if ((x > 0 && !op(i - 1)) || (x < sw - 1 && !op(i + 1)) || (y > 0 && !op(i - sw)) || (y < sh - 1 && !op(i + sw))) { dep[i] = 1; q[qt++] = i; }
+    else dep[i] = 1 << 30;
+  }
+  while (qh < qt) {
+    i = q[qh++]; if (dep[i] >= DMAX) continue; x = i % sw; y = (i / sw) | 0;
+    var nb = [x > 0 ? i - 1 : -1, x < sw - 1 ? i + 1 : -1, y > 0 ? i - sw : -1, y < sh - 1 ? i + sw : -1];
+    for (k = 0; k < 4; k++) { j = nb[k]; if (j >= 0 && dep[j] > dep[i] + 1) { dep[j] = dep[i] + 1; q[qt++] = j; } }
+  }
+  var ringN = new Int32Array(N), ringDark = new Int32Array(N), opqD = new Int32Array(N * D1), darkD = new Int32Array(N * D1);
+  for (i = 0; i < n; i++) {
+    var dd = dep[i]; if (dd < 1 || dd > DMAX) continue;
+    x = i % sw; y = (i / sw) | 0; c = cy[y] * W + cx[x];
+    var lum = 0.299 * s[i * 4] + 0.587 * s[i * 4 + 1] + 0.114 * s[i * 4 + 2], dark = lum <= SRC_DARK_LUM ? 1 : 0;
+    opqD[c * D1 + dd]++; if (lum <= SRC_LINE_LUM) darkD[c * D1 + dd]++;
+    if (dd === 1) { ringN[c]++; ringDark[c] += dark; }
+  }
+  return { W: W, H: H, cs: cs, DMAX: DMAX, ringN: ringN, ringDark: ringDark, opqD: opqD, darkD: darkD };
+}
 /* THE OUTLINE PASS, on the cell grid, after the palette. Counted for the
-   folder note the way the palette is. */
-let fixOutlined=0, fixOutlineCells=0;
+   folder note the way the palette is; fixOutlinedThick = the files whose
+   outline was kept thicker than one cell (size 8, drawn that way). */
+let fixOutlined=0, fixOutlineCells=0, fixOutlinedThick=0;
 function fixOutlineWanted(){ const b=$("fixline"); return !!(b&&b.checked)&&fixMode()!=="scale"; }
-function fixOutlineApply(out,rel){
+/* srcPic (optional): the picture the engine was given. With it, the pass gates and sizes the outline
+   from the source [S1][S2]; without it, it behaves exactly as before. */
+function fixOutlineApply(out,rel,srcPic){
   if(!out||!out.data||!fixOutlineWanted()) return null;
   /* A grid this big has one-pixel cells: a cell is not the art's square. */
   if(Math.max(out.width,out.height)>512) return null;
-  const res=fixOutlineOnce({W:out.width,H:out.height,data:out.data},{layer:fixLayerOf(rel)});
+  const layer=fixLayerOf(rel);
+  const source=(srcPic&&srcPic.data&&OUTLINE_SKIP_LAYERS.indexOf(String(layer||'').toLowerCase())<0)
+    ? fixOutlineSource(srcPic,out.width,out.height) : null;
+  const res=fixOutlineOnce({W:out.width,H:out.height,data:out.data},{layer:layer,source:source});
   let n=0; const a=out.data, b=res.data;
   for(let i=0;i<a.length;i+=4) if(a[i]!==b[i]||a[i+1]!==b[i+1]||a[i+2]!==b[i+2]||a[i+3]!==b[i+3]) n++;
-  if(n){ out.data=b; fixOutlined++; fixOutlineCells+=n; }
-  return {cells:n};
+  if(n){ out.data=b; fixOutlined++; fixOutlineCells+=n; if(res.wMax>1) fixOutlinedThick++; }
+  return {cells:n, wMin:res.wMin, wMax:res.wMax};
+}
+/* WHAT THE PASS DID, in the run's sentence. One cell everywhere except at
+   Pixel size 8 where the picture draws a thicker line: then it says so. */
+function fixOutlineSaid(o){
+  if(!o||!o.cells) return "";
+  const c=o.cells.toLocaleString()+" cell"+(o.cells===1?"":"s")+" changed";
+  if(!(o.wMax>1)) return " \u00b7 outline made one cell thick ("+c+")";
+  return " \u00b7 outline kept "+(o.wMin>0&&o.wMin<o.wMax?o.wMin+"-"+o.wMax:o.wMax)+" cells thick, as drawn ("+c+")";
+}
+function fixOutlineBatchSaid(){
+  const one=fixOutlined-fixOutlinedThick, said=[];
+  if(one) said.push(one+" outline"+(one===1?"":"s")+" made one cell thick");
+  if(fixOutlinedThick) said.push(fixOutlinedThick+" outline"+(fixOutlinedThick===1?"":"s")+" kept as thick as drawn");
+  return said.length ? " \u00b7 "+said.join(", ") : "";
 }
 /* SIZE 8 ON A MOUTH, EYES OR CHAIN KEEPS ITS LINES WHOLE (patch614).
 
@@ -28217,7 +28369,7 @@ function fixRun(){
         const r=fixStampMeasured(m.done,measured);
         /* Before it is shown, so the preview is the picture that saves. */
         const pal=fixPalApply(r,FIX.rel);
-        const oln=fixOutlineApply(r,FIX.rel);
+        const oln=fixOutlineApply(r,FIX.rel,src);
         fixShow(r);
         /* SAID IN THE FINAL SENTENCE, NOT APPENDED BEFORE IT. This used to
            append itself to the readout, and the sentence written below then
@@ -28331,7 +28483,7 @@ function fixRun(){
         fixSay(how+" \u00b7 "+secs+"s"
           +(dropped ? " \u00b7 "+dropped+" mark"+(dropped===1?"":"s")+" smaller than a cell "+(dropped===1?"was":"were")+" dropped" : "")
           +palNote
-          +(oln&&oln.cells ? " \u00b7 outline made one cell thick ("+oln.cells.toLocaleString()+" cell"+(oln.cells===1?"":"s")+" changed)" : "")
+          +fixOutlineSaid(oln)
           +fixGateNote(r,FIX.rel)
           +alphaNote
           +((big||unsure)&&!gridless.pick ? " \u2014 if the edges still look soft, the pixel size it used ("
@@ -28528,7 +28680,7 @@ async function fixBatchRun(files){
   fixMovedLast=null; fixMovedCount=0; fixUnhonouredAt=[]; fixNativeKept=0; fixOwnBlocks=0; fixUnfitAt=[]; fixTypedRecutAt=[]; fixTypedStrokesAt=[]; fixTypedMergeAt=[]; fixTypedMergeStrokesAt=[]; fixTypedResampleAt=[];
   fixGridlessFellAt=[]; fixGridlessFellKept=1; fixMarksDroppedTotal=0; fixMarksDroppedFiles=0; fixNoisyFiles=0; fixAlphaFiles=0; fixAlphaPixels=0; fixBrowserRead=[]; fixGateReady=0; fixGateWhy=new Map(); fixRecutAt=[]; fixGatePast=0; fixGatePastMost=0;
   fixPalMoved=0; fixPalPixels=0; fixPalFiles=0; fixPalWorst=0; fixPalMerged=0; fixPalWorstFile="";
-  fixOutlined=0; fixOutlineCells=0;
+  fixOutlined=0; fixOutlineCells=0; fixOutlinedThick=0;
   fixStartAt8=0; fixStartAt16=0;
   /* Pictures reduced by a whole factor to get under the engine limit. */
   const shrunk=[];
@@ -28645,7 +28797,7 @@ async function fixBatchRun(files){
         if(dr){ fixMarksDroppedTotal+=dr; fixMarksDroppedFiles++; } }
       /* Before the canvas is made from it, so the file and the tile agree. */
       fixPalApply(out,rel);
-      fixOutlineApply(out,rel);
+      fixOutlineApply(out,rel,{data:px,width:sw,height:sh});
       /* READY FOR THE COLLECTION, counted here: after the palette, which is
          what decides the colour question, and before the canvas, which
          cannot change any of the four facts. */
@@ -28893,7 +29045,7 @@ async function fixBatchRun(files){
   const noisyNote = fixNoisyFiles
     ? " \u00b7 "+fixNoisyFiles+" measured with one stray pixel in some blocks and kept on their blocks"
     : "";
-  fixBatchSay(fixBatchFiles.length+" of "+list.length+" done in "+secs+"s"+movedNote+unhonNote+raggedNote+smallNote+noGridNote+marksNote+noisyNote+recutNote+typedRecutNote+mergeNote+resampleNote+unfitNote+offNote+alphaNote+readNote+shrunkNote+palNote+(fixOutlined?" \u00b7 "+fixOutlined+" outline"+(fixOutlined===1?"":"s")+" made one cell thick":"")+gateNote+pastNote
+  fixBatchSay(fixBatchFiles.length+" of "+list.length+" done in "+secs+"s"+movedNote+unhonNote+raggedNote+smallNote+noGridNote+marksNote+noisyNote+recutNote+typedRecutNote+mergeNote+resampleNote+unfitNote+offNote+alphaNote+readNote+shrunkNote+palNote+fixOutlineBatchSaid()+gateNote+pastNote
     /* WHICH START SIZE EACH FILE GOT, when nobody chose one (patch616). */
     +(fixStartAt8&&fixStartAt16 ? " \u00b7 started at 8 for "+fixStartAt8+" (backgrounds, chains, mouths, eyes) and at 16 for "+fixStartAt16
       : fixStartAt8 ? " \u00b7 started at 8 (backgrounds, chains, mouths, eyes)" : "")

@@ -6798,7 +6798,7 @@ $('palsnap').onclick=()=>{
   if(!ctx) return;
   const W=art.width, H=art.height;
   const im=ctx.getImageData(0,0,W,H);
-  const r=snapToPalette(im.data,W*H);
+  const r=snapToPalette(im.data,W*H,W);
   const note=$('palsnapnote');
   if(!r.colours){
     if(note) note.textContent="already on the palette";
@@ -24683,24 +24683,24 @@ const PALETTE_HEX=
   +"91db69cddf6c313638374e4a547e6492a984b2ba900b5e650b8a8f0eaf9b30e1b98ff8e2323353484a774d65b44d9be6"
   +"8fd3ff45293f6b3e75905ea9a884f3eaaded753c54a24b6fcf657fed8099831c5dc32454f04f78f68181fca790fdcbb0"
   +"0000000b070c1c131d3c2d3b4b38485045555a43557f5d67706277a180738d8d9eb3a68fbab8a4b1c3c1c1cabae3ede7"
-  +"47262d5b272b762928009f20872d2b90302c00e3f4a1342fff0000c03e32ce4334dc49351c27a3f06740f37245fa966e"
-  +"602933862935bc2936cb2f385b5b5cd93539ed4936f25530f66028fa771cfa811bf88c19f8a11cf9ac22f9b726face64"
+  +"47262d5b272b0d204a009f20872d2b4c2a1800e3f4a1342fff0000c03e32ce4334dc49351c27a3f06740f37245fa966e"
+  +"602933862935bc2936cb2f385b5b5cd93539845500f25530f66028fa771cfa811bf88c19f8a11cf9ac22f9b726face64"
   +"4c2938632d3e8335438c3b4095403d1a4c07aa4e3ab5563cc15f3cd37241da7c45e0864aeb9a50f1a451f6af53fcc679"
   +"3a2d2c4336295348285a522c605c2f6e6e367576387d7e3b84873d9398429aa045afb648bbc44ac8d24ae8ef6afbffa8"
-  +"2c383b26494318614f6131051b6e551c74581e7b5b20825d229b6722a66b20b16f49c47164cc6f7cd36cb1dd6bd6e58a"
+  +"2c383b26494318614f6131051b6e550369021e7b5b20825d229b6722a66b20b16f49c47164cc6f7cd36cb1dd6bd6e58a"
   +"302a33303035333c3c3442413648453b544d050c304260544566574d725e50786164896c739374829e7ca2b18abfc6a4"
-  +"2c3a44244c540b696f0c747a0b7f840b93920c9c950da6988c8b8a1dc1a621c8aa29d4b151e7c32536f67df2d8a7fae7"
-  +"30293d312e4837395c40140242446e4a51864b57954c5ea44e72c04f80cd4e8dd955a2e95ea9ec6eb7f37fc5f9a5dbff"
+  +"2c3a44244c540b696f0c747a0b7f840b93920c9c950da6988c8b8a1dc1a6aeaeae29d4b151e7c32536f6dbdbdba7fae7"
+  +"30293d312e4816161640140242446e4a51864b57954c5ea44e72c04f80cd4e8dd9ecc9005ea9ec6eb7f37fc5f9a5dbff"
   +"372535c4c2c24e2e4c5833596139677446827d4e8f87569c9667bb9c71cda27ae0954209b88ff2c899f1d9a3efeebcf1"
   +"4a2d3d5f344980405b8b4461974768537521ad5173f9e7c4c4a503be5b791210616044389a8201de728c0e6491f398ab"
   +"50244169224f921f5ca2215ab32357ce305dd93b66e5456ff25d7af36a7df5767ff88b85f99488fb9e8cfdb9a0fed4be";
 const PALETTE_SOURCE={name:"Mrkt Mkrs 256 - Resurrect Expansion",
-  edition:"Edition 03, 20 colours swapped",
-  swapped:["#7f2b2a>#009f20","#98322e>#00e3f4","#aa3630>#ff0000","#ed5b3b>#1c27a3","#d23239>#5b5b5c","#a4493a>#1a4c07","#196752>#613105","#3e5a51>#050c30","#18bba2>#8c8b8a","#68edcd>#2536f6","#3d3e65>#401402","#3e273a>#c4c2c2","#b089f3>#954209","#a84e71>#537521","#b35575>#f9e7c4","#b85877>#c4a503","#c45e7b>#121061","#c9627d>#604438","#d66c85>#9a8201","#e57992>#0e6491"],
+  edition:"Edition 03, 28 colours swapped",
+  swapped:["#7f2b2a>#009f20","#98322e>#00e3f4","#aa3630>#ff0000","#ed5b3b>#1c27a3","#d23239>#5b5b5c","#a4493a>#1a4c07","#196752>#613105","#3e5a51>#050c30","#18bba2>#8c8b8a","#68edcd>#2536f6","#3d3e65>#401402","#3e273a>#c4c2c2","#b089f3>#954209","#a84e71>#537521","#b35575>#f9e7c4","#b85877>#c4a503","#c45e7b>#121061","#c9627d>#604438","#d66c85>#9a8201","#e57992>#0e6491","#762928>#0d204a","#90302c>#4c2a18","#ed4936>#845500","#1c7458>#036902","#21c8aa>#aeaeae","#7df2d8>#dbdbdb","#37395c>#161616","#55a2e9>#ecc900"],
   from:"resurrect-expansion-256/mrkt-mkrs-resurrect-256.json",
   /* sha256 of these colours, upper-case "#RRGGBB" joined by ",", the way the
      Edition 03 hash 1ddf5cbdf68f... was made. */
-  colours:"e9c7ab20d1822c89b719abf309c0c1a860c32642b666938a9acc9953642e3d42"};
+  colours:"4cebe8918972e4afe39a64051e5829b678cbfd3fbdc353c91eebe5d06075b51d"};
 function paletteList(){
   const out=[];
   for(let i=0;i+6<=PALETTE_HEX.length;i+=6) out.push("#"+PALETTE_HEX.slice(i,i+6));
@@ -24963,7 +24963,11 @@ const SNAP_GROUP_DE=2.3;
 /* SNAP_GROUP_MAX (8192) is gone: the grouping capped itself there because
    it was quadratic, and past it the photographic traits froze the page for
    up to 232 s and came back speckled. See snapToPalette. */
-function snapToPalette(d,n){
+/* SHADES KEPT APART (patch617): see the comment inside, and patches/patch617.
+   w, the row width, says which cells touch, for the light/dark order guard;
+   a caller without it skips only that guard; opts.shades===false skips the
+   re-assignment (the grouping test uses it). */
+function snapToPalette(d,n,w,opts){
   const pal=paletteRGB();
   const exact=new Set(pal.map(p=>p.h));
   /* ONCE PER CALL, not once per colour looked up. */
@@ -25033,13 +25037,291 @@ function snapToPalette(d,n){
      73% of the time, and inside the cheapest twenty-four only 96% - so a
      shortlist buys speed by being wrong, which is the opposite of what
      was asked for. A full 256 measured 0.066ms. */
+  for(const g of groups){
+    g.m=[g.sumL/g.px, g.suma/g.px, g.sumb/g.px];
+    /* The nearest, unless it sends a colourful group to grey (patch613). */
+    g.target=palettePick(g.m,pal,palLab).best;
+  }
+  /* DRAWN SHADES STAY APART (patch617).
+
+     Each group above takes its own nearest colour, so two shades the artist
+     drew 5 dE or more apart - what "SHADES MERGED" below counts - can land
+     on ONE palette colour and come out as one. patch615's swap made that
+     much more common: a new colour that sits between two drawn shades takes
+     both. Dark Skin's head shadow and chest lines went into its flat brown,
+     GATE Hoodie's mid navy #0d204a (L13) fell onto the dark navy #050c30
+     with its own shadows (L5), Circuit Board lost its two greens.
+
+     So where one palette colour takes groups 5 dE or more apart, those
+     groups are split into SHADES - a group joins a shade only when its
+     dominant colour is under 5 dE from every group already in it - and the
+     shades are given palette colours again, all together, at the lowest
+     cost, where
+       cost = every shade's cells x its distance to its colour
+            + for every two shades 5 dE or more apart that still share a
+              colour (or a shade and a group or exactly-drawn colour already
+              on the colour it takes): the smaller one's cells x the
+              distance between them.
+     That second line is what the nearest-colour rule could not see: two
+     shades merged lose the difference between them, and it is charged as
+     if the smaller one had been painted in the other's colour. A merge
+     stays when splitting it costs more - a one-cell speck is not moved
+     far to stand apart, a drawn shadow is.
+     A shade may only take
+       - a colour at most SHADE_EXTRA dE further from it than the colour
+         they all shared, among its SHADE_TOP nearest;
+       - a colour that keeps LIGHT/DARK ORDER: a shade SHADE_ORDER_L or more
+         darker (CIE L*) than another never comes out lighter than it -
+         against the other shades, and against every other group or exact
+         colour within SHADE_NEAR dE that it was not already inverted
+         against;
+       - not a grey, when it is colourful: patch613's rule (C* at least
+         SNAP_GREY_MIN_C, the grey's under SNAP_GREY_RATIO of it);
+       - when it is colourful (C* SHADE_HUE_C or more), a colour within
+         SHADE_HUE degrees of its drawn hue (a grey counts as no hue) and
+         within SHADE_AB of it in the a*b* plane unless the shared colour was
+         already further; and any shade, a colour within SHADE_LCAP L* of
+         its drawn lightness unless the shared colour was already further.
+         Without these the split was bought with a wrong colour: HODLING's
+         golden-brown strands went olive, Punk Frumpy's dark brown went
+         purple-black, Dark Skin's shadow maroon, Water Skin's cyan grey,
+         Chef Hat's pale folds harsh mid grey (round 3 sheets). Where no
+         colour passes, the shades stay merged, as today;
+       - no new light/dark inversion at any DRAWN BOUNDARY: two member
+         colours that touch in the picture (w, the row length) and are
+         SHADE_ORDER_L or more apart in L* never come out the other way
+         round, between shades of the set or against a colour outside it;
+       - when it is near-grey (C* under SHADE_GREY_MAX), not a colour more
+         than SHADE_GREY_C more colourful (C*): without this Diamond Ore's
+         grey stone went purple-grey #706277, Omegle's light-grey panel
+         lines cream #f9e7c4 and then mint #c7dcd0, XRP Chain's silver
+         mint #b1c3c1, all to stand apart.
+         The swap's true greys stay grey; a grey with no grey to go to stays
+         merged;
+       - not pure white #ffffff or pure black #000000 unless the shade was
+         drawn within SHADE_BW dE of it: Jason Mask's ivory face (#f8eedc,
+         8.7 dE from white) split into pure-white patches to stand apart
+         from its cream, and pure white or black reads as a highlight or an
+         outline, not as a shade of the fill;
+       - when it has only a little colour (C* SHADE_HUE_C2 up to SHADE_HUE_C),
+         not a colour whose hue is more than SHADE_HUE2 degrees from its own
+         (a grey target is left to the grey rules): Jason Mask's warm ivory
+         next went to cool mint-white #e3ede7.
+     The shared colour itself is always allowed, and "everyone stays" is the
+     starting answer, so a set changes only when something is strictly
+     cheaper. A group whose colour no distinct shade shares is never looked
+     at: on a picture with no merge this changes nothing. Deterministic:
+     colours in the order their first group was made, shades in creation
+     order, candidates by distance then palette order, the search bounded
+     at SHADE_NODES steps per colour. The constants live here, not at top
+     level, because the worker carries this function as its text
+     (fixWorker). */
+  /* opts.shades===false: each group keeps its own nearest colour, the step as it was before
+     patch617 (tests/palettenocap.spec.js holds the grouping to a written-out scan that way). */
+  const SHADE_APART=!(opts&&opts.shades===false), SHADE_DE=5, SHADE_EXTRA=6, SHADE_ORDER_L=2, SHADE_NEAR=20, SHADE_TOP=6, SHADE_NODES=20000, SHADE_LOSE=1, SHADE_GREY_MAX=10, SHADE_GREY_C=4, SHADE_HUE_C=10, SHADE_HUE=20, SHADE_AB=12, SHADE_LCAP=8, SHADE_EDGE=true, SHADE_EDGE_SHARE=0, SHADE_BW=3, SHADE_HUE_C2=5, SHADE_HUE2=45;
+  let apart=0;
+  if(SHADE_APART){
+    const lOf=new Map();
+    const palL=p=>{ let v=lOf.get(p.h); if(v===undefined){ v=labOf(p.r,p.g,p.b); lOf.set(p.h,v); } return v; };
+    const de=(a,b)=>deltaE2000(a[0],a[1],a[2],b[0],b[1],b[2]);
+    /* who holds each palette colour: groups by their target, and colours
+       the picture draws exactly (they never move) */
+    const holders=new Map();
+    const hold=(h,e)=>{ const a=holders.get(h); if(a) a.push(e); else holders.set(h,[e]); };
+    const ents=[];
+    for(const g of groups){ const e={g:g, lab:g.lab, m:g.m, px:g.px}; ents.push(e); hold(g.target.h,e); }
+    for(const [key,px] of count){
+      if(!exact.has(hexOf(key))) continue;
+      const p=pal.find(q=>q.h===hexOf(key));
+      const lab=labOf(p.r,p.g,p.b);
+      const e={g:null, lab:lab, m:lab, px:px, fixed:p, key:key}; ents.push(e); hold(p.h,e);
+    }
+    /* WHICH COLOURS TOUCH IN THE PICTURE (patch617), built once, only when a
+       merge is looked at: for each drawn colour, the colours of the cells to
+       its right and below and how many such edges. w is the row length;
+       without it (an old caller) the edge check is skipped. */
+    let adj=null;
+    const entOf=new Map();
+    for(const e of ents){ if(e.g){ for(const mm of e.g.members) entOf.set(mm.c.key,e); } else entOf.set(e.key,e); }
+    const labKey=k=>{ const e=entOf.get(k); if(!e) return null; if(!e.g) return e.lab; for(const mm of e.g.members) if(mm.c.key===k) return mm.lab; return null; };
+    const touch=()=>{
+      if(adj) return adj;
+      adj=new Map();
+      const add=(a,b)=>{ let m=adj.get(a); if(!m){ m=new Map(); adj.set(a,m); } m.set(b,(m.get(b)||0)+1); };
+      const H=Math.floor(n/w);
+      for(let y=0;y<H;y++) for(let x=0;x<w;x++){
+        const i=y*w+x, o=i*4;
+        if(d[o+3]===0) continue;
+        const k=(d[o]<<16)|(d[o+1]<<8)|d[o+2];
+        if(x+1<w && d[o+7]!==0){ const k2=(d[o+4]<<16)|(d[o+5]<<8)|d[o+6]; if(k2!==k){ add(k,k2); add(k2,k); } }
+        if(y+1<H && d[o+w*4+3]!==0){ const p2=o+w*4, k2=(d[p2]<<16)|(d[p2+1]<<8)|d[p2+2]; if(k2!==k){ add(k,k2); add(k2,k); } }
+      }
+      return adj;
+    };
+    const useEdges=SHADE_EDGE && w>0 && n%w===0;
+    const outOf=e=>e.g ? e.g.target : e.fixed;
+    const order=[], seen=new Set();
+    for(const g of groups){ if(!seen.has(g.target.h)){ seen.add(g.target.h); order.push(g.target); } }
+    const inv=(sL,oL,eL,fL)=>(sL+SHADE_ORDER_L<=eL && oL>fL) || (eL+SHADE_ORDER_L<=sL && fL>oL);
+    for(const t of order){
+      const arr=holders.get(t.h).filter(e=>e.g && e.g.target===t);
+      if(arr.length<2) continue;
+      let far=false;
+      for(let i=0;i<arr.length&&!far;i++) for(let j=i+1;j<arr.length;j++){ if(de(arr[i].lab,arr[j].lab)>=SHADE_DE){ far=true; break; } }
+      if(!far) continue;
+      /* the shades: complete linkage on dominant colours, creation order */
+      const shades=[];
+      for(const e of arr){
+        let s=null;
+        for(const sh of shades){ if(sh.ents.every(x=>de(x.lab,e.lab)<SHADE_DE)){ s=sh; break; } }
+        if(!s){ s={ents:[], px:0, L:0, a:0, b:0}; shades.push(s); }
+        s.ents.push(e); s.px+=e.px; s.L+=e.m[0]*e.px; s.a+=e.m[1]*e.px; s.b+=e.m[2]*e.px;
+      }
+      const K=shades.length;
+      for(const s of shades){ s.m=[s.L/s.px, s.a/s.px, s.b/s.px]; s.base=de(s.m,palL(t)); }
+      /* LIGHT/DARK ORDER AT EVERY DRAWN BOUNDARY. The order rule below
+         compares shade MEANS; a shade's members can still sit next to
+         colours of another shade, or of a colour outside the set, the other
+         way round. So for every shade: the member edges to each other shade
+         (sk = edges where this shade's member is SHADE_ORDER_L or more
+         darker, sl = lighter), and the member edges to colours outside the
+         set (their input L*, the outside entity, edges). */
+      const shadeOf=new Map();
+      shades.forEach((s,k)=>{ for(const e of s.ents) shadeOf.set(e,k); s.pd=new Array(K).fill(0); s.pl=new Array(K).fill(0); s.out=[]; s.ordered=0; });
+      if(useEdges){
+        const A=touch();
+        shades.forEach((s,k)=>{
+          for(const e of s.ents) for(const mm of e.g.members){
+            const nb=A.get(mm.c.key); if(!nb) continue;
+            for(const [k2,c2] of nb){
+              const e2=entOf.get(k2); if(!e2) continue;
+              const l2=labKey(k2); if(!l2) continue;
+              const L1=mm.lab[0], L2=l2[0];
+              if(Math.abs(L1-L2)<SHADE_ORDER_L) continue;
+              const j=shadeOf.get(e2);
+              if(j===k) continue;
+              if(j!==undefined){ if(L1<L2) s.pd[j]+=c2; else s.pl[j]+=c2; }
+              else { s.out.push({L1:L1, L2:L2, e:e2, c:c2}); s.ordered+=c2; }
+            }
+          }
+        });
+      }
+      /* what two shades lose by sharing a colour */
+      const lose=shades.map(a=>shades.map(b=>{ if(a===b) return 0; const e=de(a.m,b.m); return e>=SHADE_DE ? SHADE_LOSE*Math.min(a.px,b.px)*e : 0; }));
+      const inSet=new Set(arr);
+      /* everyone else near enough in colour to be the same thing's shading */
+      const near=ents.filter(e=>!inSet.has(e) && shades.some(s=>Math.abs(e.m[0]-s.m[0])<=SHADE_NEAR && de(e.m,s.m)<=SHADE_NEAR));
+      const tL=palL(t)[0];
+      for(const s of shades){
+        const Cs=Math.hypot(s.m[1],s.m[2]);
+        const cand=[];
+        for(const p of pal){
+          const q=palL(p), dist=de(s.m,q);
+          if(dist>s.base+SHADE_EXTRA) continue;
+          if(p!==t){
+            if(Cs>=SNAP_GREY_MIN_C && Math.hypot(q[1],q[2])<Cs*SNAP_GREY_RATIO) continue;
+            if(Cs<SHADE_GREY_MAX && Math.hypot(q[1],q[2])>Cs+SHADE_GREY_C) continue;
+            if(near.some(e=>{ const eo=palL(outOf(e))[0]; return inv(s.m[0],q[0],e.m[0],eo) && !inv(s.m[0],tL,e.m[0],eo); })) continue;
+            /* HUE (patch617): a colourful shade keeps its drawn hue within
+               SHADE_HUE degrees - HODLING's golden-brown strands went olive,
+               Punk Frumpy's dark brown went purple-black, to stand apart. */
+            if(Cs>=SHADE_HUE_C){
+              let dh=Math.abs(Math.atan2(q[2],q[1])-Math.atan2(s.m[2],s.m[1]))*180/Math.PI;
+              if(dh>180) dh=360-dh;
+              /* a grey has no hue to keep */
+              if(Math.hypot(q[1],q[2])<SHADE_GREY_C) dh=180;
+              if(dh>SHADE_HUE) continue;
+              /* and its colour (hue and chroma together, the a*b* plane) no
+                 more than SHADE_AB from what was drawn, unless the shared
+                 colour was already further: Dark Skin's shadow went maroon
+                 #6e2727 (16 degrees, but twice as saturated), Water Skin's
+                 cyan went grey-blue #9babb2. */
+              const tq=palL(t);
+              if(Math.hypot(q[1]-s.m[1],q[2]-s.m[2])>Math.max(SHADE_AB,Math.hypot(tq[1]-s.m[1],tq[2]-s.m[2]))) continue;
+            }
+            /* A FAINT TINT KEEPS ITS SIDE (patch617): a shade with a little
+               colour (C* SHADE_HUE_C2 to SHADE_HUE_C) does not move to a
+               colour whose hue is more than SHADE_HUE2 degrees away - Jason
+               Mask's warm ivory went to cool mint-white #e3ede7 to stand
+               apart. A grey target is left to the grey rules above. */
+            if(Cs>=SHADE_HUE_C2 && Cs<SHADE_HUE_C && Math.hypot(q[1],q[2])>=SHADE_GREY_C){
+              let dh=Math.abs(Math.atan2(q[2],q[1])-Math.atan2(s.m[2],s.m[1]))*180/Math.PI;
+              if(dh>180) dh=360-dh;
+              if(dh>SHADE_HUE2) continue;
+            }
+            /* PURE WHITE / BLACK (patch617): only for a shade drawn that way. */
+            if(((p.r&p.g&p.b)===255 || (p.r|p.g|p.b)===0) && dist>SHADE_BW) continue;
+            /* VALUE (patch617): standing apart may not push a shade's
+               lightness more than SHADE_LCAP L* from its drawn lightness,
+               unless the shared colour was already that far - Chef Hat's pale
+               folds went to harsh mid greys, Burlap's weave darker. */
+            if(Math.abs(q[0]-s.m[0])>Math.max(SHADE_LCAP,Math.abs(tL-s.m[0]))) continue;
+            /* ORDER AT DRAWN BOUNDARIES, against colours outside the set. */
+            if(s.ordered>0){
+              let bad=0;
+              for(const x of s.out){ const eo=palL(outOf(x.e))[0]; if(inv(x.L1,q[0],x.L2,eo) && !inv(x.L1,tL,x.L2,eo)) bad+=x.c; }
+              if(bad>SHADE_EDGE_SHARE*s.ordered) continue;
+            }
+          }
+          /* sharing with whoever outside this set already holds p */
+          let other=0;
+          for(const e of holders.get(p.h)||[]){
+            if(inSet.has(e)) continue;
+            const x=de(s.m,e.m);
+            if(x>=SHADE_DE) other+=SHADE_LOSE*Math.min(s.px,e.px)*x;
+          }
+          cand.push({p:p, q:q, d:dist, own:s.px*dist+other});
+        }
+        cand.sort((x,y)=>x.d-y.d);
+        s.cand=cand.slice(0,SHADE_TOP);
+        if(!s.cand.some(c=>c.p===t)) s.cand.push(cand.find(c=>c.p===t));
+        s.low=Math.min(...s.cand.map(c=>c.own));
+      }
+      /* the starting answer: everyone stays */
+      let bestCost=0;
+      for(let i=0;i<K;i++){ bestCost+=shades[i].cand.find(c=>c.p===t).own; for(let j=i+1;j<K;j++) bestCost+=lose[i][j]; }
+      const startCost=bestCost;
+      let bestPick=null, nodes=0;
+      const rest=new Array(K+1).fill(0);
+      for(let k=K-1;k>=0;k--) rest[k]=rest[k+1]+shades[k].low;
+      const pick=new Array(K);
+      const walk=(k,cost)=>{
+        if(++nodes>SHADE_NODES || cost+rest[k]>=bestCost-1e-9) return;
+        if(k===K){ bestCost=cost; bestPick=pick.slice(); return; }
+        for(const c of shades[k].cand){
+          let add=c.own, ok=true;
+          for(let j=0;j<k;j++){
+            if(pick[j].p===c.p) add+=lose[k][j];
+            else if(inv(shades[k].m[0],c.q[0],shades[j].m[0],pick[j].q[0])){ ok=false; break; }
+            else {
+              /* member edges between the two shades: k lighter than j now
+                 inverts every edge where k's member was the darker */
+              const qk=c.q[0], qj=pick[j].q[0], sk=shades[k];
+              const bad=qk>qj ? sk.pd[j] : qk<qj ? sk.pl[j] : 0;
+              if(bad>0 && bad>SHADE_EDGE_SHARE*(sk.pd[j]+sk.pl[j])){ ok=false; break; }
+            }
+          }
+          if(!ok) continue;
+          pick[k]=c; walk(k+1,cost+add);
+        }
+      };
+      walk(0,0);
+      if(!bestPick || !(bestCost<startCost)) continue;
+      shades.forEach((s,k)=>{
+        const p=bestPick[k].p;
+        if(p===t) return;
+        for(const e of s.ents){
+          const h=holders.get(t.h); h.splice(h.indexOf(e),1);
+          e.g.target=p; hold(p.h,e);
+        }
+        apart++;
+      });
+    }
+  }
   let moved=0, pixels=0, worst=0;
   const byTarget=new Map();
   for(const g of groups){
-    const m=[g.sumL/g.px, g.suma/g.px, g.sumb/g.px];
-    /* The nearest, unless it sends a colourful group to grey (patch613). */
-    const best=palettePick(m,pal,palLab).best;
-    g.target=best;
+    const best=g.target;
     const tl=labOf(best.r,best.g,best.b);
     for(const mm of g.members){
       /* A dE, unrounded: about 1 is the smallest difference anybody can
@@ -25079,7 +25361,7 @@ function snapToPalette(d,n){
     d[o]=t.r; d[o+1]=t.g; d[o+2]=t.b;
     pixels++;
   }
-  return {colours:moved, pixels:pixels, worst:worst, seen:count.size, groups:groups.length, merged:merged, mergedWorst:mergedWorst, opaque:opaque, share:opaque?pixels/opaque:0};
+  return {colours:moved, pixels:pixels, worst:worst, seen:count.size, groups:groups.length, merged:merged, mergedWorst:mergedWorst, opaque:opaque, share:opaque?pixels/opaque:0, apart:apart};
 }
 /* The standing decisions, as the defaults a project starts from. */
 const AGRULES_ID="settings.agentrules";
@@ -25954,7 +26236,7 @@ function fixWorker(){
     /* The palette step, in the worker rather than on the page - see
        patch567. m.palette is the page's palette, or null when it is off. */
     "    let pal=null;",
-    "    if(m.palette){ paletteRGB=function(){ return m.palette; }; pal=snapToPalette(r.data,r.width*r.height); }",
+    "    if(m.palette){ paletteRGB=function(){ return m.palette; }; pal=snapToPalette(r.data,r.width*r.height,r.width); }",
     "    postMessage({done:{cols:r.cols,rows:r.rows,stepX:r.stepX,stepY:r.stepY,consensus:r.consensus,pal:pal,",
     "      confidence:r.confidence,width:r.width,height:r.height,data:r.data}},[r.data.buffer]);",
     "  }catch(e){ postMessage({error:String(e&&e.message||e)}); }",
@@ -26882,7 +27164,7 @@ function fixRepair8(step,rel){
 function fixPalApply(out,rel){
   if(!out||!out.data||!fixPalWanted()) return null;
   /* Worked out in the worker, beside the engine, when it was asked there. */
-  const r=(out.pal!==undefined && out.pal!==null) ? out.pal : snapToPalette(out.data,out.width*out.height);
+  const r=(out.pal!==undefined && out.pal!==null) ? out.pal : snapToPalette(out.data,out.width*out.height,out.width);
   if(r.colours){
     fixPalMoved+=r.colours; fixPalPixels+=r.pixels; fixPalFiles++;
     if(r.worst>fixPalWorst){ fixPalWorst=r.worst; fixPalWorstFile=String(rel||""); }

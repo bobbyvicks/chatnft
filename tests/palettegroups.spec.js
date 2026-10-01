@@ -30,7 +30,9 @@
    the new brown #604438 and mustard #c4a503 now sit next to them, so neither
    pair shows the thing any more, and #66402d moves only 4.2 now, "slight".
    The pairs below were found on the swapped palette by scratchpad/fix8/judge/
-   fixtures615.cjs; each test still asserts its own premise first. */
+   fixtures615.cjs; each test still asserts its own premise first.
+   MOVED AGAIN BY patch617, whose ochre #845500, lemon #ecc900 and grey #dbdbdb
+   sit next to #8a6012 / #8b6013, #d4ac20 / #b89020 and #d5e0f3. */
 import { test, expect } from '@playwright/test';
 
 const ready = async (page) => {
@@ -57,9 +59,9 @@ test.describe('the palette snap', () => {
   test.beforeEach(async ({ page }) => { await ready(page); });
 
   test('TWO BROWNS NOBODY CAN TELL APART LAND ON ONE PALETTE COLOUR', async ({ page }) => {
-    const r = await snap(page, ['#8a6012', '#8b6013']);
+    const r = await snap(page, ['#7c6852', '#7d6853']);
     expect(r.sourceDE, 'the pair really is invisible').toBeLessThan(1);
-    expect(r.targets[0], 'and on their own they go two ways, 29 dE apart').not.toBe(r.targets[1]);
+    expect(r.targets[0], 'and on their own they go two ways, 27 dE apart').not.toBe(r.targets[1]);
     expect(r.outColours, 'together they land on one').toBe(1);
     expect(r.r.groups).toBe(1);
     expect(r.r.colours).toBe(2);
@@ -73,8 +75,8 @@ test.describe('the palette snap', () => {
   });
 
   test('SHADES MERGED INTO ONE PALETTE COLOUR ARE COUNTED', async ({ page }) => {
-    const r = await snap(page, ['#d4ac20', '#b89020']);
-    expect(r.sourceDE, 'two drawn shades, more than slight apart (8.7 by the page\'s own CIEDE2000)').toBeGreaterThan(5);
+    const r = await snap(page, ['#f4e420', '#d0c020']);
+    expect(r.sourceDE, 'two drawn shades, more than slight apart (8.8 by the page\'s own CIEDE2000)').toBeGreaterThan(5);
     expect(r.sourceDE).toBeLessThan(10);
     expect(r.targets[0], 'with the same nearest palette colour').toBe(r.targets[1]);
     expect(r.outColours).toBe(1);
@@ -83,9 +85,9 @@ test.describe('the palette snap', () => {
   });
 
   test('THE WORST MOVE IS KEPT UNROUNDED, and the word follows the true value', async ({ page }) => {
-    const r = await snap(page, ['#d5e0f3']);
+    const r = await snap(page, ['#042424']);
     expect(Number.isInteger(r.r.worst)).toBe(false);
-    expect(r.r.worst).toBeCloseTo(10.81, 1);
+    expect(r.r.worst).toBeCloseTo(10.12, 1);
     expect(r.word).toBe('a clear change');
   });
 

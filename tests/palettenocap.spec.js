@@ -79,7 +79,10 @@ const run = (page, n, equal) => page.evaluate(`(() => {
 const againstReference = (page, n) => page.evaluate(`(() => {
   ${REFERENCE}
   const a = ${build(n)}, b = new Uint8ClampedArray(a);
-  const ra = snapToPalette(a, 1280 * 1280), rb = refSnap(b, 1280 * 1280);
+  /* shades:false - the scan written out above is the GROUPING and each group's nearest
+     colour; patch617's re-assignment of merged shades comes after it and is its own spec
+     (palettekeepsshading.spec.js). */
+  const ra = snapToPalette(a, 1280 * 1280, 1280, { shades: false }), rb = refSnap(b, 1280 * 1280);
   let diff = 0; for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) diff++;
   return { seen: ra.seen, groups: [ra.groups, rb.groups], merged: [ra.merged, rb.merged], diff };
 })()`);

@@ -7,6 +7,7 @@
    pair under 2.3 dE apart (the page's "same shade") and keeps a colour that
    close in the new palette.
 
+     (patch617 swapped 8 more - SWAPS_617 below - under the same rules.)
      TEST 1 what the palette is: 256 distinct colours, the 20 added in, the
        20 removed out, and PALETTE_SOURCE saying so - its hash made the way
        Edition 03's was (sha256 of the upper-case list joined by ","), so the
@@ -26,6 +27,12 @@ const SWAPS = [
   ['#c45e7b', '#121061'], ['#c9627d', '#604438'], ['#d66c85', '#9a8201'], ['#e57992', '#0e6491'],
 ];
 
+/* patch617: 8 more, under the same rules (every removed colour keeps one under 2.3 dE). */
+const SWAPS_617 = [
+  ['#762928', '#0d204a'], ['#90302c', '#4c2a18'], ['#ed4936', '#845500'], ['#1c7458', '#036902'],
+  ['#21c8aa', '#aeaeae'], ['#7df2d8', '#dbdbdb'], ['#37395c', '#161616'], ['#55a2e9', '#ecc900'],
+];
+
 const ready = async (page) => {
   await page.goto('/index.html');
   await page.waitForFunction(() => typeof snapToPalette === 'function' && typeof paletteList === 'function');
@@ -43,12 +50,12 @@ test.describe('the palette swap', () => {
     });
     expect(r.list.length).toBe(256);
     expect(r.distinct, 'no colour twice').toBe(256);
-    for (const [out, inn] of SWAPS) {
+    for (const [out, inn] of SWAPS.concat(SWAPS_617)) {
       expect(r.list, inn + ' is in').toContain(inn);
       expect(r.list, out + ' is out').not.toContain(out);
     }
-    expect(r.source.edition).toBe('Edition 03, 20 colours swapped');
-    expect(r.source.swapped).toEqual(SWAPS.map(s => s.join('>')));
+    expect(r.source.edition).toBe('Edition 03, 28 colours swapped');
+    expect(r.source.swapped).toEqual(SWAPS.concat(SWAPS_617).map(s => s.join('>')));
     expect(r.source.colours, 'the hash is of these colours').toBe(r.hash);
   });
 
@@ -69,7 +76,7 @@ test.describe('the palette swap', () => {
     const r = await page.evaluate((removed) => removed.map(h => {
       const k = parseInt(h.slice(1), 16), n = nearestPaletteColour((k >> 16) & 255, (k >> 8) & 255, k & 255);
       return { h, to: n.hex, dE: n.dE };
-    }), SWAPS.map(s => s[0]));
+    }), SWAPS.concat(SWAPS_617).map(s => s[0]));
     for (const x of r) expect(x.dE, x.h + ' -> ' + x.to).toBeLessThan(2.3);
   });
 

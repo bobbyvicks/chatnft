@@ -123,12 +123,17 @@ runs the reference's own rule and is what `tools/test-endtoend.cjs` compares.
   folder orders). A fresh engine starts at the same state, so single runs
   are unchanged and a batch now equals them.
 
-- **At a given step of 8 on a mouth, eyes or chain (`opts.repair8`), four
-  rules keep lines whole.** `src/pf-42-repair8.js` is `two_stage_pack` plus
-  a straddle rescue, an undouble, a stroke connector and a speck cleanup,
-  each explained there with what it was measured on. The page passes it
-  its own `labOf` and `deltaE2000`. With every rule off it is
-  `two_stage_pack` byte for byte on 283 of 283 files.
+- **At a given step of 8 (`opts.repair8`) or 16 (`opts.lines16`), rules
+  keep lines whole, on every picture (patch622; until then size 8 ran on
+  mouths, eyes and chains only).** `src/pf-42-repair8.js` is
+  `two_stage_pack` plus a straddle rescue, an undouble, a stroke connector
+  and a speck cleanup at 8, and a line keeper at 16, each explained there
+  with what it was measured on. Guards refuse a repair that would switch
+  the page's outline pass on or off for a shape (`gate`, the page's
+  OUTLINE_GATE) or move the palette's shade choice for cells it did not
+  touch (`snap`, the page's palette step). The page passes its own
+  `labOf` and `deltaE2000`. With every rule off it is `two_stage_pack`
+  byte for byte.
 
 ## Where it is not faithful
 

@@ -15475,6 +15475,116 @@
  * Skin's shading; recolouring to a colour no cell had moved Walnut Chessboard
  * Skin's cells across palette colours (the palette groups colours by count).
  *
+ * PIXEL SIZE 16 (round 3: PF.lines16_pack, or repair8_pack's `rules`).
+ * At 16 px cells (80 x 80 on 1280) a drawn line thinner than a cell loses the
+ * vote to the fill on either side and comes out as dots or not at all:
+ * Dogecoin Polo's collar, GATE Hoodie's white letter outline, Circuit Board
+ * Skin's gold traces, Noun Glasses' black frame outline (gone entirely).
+ *   PF.repair8_pack(rgba, cols, rows, colour, rules)
+ *     rules  absent: size 8's set (rescue, connect, specks), byte for byte as
+ *            before. Given {stroke, rescue, connect, specks, keep}: stroke
+ *            and keep run only when true; rescue, connect and specks run
+ *            unless false. {rescue:false, connect:false, specks:false} is
+ *            two_stage_pack byte for byte (measured 311/311 at 16).
+ *   PF.lines16_pack(rgba, cols, rows, colour) = repair8_pack with RULES16.
+ * Two rules exist only at 16:
+ *  4. STROKE: a line drawn ON a fill (CONNECT sees only paint on
+ *     transparency) is joined across its gaps. See its comment.
+ *  5. KEEP: what RESCUE and STROKE may not replace. A line takes a painted
+ *     cell only when that cell's colour is the line's OUTSIDE (the biggest
+ *     shape the line touches) and is not itself a line there; an empty cell
+ *     only when it is the outside's transparency, not a hole in the art; and
+ *     a rescued cell touching no cell of its line (a dot) is dropped.
+ *     Measured without it: GATE Hoodie's white outline turned 5 yellow letter
+ *     cells white and STROKE turned 2 white outline cells yellow; Ancient Oak
+ *     Skin's eye slit was filled and the outline pass then wiped the eye;
+ *     Cyclops Ruby Visor's ruby rows turned black when a refused line was
+ *     moved to the other cell instead (so a refused line now stays as today).
+ * Round 5 (versionRepair8 'pf-42-repair8/4'), measured on the live page path
+ * (palette patch617 + outline patch618), four guards, all inside KEEP (size
+ * 16 only; size 8 is byte for byte as before):
+ *  RIM      RESCUE may not take the only cell of the colour the line lies
+ *           against (the cell beyond it, away from the line, is another
+ *           colour) when that colour contrasts with the line (RIM_DE). Eight
+ *           Lines Specs lost the cream top rim of both lenses to the black
+ *           outline. OUTWARD: the line then goes to the other cell when that
+ *           is empty and the outside (not a hole), holds OUTWARD_MIN of the
+ *           line and the line is not shown one cell further out - the outline
+ *           sits outside the rim, as drawn. Otherwise the cell stays as today.
+ *  PAINT_LEN a line replaces a PAINTED cell only when at least 6 px thick at
+ *           16 (5 px is a letter's shadow: Wake Me Up put grey cells in the W).
+ *  EDGE     STROKE may not take a cell of the shape a silhouette outline goes
+ *           round (the outline touches the outside transparency near it):
+ *           AirPod and Small White Figure got black inside the white body.
+ *  THICK    STROKE joins a LINE: at both ends of a gap the stroke is at most
+ *           about a cell thick (Diagonal Reflection Glasses: the black lens was
+ *           'joined' across its own white highlight).
+ * The GATE guard's palette snap now gets the row width (colour.snap(d, n, w)),
+ * as the page's own palette call does.
+ * Round 6 (versionRepair8 'pf-42-repair8/5'): the page runs these rules on
+ * EVERY picture - size 8's set at a step of 8, size 16's at 16 - not on a list
+ * of layers (the owner: "i dont want specific rules for certain traits").
+ * Measured on all 311 traits at both sizes against base-620. Two changes:
+ *  GATE     takes the outline pass's numbers from the page (colour.gate = the
+ *           page's OUTLINE_GATE, the object fixOutlineOnce reads) instead of a
+ *           private copy, and counts near-black as the pass's nearG does
+ *           (patch620's dark grey). Size 8's rules get it too, now that they
+ *           run on outlined pictures (on the 311 it never had to refuse at 8).
+ *  PALETTE  both sizes (colour.snap): a repair may not move the page's palette
+ *           answer for cells it did not change beyond PALETTE_SHARE of what it
+ *           repaired. On pictures the rules had never run on, a few repaired
+ *           cells moved the palette's shade assignment for hundreds of others:
+ *           Walnut Chessboard Skin at 8 lost its dark grain (4 cells repaired,
+ *           201 moved), Anfield Tunnel at 16 its wall shading, Yellow Hazmat
+ *           Suit at 16 its zipper teeth. See paletteKnock.
+ * Size 8 on mouths, eyes and chains (where it always ran) is unchanged on all
+ * 49 of them; without the palette (colour.snap absent) and the outline pass
+ * (colour.gate absent) both guards are off and the rules are as round 5's.
+ * Round 7 (versionRepair8 'pf-42-repair8/6'): what round 6 left worse that
+ * RESCUE made, each told from the picture (no list, no layer, no name);
+ * measured on all 311 at 4, 8, 10 and 16 against round 6:
+ *  STEP     RESCUE does not draw a band whose CIE L* lies between the colours
+ *           on its two sides (STEP_DL from each, both sides painted) when the
+ *           band is a SHADE - a grey, or within STEP_HUE of a coloured side's
+ *           hue. That is shading, not a line: Red Mushroom Cap at 8 gave its
+ *           black outline row to the 4 px dark-red band above it (dark red
+ *           between red and black); Wake Me Up Sleep Mask and WAGMI Cap at 8
+ *           drew their letters' 5 px grey drop shadow as grey cells. A band of
+ *           its own hue between them is a drawn line and is still rescued
+ *           (Casino Crown's red trim, Dogecoin Polo's teal edge). Size 8's
+ *           set only (no KEEP): at 16 KEEP's PAINT_LEN already refuses the
+ *           shadow, and STEP there only took back round 6's restored shading
+ *           rows (Green Hill Loop's cloud underside) - measured, then left out.
+ *  MOVE     a cell gives its line up to another only when that one takes it:
+ *           when the add a move was made for is dropped (the hanging guard,
+ *           KEEP's dot rule, RUN, SOLID) the move is dropped too. Ankh Earring
+ *           at 16: the stem's black bottom cell gave its line to an empty cell
+ *           that was then refused, so the line was drawn nowhere (yellow).
+ *  RUN      (16, OUTWARD) a run of cells moved outside its rim that stops
+ *           while the source line goes on, shown nowhere next to it, is a
+ *           fragment: Mouth 05's 2-cell stub under the teeth. GAP: a rim cell
+ *           with the line shown on both sides in its own row is a gap in that
+ *           line, not a rim: moving the line out drew a dot above Sharingan
+ *           Eyes' eye white (and a spike on Sleepy Neutral Eyes' lid). Eight
+ *           Lines Specs' lens tops (the rim's whole length) stay.
+ *  SOLID    an added cell that completes a 2 x 2 block of its line's colour
+ *           (SOLID_ADDED of the 4 added) where the source fills under
+ *           SOLID_SHARE of it draws an area, not a line (Black and White Rays
+ *           at 8: rays finer than a cell merged into black blobs; partly
+ *           fixed). Size 8's set only: at 16 two separate thin lines a cell
+ *           apart (Trainer Cap with Hair's brim) make such a block too, and
+ *           SOLID broke the brim's outline - measured, then left out there.
+ *  Measured and left out: HELD (a cell whose own colour is a line centred in
+ *  it at least as thick keeps it) fixed Red Mushroom Cap but broke Make Solana
+ *  Great Again Hat's letters and Secretlab Gaming Chair's red stitching at 8
+ *  (the gaps between strokes read as lines too); FINE (no rescue in a pair
+ *  holding two lines) did not touch Black and White Rays and took 12 black
+ *  cells off Dogecoin Polo at 8. White Couch Group's 'stray diagonal' at 16
+ *  is STROKE drawing the shoulder's black outline the source draws: kept.
+ *  On the 311 (lines7's rows): at 8 no mouth or eye cell changes; 5 chains
+ *  change 1-2 cells each (6 in all). At 16 the changes on mouths, eyes and
+ *  ears are the strays above. Sizes 4 and 10: none (the rules run at 8, 16).
+ *
  * Needs, resolved AT CALL TIME on PF (a missing port throws by name):
  *   PF.adaptive_k                              pf-40-reconstruct.js
  *   PF.kmeans_quantize                         pf-11-quantize.js
@@ -15517,6 +15627,33 @@
   var CONNECT_MINPX = 24;    // an output piece counts when it holds at least this many px of the stroke
   var CONNECT_MAXLEN = 4;    // longest bridge, in empty cells, per join
   var CONNECT_MINCOV = 0.1;  // a bridge cell must hold at least this share of the stroke
+  // STROKE (Pixel size 16 only: rules.stroke)
+  var STROKE_MINPX = 1.5;    // a piece of cells counts when it holds this many cell-widths of px of the stroke
+  var STROKE_MAXLEN = 3;     // longest bridge, in cells, per join
+  var STROKE_MINCOV = 0.1;   // a bridge cell must hold at least this share of the stroke
+  var STROKE_BEND = 1.5;     // the source path across a gap is at most this x the straight distance (+ a cell)
+  var STROKE_HELD = 0.5;     // a bridge prefers cells whose own colour holds less of them
+  // KEEP (Pixel size 16 only: rules.keep) - what a line may NOT replace
+  var KEEP_THIN = 0.75;      // a colour no thicker than this x a cell where it wins a cell is itself a line there
+  var EDGE_OUT = 0.5;        // a line is the SILHOUETTE's outline at a cell when, in the 3 x 3 cells round it, its pixels touch the
+                             // outside transparency at least this x as often as they touch the cell's own colour (round 5)
+  var EDGE_MINPX = 4;        // ... and at least this many px of it (a corner speck of transparency is not a silhouette)
+  var STROKE_THICK = 1.1;    // STROKE joins a line: at both ends of a gap the stroke is at most about a cell thick (twice its depth)
+  var RIM_DE = 30;           // a rim the line may not erase contrasts with it this much (cream on black; a near-black frame row does not)
+  var PAINT_LEN = 0.375;     // at 16 a line replaces a PAINTED cell only when at least this x a cell thick (6 px; 5 px is a shadow)
+  var OUTWARD_MIN = 0.1;     // a line refused a RIM cell goes to the empty cell outside when that holds this share of it
+  // round 7 (see the header): four rules, each with its switch; all four false = round 6's pf-42-repair8/5 exactly
+  // (the seam, measured on the 311 at 8 and 16)
+  var STEP_ON = true;       // STEP: a band whose lightness lies between its two sides, and is a shade, is not a line
+  var STEP_DL = 3;          // ... by at least this much CIE L* from each side
+  var STEP_SIDE = 0.5;      // ... a side counts when at least this share of its pixels is painted
+  var STEP_GREY = 10;       // ... a colour with CIE chroma under this is a grey
+  var STEP_HUE = 30;        // ... a band within this many degrees of hue of a coloured side is a shade of it
+  var MOVE_ON = true;       // MOVE: a move is dropped with the add it was made for
+  var RUN_ON = true;        // RUN (and GAP): OUTWARD moves a line as a whole run, never a fragment or a bump
+  var SOLID_ON = true;      // SOLID: RESCUE may not make a 2 x 2 block of a colour the source does not fill there
+  var SOLID_SHARE = 0.5;    // ... a block of cells is filled in the source when its family holds this share of the block
+  var SOLID_ADDED = 3;      // ... and the rescue made the block: at least this many of its 4 cells were added
 
   /* the 8 cells around a cell, clockwise from top-left; ringPieces counts the
      8-connected pieces among the marked ones (king-move neighbours join) */
@@ -15610,11 +15747,11 @@
     var cov = new Float32Array(n * K), paintCnt = new Float32Array(n), cellN = new Float32Array(n), c2, sc, f2;
     for (i = 0; i < N; i++) { c2 = cell[i]; cellN[c2]++; if (paint[i]) { cov[c2 * K + line[lab[i]]]++; paintCnt[c2]++; } }
     for (c2 = 0; c2 < n; c2++) { sc = cellN[c2] || 1; for (f2 = 0; f2 < K; f2++) cov[c2 * K + f2] /= sc; paintCnt[c2] /= sc; }
-    return { paint: paint, cnt: cnt, dE: dE, line: line, tone: tone, toneSize: toneSize, cov: cov, paintCnt: paintCnt, cellN: cellN, cell: cell, w: w, h: h, lab: lab };
+    return { d: d, paint: paint, cnt: cnt, dE: dE, line: line, tone: tone, toneSize: toneSize, cov: cov, paintCnt: paintCnt, cellN: cellN, cell: cell, w: w, h: h, lab: lab, labOf: colour.labOf };
   }
 
   /* ---------------------------------------------------------- 1. RESCUE */
-  function rescue(win, opaque, I, cols, rows, K, ACC) {
+  function rescue(win, opaque, I, cols, rows, K, ACC, G) {
     var n = cols * rows, fam = I.line, cov = I.cov, W = I.w;
     var cellW = W / cols;
     if (cellW !== Math.floor(cellW) || I.h / rows !== cellW) return;   // whole square cells only (size 8 on 1280)
@@ -15655,6 +15792,40 @@
         }
         return restPx / (S * S);
       }
+      // STEP (round 7): across the pair, the band's own pixels (family f) and, on each side of it, the pixels of
+      // that side's most common label; each as its mean colour, compared by CIE L*. The band is a step of shading
+      // when its L* lies between the two sides' by STEP_DL from each (both sides mostly painted).
+      function stepOf(f, lo, hi) {
+        var bs = [0, 0, 0, 0], side = [new Map(), new Map()], tot = [0, 0], uu, vv, xx, yy, ii, k, sd, m, p;
+        for (uu = 0; uu < S2; uu++) for (vv = 0; vv < S; vv++) {
+          xx = horiz ? ax + uu : ax + vv; yy = horiz ? ay + vv : ay + uu; ii = yy * W + xx;
+          if (uu >= lo && uu <= hi) { if (famPix[ii] === f) { bs[0] += I.d[ii * 4]; bs[1] += I.d[ii * 4 + 1]; bs[2] += I.d[ii * 4 + 2]; bs[3]++; } continue; }
+          sd = uu < lo ? 0 : 1; tot[sd]++;
+          if (!I.paint[ii]) continue;
+          m = side[sd]; p = m.get(I.lab[ii]); if (!p) { p = [0, 0, 0, 0]; m.set(I.lab[ii], p); }
+          p[0] += I.d[ii * 4]; p[1] += I.d[ii * 4 + 1]; p[2] += I.d[ii * 4 + 2]; p[3]++;
+        }
+        if (!bs[3]) return false;
+        var Ls = [];
+        for (sd = 0; sd < 2; sd++) {
+          var best = null, bk = -1, painted = 0;
+          side[sd].forEach(function (v2, k2) { painted += v2[3]; if (!best || v2[3] > best[3] || (v2[3] === best[3] && k2 < bk)) { best = v2; bk = k2; } });
+          if (!best || painted < STEP_SIDE * tot[sd]) return false;
+          Ls.push(I.labOf(best[0] / best[3], best[1] / best[3], best[2] / best[3]));
+        }
+        var Bl = I.labOf(bs[0] / bs[3], bs[1] / bs[3], bs[2] / bs[3]), Lb = Bl[0];
+        if (!(Lb >= Math.min(Ls[0][0], Ls[1][0]) + STEP_DL && Lb <= Math.max(Ls[0][0], Ls[1][0]) - STEP_DL)) return false;
+        // ... and it is a SHADE: a grey (a drop shadow), or the hue of a coloured side (a darker red between a red cap
+        // and its outline). A coloured band of its own hue between them is a drawn line (Casino Crown's red trim
+        // between the black outline and the gold, Dogecoin Polo's teal edge between black and grey): rescued.
+        var Cb = Math.sqrt(Bl[1] * Bl[1] + Bl[2] * Bl[2]);
+        if (Cb < STEP_GREY) return true;
+        return Ls.some(function (q) {
+          var Cq = Math.sqrt(q[1] * q[1] + q[2] * q[2]); if (Cq < STEP_GREY) return false;
+          var dh = Math.abs(Math.atan2(Bl[2], Bl[1]) - Math.atan2(q[2], q[1])) * 180 / Math.PI; if (dh > 180) dh = 360 - dh;
+          return dh <= STEP_HUE;
+        });
+      }
       // does the band [lo..hi] continue past the pair along the line?
       function continues(f, lo, hi) {
         var offsets = [-1, S], oi, off, k, uu, xx, yy;
@@ -15687,10 +15858,45 @@
           var ka = (isF(al[0], f) ? 1 : 0) + (isF(al[1], f) ? 1 : 0), kb = (isF(al[2], f) ? 1 : 0) + (isF(al[3], f) ? 1 : 0);
           t = ka !== kb ? (ka > kb ? a : b) : (ca >= cb ? a : b);
         }
-        var o = t === a ? b : a, rest, prev;
+        var o = t === a ? b : a, rest, prev, outw = null;
         if (winF[t] !== f) {
           if ((t === a ? ca : cb) < RESCUE_MIN) return;
+          // STEP is size 8's rule (no KEEP): at 16 KEEP already refuses a painted cell to a line under PAINT_LEN
+          // (the 5 px shadow) and to a line that is not its outside colour; measured at 16 STEP only took back
+          // round 6's restored shading rows (Green Hill Loop's cloud underside), so it does not run there.
+          if (STEP_ON && !G && stepOf(f, lo, hi)) return;
+          if (G && winF[t] >= 0 && L < PAINT_LEN * S) return;
           if (winF[t] >= 0 && I.dE[fam[win[t]] * K + f] < LINE_CON_DE) return;
+          if (G) {
+            // KEEP (size 16): an empty cell takes the line only on the outside, never in a hole
+            // (Ancient Oak Skin's eye slit filled, and the outline pass then wiped the eye);
+            // a painted cell only when it is the line's outside colour and not itself a line
+            // (GATE Hoodie's yellow letter cells turned white). Refused = today's cell.
+            var bp = G.bandPiece(f, ax, ay, lo, hi, horiz);
+            if (winF[t] < 0 ? G.inHole(t) : !G.mayTake(t, winF[t], bp)) return;
+            // RIM (round 5): a line may not take the only cell of the colour it lies against. Eight Lines Specs:
+            // across each lens top the source draws a black line (9 px), a cream rim (13 px), then the black lens;
+            // at 16 the cream holds one cell row, and the black line's centre falls in it, so the line took the
+            // rim's only cell and the frame read as a black block. When the cell beyond t (away from o) does not
+            // show t's colour, t is that colour's only cell across the line here: refused, and
+            // OUTWARD: when o is empty and the outside (not a hole), holds some of the line, and the line is not
+            // shown one cell further out, the line goes to o - outside the rim, where a pixel artist puts it.
+            if (winF[t] >= 0) {
+              var ox = o % cols, oy = (o / cols) | 0, tx = t % cols, ty = (t / cols) | 0;
+              var fx2 = 2 * tx - ox, fy2 = 2 * ty - oy, bx = 2 * ox - tx, by = 2 * oy - ty;
+              var rim = I.dE[fam[win[t]] * K + f] >= RIM_DE && !(fx2 >= 0 && fy2 >= 0 && fx2 < cols && fy2 < rows && winF[fy2 * cols + fx2] === winF[t]);
+              if (rim) {
+                var beyond = bx >= 0 && by >= 0 && bx < cols && by < rows && isF(by * cols + bx, f);
+                if (!(winF[o] < 0 && !G.inHole(o) && (t === a ? cb : ca) >= OUTWARD_MIN && !beyond)) return;
+                // GAP (round 7, with RUN): when the line is shown in the rim cell's own row on both sides along the
+                // line, the rim cell is a gap in a line drawn in that row, not a rim the line goes round: moving the
+                // line out would draw a bump (Sharingan Eyes at 16: a black dot above the eye white). Stays as today.
+                if (RUN_ON && (horiz ? isF(t - cols, f) && isF(t + cols, f) : (tx > 0 && tx + 1 < cols && isF(t - 1, f) && isF(t + 1, f)))) return;
+                var t0 = t; t = o; o = t0;
+                outw = [(t % cols) - (o % cols), ((t / cols) | 0) - ((o / cols) | 0)];
+              }
+            }
+          }
           // the label that draws THIS line: most common label of f on its own pixel lines
           var lc = new Map(), uu, vv, xx, yy, ii, lineLab = -1, lcn = -1;
           for (uu = lo; uu <= hi; uu++) for (vv = 0; vv < S; vv++) {
@@ -15698,11 +15904,11 @@
             if (famPix[ii] === f) lc.set(I.lab[ii], (lc.get(I.lab[ii]) || 0) + 1);
           }
           lc.forEach(function (k2, l2) { if (k2 > lcn || (k2 === lcn && l2 < lineLab)) { lcn = k2; lineLab = l2; } });
-          prev = add.get(t); if (!prev || L > prev.L) add.set(t, { f: f, L: L, lab: lineLab });
+          prev = add.get(t); if (!prev || L > prev.L) add.set(t, { f: f, L: L, lab: lineLab, outw: outw, horiz: horiz });
           // move, not copy: the other cell gives the line up when it holds nothing else of it
           if (winF[o] === f && L <= UNDOUBLE_MAXLEN && continues(f, lo, hi)) {
             rest = restOf(o, f, lo, hi);
-            if (rest < RESCUE_REST) { prev = drop.get(o); if (!prev || L > prev.L) drop.set(o, { f: f, L: L, horiz: horiz }); }
+            if (rest < RESCUE_REST) { prev = drop.get(o); if (!prev || L > prev.L) drop.set(o, { f: f, L: L, horiz: horiz, via: t }); }
           }
         } else if (winF[o] === f && L <= UNDOUBLE_MAXLEN && continues(f, lo, hi)) {
           rest = restOf(o, f, lo, hi);
@@ -15717,6 +15923,14 @@
       if (y + 1 < rows) pair(c, c + cols, false);
     }
 
+    // MOVE (round 7): an add that is dropped takes the moves made for it along; that cell keeps its line
+    // (Ankh Earring at 16: the stem's black bottom cell gave its line to an empty cell the dot rule then refused,
+    // so the line was drawn nowhere and the cell went yellow)
+    function unAdd(k) {
+      var v = add.get(k); if (!v) return;
+      add.delete(k);
+      if (MOVE_ON) mapEntries(drop).forEach(function (d2) { if (d2[1].via === k && d2[1].f === v.f) drop.delete(d2[0]); });
+    }
     // hanging guard: an added cell touching only one shown piece of its line, and no other added cell
     var resF = new Int32Array(n).fill(-1);
     add.forEach(function (v, k) { resF[k] = v.f; });
@@ -15735,8 +15949,64 @@
     }
     mapEntries(add).forEach(function (e) {
       var R = ringOf(e[0], e[1].f, true, null);
-      if (R.res === 0 && R.orig > 0 && R.pieces <= 1) add.delete(e[0]);
+      if (R.res === 0 && R.orig > 0 && R.pieces <= 1) unAdd(e[0]);
+      // KEEP (size 16): nor a cell alone, touching no cell of its line (a dot, not a line)
+      else if (G && R.res === 0 && R.orig === 0) unAdd(e[0]);
     });
+    // RUN (round 7, OUTWARD only): walk each run of cells moved outward, along the line. At each end look at the
+    // next column along the line: the rim's row, the run's row, one further out. When none of them shows the line
+    // but the source still draws it there (its family holds at least RESCUE_LEN px per cell-width across the rim's
+    // and the run's cells), the run stops while the line goes on: a fragment of the line, not the line moved
+    // outside its rim (Mouth 05 at 16: a 2-cell stub under the teeth of a bottom outline drawn nowhere else).
+    // It is dropped and those cells stay as today. Eight Lines Specs' lens tops (the whole rim's length, ending
+    // on the frame's corners) stay.
+    if (RUN_ON) {
+      var runSeen = new Set();
+      mapEntries(add).forEach(function (e) {
+        var k0 = e[0], v0 = e[1]; if (!v0.outw || runSeen.has(k0) || !add.has(k0)) return;
+        var dx = v0.horiz ? 0 : 1, dy = v0.horiz ? 1 : 0, ox = v0.outw[0], oy = v0.outw[1], run = [k0], ends = [], sgn, kx, ky, nx, ny, nk, nv;
+        runSeen.add(k0);
+        for (sgn = -1; sgn <= 1; sgn += 2) {
+          kx = k0 % cols; ky = (k0 / cols) | 0;
+          for (;;) {
+            nx = kx + sgn * dx; ny = ky + sgn * dy;
+            if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) break;
+            nk = ny * cols + nx; nv = add.get(nk);
+            if (!nv || !nv.outw || nv.f !== v0.f || nv.outw[0] !== ox || nv.outw[1] !== oy) break;
+            run.push(nk); runSeen.add(nk); kx = nx; ky = ny;
+          }
+          ends.push([kx, ky, sgn]);
+        }
+        var shows = function (x1, y1) { if (x1 < 0 || y1 < 0 || x1 >= cols || y1 >= rows) return false; var k1 = y1 * cols + x1, a1 = add.get(k1); return winF[k1] === v0.f || !!(a1 && a1.f === v0.f); };
+        var cut = ends.some(function (en) {
+          var x1 = en[0] + en[2] * dx, y1 = en[1] + en[2] * dy, xr = x1 - ox, yr = y1 - oy;
+          if (x1 < 0 || y1 < 0 || x1 >= cols || y1 >= rows || xr < 0 || yr < 0 || xr >= cols || yr >= rows) return false;
+          if (shows(x1, y1) || shows(xr, yr) || shows(x1 + ox, y1 + oy)) return false;
+          return (cov[(y1 * cols + x1) * K + v0.f] + cov[(yr * cols + xr) * K + v0.f]) * S >= RESCUE_LEN;
+        });
+        if (cut) run.forEach(unAdd);
+      });
+    }
+    // SOLID (round 7): a rescued line is about one cell thick. An added cell that completes a 2 x 2 block of its
+    // line's colour (shown or added) where the source does not fill that block (the family holds under SOLID_SHARE
+    // of it) draws an area, not a line (Black and White Rays at 8: rays finer than a cell merged into a black blob).
+    // Size 8's set only (no KEEP): at 16 two separate thin lines a cell apart (Trainer Cap with Hair: the brim's
+    // black outline and the dark line under it) make such a block too, and SOLID broke the outline - measured.
+    if (SOLID_ON && !G) {
+      var showF = function (k1, f1) { var a1 = add.get(k1); return winF[k1] === f1 || !!(a1 && a1.f === f1); };
+      var addKeys = mapEntries(add).map(function (e) { return e[0]; }).sort(function (p1, q1) { return p1 - q1; });
+      addKeys.forEach(function (k1) {
+        var v1 = add.get(k1); if (!v1) return;
+        var x1 = k1 % cols, y1 = (k1 / cols) | 0, sx, sy, q, ok, share, cc, nadd, solid = false;
+        for (sy = y1 - 1; sy <= y1 && !solid; sy++) for (sx = x1 - 1; sx <= x1 && !solid; sx++) {
+          if (sx < 0 || sy < 0 || sx + 1 >= cols || sy + 1 >= rows) continue;
+          ok = true; share = 0; nadd = 0;
+          for (q = 0; q < 4; q++) { cc = (sy + (q >> 1)) * cols + sx + (q & 1); if (!showF(cc, v1.f)) { ok = false; break; } share += cov[cc * K + v1.f]; if (winF[cc] !== v1.f) nadd++; }
+          if (ok && nadd >= SOLID_ADDED && share < SOLID_SHARE * 4) solid = true;
+        }
+        if (solid) unAdd(k1);
+      });
+    }
     add.forEach(function (v, k) {
       var bl = -1, bw = 0, big = -1, l;
       for (l = 0; l < K; l++) if (fam[l] === v.f && ACC[k * K + l] > 0 && (big < 0 || I.cnt[l] > I.cnt[big])) big = l;
@@ -16017,8 +16287,435 @@
     });
   }
 
+  /* ---------------------------------------------------------- PIECES (size 16)
+     A piece is one LINE family's own 8-connected pixels (I.line): a collar
+     line inside a grey shirt is one piece, the shirt another. Shared by
+     STROKE and by KEEP. Built once per picture, and only when a size-16 rule
+     is on, so size 8 never pays for it. */
+  function pieces(I) {
+    var w = I.w, h = I.h, N = w * h, fam = I.line, famPix = new Int32Array(N), i, x, y, dx, dy, xx, yy, j, s, sp;
+    for (i = 0; i < N; i++) famPix[i] = I.paint[i] ? fam[I.lab[i]] : -1;
+    var comp = new Int32Array(N).fill(-1), nc = 0, stack = new Int32Array(N), compFam = [], compPx = [];
+    for (s = 0; s < N; s++) {
+      if (famPix[s] < 0 || comp[s] >= 0) continue;
+      var f0 = famPix[s], cntc = 0;
+      sp = 0; stack[sp++] = s; comp[s] = nc;
+      while (sp) {
+        i = stack[--sp]; cntc++; x = i % w; y = (i / w) | 0;
+        for (dy = -1; dy <= 1; dy++) for (dx = -1; dx <= 1; dx++) {
+          if (!dx && !dy) continue; xx = x + dx; yy = y + dy;
+          if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
+          j = yy * w + xx; if (famPix[j] === f0 && comp[j] < 0) { comp[j] = nc; stack[sp++] = j; }
+        }
+      }
+      compFam.push(f0); compPx.push(cntc); nc++;
+    }
+    /* the colour OUTSIDE a piece: the family of the biggest other piece its pixels touch. An
+       outline goes round the smaller shape: a white outline between a yellow letter and a navy
+       hoodie has navy outside, so the letter is the shape it outlines. */
+    var outBest = null;
+    function outsideOf(pc) {
+      if (pc < 0) return -1;
+      if (!outBest) {
+        outBest = new Int32Array(nc).fill(-1);
+        var u, v, k2, dx2, dy2, o2, p2;
+        for (k2 = 0; k2 < N; k2++) {
+          p2 = comp[k2]; if (p2 < 0) continue; u = k2 % w; v = (k2 / w) | 0;
+          for (dy2 = -1; dy2 <= 1; dy2++) for (dx2 = -1; dx2 <= 1; dx2++) {
+            if (u + dx2 < 0 || v + dy2 < 0 || u + dx2 >= w || v + dy2 >= h) continue;
+            o2 = comp[k2 + dy2 * w + dx2];
+            if (o2 >= 0 && o2 !== p2 && (outBest[p2] < 0 || compPx[o2] > compPx[outBest[p2]] || (compPx[o2] === compPx[outBest[p2]] && o2 < outBest[p2]))) outBest[p2] = o2;
+          }
+        }
+      }
+      return outBest[pc] >= 0 ? compFam[outBest[pc]] : -1;
+    }
+    /* how deep each pixel sits inside its own family (chessboard px to the nearest pixel of
+       another family or of transparency; the picture's edge is not a boundary) */
+    var depth = null;
+    function depthMap() {
+      if (depth) return depth;
+      depth = new Int32Array(N); var BIG = 1 << 20, f;
+      for (y = 0; y < h; y++) for (x = 0; x < w; x++) {
+        i = y * w + x; f = famPix[i]; if (f < 0) { depth[i] = 0; continue; }
+        var edge = false;
+        for (dy = -1; dy <= 1 && !edge; dy++) for (dx = -1; dx <= 1; dx++) {
+          xx = x + dx; yy = y + dy; if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
+          if (famPix[yy * w + xx] !== f) { edge = true; break; }
+        }
+        depth[i] = edge ? 1 : BIG;
+      }
+      for (y = 0; y < h; y++) for (x = 0; x < w; x++) {
+        i = y * w + x; if (depth[i] <= 1) continue;
+        if (x > 0) depth[i] = Math.min(depth[i], depth[i - 1] + 1);
+        if (y > 0) { depth[i] = Math.min(depth[i], depth[i - w] + 1); if (x > 0) depth[i] = Math.min(depth[i], depth[i - w - 1] + 1); if (x + 1 < w) depth[i] = Math.min(depth[i], depth[i - w + 1] + 1); }
+      }
+      for (y = h - 1; y >= 0; y--) for (x = w - 1; x >= 0; x--) {
+        i = y * w + x; if (depth[i] <= 1) continue;
+        if (x + 1 < w) depth[i] = Math.min(depth[i], depth[i + 1] + 1);
+        if (y + 1 < h) { depth[i] = Math.min(depth[i], depth[i + w] + 1); if (x + 1 < w) depth[i] = Math.min(depth[i], depth[i + w + 1] + 1); if (x > 0) depth[i] = Math.min(depth[i], depth[i + w - 1] + 1); }
+      }
+      return depth;
+    }
+    /* transparency that is a HOLE: empty pixels not 4-connected to the picture's edge */
+    var holes = null;
+    function holeMap() {
+      if (holes) return holes;
+      holes = new Uint8Array(N); var reach = new Uint8Array(N), st = new Int32Array(N), n2 = 0, k, kx;
+      for (k = 0; k < N; k++) { kx = k % w; if (famPix[k] < 0 && (kx === 0 || kx === w - 1 || k < w || k >= N - w)) { reach[k] = 1; st[n2++] = k; } }
+      while (n2) {
+        k = st[--n2]; kx = k % w;
+        if (kx > 0 && !reach[k - 1] && famPix[k - 1] < 0) { reach[k - 1] = 1; st[n2++] = k - 1; }
+        if (kx + 1 < w && !reach[k + 1] && famPix[k + 1] < 0) { reach[k + 1] = 1; st[n2++] = k + 1; }
+        if (k >= w && !reach[k - w] && famPix[k - w] < 0) { reach[k - w] = 1; st[n2++] = k - w; }
+        if (k + w < N && !reach[k + w] && famPix[k + w] < 0) { reach[k + w] = 1; st[n2++] = k + w; }
+      }
+      for (k = 0; k < N; k++) if (famPix[k] < 0 && !reach[k]) holes[k] = 1;
+      return holes;
+    }
+    return { famPix: famPix, comp: comp, nc: nc, compFam: compFam, compPx: compPx, outsideOf: outsideOf, depthMap: depthMap, holeMap: holeMap };
+  }
+
+  /* KEEP (size 16): what a line rule may not replace. A cell whose colour is
+     the shape a line outlines (the piece's outside is another colour) keeps
+     its colour: GATE Hoodie's white outline must not turn the yellow letter
+     cells white. A cell whose colour is itself a line there (no thicker than
+     KEEP_THIN of a cell inside that cell) keeps it: one line is not drawn by
+     cutting another (STROKE turned GATE's thin white outline yellow). */
+  function keeper(P, I, cols, rows, S) {
+    var fam = I.line, cell = I.cell, w = I.w, thin = new Map();
+    /* SILHOUETTE (round 5): the line pc is the shape's outline against the OUTSIDE transparency here, so the
+       cell's colour gf is what it outlines, never its outside. outsideOf counts painted pieces only, so for an
+       outline on transparency the one colour it touches - the shape it goes round - read as its outside, and
+       the line took that shape's cells: Eight Lines Specs lost the cream rim of both lenses (its only cell
+       across) to the black outline, AirPod and Small White Figure got black inside the white body. Local, in
+       the 3 x 3 cells round g: an inner line that meets the silhouette somewhere else (Dogecoin Polo's
+       placket) keeps today's KEEP rule. */
+    /* MEMO KEYS (round 6 judge): pc * NCELL + g, one number per (piece, cell) pair. The round-5 key
+       g * 65536 + pc collided once a picture had more than 65,536 pixel pieces, which a background now
+       reaching these rules has (R Place Mosaic: 115,129 at 16); g < NCELL makes this key exact. */
+    var NCELL = cols * rows;
+    var edgeMemo = new Map();
+    function edgeAt(g, gf, pc) {
+      var key = pc * NCELL + g; if (edgeMemo.has(key)) return edgeMemo.get(key);
+      var H2 = P.holeMap(), hh = I.h, gx = g % cols, gy = (g / cols) | 0;
+      var x0 = Math.max(0, (gx - 1) * S), y0 = Math.max(0, (gy - 1) * S), x1 = Math.min(w, (gx + 2) * S), y1 = Math.min(hh, (gy + 2) * S);
+      var tc = 0, oc = 0, u, v, k, dd, j, xx2, yy2, DX = [1, -1, 0, 0], DY = [0, 0, 1, -1];
+      for (v = y0; v < y1; v++) for (u = x0; u < x1; u++) {
+        k = v * w + u; if (P.comp[k] !== pc) continue;
+        for (dd = 0; dd < 4; dd++) {
+          xx2 = u + DX[dd]; yy2 = v + DY[dd]; if (xx2 < 0 || yy2 < 0 || xx2 >= w || yy2 >= hh) continue;
+          j = yy2 * w + xx2;
+          if (P.famPix[j] < 0) { if (!H2[j]) tc++; }
+          else if (P.famPix[j] === gf) oc++;
+        }
+      }
+      var r = tc >= EDGE_MINPX && tc >= EDGE_OUT * oc; edgeMemo.set(key, r); return r;
+    }
+    /* is the piece pc a line where it crosses cell g (no thicker than KEEP_THIN of a cell there)? */
+    var thinP = new Map();
+    function thinPiece(g, pc) {
+      var key = pc * NCELL + g; if (thinP.has(key)) return thinP.get(key);
+      var D = P.depthMap(), x0 = (g % cols) * S, y0 = ((g / cols) | 0) * S, mx = 0, u, v, k;
+      for (v = y0; v < y0 + S; v++) for (u = x0; u < x0 + S; u++) { k = v * w + u; if (P.comp[k] === pc && D[k] > mx) mx = D[k]; }
+      var r = 2 * mx <= STROKE_THICK * S; thinP.set(key, r); return r;
+    }
+    function thinAt(g, gf) {
+      var key = g * 4096 + gf; if (thin.has(key)) return thin.get(key);
+      var D = P.depthMap(), x0 = (g % cols) * S, y0 = ((g / cols) | 0) * S, mx = 0, u, v, k;
+      for (v = y0; v < y0 + S; v++) for (u = x0; u < x0 + S; u++) { k = v * w + u; if (P.famPix[k] === gf && D[k] > mx) mx = D[k]; }
+      var r = 2 * mx <= KEEP_THIN * S; thin.set(key, r); return r;
+    }
+    return {
+      bandPiece: function (f, ax, ay, lo, hi, horiz) {
+        var cnt = new Map(), best = -1, bn = 0, uu, vv, xx, yy, ii, pc;
+        for (uu = lo; uu <= hi; uu++) for (vv = 0; vv < S; vv++) {
+          xx = horiz ? ax + uu : ax + vv; yy = horiz ? ay + vv : ay + uu; ii = yy * w + xx;
+          if (P.famPix[ii] !== f) continue; pc = P.comp[ii]; cnt.set(pc, (cnt.get(pc) || 0) + 1);
+        }
+        cnt.forEach(function (v2, k2) { if (v2 > bn || (v2 === bn && k2 < best)) { bn = v2; best = k2; } });
+        return best;
+      },
+      inHole: function (g) {
+        // an empty cell whose transparency is mostly a HOLE in the art (an eye slit, a lens), not the outside
+        var H2 = P.holeMap(), x0 = (g % cols) * S, y0 = ((g / cols) | 0) * S, hole = 0, out = 0, u, v, k;
+        for (v = y0; v < y0 + S; v++) for (u = x0; u < x0 + S; u++) { k = v * w + u; if (P.famPix[k] >= 0) continue; if (H2[k]) hole++; else out++; }
+        return hole > out;
+      },
+      mayTake: function (g, gf, pc, stroke) {
+        var out = P.outsideOf(pc);
+        if (out >= 0 && gf !== out) return false;
+        if (stroke && edgeAt(g, gf, pc)) return false;
+        return !thinAt(g, gf);
+      },
+      edgeAt: edgeAt,
+      thinPiece: thinPiece
+    };
+  }
+
+  /* ---------------------------------------------------------- 4. STROKE (size 16)
+     A drawn line thinner than a cell, drawn ON a fill (a collar line on the
+     shirt, a white outline round a letter): CONNECT only sees paint on
+     transparency, so on a fill the line has no piece of its own and comes out
+     as dots. A stroke is one piece (see PIECES).
+     A GAP is two cells showing the stroke's family, each holding at least
+     STROKE_MINPX cell-widths of its pixels, 2..STROKE_MAXLEN+1 cells apart, that
+       - are not joined by cells of that family inside the box around them
+         (one cell of margin): a gap, not two ends of one shown line; and
+       - ARE joined by the stroke's own pixels inside that box, by a path no
+         longer than STROKE_BEND x the distance between the cell centres plus
+         a cell: the source runs straight across the gap (two parallel lines
+         that meet far away are not a gap).
+     The gap is filled by the fewest cells that hold the stroke (each at least
+     STROKE_MINCOV of the cell; the cheapest holds most of it), and only cells
+       - already opaque: an added cell on the silhouette was outlined into a
+         bump by the outline pass (Sorcerer Hunter, Cannabis Trucker);
+       - whose winner differs from the family by LINE_CON_DE (a line contrasts);
+       - whose own colour is not a one-cell line there (the ring test) and that
+         KEEP lets it take (the outside colour, and not itself a line);
+       - preferring cells whose own colour holds less of them (STROKE_HELD).
+     Every added cell joins two shown pieces, so it cannot hang a cell off a
+     clean outline: a clean outline has no gap. */
+  function stroke(win, opaque, I, cols, rows, K, S, P, G) {
+    var w = I.w, n = cols * rows, fam = I.line, cell = I.cell, N = I.w * I.h, i, dx, dy, xx, yy, j;
+    var comp = P.comp, nc = P.nc, compFam = P.compFam, compPx = P.compPx, made = new Uint8Array(n);
+    var minPx = STROKE_MINPX * S;
+    var cellPieces = new Array(n), c, m;
+    for (i = 0; i < N; i++) {
+      if (comp[i] < 0 || compPx[comp[i]] < 2 * minPx) continue; c = cell[i];
+      m = cellPieces[c]; if (!m) { m = new Map(); cellPieces[c] = m; }
+      m.set(comp[i], (m.get(comp[i]) || 0) + 1);
+    }
+    function pxOf(c1, pc) { return cellPieces[c1] ? (cellPieces[c1].get(pc) || 0) : 0; }
+    function shows(c1, f) { return opaque[c1] && fam[win[c1]] === f; }
+    var dist = new Int32Array(N).fill(-1), q = new Int32Array(N);
+    // are cells a and b joined by pixels of piece pc inside box [bx0..bx1] x [by0..by1] (cells), within maxSteps?
+    function srcJoined(pc, a, b, bx0, by0, bx1, by1, maxSteps) {
+      var px0 = bx0 * S, py0 = by0 * S, px1 = (bx1 + 1) * S, py1 = (by1 + 1) * S, qh = 0, qt = 0, touched = [], ok = false, u, v, k, ax = (a % cols) * S, ay = ((a / cols) | 0) * S;
+      for (v = ay; v < ay + S; v++) for (u = ax; u < ax + S; u++) { k = v * w + u; if (comp[k] === pc) { dist[k] = 0; q[qt++] = k; touched.push(k); } }
+      while (qh < qt && !ok) {
+        k = q[qh++]; if (cell[k] === b) { ok = true; break; }
+        if (dist[k] >= maxSteps) continue;
+        u = k % w; v = (k / w) | 0;
+        for (dy = -1; dy <= 1; dy++) for (dx = -1; dx <= 1; dx++) {
+          xx = u + dx; yy = v + dy; if (xx < px0 || yy < py0 || xx >= px1 || yy >= py1) continue;
+          j = yy * w + xx; if (comp[j] !== pc || dist[j] >= 0) continue;
+          dist[j] = dist[k] + 1; q[qt++] = j; touched.push(j);
+        }
+      }
+      for (k = 0; k < touched.length; k++) dist[touched[k]] = -1;
+      return ok;
+    }
+    // are a and b joined by cells showing f inside the box?
+    function outJoined(f, a, b, bx0, by0, bx1, by1) {
+      var seen = new Set([a]), st = [a], e, ex, ey, ddx, ddy, gx, gy, g;
+      while (st.length) {
+        e = st.pop(); if (e === b) return true; ex = e % cols; ey = (e / cols) | 0;
+        for (ddy = -1; ddy <= 1; ddy++) for (ddx = -1; ddx <= 1; ddx++) {
+          gx = ex + ddx; gy = ey + ddy; if (gx < bx0 || gy < by0 || gx > bx1 || gy > by1) continue;
+          g = gy * cols + gx; if (!seen.has(g) && shows(g, f)) { seen.add(g); st.push(g); }
+        }
+      }
+      return false;
+    }
+    var R = STROKE_MAXLEN + 1, pcs = [];
+    for (var pc0 = 0; pc0 < nc; pc0++) if (compPx[pc0] >= 2 * minPx) pcs.push(pc0);
+    pcs.sort(function (p, q2) { return compPx[q2] - compPx[p] || p - q2; });
+    pcs.forEach(function (pc) {
+      var f = compFam[pc], ends = [], c1, a, b, ka, kb;
+      for (c1 = 0; c1 < n; c1++) if (shows(c1, f) && pxOf(c1, pc) >= minPx) ends.push(c1);
+      var pairs = [];
+      for (ka = 0; ka < ends.length; ka++) for (kb = ka + 1; kb < ends.length; kb++) {
+        a = ends[ka]; b = ends[kb];
+        var ddx0 = Math.abs(a % cols - b % cols), ddy0 = Math.abs(((a / cols) | 0) - ((b / cols) | 0)), ch = Math.max(ddx0, ddy0);
+        if (ch < 2 || ch > R) continue;
+        pairs.push([ch, Math.hypot(ddx0, ddy0), a, b]);
+      }
+      pairs.sort(function (p, q2) { return p[0] - q2[0] || p[1] - q2[1] || p[2] - q2[2] || p[3] - q2[3]; });
+      pairs.forEach(function (pr) {
+        var a2 = pr[2], b2 = pr[3], ax = a2 % cols, ay = (a2 / cols) | 0, bx = b2 % cols, by = (b2 / cols) | 0;
+        var bx0 = Math.max(0, Math.min(ax, bx) - 1), by0 = Math.max(0, Math.min(ay, by) - 1), bx1 = Math.min(cols - 1, Math.max(ax, bx) + 1), by1 = Math.min(rows - 1, Math.max(ay, by) + 1);
+        if (outJoined(f, a2, b2, bx0, by0, bx1, by1)) return;
+        // round 5: STROKE joins a LINE; a piece as thick as a cell at either end is a fill (Diagonal Reflection
+        // Glasses: the black lens was 'joined' across its own white highlight, which broke the highlight)
+        if (G && (!G.thinPiece(a2, pc) || !G.thinPiece(b2, pc))) return;
+        if (!srcJoined(pc, a2, b2, bx0, by0, bx1, by1, Math.round(STROKE_BEND * pr[1] * S + S))) return;
+        // fewest cells holding the stroke, inside the box (cells change only after a path is found)
+        var best = new Map(), heap = [[0, 0, a2, -1]], prev = new Map(), top, e, ex, ey, ddx, ddy, gx, gy, g, cv, cost, hit = false;
+        best.set(a2, 0);
+        while (heap.length) {
+          heap.sort(function (p, q2) { return p[0] - q2[0] || p[2] - q2[2]; });
+          top = heap.shift(); e = top[2];
+          if (top[0] > best.get(e)) continue;
+          if (e === b2) { hit = true; break; }
+          ex = e % cols; ey = (e / cols) | 0;
+          for (ddy = -1; ddy <= 1; ddy++) for (ddx = -1; ddx <= 1; ddx++) {
+            if (!ddx && !ddy) continue; gx = ex + ddx; gy = ey + ddy; if (gx < bx0 || gy < by0 || gx > bx1 || gy > by1) continue;
+            g = gy * cols + gx;
+            if (g === b2) cost = top[0];
+            else {
+              if (shows(g, f)) continue;                                   // through the gap only
+              cv = pxOf(g, pc) / (I.cellN[g] || 1);
+              if (cv < STROKE_MINCOV || made[g]) continue;
+              if (!opaque[g]) continue;                                    // on transparency CONNECT does it
+              if (I.dE[fam[win[g]] * K + f] < LINE_CON_DE) continue;
+              if (top[1] + 1 > STROKE_MAXLEN) continue;
+              // never through a cell whose own colour is a line one cell wide there (it would be cut)
+              var gf = fam[win[g]], rg = [], r8, rx, ry;
+              for (r8 = 0; r8 < 8; r8++) { rx = gx + RING[r8][0]; ry = gy + RING[r8][1]; rg.push(rx >= 0 && ry >= 0 && rx < cols && ry < rows && shows(ry * cols + rx, gf) ? 1 : 0); }
+              if (ringPieces(rg) > 1) continue;
+              // an outline goes round the smaller shape: only the outside colour gives way
+              if (G) { if (!G.mayTake(g, gf, pc, true)) continue; }
+              else if (gf !== P.outsideOf(pc)) continue;
+              cost = top[0] + 1.05 - cv + STROKE_HELD * I.cov[g * K + gf];
+            }
+            if (!best.has(g) || cost < best.get(g)) { best.set(g, cost); prev.set(g, e); heap.push([cost, g === b2 ? top[1] : top[1] + 1, g]); }
+          }
+        }
+        if (!hit) return;
+        var cb = prev.get(b2), path = [];
+        while (cb !== undefined && cb !== a2) { path.push(cb); cb = prev.get(cb); }
+        path.forEach(function (pcell) {
+          // the label drawing the stroke here: most of the stroke's own pixels in this cell
+          var cnt = new Map(), bl = -1, bw = 0, u, v, k2, px0 = (pcell % cols) * S, py0 = ((pcell / cols) | 0) * S;
+          for (v = py0; v < py0 + S; v++) for (u = px0; u < px0 + S; u++) { k2 = v * w + u; if (comp[k2] === pc) cnt.set(I.lab[k2], (cnt.get(I.lab[k2]) || 0) + 1); }
+          cnt.forEach(function (vv, l2) { if (vv > bw || (vv === bw && l2 < bl)) { bw = vv; bl = l2; } });
+          if (bl < 0) return;
+          win[pcell] = bl; opaque[pcell] = 1; made[pcell] = 1;
+        });
+      });
+    });
+  }
+
+
+  /* GATE (Pixel size 16 only: rules.gate; round 4). The page's outline pass (fixOutlineOnce in index.html)
+     picks the shapes it works on from the CELLS: an 8-connected shape of at least 200 cells with at least 6
+     cells touching empty space, whose edge cells are at least half pure black (or 60% near-black, luminance
+     <= 16). A shape it picks gets every dark edge cell painted black and its doubled border peeled; a shape
+     it skips is left alone (or, with the source picture, gets only its drawn line back). So when a rule
+     adds a few black cells to an edge, the pass can switch on for the whole shape and repaint far more
+     than the rule did: Desert Jedi Robes - 2 black cells added to the right outline, then the pass painted
+     the dark-brown sleeve's left column black where the source draws a hairline and peeled its dark
+     shading strip to peach (round 3: 175 cells changed for 42 the rules made). Cyclops Ruby Visor - a
+     black edge added along the temple arm, then the pass peeled the visor's black left frame to grey.
+     The guard paints today's vote and the repaired vote the same way (stage 2, before the palette),
+     applies the pass's test to both, and wherever a shape's answer differs it puts back today's cells
+     for every cell the rules changed in that shape (and in the shape it overlaps most on the other side);
+     repeated, as an undo can join or split shapes, at most GATE_ROUNDS times.
+     THE PASS'S NUMBERS COME FROM THE PAGE (round 6): colour.gate is the page's OUTLINE_GATE, the object
+     fixOutlineOnce itself reads, sent with the message (fixLines16Gate). Superseded (rounds 4-5): a private
+     copy here (GATE_FRAC 0.5, GATE_NEAR_FRAC 0.6, GATE_MIN_AREA 200, GATE_MIN_RING 6, GATE_NEAR_LUM 16) that
+     had to "follow" the pass by hand; patch620 then gave the pass's gate a dark-grey near-black (nearG:
+     luminance <= NEAR_GATE_LUM 22.5, channels within NEAR_GATE_SPREAD 6) and the copy did not follow - a
+     copy drifts silently. A missing number throws by name: a guard asking a different question from the
+     pass would look like a guard. Near-black here is the pass's nearG exactly (luminance <= NEAR_BLACK_LUM,
+     or a grey within NEAR_GATE_SPREAD up to NEAR_GATE_LUM), and a shape is picked by the pass's own
+     comparisons (pure >= OUTLINED_FRAC x ring, or near >= OUTLINED_NEAR_FRAC x ring).
+     Still a difference from the pass, by place not by number: the guard tests the cells after the
+     page's palette step (colour.snap) but before the pass's source gate [S1], which can pick a shape the
+     cell test skips; the guard does not ask that question. */
+  var GATE_ROUNDS = 4, GATE_DECISIVE = 1.5;
+  var GATE_KEYS = ['OUTLINED_FRAC', 'OUTLINED_NEAR_FRAC', 'MIN_AREA', 'MIN_RING', 'NEAR_BLACK_LUM', 'NEAR_GATE_LUM', 'NEAR_GATE_SPREAD'];
+  function gateNumbers(g) {
+    if (!g || typeof g !== 'object') throw new Error('pf-42-repair8.js: colour.gate must be the page\'s outline gate (OUTLINE_GATE), got ' + typeof g);
+    GATE_KEYS.forEach(function (k) {
+      if (typeof g[k] !== 'number' || !isFinite(g[k])) throw new Error('pf-42-repair8.js: colour.gate.' + k + ' is missing -- the page sends OUTLINE_GATE');
+    });
+    return g;
+  }
+  function gateParts(c, cols, rows, GT) {
+    var n = cols * rows, part = new Int32Array(n).fill(-1), q = new Int32Array(n), np = 0, i, a, x, y, dx, dy, j, qh, qt, p;
+    var area = [], ring = [], pure = [], near = [];
+    function op(k) { return c[k * 4 + 3] >= 128; }
+    for (i = 0; i < n; i++) {
+      if (!op(i) || part[i] >= 0) continue;
+      p = np++; area.push(0); ring.push(0); pure.push(0); near.push(0);
+      qh = 0; qt = 0; q[qt++] = i; part[i] = p;
+      while (qh < qt) {
+        a = q[qh++]; x = a % cols; y = (a / cols) | 0; area[p]++;
+        if ((x > 0 && !op(a - 1)) || (x < cols - 1 && !op(a + 1)) || (y > 0 && !op(a - cols)) || (y < rows - 1 && !op(a + cols))) {
+          ring[p]++;
+          var r0 = c[a * 4], g0 = c[a * 4 + 1], b0 = c[a * 4 + 2];
+          if (!r0 && !g0 && !b0) pure[p]++;
+          var lum0 = 0.299 * r0 + 0.587 * g0 + 0.114 * b0;   // the pass's nearG
+          if (lum0 <= GT.NEAR_BLACK_LUM || (lum0 <= GT.NEAR_GATE_LUM && Math.max(r0, g0, b0) - Math.min(r0, g0, b0) <= GT.NEAR_GATE_SPREAD)) near[p]++;
+        }
+        for (dy = -1; dy <= 1; dy++) for (dx = -1; dx <= 1; dx++) {
+          var nx = x + dx, ny = y + dy; if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) continue;
+          j = ny * cols + nx; if (op(j) && part[j] < 0) { part[j] = p; q[qt++] = j; }
+        }
+      }
+    }
+    var sel = new Uint8Array(np), score = new Float64Array(np);
+    for (p = 0; p < np; p++) {
+      score[p] = ring[p] ? Math.max(pure[p] / (GT.OUTLINED_FRAC * ring[p]), near[p] / (GT.OUTLINED_NEAR_FRAC * ring[p])) : 0;
+      sel[p] = (area[p] >= GT.MIN_AREA && ring[p] >= GT.MIN_RING &&
+        (pure[p] >= GT.OUTLINED_FRAC * ring[p] || near[p] >= GT.OUTLINED_NEAR_FRAC * ring[p])) ? 1 : 0;
+    }
+    return { part: part, n: np, sel: sel, area: area, score: score };
+  }
+  /* shapes whose answer differs between today's cells (lowT) and the repaired ones (low); undo = the
+     rule-changed cells to put back */
+  function gateFlips(lowT, low, winT, opaqueT, win, opaque, cols, rows, GT) {
+    var n = cols * rows, A = gateParts(lowT, cols, rows, GT), B = gateParts(low, cols, rows, GT), i, p, q;
+    var bad = new Uint8Array(B.n), badA = new Uint8Array(A.n), k = 0;
+    function match(X, Y, from) {   // for each part of X, the part of Y it overlaps most
+      var best = new Int32Array(X.n).fill(-1), cnt = new Map(), key;
+      for (i = 0; i < n; i++) { p = X.part[i]; q = Y.part[i]; if (p < 0 || q < 0) continue; key = p * 65536 + q; cnt.set(key, (cnt.get(key) || 0) + 1); }
+      var bn = new Float64Array(X.n);
+      cnt.forEach(function (v, kk) { var pp = Math.floor(kk / 65536), qq = kk % 65536; if (v > bn[pp] || (v === bn[pp] && qq < best[pp])) { bn[pp] = v; best[pp] = qq; } });
+      return best;
+    }
+    var bToA = match(B, A), aToB = match(A, B);
+    // a shape the rules switch ON decisively (its edge is now plainly a black outline: score >= GATE_DECISIVE,
+    // e.g. Noun Glasses Original, whose missing frame the rules restore: pure-black edge share 0.46 -> 1.00) is
+    // left switched on; any other change of answer is undone
+    for (p = 0; p < B.n; p++) { q = bToA[p]; var sa = q >= 0 ? A.sel[q] : 0; if (sa !== B.sel[p] && !(B.sel[p] && B.score[p] >= GATE_DECISIVE)) { bad[p] = 1; if (q >= 0) badA[q] = 1; k++; } }
+    for (q = 0; q < A.n; q++) { p = aToB[q]; var sb = p >= 0 ? B.sel[p] : 0; if (sb !== A.sel[q] && !(sb && B.score[p] >= GATE_DECISIVE)) { badA[q] = 1; if (p >= 0) bad[p] = 1; k++; } }
+    var undo = new Uint8Array(n), m = 0;
+    if (k) for (i = 0; i < n; i++) {
+      if (win[i] === winT[i] && opaque[i] === opaqueT[i]) continue;
+      if ((B.part[i] >= 0 && bad[B.part[i]]) || (A.part[i] >= 0 && badA[A.part[i]])) { undo[i] = 1; m++; }
+    }
+    return { n: m, undo: undo };
+  }
+
+  /* PALETTE (round 6, every size; colour.snap = the page's own palette step, given when it is on).
+     The page's palette step does not map each colour on its own: it groups the cells' colours by count
+     and gives the groups palette colours together, keeping drawn shades apart where it can (snapToPalette,
+     patch617/620). So a repair that changes a handful of cells can change the counts enough to move the
+     palette's answer for hundreds it never touched: Walnut Chessboard Skin at 8 - the specks rule
+     recoloured 4 cells, and the palette then put all 201 dark-grain cells (#613105) on the dark square's
+     brown (#954209): the grain was gone. Measured over the 311 traits at 8 with the repairs on every
+     picture: 8,139 such cells in 45 files (backgrounds, skins, a few costumes and clothing), none of them
+     a line. The guard paints the vote with no rule at all and the repaired vote, snaps copies of both
+     with the page's palette step, and finds the cells the rules did not change whose palette colour
+     changed anyway. Up to PALETTE_SHARE of the cells the rules changed is let through: restoring a line
+     adds cells of its colour, and the palette may answer that colour's shades a little differently
+     (Circuit Board Skin at 16: 145 trace cells restored, 6 gold cells moved between two golds; refusing
+     that took back every trace). Beyond it (Walnut: 192 moved for 4 repaired; Anfield Tunnel at 16: the
+     left wall's dark-red shading merged into the red, 198 for 32), the rule-changed cells that sit on a palette colour involved in
+     that move (the knocked cells' colour before or after) go back to the vote's own cell, and it is
+     asked again, at most GUARD_ROUNDS times; if the palette still moves, the picture keeps the cells the
+     vote made (no rule). A rule-changed cell on any other palette colour stays repaired. */
+  var GUARD_ROUNDS = 6, PALETTE_SHARE = 0.25;
+  function paletteKnock(lowP, low, seenP, seenX, n) {
+    var changed = new Uint8Array(n), inv = new Set(), c, o, k = 0, m = 0, undo = new Uint8Array(n);
+    function key(a, o2) { return a[o2 + 3] < 128 ? -1 : (a[o2] << 16) | (a[o2 + 1] << 8) | a[o2 + 2]; }
+    for (c = 0, o = 0; c < n; c++, o += 4) {
+      if (low[o] !== lowP[o] || low[o + 1] !== lowP[o + 1] || low[o + 2] !== lowP[o + 2] || low[o + 3] !== lowP[o + 3]) { changed[c] = 1; continue; }
+      if (key(seenP, o) !== key(seenX, o)) { k++; inv.add(key(seenP, o)); inv.add(key(seenX, o)); }
+    }
+    var nch = 0; for (c = 0; c < n; c++) nch += changed[c];
+    if (k <= PALETTE_SHARE * nch) return { n: 0, knocked: k, undo: undo };   // in proportion to what was repaired
+    inv.delete(-1);
+    for (c = 0, o = 0; c < n; c++, o += 4) if (changed[c] && (inv.has(key(seenP, o)) || inv.has(key(seenX, o)))) { undo[c] = 1; m++; }
+    if (!m) for (c = 0; c < n; c++) if (changed[c]) { undo[c] = 1; m++; }   // the cause is not on those colours: all of it
+    return { n: m, knocked: k, undo: undo };
+  }
+
   /* ---------------------------------------------------------- the pack */
-  PF.repair8_pack = function (rgba, cols, rows, colour) {
+  PF.repair8_pack = function (rgba, cols, rows, colour, rules) {
     need('adaptive_k', 'pf-40-reconstruct.js'); need('kmeans_quantize', 'pf-11-quantize.js');
     ['clipScalar', 'argmax', 'npMaximum', 'rint'].forEach(function (nm) { need(nm, 'pf-00-base.js'); });
     if (!colour || typeof colour.labOf !== 'function') throw new Error('pf-42-repair8.js: colour.labOf is missing -- pass the page\'s labOf');
@@ -16069,71 +16766,132 @@
 
     // repairs 1 and 2 decide which label wins and which cells are opaque
     var I = facts(d, w, h, N, lab, K, cell, n, cols, rows, colour);
-    rescue(win, opaque, I, cols, rows, K, ACC);
+    // rules (size 16): which repairs run, and STROKE and KEEP; none given = size 8's set exactly
+    var R = rules || null, on = function (k) { return !R || R[k] !== false; };
+    var S16 = w / cols, square = S16 === h / rows && S16 === Math.floor(S16);
+    var winT = new Int32Array(win), opaqueT = new Uint8Array(opaque);   // today's vote, for the guards
+    var P = (R && square && (R.stroke || R.keep)) ? pieces(I) : null;
+    var G = (P && R.keep) ? keeper(P, I, cols, rows, S16) : null;
+    if (P && R.stroke) stroke(win, opaque, I, cols, rows, K, S16, P, G);
+    if (on('rescue')) rescue(win, opaque, I, cols, rows, K, ACC, G);
     var bridges = [];
-    connect(win, opaque, I, cols, rows, K, ACC, bridges);
+    if (on('connect')) connect(win, opaque, I, cols, rows, K, ACC, bridges);
 
-    // stage 2, two_stage_pack's: the weighted MODE of the exact colours carrying the
-    // winning label (invents nothing); the weighted mean only for a cell with none
-    var denom = new Float64Array(n), sums = new Float64Array(3 * n), selcnt = new Float64Array(n), sel, ws;
-    for (i = 0; i < N; i++) {
-      c = cell[i]; sel = lab[i] === win[c]; ws = sel ? wgt[i] : 0.0;
-      denom[c] += ws; sums[3 * c] += rgb[3 * i] * ws; sums[3 * c + 1] += rgb[3 * i + 1] * ws; sums[3 * c + 2] += rgb[3 * i + 2] * ws;
-      selcnt[c] += sel ? 1.0 : 0.0;
-    }
-    var out = new Float64Array(3 * n), dn, anyBad = false;
-    for (c = 0; c < n; c++) {
-      dn = PF.npMaximum(denom[c], 1e-9);
-      out[3 * c] = sums[3 * c] / dn; out[3 * c + 1] = sums[3 * c + 1] / dn; out[3 * c + 2] = sums[3 * c + 2] / dn;
-      if (selcnt[c] < 0.5) anyBad = true;
-    }
-    if (anyBad) {
-      var msum = new Float64Array(3 * n);
-      for (i = 0; i < N; i++) { c = cell[i]; msum[3 * c] += rgb[3 * i]; msum[3 * c + 1] += rgb[3 * i + 1]; msum[3 * c + 2] += rgb[3 * i + 2]; }
-      for (c = 0; c < n; c++) if (selcnt[c] < 0.5) for (ch = 0; ch < 3; ch++) out[3 * c + ch] = msum[3 * c + ch] / cntf[c];
-    }
-    var modeKey = new Int32Array(n).fill(-1), tally = new Map(), bestW, bestKey, key, cw;
-    for (c = 0; c < n; c++) {
-      tally.clear(); bestW = -1; bestKey = -1;
-      for (p = offs[c]; p < offs[c + 1]; p++) {
-        q = order[p];
-        if (lab[q] !== win[c] || !(wgt[q] > 0)) continue;
-        b = q * 4; key = (d[b] << 16) | (d[b + 1] << 8) | d[b + 2];
-        cw = (tally.get(key) || 0) + wgt[q]; tally.set(key, cw);
-        if (cw > bestW) { bestW = cw; bestKey = key; }
+    // stage 2 as a function of the vote (win, opaque), so the GATE guard can paint today's vote too;
+    // the code inside is the round-3 text unchanged (seam: rules absent == live repair8_pack)
+    function paint(win, opaque, bridges, doSpecks, veto) {
+      // stage 2, two_stage_pack's: the weighted MODE of the exact colours carrying the
+      // winning label (invents nothing); the weighted mean only for a cell with none
+      var denom = new Float64Array(n), sums = new Float64Array(3 * n), selcnt = new Float64Array(n), sel, ws;
+      for (i = 0; i < N; i++) {
+        c = cell[i]; sel = lab[i] === win[c]; ws = sel ? wgt[i] : 0.0;
+        denom[c] += ws; sums[3 * c] += rgb[3 * i] * ws; sums[3 * c + 1] += rgb[3 * i + 1] * ws; sums[3 * c + 2] += rgb[3 * i + 2] * ws;
+        selcnt[c] += sel ? 1.0 : 0.0;
       }
-      modeKey[c] = bestKey;
-    }
-
-    // repair 3 recolours specks; then each bridge cell takes its stroke's colour around it
-    specks(modeKey, win, opaque, I, cols, rows, K, d, offs, order, lab, colour);
-    if (bridges.length) {
-      var isB = new Set(bridges);
-      bridges.forEach(function (bc) {
-        var bx = bc % cols, by = (bc / cols) | 0, tal = new Map(), ddx, ddy, xx, yy, f, bk = -1, bn = -1;
-        for (ddy = -1; ddy <= 1; ddy++) for (ddx = -1; ddx <= 1; ddx++) {
-          if (!ddx && !ddy) continue; xx = bx + ddx; yy = by + ddy; if (xx < 0 || yy < 0 || xx >= cols || yy >= rows) continue;
-          f = yy * cols + xx; if (!opaque[f] || isB.has(f) || modeKey[f] < 0) continue;
-          tal.set(modeKey[f], (tal.get(modeKey[f]) || 0) + 1);
+      var out = new Float64Array(3 * n), dn, anyBad = false;
+      for (c = 0; c < n; c++) {
+        dn = PF.npMaximum(denom[c], 1e-9);
+        out[3 * c] = sums[3 * c] / dn; out[3 * c + 1] = sums[3 * c + 1] / dn; out[3 * c + 2] = sums[3 * c + 2] / dn;
+        if (selcnt[c] < 0.5) anyBad = true;
+      }
+      if (anyBad) {
+        var msum = new Float64Array(3 * n);
+        for (i = 0; i < N; i++) { c = cell[i]; msum[3 * c] += rgb[3 * i]; msum[3 * c + 1] += rgb[3 * i + 1]; msum[3 * c + 2] += rgb[3 * i + 2]; }
+        for (c = 0; c < n; c++) if (selcnt[c] < 0.5) for (ch = 0; ch < 3; ch++) out[3 * c + ch] = msum[3 * c + ch] / cntf[c];
+      }
+      var modeKey = new Int32Array(n).fill(-1), tally = new Map(), bestW, bestKey, key, cw;
+      for (c = 0; c < n; c++) {
+        tally.clear(); bestW = -1; bestKey = -1;
+        for (p = offs[c]; p < offs[c + 1]; p++) {
+          q = order[p];
+          if (lab[q] !== win[c] || !(wgt[q] > 0)) continue;
+          b = q * 4; key = (d[b] << 16) | (d[b + 1] << 8) | d[b + 2];
+          cw = (tally.get(key) || 0) + wgt[q]; tally.set(key, cw);
+          if (cw > bestW) { bestW = cw; bestKey = key; }
         }
-        tal.forEach(function (v, k) { if (v > bn || (v === bn && k < bk)) { bn = v; bk = k; } });
-        if (bk >= 0) modeKey[bc] = bk;
-      });
-    }
-
-    var low = new d.constructor(n * 4), v;
-    for (c = 0; c < n; c++) {
-      if (modeKey[c] >= 0) {
-        low[c * 4] = (modeKey[c] >> 16) & 255; low[c * 4 + 1] = (modeKey[c] >> 8) & 255; low[c * 4 + 2] = modeKey[c] & 255;
-      } else {
-        for (ch = 0; ch < 3; ch++) { v = PF.rint(out[3 * c + ch] * 255); low[c * 4 + ch] = PF.clipScalar(v, 0, 255); }
+        modeKey[c] = bestKey;
       }
-      low[c * 4 + 3] = opaque[c] ? 255 : 0;
+
+      // repair 3 recolours specks; then each bridge cell takes its stroke's colour around it
+      if (doSpecks) {
+        var pre = veto ? new Int32Array(modeKey) : null;
+        specks(modeKey, win, opaque, I, cols, rows, K, d, offs, order, lab, colour);
+        if (veto) for (c = 0; c < n; c++) if (veto[c]) modeKey[c] = pre[c];   // a guard took this cell back
+      }
+      if (bridges.length) {
+        var isB = new Set(bridges);
+        bridges.forEach(function (bc) {
+          var bx = bc % cols, by = (bc / cols) | 0, tal = new Map(), ddx, ddy, xx, yy, f, bk = -1, bn = -1;
+          for (ddy = -1; ddy <= 1; ddy++) for (ddx = -1; ddx <= 1; ddx++) {
+            if (!ddx && !ddy) continue; xx = bx + ddx; yy = by + ddy; if (xx < 0 || yy < 0 || xx >= cols || yy >= rows) continue;
+            f = yy * cols + xx; if (!opaque[f] || isB.has(f) || modeKey[f] < 0) continue;
+            tal.set(modeKey[f], (tal.get(modeKey[f]) || 0) + 1);
+          }
+          tal.forEach(function (v, k) { if (v > bn || (v === bn && k < bk)) { bn = v; bk = k; } });
+          if (bk >= 0) modeKey[bc] = bk;
+        });
+      }
+
+      var low = new d.constructor(n * 4), v;
+      for (c = 0; c < n; c++) {
+        if (modeKey[c] >= 0) {
+          low[c * 4] = (modeKey[c] >> 16) & 255; low[c * 4 + 1] = (modeKey[c] >> 8) & 255; low[c * 4 + 2] = modeKey[c] & 255;
+        } else {
+          for (ch = 0; ch < 3; ch++) { v = PF.rint(out[3 * c + ch] * 255); low[c * 4 + ch] = PF.clipScalar(v, 0, 255); }
+        }
+        low[c * 4 + 3] = opaque[c] ? 255 : 0;
+      }
+      return low;
+    }
+    // THE GUARDS: what the page does next with these cells may not be changed beyond the cells repaired.
+    // GATE (size 16's rules.gate since round 4; size 8's rules too since round 6, when they began to run on
+    // outlined pictures) - the rules may not change which shapes the page's outline pass works on (see
+    // gateFlips). colour.gate = the page's outline gate (OUTLINE_GATE) when its outline pass will run on this
+    // picture, null when it will not (switch off; fixOutlineRuns says).
+    // PALETTE (round 6, every size: colour.snap) - see paletteKnock.
+    var GT = ((!R || R.gate) && colour.gate) ? gateNumbers(colour.gate) : null;
+    var SN = typeof colour.snap === 'function' ? colour.snap : null;
+    if (!GT && !SN) return { d: paint(win, opaque, bridges, on('specks')), w: cols, h: rows, cn: 4 };
+    // the page's passes see the cells AFTER its palette step: snap a copy with that step (it is on when snap is given)
+    var seen = function (lw) { if (!SN) return lw; var cp = new lw.constructor(lw); SN(cp, n, cols); return cp; };
+    var lowT = GT ? paint(winT, opaqueT, [], on('specks')) : null, seenT = GT ? seen(lowT) : null;
+    var lowP = SN ? paint(winT, opaqueT, [], false) : null, seenP = SN ? seen(lowP) : null;   // no rule at all
+    var veto = new Uint8Array(n), low = null, it, und, flip, knock = null;
+    for (it = 0; it < GUARD_ROUNDS; it++) {
+      low = paint(win, opaque, bridges, on('specks'), veto);
+      und = null; knock = null;
+      if (GT) { flip = gateFlips(seenT, seen(low), winT, opaqueT, win, opaque, cols, rows, GT); if (flip.n) und = flip.undo; }
+      if (!und && SN) { knock = paletteKnock(lowP, low, seenP, seen(low), n); if (knock.n) und = knock.undo; }
+      if (!und) break;
+      for (c = 0; c < n; c++) if (und[c]) { win[c] = winT[c]; opaque[c] = opaqueT[c]; veto[c] = 1; }
+      bridges = bridges.filter(function (bc) { return !und[bc]; });
+      low = null;
+    }
+    if (!low) {
+      low = paint(win, opaque, bridges, on('specks'), veto);
+      // still moving the palette after GUARD_ROUNDS: the cells the rules would not have made at all
+      // (round 6 judge, LATENT, not reached on the 311 at 8 or 16: this fallback is the vote with NO rule,
+      // specks included, so on a picture that lands here size 8 also drops the specks rule it ran before
+      // round 6; and the gate is not asked again after this last repaint. Kept as written: a picture whose
+      // palette still moves after six rounds keeps the cells the vote made.)
+      if (SN && paletteKnock(lowP, low, seenP, seen(low), n).n) low = lowP;
     }
     return { d: low, w: cols, h: rows, cn: 4 };
   };
 
-  PF.versionRepair8 = 'pf-42-repair8/1';
+  /* PIXEL SIZE 16 (round 3). The rule set for a step of 16 - measured first on
+     skins, clothing, costumes, hats, masks, hair, glasses, extras and ears, and
+     since round 6 run on every picture (backgrounds, chains, mouths and eyes
+     measured then): STROKE first, then RESCUE and CONNECT, with KEEP guarding
+     what they may replace.
+     SPECKS is off at 16: on Balaclava Suit it flattened a drawn grey stripe
+     into the fill, and elsewhere it only swapped texture shades. */
+  var RULES16 = { stroke: true, rescue: true, connect: true, specks: false, keep: true, gate: true };
+  PF.lines16_pack = function (rgba, cols, rows, colour) {
+    return PF.repair8_pack(rgba, cols, rows, colour, RULES16);
+  };
+
+  PF.versionRepair8 = 'pf-42-repair8/6';
 })();
 
 /* ==== pf-50-core.js =============================================== */
@@ -16881,6 +17639,7 @@
    * @param {number} height
    * @param {{mode?:string, forceStep?:number, kColors?:number, reference?:boolean,
    *          repair8?:{labOf:function, deltaE2000:function},
+   *          lines16?:{labOf:function, deltaE2000:function, gate?:object|null, snap?:function(data,n,width)},
    *          onProgress?:function(number,string)}} [opts]
    * @returns {{cols,rows,stepX,stepY,consensus,confidence,width,height,
    *            data:Uint8ClampedArray, detectMs, reconMs}}
@@ -16950,7 +17709,15 @@
     /* opts.repair8: two_stage_pack with the size-8 rules (pf-42-repair8.js),
        for a step the caller gave. It carries the page's own colour
        functions, which the rules compare colours with. */
-    var low = (opts.repair8 && opts.forceStep > 0)
+    /* opts.lines16: the size-16 rules (PF.lines16_pack, pf-42-repair8.js), for
+       a step the caller gave, with the same colour functions. The page asks
+       for it at a step of 16 on every picture (fixLines16). gate: the page's
+       outline gate (OUTLINE_GATE) when its outline pass will run on the
+       result, else null (the rules may not switch the pass on or off for a
+       shape); snap: the palette step it will run first. */
+    var low = (opts.lines16 && opts.forceStep > 0)
+      ? PF.lines16_pack(rgba, r.cols, r.rows, opts.lines16)
+      : (opts.repair8 && opts.forceStep > 0)
       ? PF.repair8_pack(rgba, r.cols, r.rows, opts.repair8)
       : PF.two_stage_pack(rgba, r.cols, r.rows, opts.kColors || 0,
         { reference: !!opts.reference });

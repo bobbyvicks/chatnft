@@ -25106,7 +25106,13 @@ function snapToPalette(d,n,w,opts){
        - when it has only a little colour (C* SHADE_HUE_C2 up to SHADE_HUE_C),
          not a colour whose hue is more than SHADE_HUE2 degrees from its own
          (a grey target is left to the grey rules): Jason Mask's warm ivory
-         next went to cool mint-white #e3ede7.
+         next went to cool mint-white #e3ede7;
+       - when it is colourful (round 5), not a colour whose hue is more than
+         SHADE_HUE_ADD degrees further from its drawn hue than the shared
+         colour's (unless the shared colour is SHADE_HUE_FAR dE or more off),
+         nor one keeping less than SHADE_CKEEP of its chroma (unless the
+         shared colour kept less): Jason Mask's beige shadow went sage, Teal
+         Galaxy Skin's dark teal went green and grey, each to stand apart.
      The shared colour itself is always allowed, and "everyone stays" is the
      starting answer, so a set changes only when something is strictly
      cheaper. A group whose colour no distinct shade shares is never looked
@@ -25118,7 +25124,7 @@ function snapToPalette(d,n,w,opts){
      (fixWorker). */
   /* opts.shades===false: each group keeps its own nearest colour, the step as it was before
      patch617 (tests/palettenocap.spec.js holds the grouping to a written-out scan that way). */
-  const SHADE_APART=!(opts&&opts.shades===false), SHADE_DE=5, SHADE_EXTRA=6, SHADE_ORDER_L=2, SHADE_NEAR=20, SHADE_TOP=6, SHADE_NODES=20000, SHADE_LOSE=1, SHADE_GREY_MAX=10, SHADE_GREY_C=4, SHADE_HUE_C=10, SHADE_HUE=20, SHADE_AB=12, SHADE_LCAP=8, SHADE_EDGE=true, SHADE_EDGE_SHARE=0, SHADE_BW=3, SHADE_HUE_C2=5, SHADE_HUE2=45;
+  const SHADE_APART=!(opts&&opts.shades===false), SHADE_DE=5, SHADE_EXTRA=6, SHADE_ORDER_L=2, SHADE_NEAR=20, SHADE_TOP=6, SHADE_NODES=20000, SHADE_LOSE=1, SHADE_GREY_MAX=10, SHADE_GREY_C=4, SHADE_HUE_C=10, SHADE_HUE=20, SHADE_AB=12, SHADE_LCAP=8, SHADE_EDGE=true, SHADE_EDGE_SHARE=0, SHADE_BW=3, SHADE_HUE_C2=5, SHADE_HUE2=45, SHADE_CKEEP=0.5, SHADE_HUE_ADD=6, SHADE_HUE_FAR=7;
   let apart=0;
   if(SHADE_APART){
     const lOf=new Map();
@@ -25159,6 +25165,7 @@ function snapToPalette(d,n,w,opts){
       return adj;
     };
     const useEdges=SHADE_EDGE && w>0 && n%w===0;
+    const hueOff=(x,y)=>{ let h=Math.abs(Math.atan2(x[2],x[1])-Math.atan2(y[2],y[1]))*180/Math.PI; return h>180 ? 360-h : h; };
     const outOf=e=>e.g ? e.g.target : e.fixed;
     const order=[], seen=new Set();
     for(const g of groups){ if(!seen.has(g.target.h)){ seen.add(g.target.h); order.push(g.target); } }
@@ -25231,6 +25238,21 @@ function snapToPalette(d,n,w,opts){
               /* a grey has no hue to keep */
               if(Math.hypot(q[1],q[2])<SHADE_GREY_C) dh=180;
               if(dh>SHADE_HUE) continue;
+              /* HUE SWING (round 5): nor more than SHADE_HUE_ADD degrees further
+                 from its drawn hue than the colour it shared (a grey shared colour
+                 counts as on hue): Jason Mask's beige shadow #d0c8a8 (hue 98)
+                 went from #bab8a4 (105) to sage #bfc6a4 (117), Teal Galaxy
+                 Skin's dark teal (195) from #0b5e65 (208) to green #165a4c (175).
+                 Not when the shared colour is itself SHADE_HUE_FAR dE or more
+                 off (plainly another colour, nothing right to keep): Water
+                 Skin's pale cyan lines (7.8 dE from cyan #00e3f4) stay apart
+                 from its cyan in mint #8ff8e2. */
+              if(s.base<SHADE_HUE_FAR && dh>(Math.hypot(palL(t)[1],palL(t)[2])<SHADE_GREY_C ? 0 : hueOff(palL(t),s.m))+SHADE_HUE_ADD) continue;
+              /* CHROMA (round 5): nor keep less than SHADE_CKEEP of its colour
+                 (C*), unless the shared colour already kept less: Teal Galaxy
+                 Skin's dark teal (C* 14) went to grey #344241 (C* 6). */
+              const Cq=Math.hypot(q[1],q[2]);
+              if(Cq<SHADE_CKEEP*Cs && Cq<Math.hypot(palL(t)[1],palL(t)[2])) continue;
               /* and its colour (hue and chroma together, the a*b* plane) no
                  more than SHADE_AB from what was drawn, unless the shared
                  colour was already further: Dark Skin's shadow went maroon
@@ -26693,6 +26715,11 @@ function fixPalWanted(){ const b=$("fixpal"); return !!(b&&b.checked); }
         on - whiskers go and its ring is made black - but nothing inside it is peeled.
         Near-black (luminance <= NEAR_BLACK_LUM, the palette's 11,7,12) counts as black in a selected part
         unless pure + near-black together reach BLACK_BODY_FRAC of it (then near-black is a body colour).
+        The GATE alone also counts a dark GREY ring cell (luminance <= NEAR_GATE_LUM 22.5, channels within
+        NEAR_GATE_SPREAD 6) as near-black (patch620): the palette's near-black #161616 (luminance 22.0) is an
+        outline or fabric colour the 16 did not reach, so Dark Hooded Cloak, Bounty Hunter Helmet and Yellow
+        Revenge Tracksuit failed the gate and kept a #161616 ring merged with the fabric. Grey only: navies in
+        that range are drawn colours (GATE Hoodie, palette off). Ink and peel keep NEAR_BLACK_LUM 16.
    1. Whiskers - the ONLY way the silhouette changes. A straight 1-cell-wide run of black, [M2] at most
         MAX_WHISKER = 2 cells, sticking out of a FLAT black edge (see the walk below). A 3-cell spike stays.
         All whiskers are found on the input and removed at once, so removal never cascades.
@@ -26761,7 +26788,7 @@ function fixOutlineOnce(c, opts) {
   if (layer && OUTLINE_SKIP_LAYERS.indexOf(layer) >= 0) return res;
 
   var OUTLINED_FRAC = 0.5, OUTLINED_NEAR_FRAC = 0.6, MIN_AREA = 200, MIN_RING = 6, BLACK_BODY_FRAC = 0.4,
-      NEAR_BLACK_LUM = 16, MAX_WHISKER = 2, PEEL_DEPTH = 3, NEAR_PEEL_DEPTH = 2, JUNK_LUM = 40, JUNK_DEPTH = 6,
+      NEAR_BLACK_LUM = 16, NEAR_GATE_LUM = 22.5, NEAR_GATE_SPREAD = 6, MAX_WHISKER = 2, PEEL_DEPTH = 3, NEAR_PEEL_DEPTH = 2, JUNK_LUM = 40, JUNK_DEPTH = 6,
       OFF_LUM = 64, OFF_DEPTH = 4, DARK_RING_LUM = 80, MAX_GAP = 6, MAX_DEBRIS = 3, MAX_FILL_ROUNDS = 16, MIN_FILL_INSIDE = 6, DARK_FILL_LUM = 24,
       SRC_GATE = true, SRC_OUTLINED_FRAC = 0.8, SRC_WIDTH_FRAC = 0.1, MAX_LINE_CELLS = 3, WIDTH_ROUND_BIAS = 0.01, SRC_MIN_LINE_PX = 2,
       WIDTH_RULE_CELL_PX = 8, ART_W_SHIFT = 0;
@@ -26777,6 +26804,12 @@ function fixOutlineOnce(c, opts) {
   function lumOf(j) { return 0.299 * src[j * 4] + 0.587 * src[j * 4 + 1] + 0.114 * src[j * 4 + 2]; }
   function pureB(j) { return src[j * 4 + 3] >= 128 && src[j * 4] === 0 && src[j * 4 + 1] === 0 && src[j * 4 + 2] === 0; }
   function nearB(j) { return src[j * 4 + 3] >= 128 && lumOf(j) <= NEAR_BLACK_LUM; }   // includes pure black
+  function nearG(j) {   // the gate's near-black: nearB, or a dark grey (patch620)
+    if (nearB(j)) return true;
+    if (src[j * 4 + 3] < 128 || lumOf(j) > NEAR_GATE_LUM) return false;
+    var r = src[j * 4], g = src[j * 4 + 1], b = src[j * 4 + 2];
+    return Math.max(r, g, b) - Math.min(r, g, b) <= NEAR_GATE_SPREAD;
+  }
   var q = new Int32Array(N), qh, qt;
 
   // ---- 0. parts and the gate (on the input)
@@ -26791,7 +26824,7 @@ function fixOutlineOnce(c, opts) {
       if (nearB(a)) pAllNear[p]++;
       nb4(a, nb); var touchesEmpty = false;
       for (k = 0; k < 4; k++) if (nb[k] >= 0 && !opq(nb[k])) touchesEmpty = true;
-      if (touchesEmpty) { pRing[p]++; if (pureB(a)) pPure[p]++; if (nearB(a)) pNear[p]++; }
+      if (touchesEmpty) { pRing[p]++; if (pureB(a)) pPure[p]++; if (nearG(a)) pNear[p]++; }
       for (var dy = -1; dy <= 1; dy++) for (var dx = -1; dx <= 1; dx++) {
         var nx = x + dx, ny = y + dy; if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
         j = ny * W + nx; if (opq(j) && part[j] < 0) { part[j] = p; q[qt++] = j; }

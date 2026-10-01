@@ -2042,7 +2042,7 @@ footer .mono{color:var(--ink);}
     <label for="fixforce">Pixel size</label>
     <input type="number" id="fixforce" min="0" step="1" value="16" style="width:84px"
       inputmode="numeric"
-      title="The pixel size of the result, in whole numbers. It starts at 8 for backgrounds, chains, mouths and eyes and at 16 for everything else; a number you type is used for every picture until you reload. With Save at 1280 on that is the block on the 1280 canvas - 16 means 80 cells and 8 means 160, whatever size the picture is; with it off, how many picture pixels make one pixel. While a size is set Snap is not used; 0 works it out instead.">
+      title="The pixel size of the result, in whole numbers. It starts at 16 and only you change it; the number is used for every picture. With Save at 1280 on that is the block on the 1280 canvas - 16 means 80 cells and 8 means 160, whatever size the picture is; with it off, how many picture pixels make one pixel. While a size is set Snap is not used; 0 works it out instead.">
     <!-- WAS margin-left:auto, from when the readout shared this row and
          the row was crowded. With the readout on its own line that put a
          thousand pixels of nothing in the middle of five controls. -->
@@ -26523,7 +26523,6 @@ async function fixLoad(file){
      when a control moved. So a fresh page decided the box was live, an
      image arrived, and nobody asked again: the box invited a number and
      nothing read it. See patch413. */
-  fixSizeStart(FIX.rel);
   fixModeUI();
   fixSizeHint();
   fixSay(W+"\u00d7"+H+" pixels. Press Fix it.");
@@ -27332,31 +27331,13 @@ function fixGridCells(){
    `+value||0`, over 0 - so the switch and the decision cannot disagree about
    whether a size is set. */
 function fixSizeSet(){ const f=$("fixforce"); return (+(f&&f.value)||0)>0; }
-/* THE START SIZE FOLLOWS THE LAYER (patch616). The owner, shown that 79 of
-   311 traits lose their detail at 16 and keep it at 8 - all the chains,
-   chest lettering, faces, small logos and whole-scene backgrounds - chose
-   "8 for those layers, 16 for the rest". The box shows the start size of
-   the picture's layer when it is opened; a number somebody CHOSE wins for
-   every picture after it. Chosen: typed (the input event), set by PB.fix,
-   or set by anything else to a value other than the one the page last put
-   there. A picture with no layer in its path starts at 16. */
-const FIX_START_SIZE=16;
-const FIX_START_AT_8=["backgrounds","chains","mouth","eyes"];
-let fixSizeAuto=String(FIX_START_SIZE);
-let fixSizeTyped=false;
-let fixStartAt8=0, fixStartAt16=0;
-function fixStartSize(rel){ return FIX_START_AT_8.indexOf(fixLayerOf(rel))>=0 ? 8 : FIX_START_SIZE; }
-function fixSizeChosen(){ const f=$("fixforce"); return fixSizeTyped || !!(f && f.value!==fixSizeAuto); }
-function fixSizeStart(rel){
-  const f=$("fixforce"); if(!f || fixSizeChosen()) return;
-  const v=String(fixStartSize(rel)); f.value=v; fixSizeAuto=v;
-}
-/* The number a folder run uses for one file: the chosen one, or that file's start size. */
-function fixSizeForFile(rel){
-  if(fixSizeChosen()) return +$("fixforce").value||0;
-  const s=fixStartSize(rel); if(s===8) fixStartAt8++; else fixStartAt16++;
-  return s;
-}
+/* SUPERSEDED (patch619, 2026-10-01). patch616 made the box start at 8 for
+   backgrounds, chains, mouths and eyes and at 16 for the rest, and gave each
+   file of a folder run its own layer's start size - chosen by the owner after
+   the all-traits audit found 79 of 311 traits lose detail at 16. The same
+   day: "i dont want specific rules for certain traits" and, asked how the
+   size should be chosen, "the user gets to chose always". The box starts at
+   16 and only the person changes it; a folder run uses it for every file. */
 function fixSnapping(){
   const b=$("fixsnap");
   /* NOT WHILE A SIZE IS SET. fixStepFor's typed branch returns on every path
@@ -27922,15 +27903,12 @@ function fixCanvasCells(asked){
   if(fix) return {cells:fix.cols, moved:{from:asked, to:fix.step, cols:fix.cols, was:fix.was}};
   return {cells:0, moved:null};
 }
-function fixStepFor(w,data,h,rel){
+function fixStepFor(w,data,h){
   /* THIS DECISION, NOT THE LAST ONE. Every flag below describes the step
      about to be returned; left over from a previous call, any of them
      puts that label on a different answer. */
   fixMeasuredBlock=0; fixGridlessPick=0; fixMoved=null; fixUnhonoured=null; fixBlockUnfit=null; fixBlockRecut=null; fixTypedRecut=null; fixTypedMerge=null; fixTypedResample=null;
-  /* A folder run passes each file's path, and that file's start size is the
-     size unless one was chosen (patch616); a single picture's start size is
-     already in the box, put there when it was opened. */
-  const asked=rel!=null ? fixSizeForFile(rel) : (+$("fixforce").value||0);
+  const asked=+$("fixforce").value||0;
   const onGrid=$("fixgrid")&&$("fixgrid").checked;
   const px=data||(FIX.src&&FIX.src.data);
   const ph=h||(FIX.src&&FIX.src.height)||0;
@@ -28681,7 +28659,6 @@ async function fixBatchRun(files){
   fixGridlessFellAt=[]; fixGridlessFellKept=1; fixMarksDroppedTotal=0; fixMarksDroppedFiles=0; fixNoisyFiles=0; fixAlphaFiles=0; fixAlphaPixels=0; fixBrowserRead=[]; fixGateReady=0; fixGateWhy=new Map(); fixRecutAt=[]; fixGatePast=0; fixGatePastMost=0;
   fixPalMoved=0; fixPalPixels=0; fixPalFiles=0; fixPalWorst=0; fixPalMerged=0; fixPalWorstFile="";
   fixOutlined=0; fixOutlineCells=0; fixOutlinedThick=0;
-  fixStartAt8=0; fixStartAt16=0;
   /* Pictures reduced by a whole factor to get under the engine limit. */
   const shrunk=[];
   fixTilesClear();
@@ -28755,7 +28732,7 @@ async function fixBatchRun(files){
       const pending=scale ? Promise.resolve({ok:{data:px, width:sw, height:sh, stepX:1, stepY:1}})
         : fixAsk(wk,{data:new Uint8ClampedArray(px), width:sw, height:sh,
           palette:fixPalWanted()?paletteRGB():null,
-          mode:mode, forceStep:(()=>{ const s=fixStepFor(sw,px,sh,rel);
+          mode:mode, forceStep:(()=>{ const s=fixStepFor(sw,px,sh);
             if(fixGridlessPick){ fixGridlessAt.push(fixGridlessPick);
               if(!fixGridlessPassed){ fixGridlessFellAt.push(fixGridlessPick); fixGridlessFellKept=Math.min(fixGridlessFellKept,fixGridlessKept); } }
             if(fixMeasuredBlock>1&&fixNativeNoisy>0) fixNoisyFiles++;
@@ -29046,9 +29023,6 @@ async function fixBatchRun(files){
     ? " \u00b7 "+fixNoisyFiles+" measured with one stray pixel in some blocks and kept on their blocks"
     : "";
   fixBatchSay(fixBatchFiles.length+" of "+list.length+" done in "+secs+"s"+movedNote+unhonNote+raggedNote+smallNote+noGridNote+marksNote+noisyNote+recutNote+typedRecutNote+mergeNote+resampleNote+unfitNote+offNote+alphaNote+readNote+shrunkNote+palNote+fixOutlineBatchSaid()+gateNote+pastNote
-    /* WHICH START SIZE EACH FILE GOT, when nobody chose one (patch616). */
-    +(fixStartAt8&&fixStartAt16 ? " \u00b7 started at 8 for "+fixStartAt8+" (backgrounds, chains, mouths, eyes) and at 16 for "+fixStartAt16
-      : fixStartAt8 ? " \u00b7 started at 8 (backgrounds, chains, mouths, eyes)" : "")
     +(fixBatchStop?" (stopped - what is done is kept)":"")
     +(over?" \u00b7 "+over+" past the limit of "+FIX_BATCH_MAX+" were left out":"")
     +(failed.length?" \u00b7 could not do: "+failed.slice(0,6).join(", ")
@@ -29371,7 +29345,7 @@ function fixDownload(){
   d.ondrop=e=>{ e.preventDefault(); d.classList.remove("over");
     took(e.dataTransfer&&e.dataTransfer.files); };
   $("fixrun").onclick=()=>{ fixRun(); };
-  $("fixforce").addEventListener("input",()=>{ fixSizeTyped=true; fixModeUI(); fixSizeHint(); });
+  $("fixforce").addEventListener("input",()=>{ fixModeUI(); fixSizeHint(); });
   /* WHOLE NUMBERS. The arrows step by one now; this is for a fraction
      typed or pasted in. On change rather than on input, because rounding
      every keystroke makes 12 unreachable if you pause after the 1 - it
@@ -29428,7 +29402,7 @@ PB.fix=async function(o){
   }
   if(!FIX.src) return {ok:false, why:"nothing to fix"};
   if(o.mode) $("fixmode").value=o.mode;
-  if(o.forceStep!=null){ $("fixforce").value=o.forceStep; fixSizeTyped=true; }
+  if(o.forceStep!=null) $("fixforce").value=o.forceStep;
   /* Set without events, so the switches are redrawn here: PB.fix({forceStep:0})
      snaps, and must not leave the Snap switch greyed beside the 0. */
   fixModeUI(); fixSizeHint();

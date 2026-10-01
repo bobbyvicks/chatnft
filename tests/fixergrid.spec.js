@@ -16,7 +16,12 @@
 
    The tests below drive fixGridCanvas, which is the one canvas both the
    single Download and the batch write through - so "the switch means one
-   thing" is a fact about the code and not a promise. */
+   thing" is a fact about the code and not a promise.
+
+   SINCE patch623 (2026-10-01) no save goes through a canvas: the resize is
+   fixGridPixels, in arithmetic, and fixGridCanvas is drawn from it for the
+   tile. The size and position facts below are facts about fixGridPixels
+   through that canvas; the "same canvas" test at the end pins the new shape. */
 import { test, expect } from '@playwright/test';
 
 const ready = async (page) => {
@@ -236,23 +241,31 @@ test('the batch and the single save go through the same canvas', async ({ page }
     batch: String(fixBatch)
       + (typeof fixBatchRun === 'function' ? ' ' + String(fixBatchRun) : ''),
   }));
-  expect(src.download).toContain('fixGridCanvas(');
-  expect(src.batch).toContain('fixGridCanvas(');
+  /* SUPERSEDED (patch623, 2026-10-01). This pinned both paths to
+     fixGridCanvas and the batch's bytes to `oc.toBlob(`. Measured in the
+     owner's Chrome by the controlling session: the canvas path left 2-8
+     opaque pixels per saved picture one unit off their cell's colour, so no
+     save goes through a canvas now. The one answer to what a save is lives in
+     fixGridPixels (the resize, in arithmetic) and pngEncode: the download
+     takes fixResultBytes, the batch maps with fixGridPixels and encodes with
+     pngEncode, and fixGridCanvas is drawn FROM those pixels for the tile. */
+  expect(src.download).toContain('fixResultBytes(');
   expect(src.download).not.toContain('drawImage');
+  expect(src.download).not.toContain('toBlob');
+  expect(src.batch).toContain('fixGridPixels(out)');
+  expect(src.batch).toMatch(/const sv=fixGridPixels\(out\);[\s\S]*pngEncode\(sv\.data,sv\.width,sv\.height\)/);
+  expect(src.batch, 'the saved bytes no longer come off a canvas').not.toMatch(/oc\.toBlob\(/);
 
   /* WAS a blanket "no scaling drawImage anywhere in fixBatch". That went red
      when the batch grew its result tiles, and it was right to fire and wrong
      to fail: the tile IS a scaling drawImage, and it is not a second answer
-     to what a save is - it draws FROM the saved canvas, at thumbnail size,
+     to what a save is - it draws FROM the saved picture, at thumbnail size,
      for the preview.
 
-     So the guard says what it always meant. The bytes that are kept must come
-     off the canvas fixGridCanvas made, and nothing in the batch may build a
+     So the guard says what it always meant. Nothing in the batch may build a
      second canvas at the collection size. A batch that resized the result
      itself would still be caught; a batch that makes a small picture of it
      is not what this was ever about. */
-  expect(src.batch, 'the saved bytes come off the fixGridCanvas canvas')
-    .toMatch(/const oc=fixGridCanvas\(out\);[\s\S]*oc\.toBlob\(/);
   const draws = src.batch.match(/\w+\.drawImage\([^)]*\)/g) || [];
   for (const d of draws) {
     const scaling = /,\s*0\s*,\s*0\s*,/.test(d);

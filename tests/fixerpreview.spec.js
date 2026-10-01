@@ -201,14 +201,20 @@ test('a second run releases the first one, and does not stack up', async ({ page
 test('clicking a tile opens that one, and it is the only full decode', async ({ page }) => {
   await ready(page);
   await run(page, 3, { names: ['first', 'second', 'third'] });
+  /* THE FULL DECODE IS THE PAGE'S OWN READER since patch623 (2026-10-01):
+     fixOpenOne reads the saved bytes with pngDecode, exact, and asks the
+     browser (createImageBitmap) only for bytes the reader cannot read - the
+     saved bytes are pngEncode's, so never here. Until then this counted
+     createImageBitmap, which was the decode. Both are counted now. */
   const r = await page.evaluate(async () => {
-    let decodes = 0;
-    const real = window.createImageBitmap;
-    window.createImageBitmap = function (...a) { decodes++; return real.apply(this, a); };
+    let decodes = 0, browser = 0;
+    const real = window.createImageBitmap, realPng = pngDecode;
+    window.createImageBitmap = function (...a) { browser++; return real.apply(this, a); };
+    pngDecode = async (...a) => { decodes++; return realPng(...a); };
     document.querySelectorAll('.fixtile')[1].click();
     await new Promise(r => setTimeout(r, 600));
-    window.createImageBitmap = real;
-    return { decodes, name: fileName, w: art.width, h: art.height,
+    window.createImageBitmap = real; pngDecode = realPng;
+    return { decodes, browser, name: fileName, w: art.width, h: art.height,
       appUp: !document.getElementById('app').hidden };
   });
   expect(r.appUp, 'it opens in the editor').toBe(true);
@@ -216,6 +222,7 @@ test('clicking a tile opens that one, and it is the only full decode', async ({ 
   expect(r.w + 'x' + r.h).toBe('1280x1280');
   /* ONE. The grid showing three tiles decoded none of them at full size. */
   expect(r.decodes, 'exactly one result is decoded, the one clicked').toBe(1);
+  expect(r.browser, 'and not by the browser').toBe(0);
 });
 
 test('a single image still gets its before and after, unchanged', async ({ page }) => {

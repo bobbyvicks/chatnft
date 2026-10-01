@@ -26398,85 +26398,98 @@ async function pngEncode(rgba,W,H){
   const out=new Uint8Array(n); let at=0; for(const q of parts){ out.set(q,at); at+=q.length; }
   return out;
 }
-/* THE PICTURE'S PIXELS, FROM THE FILE. A PNG through pngDecode, checked
-   against the browser wherever the browser is exact - every alpha, and
-   the colour of every pixel at alpha 255 - or the browser's bytes and a
-   reason. `how` says which, and the run repeats it where it matters. */
-/* A PNG THE BROWSER READS EXACTLY, where it has no translucent pixel: 8-bit,
-   not interlaced, and no colour-management chunk before the pixels. A
-   16-bit, interlaced or colour-managed file is one where the browser and
-   the page's reader can disagree, and that disagreement is disclosed, so
-   those are still read both ways. */
-function pngPlain(bytes){
-  if(!bytes||bytes.length<33||!pngIs(bytes)) return false;
-  if(bytes[24]!==8 || bytes[28]!==0) return false;
-  let p=8;
-  while(p+8<=bytes.length){
-    const len=((bytes[p]<<24)|(bytes[p+1]<<16)|(bytes[p+2]<<8)|bytes[p+3])>>>0;
-    const type=String.fromCharCode(bytes[p+4],bytes[p+5],bytes[p+6],bytes[p+7]);
-    if(type==="IDAT") return true;
-    if(type==="gAMA"||type==="iCCP"||type==="sRGB"||type==="cHRM") return false;
-    p+=12+len;
-  }
-  return false;
-}
+/* THE PICTURE'S PIXELS, FROM THE FILE. A PNG the page's reader can read is
+   pngDecode's pixels - exact by construction - and how:"png". Anything else
+   (not a PNG; interlaced; a reader throw; a reader size that is not the
+   browser's) is the browser's canvas pixels, how:"browser", with the why,
+   and the run repeats it where it matters.
+
+   SUPERSEDED (patch623, 2026-10-01). Until then the browser was the judge:
+   pngDecode was "checked against the browser wherever the browser is exact -
+   every alpha, and the colour of every pixel at alpha 255" and refused when
+   they disagreed; and for "A PNG THE BROWSER READS EXACTLY, where it has no
+   translucent pixel: 8-bit, not interlaced, and no colour-management chunk
+   before the pixels" (pngPlain) the page returned the BROWSER'S pixels -
+   "READ ONCE when reading twice could change nothing". Measured 2026-10-01
+   in the owner's Chrome on the live page (65ecad7): for exactly those PNGs
+   the canvas pixels differed from pngDecode's by one unit in one channel on
+   a few hundred OPAQUE pixels per picture - Tesseract Bookshelves 250 of
+   1,638,400, Dark Skin 98, Blue Party Hat 34; alpha identical - so the
+   engine's input was off by one, and on busy pictures the k-means ties
+   flipped: 12 of 75 final-project traits differed from an exact offline run
+   (Tesseract 564 of 6,400 cells, Suburban Sidewalk 192, Market Makers Sakura
+   124, Blue Camo Skin 70). Headless Chromium may not show the noise; the
+   owner's Chrome is where it was measured. So the reader is the authority
+   and the browser is asked for its size alone - no canvas is drawn for a
+   readable PNG. pngPlain is gone with the rule it served. The old prose
+   also said "A 16-bit, interlaced or colour-managed file is one where the
+   browser and the page's reader can disagree, and that disagreement is
+   disclosed, so those are still read both ways": now a 16-bit PNG is the
+   reader's (its high byte, as before), a colour-managed one the reader's
+   bytes as written, and only an interlaced one the browser's, named. */
 async function fixDecodeFile(file){
   let bm;
   try{ bm=await createImageBitmap(file); }catch(_){ return null; }
   const W=bm.width, H=bm.height;
-  const c=document.createElement("canvas"); c.width=W; c.height=H;
-  const g=c.getContext("2d",{willReadFrequently:true});
-  g.drawImage(bm,0,0); if(bm.close) bm.close();
-  const browser=g.getImageData(0,0,W,H).data;
-  c.width=1; c.height=1;
-  const via=(why)=>({data:browser, width:W, height:H, how:"browser", why:why});
+  /* THE FALLBACK, drawn only when it is needed. */
+  const via=(why)=>{
+    const c=document.createElement("canvas"); c.width=W; c.height=H;
+    const g=c.getContext("2d",{willReadFrequently:true});
+    g.drawImage(bm,0,0); if(bm.close) bm.close();
+    const browser=g.getImageData(0,0,W,H).data;
+    c.width=1; c.height=1;
+    return {data:browser, width:W, height:H, how:"browser", why:why};
+  };
   let bytes=null;
   try{ bytes=new Uint8Array(await file.arrayBuffer()); }catch(_){ bytes=null; }
   if(!bytes||!pngIs(bytes)) return via("not a PNG");
-  /* READ ONCE when reading twice could change nothing: a plain PNG whose
-     browser decode has no translucent pixel. See pngPlain. */
-  if(pngPlain(bytes)){
-    let part=false;
-    for(let o=3;o<browser.length;o+=4){ const a=browser[o]; if(a>0&&a<255){ part=true; break; } }
-    if(!part){
-      for(let o=0;o<browser.length;o+=4) if(!browser[o+3]){ browser[o]=0; browser[o+1]=0; browser[o+2]=0; }
-      return {data:browser, width:W, height:H, how:"png", why:""};
-    }
-  }
   let d;
   try{ d=await pngDecode(bytes); }catch(e){ return via(String((e&&e.message)||e)); }
   if(d.width!==W||d.height!==H) return via("size "+d.width+"\u00d7"+d.height+" against the browser's "+W+"\u00d7"+H);
-  let off=0;
-  for(let i=0,n=W*H;i<n;i++){
-    const o=i*4, a=d.data[o+3];
-    if(a!==browser[o+3]){ off++; continue; }
-    if(a===255&&(d.data[o]!==browser[o]||d.data[o+1]!==browser[o+1]||d.data[o+2]!==browser[o+2])) off++;
-  }
-  if(off) return via("the reader disagreed with the browser on "+off+" pixel"+(off===1?"":"s"));
+  if(bm.close) bm.close();
   return {data:d.data, width:W, height:H, how:"png", why:""};
 }
-/* A SCALE-ONLY RESULT AS BYTES, without the canvas: the picture's own
-   pixels, enlarged to the collection canvas when the switch is on by
-   nearest neighbour under the browser's rule (each output pixel takes
-   the source pixel under its centre, floor((x+0.5)*w/W), measured for
-   the harness), then pngEncode. Every visible pixel goes out as the byte
-   it came in; the canvas path rounded translucent ones. */
-async function fixScaledBytes(r){
+
+/* THE SAVED PICTURE AS PIXELS, WITHOUT A CANVAS (patch623): the result's own
+   pixels, or - when Save at 1280 is on and the result is not already that
+   size - the collection canvas filled by nearest neighbour under the
+   browser's rule (each output pixel takes the source pixel under its centre,
+   floor((x+0.5)*w/W), measured for the harness), which is exactly what
+   fixGridCanvas's drawImage decided; a fresh buffer either way. One rule for
+   every way out - the folder run, Save to project, the download, the recent
+   rail, the editor - so the switch means one thing. */
+function fixGridPixels(r){
   const on=$("fixgrid")&&$("fixgrid").checked;
-  let data=r.data, W=r.width, H=r.height;
-  if(on&&(W!==CANVAS_SIDE||H!==CANVAS_SIDE)){
-    const S=CANVAS_SIDE, out=new Uint8ClampedArray(S*S*4);
-    const mx=new Int32Array(S), my=new Int32Array(S);
-    for(let x=0;x<S;x++) mx[x]=Math.min(W-1,Math.floor((x+0.5)*W/S));
-    for(let y=0;y<S;y++) my[y]=Math.min(H-1,Math.floor((y+0.5)*H/S));
-    for(let y=0;y<S;y++){
-      const sy=my[y]*W, dy=y*S;
-      for(let x=0;x<S;x++){ const s=(sy+mx[x])*4, d=(dy+x)*4; out[d]=data[s]; out[d+1]=data[s+1]; out[d+2]=data[s+2]; out[d+3]=data[s+3]; }
-    }
-    data=out; W=S; H=S;
+  const W=r.width, H=r.height, S=CANVAS_SIDE;
+  if(!on||(W===S&&H===S)) return {data:new Uint8ClampedArray(r.data), width:W, height:H};
+  const data=r.data, out=new Uint8ClampedArray(S*S*4);
+  const mx=new Int32Array(S), my=new Int32Array(S);
+  for(let x=0;x<S;x++) mx[x]=Math.min(W-1,Math.floor((x+0.5)*W/S));
+  for(let y=0;y<S;y++) my[y]=Math.min(H-1,Math.floor((y+0.5)*H/S));
+  for(let y=0;y<S;y++){
+    const sy=my[y]*W, dy=y*S;
+    for(let x=0;x<S;x++){ const s=(sy+mx[x])*4, d=(dy+x)*4; out[d]=data[s]; out[d+1]=data[s+1]; out[d+2]=data[s+2]; out[d+3]=data[s+3]; }
   }
-  return pngEncode(data,W,H);
+  return {data:out, width:S, height:S};
 }
+/* AND AS PNG BYTES, by the page's own pngEncode. SUPERSEDED (patch623,
+   2026-10-01): until then only a scale-only result was written this way
+   (fixScaledBytes, patch509 - "every visible pixel goes out as the byte it
+   came in; the canvas path rounded translucent ones") and the engine path
+   was left on the canvas, "exact for it" because its output has no
+   translucency. Measured 2026-10-01 in the owner's Chrome with the page's own
+   pngDecode on the saved bytes: the canvas path (fixGridCanvas + toBlob) left
+   2 to 8 OPAQUE pixels per picture off by one from their cell's colour
+   (#000001 beside #000000, #ec8099 beside #ed8099); putImageData +
+   convertToBlob in a worker did the same; a pure encode is exact. Headless
+   Chromium may not show it; the owner's Chrome is where it was measured. */
+async function fixGridBytes(r){
+  const p=fixGridPixels(r);
+  return pngEncode(p.data,p.width,p.height);
+}
+/* Scale mode's name for the same bytes, kept for its callers. */
+async function fixScaledBytes(r){ return fixGridBytes(r); }
+
 async function fixLoad(file){
   /* NO MIME CHECK. A browser does not always report one - measured: a file
      with type "" and one with application/octet-stream were both refused
@@ -27748,7 +27761,7 @@ function fixSmallMarks(data,W,H){
    partial-alpha pixels" (CURRENT-REWORK-BRIEF.md).
 
    THE BLOCK QUESTION IS ASKED OF THE SAVED PICTURE. The saved canvas is
-   made from the result by the same nearest-neighbour rule fixGridCanvas
+   made from the result by the same nearest-neighbour rule fixGridPixels
    uses - each destination pixel takes the source pixel under its centre -
    so the pixels feeding one 8px block are a rectangle of the result, and
    the block is flat when that rectangle is one colour. Asking instead
@@ -28689,17 +28702,14 @@ function fixBlockFor(cells,side){
 function fixOpen(){
   const r=FIX.out; if(!r){ fixSay("Nothing fixed yet."); return; }
   if(!mayUse()) return;
-  /* THROUGH THE SAVE CANVAS, not the raw result. The switch says what a
+  /* THROUGH THE SAVE PIXELS, not the raw result. The switch says what a
      save is, and the editor is the third way out - it used to be handed
      the fixer's own 160px answer while the Download button wrote 1280, so
-     an evening of editing saved at 160. See patch410. */
-  const c=fixGridCanvas(r);
-  const W=c.width, H=c.height;
-  const d=new Uint8ClampedArray(c.getContext("2d",{willReadFrequently:true})
-    .getImageData(0,0,W,H).data);
-  /* Released before the editor takes over: at 1280 this is 6.5 MB and the
-     bytes have already been copied out of it. */
-  c.width=1; c.height=1;
+     an evening of editing saved at 160. See patch410. (Until patch623 they
+     were read back off the save canvas with getImageData; fixGridPixels is
+     that answer in arithmetic, and already a fresh buffer.) */
+  const sv=fixGridPixels(r);
+  const W=sv.width, H=sv.height, d=sv.data;
   fileName=FIX.name+"-fixed.png";
   startEditor(d,W,H,W,H,palette(d,W*H,24,64),false);
   /* AFTER startEditor, which resets gridBlock to 1 and leaves the caller
@@ -28906,9 +28916,13 @@ async function fixBatchRun(files){
         const bd=ruleColourBudget(fixLayerOf(rel));
         if(bd&&gt.colours>bd){ fixGatePast++;
           if(gt.colours>fixGatePastMost) fixGatePastMost=gt.colours; } }
-      /* The same canvas the single save uses, so the switch means one thing. */
-      const oc=fixGridCanvas(out);
-      const blob=scale ? null : await new Promise(res=>oc.toBlob(res,"image/png"));
+      /* THE SAVED PICTURE, as pixels and as bytes, by the same rule the single
+         save uses (fixGridPixels, pngEncode), so the switch means one thing -
+         and no canvas between the cells and the file; see fixGridBytes
+         (patch623). oc is the same pixels on a canvas, for the tile only. */
+      const sv=fixGridPixels(out);
+      const data=await pngEncode(sv.data,sv.width,sv.height);
+      const oc=fixCanvasOf(sv);
       /* THE TILE, TAKEN HERE because oc is about to be released and this is
          the only moment the picture exists as a canvas. A 1280 result is
          6.5 MB decoded and five hundred of them is the shelf crash again,
@@ -28931,7 +28945,7 @@ async function fixBatchRun(files){
            divides the canvas. w and h are the SAVED size and cannot answer
            that: 1280 is 1280 whether its pixels are eight across or one. */
         cells:out.width,
-        data:scale ? await fixScaledBytes(out) : new Uint8Array(await blob.arrayBuffer()),
+        data:data,
         thumb:URL.createObjectURL(tb), tw:t.w, th:t.h,
         w:oc.width, h:oc.height});
       oc.width=1; oc.height=1;
@@ -29097,8 +29111,10 @@ async function fixBatchRun(files){
     ? " \u00b7 "+fixAlphaFiles+" had translucent pixels ("+fixAlphaPixels.toLocaleString()+" in all), "
       +(scale ? (fixBrowserRead.length ? "kept translucent - read by the browser, which rounds their colour" : "kept exactly, byte for byte") : "counted as paint or clear - the results have none")
     : "";
-  /* A PNG THE PAGE'S OWN READER DID NOT TAKE, or disagreed with the
-     browser on: read by the browser instead, and named. */
+  /* A PNG THE PAGE'S OWN READER DID NOT TAKE - not a PNG, interlaced, a
+     reader throw, or a size the browser disagrees with - read by the
+     browser instead, and named. (patch623: "or disagreed with the browser
+     on" is gone - the reader is the authority; see fixDecodeFile.) */
   const readNote = fixBrowserRead.length
     ? " \u00b7 "+fixBrowserRead.length+" read by the browser, not the page's PNG reader: "+fixBrowserRead.slice(0,3).join(", ")
       +(fixBrowserRead.length>3?" and "+(fixBrowserRead.length-3)+" more":"")
@@ -29247,15 +29263,11 @@ async function fixSaveFiles(files,say){
     +". Open the project to see them.");
   return wrote;
 }
-/* A RESULT AS THE BYTES A SAVE WRITES: a scaled result as its own pixels
-   (fixScaledBytes), anything the engine made through fixGridCanvas. */
-async function fixResultBytes(r){
-  if(r.consensus==="scaled") return fixScaledBytes(r);
-  const c=fixGridCanvas(r);
-  const blob=await new Promise(res=>c.toBlob(res,"image/png"));
-  c.width=1; c.height=1;
-  return new Uint8Array(await blob.arrayBuffer());
-}
+/* A RESULT AS THE BYTES A SAVE WRITES: fixGridBytes, for every kind of
+   result. (Until patch623: "a scaled result as its own pixels
+   (fixScaledBytes), anything the engine made through fixGridCanvas" - see
+   fixGridBytes for the measurement that ended the canvas path.) */
+async function fixResultBytes(r){ return fixGridBytes(r); }
 async function fixSaveOne(){
   const r=FIX.out; if(!r){ fixSaveSay("Nothing fixed yet."); return; }
   const bytes=await fixResultBytes(r);
@@ -29335,20 +29347,29 @@ function fixTile(f){
 async function fixOpenOne(f){
   if(!f||!f.data) return;
   if(typeof mayUse==="function"&&!mayUse()) return;
-  let bm;
-  try{ bm=await createImageBitmap(new Blob([f.data],{type:"image/png"})); }
-  catch(_){ fixBatchSay("That one could not be opened."); return; }
-  const W=bm.width, H=bm.height;
-  const c=document.createElement("canvas"); c.width=W; c.height=H;
-  const g=c.getContext("2d",{willReadFrequently:true});
-  g.drawImage(bm,0,0);
-  if(bm.close) bm.close();
-  const d=g.getImageData(0,0,W,H).data;
-  c.width=1; c.height=1;
+  /* THE PAGE'S OWN READER FIRST (patch623): the bytes are pngEncode's, so
+     pngDecode gives back exactly the cells that were saved. The browser's
+     canvas - which rounds opaque pixels by one on the owner's machine, see
+     fixDecodeFile - is the fallback for bytes the reader cannot read. */
+  let W,H,d;
+  try{ const p=await pngDecode(f.data); W=p.width; H=p.height; d=p.data; }
+  catch(_){
+    let bm;
+    try{ bm=await createImageBitmap(new Blob([f.data],{type:"image/png"})); }
+    catch(_2){ fixBatchSay("That one could not be opened."); return; }
+    W=bm.width; H=bm.height;
+    const c=document.createElement("canvas"); c.width=W; c.height=H;
+    const g=c.getContext("2d",{willReadFrequently:true});
+    g.drawImage(bm,0,0);
+    if(bm.close) bm.close();
+    d=g.getImageData(0,0,W,H).data;
+    c.width=1; c.height=1;
+  }
   fileName=f.name.split("/").pop();
   startEditor(new Uint8ClampedArray(d),W,H,W,H,palette(d,W*H,24,64),false);
-  /* The saved bytes are the same canvas, so the same arithmetic. The count
-     is kept on the result for exactly this. */
+  /* The saved bytes are fixGridPixels' answer under the same switch, so the
+     same arithmetic (until patch623: "the same canvas"). The count is kept on
+     the result for exactly this. */
   adoptBlock(fixBlockFor(f.cells,W));
 }
 /* A SECOND RUN MUST NOT KEEP THE FIRST ONE'S BLOBS. Nothing points at them
@@ -29377,30 +29398,33 @@ function fixBatchDownload(){
    Nearest neighbour, because this is a resize of pixel art. Where the side
    divides evenly every pixel comes out the same width; where it does not
    they differ by one, which is what the readout warns about before the run
-   rather than after 320 of them. */
-function fixGridCanvas(r){
-  const c=document.createElement("canvas");
-  const on=$("fixgrid")&&$("fixgrid").checked;
-  c.width=on?CANVAS_SIDE:r.width; c.height=on?CANVAS_SIDE:r.height;
+   rather than after 320 of them.
+
+   SUPERSEDED IN PART (patch623, 2026-10-01): this was the canvas every save
+   was encoded from (toBlob), by a scaling drawImage. The resize is
+   fixGridPixels now - the same nearest-neighbour answer, in arithmetic - and
+   this canvas is drawn from those pixels (putImageData, no scaling draw) for
+   what is SHOWN: the tile thumbnails. The saved bytes are fixGridBytes; see
+   there for the measurement. */
+function fixCanvasOf(p){
+  const c=document.createElement("canvas"); c.width=p.width; c.height=p.height;
   const g=c.getContext("2d");
-  g.imageSmoothingEnabled=false;
-  const src=document.createElement("canvas"); src.width=r.width; src.height=r.height;
-  const im=src.getContext("2d").createImageData(r.width,r.height);
-  im.data.set(r.data);
-  src.getContext("2d").putImageData(im,0,0);
-  g.drawImage(src,0,0,c.width,c.height);
-  src.width=1; src.height=1;
+  const im=g.createImageData(p.width,p.height); im.data.set(p.data); g.putImageData(im,0,0);
   return c;
 }
+function fixGridCanvas(r){ return fixCanvasOf(fixGridPixels(r)); }
 /* ONE PICTURE FIXED IS STILL A PICTURE FIXED. A rail that only ever
    listed folder runs would be empty for anyone who does them one at a
    time, which is how the tab is used on a single trait. */
 async function fixRecentFromRun(r){
   if(!r||!$("fixrail")) return;
   try{
-    const c=fixGridCanvas(r);
-    const W=c.width, H=c.height;
-    const blob=await new Promise(res=>c.toBlob(res,"image/png"));
+    /* The bytes the save writes, and the same pixels on a canvas for the
+       thumbnail only (patch623). */
+    const sv=fixGridPixels(r);
+    const W=sv.width, H=sv.height;
+    const data=await pngEncode(sv.data,W,H);
+    const c=fixCanvasOf(sv);
     const t=fitSize(W,H,SHELF_THUMB);
     const tc=document.createElement("canvas"); tc.width=t.w; tc.height=t.h;
     const tg=tc.getContext("2d"); tg.imageSmoothingEnabled=false;
@@ -29408,31 +29432,23 @@ async function fixRecentFromRun(r){
     const tb=await new Promise(res=>tc.toBlob(res,"image/png"));
     tc.width=1; tc.height=1; c.width=1; c.height=1;
     fixRecentAdd({name:(FIX.name||"image")+"-fixed.png",
-      data:new Uint8Array(await blob.arrayBuffer()),
+      data:data,
       cells:r.width, w:W, h:H, tw:t.w, th:t.h}, tb);
   }catch(_){ }
 }
 function fixDownload(){
   const r=FIX.out; if(!r){ fixSay("Nothing fixed yet."); return; }
-  /* A SCALED RESULT GOES OUT AS ITS OWN BYTES, not through the canvas, so
-     a translucent pixel is the byte it came in as. */
-  if(r.consensus==="scaled"){
-    fixScaledBytes(r).then(bytes=>{
-      const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([bytes],{type:"image/png"}));
-      a.download=FIX.name+"-fixed.png"; a.click();
-      setTimeout(()=>URL.revokeObjectURL(a.href),1000);
-    });
-    return;
-  }
-  /* Through the same canvas the batch writes, so one switch decides both
-     and there is no second answer to what a save is. */
-  const c=fixGridCanvas(r);
-  c.toBlob(b=>{
-    const a=document.createElement("a"); a.href=URL.createObjectURL(b);
+  /* EVERY RESULT GOES OUT AS ITS OWN BYTES - the bytes the batch and Save
+     to project write (fixResultBytes) - so one switch decides all three and
+     there is no second answer to what a save is. Until patch623 only a
+     scaled result went this way ("so a translucent pixel is the byte it
+     came in as") and the rest "through the same canvas the batch writes";
+     see fixGridBytes for the measurement that ended that. */
+  fixResultBytes(r).then(bytes=>{
+    const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([bytes],{type:"image/png"}));
     a.download=FIX.name+"-fixed.png"; a.click();
     setTimeout(()=>URL.revokeObjectURL(a.href),1000);
-    c.width=1; c.height=1;
-  },"image/png");
+  });
 }
 (function(){
   const d=$("fixdrop"), f=$("fixfile"); if(!d||!f) return;

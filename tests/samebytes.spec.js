@@ -66,12 +66,13 @@ const bothWays = (page, src, gridOn, flip) => page.evaluate(async ({ src, gridOn
   document.getElementById('fixsnap').checked = true;
   document.getElementById('fixgrid').checked = gridOn;
   const f = document.getElementById('fixforce'); f.disabled = false; f.value = '0';
-  /* the single path: fixRun, then the canvas fixDownload writes */
+  /* the single path: fixRun, then the bytes fixDownload and Save to project
+     write (fixResultBytes). Until patch623 this was fixGridCanvas + toBlob;
+     no save goes through a canvas now, so "the PNG bytes are the same bytes"
+     below compares two pngEncode outputs rather than two browser encodes. */
   await fixLoad(file());
   const out = await fixRun();
-  const oc = fixGridCanvas(out);
-  const single = new Uint8Array(await (await new Promise(r => oc.toBlob(r, 'image/png'))).arrayBuffer());
-  oc.width = 1; oc.height = 1;
+  const single = await fixResultBytes(out);
   /* the batch path, same settings unless flipped */
   if (flip) document.getElementById('fixgrid').checked = !gridOn;
   await fixBatch([file()]);

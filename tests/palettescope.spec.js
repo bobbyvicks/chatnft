@@ -122,9 +122,8 @@ test.describe('the palette map is per picture', () => {
 
         await fixLoad(await file(a, 'a.png'));
         const out = await fixRun();
-        const oc = fixGridCanvas(out);
-        const single = await colourOf(new Uint8Array(await (await new Promise(res => oc.toBlob(res, 'image/png'))).arrayBuffer()));
-        oc.width = 1; oc.height = 1;
+        /* the bytes the single save writes (fixResultBytes; patch623 ended the canvas path) */
+        const single = await colourOf(await fixResultBytes(out));
 
         const order = async (first) => {
           const fa = await file(a, 'a.png'), fb = await file(b, 'b.png');

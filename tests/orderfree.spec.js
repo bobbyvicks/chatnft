@@ -104,10 +104,10 @@ test.describe('a folder run is the same in any order', () => {
       /* and B on its own, the way the single tab saves it */
       await fixLoad(window.__B);
       const single = await fixRun();
-      const c = fixGridCanvas(single);
-      const blob = await new Promise(res => c.toBlob(res, 'image/png'));
-      c.width = 1; c.height = 1;
-      const one = await window.__hash(new Uint8Array(await blob.arrayBuffer()));
+      /* The bytes the single tab saves (fixResultBytes). Until patch623 this
+         took them off fixGridCanvas with toBlob - the same pixels, but the
+         browser's encoder, and no save goes that way now. */
+      const one = await window.__hash(await fixResultBytes(single));
       window.toast = realToast;
       return { fwd, rev, one, names: Object.keys(fwd.out) };
     });

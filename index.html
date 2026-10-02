@@ -26530,6 +26530,161 @@ async function fixGridBytes(r){
 /* Scale mode's name for the same bytes, kept for its callers. */
 async function fixScaledBytes(r){ return fixGridBytes(r); }
 
+/* A THIN DARK LINE HUGGING A CANVAS EDGE IS A CROP, NOT OUTLINE (patch628).
+
+   Many clothing sources end in a pure-black run along the bottom canvas edge
+   where the garment was cut off: 23 of 32 library files (measured 2026-10-02,
+   RR/wip/edges.cjs). CHUD Shirt rows 1270-1279 are #000000 across all 980
+   opaque pixels of the row (10 px thick), Dogecoin Polo 5 px, Wall Street
+   Power Suit and Mario Overalls 1 px. At pixel size 16 the engine voted the
+   bottom cell row black right across the garment (CHUD: 976 of 976 opaque
+   bottom-row pixels of the 1280 output near-black, the bottom 16 rows 100%;
+   Wall Street 34%) with the outline switch on or off - the cell decision, not
+   fixOutlineApply. The owner rejected every shirt with that line.
+
+   THE RULE, on every picture (round 1; round 2 narrows this to cut-outs,
+   see CUT-OUTS ONLY below), at every size, with no folder or layer rule:
+   a near-black run (alpha > 0, r g b all < 40) that starts at a canvas edge,
+   is THINNER THAN THE STEP the run will use, and has not-transparent,
+   not-dark art immediately inside it, is a crop artefact: each column (row,
+   at the left and right edges) of it is replaced with the pixel just inside
+   it. Kept as drawn: a dark run as thick as the step or thicker, a dark run
+   with transparency inside it (a black shape standing on the edge, a border
+   round a cut-out), a dark line anywhere not at the canvas edge, and a
+   picture whose bottom is black with nothing inside. "Immediately inside"
+   is alpha > 0 - a garment's soft 1 px edge pixel is the garment - as
+   cleanedge.cjs, whose output the owner approved (batch 4b), measured it.
+
+   THE STEP is fixStepFor's answer in source pixels (1280 at 16: 16; 1254 at
+   16: 15.675). With the box at 0 the engine chooses the step itself and it
+   is not known before the engine runs, so 16 - the largest step the box
+   offers - is the ceiling then (FIX_CROP_AUTO_STEP). Both paths that hand
+   decoded pixels to the worker apply this (fixBatchRun's prepare and
+   fixRun), before the engine and before the pixels are copied for it, and
+   the cleaned picture is also what fixSmallMarks counts and fixOutlineApply
+   reads as the source. In place on `data`; returns the pixels replaced and,
+   per edge, how many columns and the thickest run. Measured on the four
+   named files at 16 (run628.cjs, bottomcells.cjs on the 1280 output): the
+   bottom 16 rows' near-black share went CHUD 100% -> 28%, Dogecoin 11% ->
+   6%, Wall Street 34% -> 25%, Mario 10% -> 8%, against the cleaned
+   source's own 31 / 8 / 24 / 8 (Wall Street half a point above it: 16
+   near-black cells of 64, the vote's rounding); all four outputs are, cell
+   for cell, the cleanedge outputs the owner approved. Beyond the bottom row
+   a few cells move with it - CHUD 12 by the outline pass, which now sees a
+   fill-coloured bottom row; Dogecoin, Mario, Wall Street 1-3 by the
+   engine's own vote once the black is gone - as in the approved output.
+   Fix round (measure628/fixround/quant.cjs): Wall Street's cleaned source
+   has 24.49% near-black in its bottom 16 rows, which lies between 15 cells
+   (23.44%) and 16 cells (25.00%) of a 64-cell row; its own bottom cell row,
+   quantized by majority, holds 16 near-black cells - the output's count.
+   A 64-cell row at or below 24.49% would have to drop a cell that is a
+   drawn stroke. The other-row cells were isolated with run628 (PB_LINE=0,
+   PB_PAL=0): CHUD's 12 vanish with the outline pass off; the 1-3 on the
+   other three stay with the outline and the palette both off.
+
+   A LINE RUNS ALONG THE EDGE. The per-column test alone also fires on a
+   speck: a dark pixel block at the edge of a background with lighter art
+   behind it. Measured over the 311 library files (run628.cjs, before and
+   after): with no length test 23 outputs at 16 and 10 at 8 changed on edges
+   where at most 50 columns qualified, in stretches of 1 to 20 columns
+   (Anfield Tunnel, Omegle, Ruins Selfie, Supreme Hoodie 15 columns...) -
+   none of them a file edges.cjs reports a crop line on. So an edge is a
+   crop line only when MORE THAN FIX_CROP_MIN_COLS (50) of its columns
+   qualify: the count the measurement that found the defect used
+   (edges.cjs), so the rule's population is the measured one, and small
+   against any garment - the narrowest clothing line measured spans 147
+   columns (Slim Grey Suit), the four named files 680 to 925.
+
+   WHERE THE CUT FALLS (fix round, 2026-10-02; measure628/fixround/
+   colcount.cjs: this function carved from the page with the length test
+   off, every edge of all 311 library sources counted on the untouched
+   picture, each count equal to edges.cjs's on the 107 edges it prints).
+   At step 16, 163 edges on 95 files carry a qualifying column: 56 edges
+   on 34 files have at most 50 (Omegle's bottom edge has exactly 50,
+   Suburban Sidewalk's left 49, Portal Test Chamber's top 45; 26 of the
+   56 have 1 to 10) and 107 edges on 68 files have more (the smallest
+   Golf Game's right 54, Alien Hat Forest's right 55, Tesseract
+   Bookshelves' left 56; the smallest on clothing 147). At step 8 the
+   largest kept is 48, the smallest cleared 56. So for clothing - the
+   owner's complaint - any threshold from 51 to 146 picks the same lines;
+   for backgrounds the counts run through the cut without a gap (... 45, 49,
+   50 | 54, 55, 56, 57, 63 ...) and 50 is edges.cjs's cut, chosen because the
+   brief's acceptance test ("any change on a file edges.cjs does not
+   report is a defect") is defined by it, not because the pictures mark
+   it. A different cut for backgrounds is the owner's to make. The sweeps
+   run bottom, top, left, right in place, as cleanedge.cjs did, so a
+   left/right count can differ by a few corner pixels from the untouched
+   count (23 edges, all backgrounds, none crossing 50).
+
+   CUT-OUTS ONLY (round 2, 2026-10-02; supersedes "on every picture" above,
+   whose reasoning is kept). The module owner reviewed the edge-band sheets
+   of every output round 1 changed (RR/wip/review628/pages): the garments
+   are right - Beige MM Hoodie, Coinbase Blue Jacket, Hawaiian Shirt and
+   Lakers 24 Jersey lose only the black run at the canvas edge and their
+   drawn hem strokes stay - and the full-bleed pictures are wrong: Black
+   and White Waves' stripes end at every edge as art, not a crop line, and
+   round 1 rewrote them (11,349 pixels at 16); White Couch Group's thin
+   black frame along all four edges is drawn too (10,587 pixels). A crop
+   line is what is left when a cut-out was cut; a picture that fills its
+   canvas was not cut. So the rule applies only to a CUT-OUT - a picture
+   with at least one transparent pixel (alpha === 0 anywhere) - and never
+   to a full-bleed picture, decided from the picture, not the folder:
+   fixCropLine counts alpha === 0 once and returns {pixels: 0, edges: [],
+   holes: 0} when there is none, so both callers share the decision and
+   say nothing. Measured (measure628/round2/alpha0-311.txt): of the 311
+   library sources exactly the 47 backgrounds have no transparent pixel
+   and every file of the other twelve layers has one, so this keeps every
+   garment, costume, extra and skin case round 1 changed and returns all
+   18 backgrounds at 16 and all 12 at 8 to the output they had before. */
+const FIX_CROP_AUTO_STEP=16;
+const FIX_CROP_MIN_COLS=50;
+let fixCropFiles=0, fixCropPixels=0;
+function fixCropLine(data,W,H,step){
+  const lim=step>0?step:FIX_CROP_AUTO_STEP;
+  const dark=i=>data[i+3]>0&&data[i]<40&&data[i+1]<40&&data[i+2]<40;
+  const res={pixels:0, edges:[]};
+  /* CUT-OUTS ONLY (round 2, see above): a picture with no transparent pixel
+     is full-bleed art and its dark edge runs are drawn (Black and White
+     Waves, White Couch Group). Counted once, here, so both callers share
+     the one decision; `holes` is the count, reported for the reader. */
+  let holes=0; for(let i=3;i<data.length;i+=4) if(data[i]===0) holes++;
+  res.holes=holes;
+  if(!holes) return res;
+  /* count = columns (rows) along this edge, depth = pixels available going
+     inward. Two passes: which columns carry a run, then - only when the edge
+     has more than FIX_CROP_MIN_COLS of them - the replacement. */
+  const sweep=(edge,count,depth,at)=>{
+    const run=new Int32Array(count); let n=0, thick=0;
+    for(let k=0;k<count;k++){
+      let r=0;
+      while(r<lim&&r<depth-1&&dark(at(k,r))) r++;
+      if(r===0||r>=lim) continue;
+      const s=at(k,r);
+      if(data[s+3]===0||dark(s)) continue;
+      run[k]=r; n++; if(r>thick) thick=r;
+    }
+    if(n<=FIX_CROP_MIN_COLS) return;
+    for(let k=0;k<count;k++){
+      const r=run[k]; if(!r) continue;
+      const s=at(k,r);
+      for(let t=0;t<r;t++){ const i=at(k,t); data[i]=data[s]; data[i+1]=data[s+1]; data[i+2]=data[s+2]; data[i+3]=data[s+3]; }
+      res.pixels+=r;
+    }
+    res.edges.push({edge:edge, n:n, thick:thick});
+  };
+  sweep("bottom",W,H,(x,t)=>((H-1-t)*W+x)*4);
+  sweep("top",W,H,(x,t)=>(t*W+x)*4);
+  sweep("left",H,W,(y,t)=>(y*W+t)*4);
+  sweep("right",H,W,(y,t)=>(y*W+(W-1-t))*4);
+  return res;
+}
+/* WHAT IT DID, in the run's sentence: nothing when nothing was replaced. */
+function fixCropSaid(c){
+  if(!c||!c.pixels) return "";
+  return " \u00b7 a thin dark line hugging the "+c.edges.map(e=>e.edge+" edge ("+e.thick+" px, "+e.n+(e.edge==="left"||e.edge==="right"?" rows":" columns")+")").join(" and the ")
+    +" was read as a crop line and cleared before the run";
+}
+
 async function fixLoad(file){
   /* NO MIME CHECK. A browser does not always report one - measured: a file
      with type "" and one with application/octet-stream were both refused
@@ -28538,6 +28693,15 @@ function fixRun(){
     return Promise.resolve(r);
   }
   $("fixrun").disabled=true; $("fixstop").hidden=false; $("fixacts").hidden=true;
+  /* A THIN DARK CROP LINE AT A CANVAS EDGE COMES OFF FIRST (patch628, see
+     fixCropLine), on a copy: FIX.src stays the file as it came in (the
+     before-preview, scale mode, a second run). `given` is the picture the
+     engine, the marks count and the outline pass all get - the folder run
+     hands them the same one. With nothing to clear, `clean` is simply the
+     copy the worker is sent (it was always sent a copy, see below). */
+  const clean={data:new Uint8ClampedArray(src.data), width:src.width, height:src.height};
+  const crop=fixCropLine(clean.data,src.width,src.height,forced);
+  const given=crop.pixels?clean:src;
   fixProgress(0,"starting"); fixSay("");
   return new Promise(resolve=>{
     let w;
@@ -28565,7 +28729,7 @@ function fixRun(){
         const r=fixStampMeasured(m.done,measured);
         /* Before it is shown, so the preview is the picture that saves. */
         const pal=fixPalApply(r,FIX.rel);
-        const oln=fixOutlineApply(r,FIX.rel,src);
+        const oln=fixOutlineApply(r,FIX.rel,given);
         fixShow(r);
         /* SAID IN THE FINAL SENTENCE, NOT APPENDED BEFORE IT. This used to
            append itself to the readout, and the sentence written below then
@@ -28620,8 +28784,8 @@ function fixRun(){
            it kept and whether that passed; or the detectors' confidence.
            A gridless pick measured the offered sizes as worse, so the
            "try 8" advice is not given on top of it. */
-        const marks=fixSmallMarks(src.data,src.width,src.height);
-        const dropped=marks.count?fixMarksDropped(marks,r,src.width,src.height):0;
+        const marks=fixSmallMarks(given.data,given.width,given.height);
+        const dropped=marks.count?fixMarksDropped(marks,r,given.width,given.height):0;
         /* TRANSLUCENT PIXELS, SAID. The engine counts a pixel as paint when
            its alpha is over half and as clear otherwise, and writes cells
            that are solid or empty, so a near-opaque overlay comes out a
@@ -28684,6 +28848,7 @@ function fixRun(){
           +(dropped ? " \u00b7 "+dropped+" mark"+(dropped===1?"":"s")+" smaller than a cell "+(dropped===1?"was":"were")+" dropped" : "")
           +palNote
           +fixOutlineSaid(oln)
+          +fixCropSaid(crop)
           +fixGateNote(r,FIX.rel)
           +alphaNote
           +((big||unsure)&&!gridless.pick ? " \u2014 if the edges still look soft, the pixel size it used ("
@@ -28696,7 +28861,10 @@ function fixRun(){
     /* A COPY of the bytes goes across, so the source survives a second run.
        Transferring the original would leave FIX.src holding a detached
        buffer of length zero. */
-    const copy=new Uint8ClampedArray(src.data);
+    /* (patch628: the copy is `clean` - already a copy of src.data, with the
+       crop line off - unless something was cleared, when `clean` stays with
+       the outline pass and the worker gets a copy of IT.) */
+    const copy=crop.pixels?new Uint8ClampedArray(clean.data):clean.data;
     w.postMessage({data:copy, width:src.width, height:src.height, mode, forceStep:forced>0?forced:null, repair8:fixRepair8(forced), lines16:fixLines16(forced), rulesgate:fixLines16Gate(),
       palette:fixPalWanted()?paletteRGB():null},[copy.buffer]);
   });
@@ -28877,7 +29045,7 @@ async function fixBatchRun(files){
   fixMovedLast=null; fixMovedCount=0; fixUnhonouredAt=[]; fixNativeKept=0; fixOwnBlocks=0; fixUnfitAt=[]; fixTypedRecutAt=[]; fixTypedStrokesAt=[]; fixTypedMergeAt=[]; fixTypedMergeStrokesAt=[]; fixTypedResampleAt=[];
   fixGridlessFellAt=[]; fixGridlessFellKept=1; fixMarksDroppedTotal=0; fixMarksDroppedFiles=0; fixNoisyFiles=0; fixAlphaFiles=0; fixAlphaPixels=0; fixBrowserRead=[]; fixGateReady=0; fixGateWhy=new Map(); fixRecutAt=[]; fixGatePast=0; fixGatePastMost=0;
   fixPalMoved=0; fixPalPixels=0; fixPalFiles=0; fixPalWorst=0; fixPalMerged=0; fixPalWorstFile=""; fixPalClear=0; fixPalOpaque=0; fixPalMostShare=0; fixPalMostFile="";
-  fixOutlined=0; fixOutlineCells=0; fixOutlinedThick=0;
+  fixOutlined=0; fixOutlineCells=0; fixOutlinedThick=0; fixCropFiles=0; fixCropPixels=0;
   /* Pictures reduced by a whole factor to get under the engine limit. */
   const shrunk=[];
   fixTilesClear();
@@ -28948,10 +29116,10 @@ async function fixBatchRun(files){
       { const tl=fixTranslucent(px,sw*sh); if(tl.count){ fixAlphaFiles++; fixAlphaPixels+=tl.count; } }
       /* The same bytes, untouched, when there is nothing to ask. */
       let cut=null, stepAsked=0;
-      const pending=scale ? Promise.resolve({ok:{data:px, width:sw, height:sh, stepX:1, stepY:1}})
-        : fixAsk(wk,{data:new Uint8ClampedArray(px), width:sw, height:sh,
-          palette:fixPalWanted()?paletteRGB():null,
-          mode:mode, forceStep:(()=>{ const s=fixStepFor(sw,px,sh);
+      /* THE STEP BEFORE THE PIXELS ARE COPIED (patch628): the crop-line rule
+         needs it, so the decision that used to sit inside the message literal
+         is taken first; nothing between here and there asks fixStepFor again. */
+      const forceStep=scale ? null : (()=>{ const s=fixStepFor(sw,px,sh);
             if(fixGridlessPick){ fixGridlessAt.push(fixGridlessPick);
               if(fixGridlessPassed&&fixAllPainted({data:px})) fixGridlessPaintedAt.push(fixGridlessPick);
               if(!fixGridlessPassed){ fixGridlessFellAt.push(fixGridlessPick); fixGridlessFellKept=Math.min(fixGridlessFellKept,fixGridlessKept); } }
@@ -28970,7 +29138,17 @@ async function fixBatchRun(files){
                dropped on Stop, or one the engine failed, is not counted. */
             cut={recut:fixTypedRecut, merge:fixTypedMerge, resample:fixTypedResample};
             stepAsked=s;
-            return s>0?s:null; })(),
+            return s>0?s:null; })();
+      /* A THIN DARK CROP LINE AT A CANVAS EDGE COMES OFF FIRST (patch628, see
+         fixCropLine): in place on px, so the engine, the marks count and the
+         outline pass in finish() all see the same picture - the one the
+         single run (fixRun) hands them. Not in scale mode, whose promise is the
+         bytes that came in. */
+      if(!scale){ const crop=fixCropLine(px,sw,sh,stepAsked); if(crop.pixels){ fixCropFiles++; fixCropPixels+=crop.pixels; } }
+      const pending=scale ? Promise.resolve({ok:{data:px, width:sw, height:sh, stepX:1, stepY:1}})
+        : fixAsk(wk,{data:new Uint8ClampedArray(px), width:sw, height:sh,
+          palette:fixPalWanted()?paletteRGB():null,
+          mode:mode, forceStep:forceStep,
           repair8:fixRepair8(stepAsked), lines16:fixLines16(stepAsked), rulesgate:fixLines16Gate()});
     /* WHETHER A SIZE DECIDED THIS FILE, read in the same turn as its step. */
     return {name:name, rel:rel, px:px, sw:sw, sh:sh, pending:pending, sized:!scale&&fixSizeSet(), cut:cut};
@@ -29216,6 +29394,11 @@ async function fixBatchRun(files){
     ? " \u00b7 "+fixBrowserRead.length+" read by the browser, not the page's PNG reader: "+fixBrowserRead.slice(0,3).join(", ")
       +(fixBrowserRead.length>3?" and "+(fixBrowserRead.length-3)+" more":"")
     : "";
+  /* CROP LINES CLEARED (patch628): a thin dark run hugging a canvas edge with
+     art inside it, replaced with that art before the engine ran. */
+  const cropNote = fixCropFiles
+    ? " \u00b7 "+fixCropFiles+" had a thin dark crop line at a canvas edge, cleared before the run ("+fixCropPixels.toLocaleString()+" pixels)"
+    : "";
   /* THE ANSWER THE TAB IS OPENED FOR. Every clause above says what the run
      did; this says what the files ARE. The reasons are counted rather than
      listed per file, in the order that holds the most back. */
@@ -29256,7 +29439,7 @@ async function fixBatchRun(files){
   const noisyNote = fixNoisyFiles
     ? " \u00b7 "+fixNoisyFiles+" measured with one stray pixel in some blocks and kept on their blocks"
     : "";
-  fixBatchSay(fixBatchFiles.length+" of "+list.length+" done in "+secs+"s"+movedNote+unhonNote+raggedNote+smallNote+noGridNote+marksNote+noisyNote+recutNote+typedRecutNote+mergeNote+resampleNote+unfitNote+offNote+alphaNote+readNote+shrunkNote+palNote+fixOutlineBatchSaid()+gateNote+pastNote
+  fixBatchSay(fixBatchFiles.length+" of "+list.length+" done in "+secs+"s"+movedNote+unhonNote+raggedNote+smallNote+noGridNote+marksNote+noisyNote+recutNote+typedRecutNote+mergeNote+resampleNote+unfitNote+offNote+alphaNote+readNote+shrunkNote+palNote+cropNote+fixOutlineBatchSaid()+gateNote+pastNote
     +(fixBatchStop?" (stopped - what is done is kept)":"")
     +(over?" \u00b7 "+over+" past the limit of "+FIX_BATCH_MAX+" were left out":"")
     +(failed.length?" \u00b7 could not do: "+failed.slice(0,6).join(", ")

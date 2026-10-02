@@ -1,0 +1,22 @@
+[
+ {
+  "name": "G1 glue process",
+  "anchor": "    \"    const r=PF.process(m.data,m.width,m.height,{mode:m.mode,forceStep:m.forceStep,\",\n    \"      repair8:m.repair8?{labOf:labOf,deltaE2000:deltaE2000,gate:m.rulesgate||null,\",\n    \"        snap:m.palette?function(d,n,w){ paletteRGB=function(){ return m.palette; }; return snapToPalette(d,n,w); }:null}:null,\",\n    \"      lines16:m.lines16?{labOf:labOf,deltaE2000:deltaE2000,gate:m.rulesgate||null,\",\n    \"        snap:m.palette?function(d,n,w){ paletteRGB=function(){ return m.palette; }; return snapToPalette(d,n,w); }:null}:null,\",\n    \"      onProgress:function(f,l){ postMessage({progress:f,label:l}); }});\",\n",
+  "becomes": "    /* speed625: ONE palette step per distinct picture in this run (snapOnce), shared by the guards and the\n       step below; and the bar hears every guard round (progress). */\n    \"    const snap=m.palette?snapOnce(function(d,n,w){ paletteRGB=function(){ return m.palette; }; return snapToPalette(d,n,w); }):null;\",\n    \"    const prog=function(f,l){ postMessage({progress:f,label:l}); };\",\n    \"    const r=PF.process(m.data,m.width,m.height,{mode:m.mode,forceStep:m.forceStep,\",\n    \"      repair8:m.repair8?{labOf:labOf,deltaE2000:deltaE2000,gate:m.rulesgate||null,snap:snap,progress:prog}:null,\",\n    \"      lines16:m.lines16?{labOf:labOf,deltaE2000:deltaE2000,gate:m.rulesgate||null,snap:snap,progress:prog}:null,\",\n    \"      onProgress:prog});\",\n"
+ },
+ {
+  "name": "G2 glue final step",
+  "anchor": "    \"    if(m.palette){ paletteRGB=function(){ return m.palette; }; pal=snapToPalette(r.data,r.width*r.height,r.width); }\",\n",
+  "becomes": "    \"    if(snap){ pal=snap(r.data,r.width*r.height,r.width); }\",\n"
+ },
+ {
+  "name": "G3 worker carries snapOnce",
+  "anchor": "    labOf.toString(), deltaE2000.toString(), snapToPalette.toString()].join(\"\\n\");\n",
+  "becomes": "    labOf.toString(), deltaE2000.toString(), snapToPalette.toString(), snapOnce.toString()].join(\"\\n\");\n"
+ },
+ {
+  "name": "G4 snapOnce",
+  "anchor": "/* The engine text, run where it cannot freeze the page. Built once per\n   run and terminated after, so Stop is a real stop and not a request. */\nfunction fixWorker(){\n",
+  "becomes": "/* ONE PALETTE ANSWER PER PICTURE, PER RUN (speed625). step(d,n,w) is the palette\n   step (snapToPalette with the run's palette); what comes back does the same\n   thing, but a second call on the same bytes (the first n*4, with the same n\n   and row width w) gets the first call's answer - the cells written into d\n   and a copy of its counts - without running the step again. The step is a\n   function of those bytes, n, w and the palette, and one of these lives for\n   one picture with one palette (the worker makes one per message), so the\n   answer is the same either way. Patch622's palette guard snapped the whole\n   picture 4 to 8 times per picture and half of those were bytes it had\n   already snapped; the worker then snapped the final cells, which were\n   always the guard's last cells, once more. A hash finds the candidate and\n   the bytes are compared in full before an answer is reused. */\nfunction snapOnce(step){\n  const memo=new Map();\n  return function(d,n,w){\n    const len=n*4;\n    let h=0x811c9dc5;\n    for(let i=0;i<len;i++) h=Math.imul(h^d[i],16777619);\n    const key=h+\",\"+n+\",\"+w, list=memo.get(key);\n    if(list) for(const e of list){\n      let same=true;\n      for(let i=0;i<len;i++) if(e.inp[i]!==d[i]){ same=false; break; }\n      if(same){ d.set(e.out); return Object.assign({},e.res); }\n    }\n    const inp=new Uint8Array(len); for(let i=0;i<len;i++) inp[i]=d[i];\n    const res=step(d,n,w);\n    const out=new Uint8Array(len); for(let i=0;i<len;i++) out[i]=d[i];\n    const e={inp:inp, out:out, res:Object.assign({},res)};\n    if(list) list.push(e); else memo.set(key,[e]);\n    return res;\n  };\n}\n/* The engine text, run where it cannot freeze the page. Built once per\n   run and terminated after, so Stop is a real stop and not a request. */\nfunction fixWorker(){\n"
+ }
+]

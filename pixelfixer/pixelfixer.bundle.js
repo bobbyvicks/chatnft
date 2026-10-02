@@ -15624,6 +15624,24 @@
  *  past): with a third colour ending a walk open instead (the numbers verifier's one-line mutant V9, re-run in
  *  round 9b) GATE at 16 is round 8's output again, cell for cell.
  *  (3) Section 6's 'the plateau runs from about 1.6 to 2.0 cells' is superseded there (output the same from 1.5).
+ * Speed625 (versionRepair8 'pf-42-repair8/9'; NO OUTPUT CHANGES - every cell, at every size, palette on and off, is
+ *  round 9b's byte for byte, measured on the 311 at 4, 8, 10 and 16). The palette guard (round 6) snapped the whole
+ *  picture with the page's palette step 4 to 8 times per picture, about half of them on bytes it had already snapped
+ *  (today's vote and the no-rule vote are the same cells whenever the specks rule changes nothing, and each round
+ *  snapped its cells once for the GATE guard and again for the palette guard), and the page's worker then snapped
+ *  the final cells once more: on the 311 at 8, 1,312 engine snaps on 571 distinct inputs, and all 311 final snaps on
+ *  bytes an engine snap had just had. A folder of 47 backgrounds went from 24 s to 55-76 s. Now:
+ *  (1) a round snaps its cells once and both guards read that answer (gateParts and paletteKnock only read it);
+ *  (2) the GATE guard is not asked when the rules changed no cell's label or opacity: gateFlips undoes only cells
+ *  whose win/opaque differ from today's vote, and an undo puts them back, so it could undo nothing in any round;
+ *  (3) no guard at all when, besides, the rules changed no CELL (round 0's cells are the no-rule cells byte for
+ *  byte): paletteKnock then finds no changed cell, and no knocked one because the step is a function of its input -
+ *  the answer was round 0's cells, and it still is, without the two snaps;
+ *  (4) round 0 reuses the cells painted for that test (a veto of no cell is no veto; paint has no side effects);
+ *  (5) colour.progress(fraction, label), when given, is told when the cells are voted, when the rules are done and
+ *  after every guard round, so the page's bar moves while the guard works instead of sitting at 70%.
+ *  The page's worker memoises its palette step per picture (snapOnce: same bytes, same answer, and the final snap
+ *  of the guard's last cells is the answer the guard already had).
  *
  * Needs, resolved AT CALL TIME on PF (a missing port throws by name):
  *   PF.adaptive_k                              pf-40-reconstruct.js
@@ -16753,6 +16771,12 @@
      asked again, at most GUARD_ROUNDS times; if the palette still moves, the picture keeps the cells the
      vote made (no rule). A rule-changed cell on any other palette colour stays repaired. */
   var GUARD_ROUNDS = 6, PALETTE_SHARE = 0.25;
+  // speed625: two cell arrays hold the same bytes (all four channels)
+  function sameCells(a, b) {
+    if (a.length !== b.length) return false;
+    for (var i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+    return true;
+  }
   function paletteKnock(lowP, low, seenP, seenX, n) {
     var changed = new Uint8Array(n), inv = new Set(), c, o, k = 0, m = 0, undo = new Uint8Array(n);
     function key(a, o2) { return a[o2 + 3] < 128 ? -1 : (a[o2] << 16) | (a[o2 + 1] << 8) | a[o2 + 2]; }
@@ -16991,6 +17015,9 @@
     for (i = 0; i < N; i++) asum[cell[i]] += (d[i * 4 + 3] > 127) ? 1.0 : 0.0;
     for (c = 0; c < n; c++) opaque[c] = (asum[c] / cntf[c] > 0.5) ? 1 : 0;
 
+    // speed625: colour.progress (optional) hears where the work is - the vote, the rules, each guard round
+    var PG = colour && typeof colour.progress === 'function' ? colour.progress : null;
+    if (PG) PG(0.75, 'cells voted');
     // repairs 1 and 2 decide which label wins and which cells are opaque
     var I = facts(d, w, h, N, lab, K, cell, n, cols, rows, colour);
     // rules (size 16): which repairs run, and STROKE and KEEP; none given = size 8's set exactly
@@ -17083,17 +17110,29 @@
     // PALETTE (round 6, every size: colour.snap) - see paletteKnock.
     var GT = ((!R || R.gate) && colour.gate) ? gateNumbers(colour.gate) : null;
     var SN = typeof colour.snap === 'function' ? colour.snap : null;
+    if (PG) PG(0.8, 'lines repaired');
     if (!GT && !SN) return { d: paint(win, opaque, bridges, on('specks')), w: cols, h: rows, cn: 4 };
+    // speed625 (2): no cell's label or opacity changed -> the GATE guard can undo nothing, in any round (gateFlips
+    // undoes only cells whose win/opaque differ from today's vote; an undo puts them back, so they stay equal)
+    var voteSame = true;
+    for (c = 0; c < n; c++) if (win[c] !== winT[c] || opaque[c] !== opaqueT[c]) { voteSame = false; break; }
+    if (voteSame) GT = null;
+    // round 0's cells (4) and the no-rule cells; (3) the same bytes and no GATE question -> nothing to guard
+    var low0 = paint(win, opaque, bridges, on('specks'), null);
+    var lowP = SN ? paint(winT, opaqueT, [], false) : null;   // no rule at all
+    if (!GT && (!SN || sameCells(low0, lowP))) return { d: low0, w: cols, h: rows, cn: 4 };
     // the page's passes see the cells AFTER its palette step: snap a copy with that step (it is on when snap is given)
     var seen = function (lw) { if (!SN) return lw; var cp = new lw.constructor(lw); SN(cp, n, cols); return cp; };
     var lowT = GT ? paint(winT, opaqueT, [], on('specks')) : null, seenT = GT ? seen(lowT) : null;
-    var lowP = SN ? paint(winT, opaqueT, [], false) : null, seenP = SN ? seen(lowP) : null;   // no rule at all
-    var veto = new Uint8Array(n), low = null, it, und, flip, knock = null;
+    var seenP = SN ? seen(lowP) : null;
+    var veto = new Uint8Array(n), low = null, it, und, flip, knock = null, seenL;
     for (it = 0; it < GUARD_ROUNDS; it++) {
-      low = paint(win, opaque, bridges, on('specks'), veto);
+      low = it === 0 ? low0 : paint(win, opaque, bridges, on('specks'), veto);
       und = null; knock = null;
-      if (GT) { flip = gateFlips(seenT, seen(low), winT, opaqueT, win, opaque, cols, rows, GT); if (flip.n) und = flip.undo; }
-      if (!und && SN) { knock = paletteKnock(lowP, low, seenP, seen(low), n); if (knock.n) und = knock.undo; }
+      seenL = SN ? seen(low) : low;   // (1) one snap a round, read by both guards
+      if (GT) { flip = gateFlips(seenT, seenL, winT, opaqueT, win, opaque, cols, rows, GT); if (flip.n) und = flip.undo; }
+      if (!und && SN) { knock = paletteKnock(lowP, low, seenP, seenL, n); if (knock.n) und = knock.undo; }
+      if (PG) PG(0.8 + 0.18 * (it + 1) / GUARD_ROUNDS, (SN ? (GT ? 'checked the outline gate and the palette, round ' : 'checked the palette, round ') : 'checked the outline gate, round ') + (it + 1));
       if (!und) break;
       for (c = 0; c < n; c++) if (und[c]) { win[c] = winT[c]; opaque[c] = opaqueT[c]; veto[c] = 1; }
       bridges = bridges.filter(function (bc) { return !und[bc]; });
@@ -17123,7 +17162,7 @@
     return PF.repair8_pack(rgba, cols, rows, colour, RULES16);
   };
 
-  PF.versionRepair8 = 'pf-42-repair8/8';
+  PF.versionRepair8 = 'pf-42-repair8/9';
 })();
 
 /* ==== pf-50-core.js =============================================== */

@@ -25341,6 +25341,11 @@ function snapToPalette(d,n,w,opts){
     }
   }
   let moved=0, pixels=0, worst=0;
+  /* THE PIXELS THAT MOVED BY A CLEAR CHANGE (patch626): 10 or more, deltaWord's
+     "a clear change". `worst` above is a maximum over distinct colours and
+     knows nothing of area - a speck and a whole lawn read alike - so the
+     area is added up here, from the distance already worked out. */
+  let clear=0;
   const byTarget=new Map();
   for(const g of groups){
     const best=g.target;
@@ -25353,6 +25358,7 @@ function snapToPalette(d,n,w,opts){
          value now and the number rounded only where it is printed. */
       const far=deltaE2000(mm.lab[0],mm.lab[1],mm.lab[2],tl[0],tl[1],tl[2]);
       if(far>worst) worst=far;
+      if(far>=10) clear+=mm.c.px;
       hit.set(mm.c.key,best); moved++;
     }
     const arr=byTarget.get(best.h)||[]; arr.push(g); byTarget.set(best.h,arr);
@@ -25383,7 +25389,7 @@ function snapToPalette(d,n,w,opts){
     d[o]=t.r; d[o+1]=t.g; d[o+2]=t.b;
     pixels++;
   }
-  return {colours:moved, pixels:pixels, worst:worst, seen:count.size, groups:groups.length, merged:merged, mergedWorst:mergedWorst, opaque:opaque, share:opaque?pixels/opaque:0, apart:apart};
+  return {colours:moved, pixels:pixels, worst:worst, seen:count.size, groups:groups.length, merged:merged, mergedWorst:mergedWorst, opaque:opaque, share:opaque?pixels/opaque:0, apart:apart, clear:clear, clearShare:opaque?clear/opaque:0};
 }
 /* The standing decisions, as the defaults a project starts from. */
 const AGRULES_ID="settings.agentrules";
@@ -26635,7 +26641,7 @@ function fixTryThese(){
   const keeps=(cells)=>{
     if(!px||!(cells>0)) return "";
     const k=fixCellsKept(px,W,H,cells);
-    return k.srcN ? " (keeps "+Math.round(k.kept/k.srcN*100)+"% of the paint)" : "";
+    return (k.srcN&&!fixAllPainted(FIX.src)) ? " (keeps "+Math.round(k.kept/k.srcN*100)+"% of the paint)" : "";
   };
   const seen=[], out=[];
   if($("fixgrid")&&$("fixgrid").checked){
@@ -26753,6 +26759,9 @@ let fixPalMoved=0, fixPalPixels=0, fixPalFiles=0;
    furthest any colour moved, and now says in WHICH picture, which is the
    one thing anybody would act on. */
 let fixPalWorst=0, fixPalMerged=0, fixPalWorstFile="";
+/* AND HOW MUCH OF IT WAS A CLEAR CHANGE (patch626): the pixels moved by 10 or
+   more across the run, and the file with the largest share of them. */
+let fixPalClear=0, fixPalOpaque=0, fixPalMostShare=0, fixPalMostFile="";
 function fixPalWanted(){ const b=$("fixpal"); return !!(b&&b.checked); }
 /* fixOutlineOnce(cells, opts) - "peel and retrace", final2. Works on the CELL grid (one cell = one "square").
    Starts from cand-final.cjs; round-3 changes are marked [B1][B2][B3][M1]..[M5]; [S1][S2] 2026-10-01, [S2] amended in round 4.
@@ -27477,14 +27486,56 @@ function fixLines16(step){
 function fixLines16Gate(){
   return fixOutlineRuns() ? OUTLINE_GATE : null;
 }
+/* PAINTED EDGE TO EDGE (patch626): no pixel clear by the cell rule's own test
+   (fixCellsKept: paint is alpha > 8). On such a picture every count keeps
+   all the paint, so "which kept N% of the paint" is 100 by construction and
+   is left out rather than said. */
+function fixAllPainted(img){
+  if(!img||!img.data) return false;
+  const d=img.data;
+  for(let i=3;i<d.length;i+=4) if(d[i]<=8) return false;
+  return true;
+}
+/* COARSER THAN THE COLLECTION GRID (patch626). At 16 a picture with no block
+   grid is voted onto 80 cells, and detail smaller than a cell loses the vote:
+   measured on the 47 saved backgrounds, about 16 lost their text, pattern or
+   faces at 16 and kept them at 8. The box stays the person's; the run says it. */
+function fixCoarseNote(cells){
+  const g=fixGridCells();
+  if(!(cells>0)||!g.exact||cells>=g.cells) return "";
+  /* Only on the canvas. With Save at 1280 off a cell count is picture pixels
+     per cell, and the collection's 160 is not what typing 8 gives. On the
+     canvas a picture is resampled only when it is wider than the cells, so
+     8 always gives it more of them: min(its width, 160). A review found the
+     first wording, "8 gives the collection's own 160", false for a 128px
+     source, where 8 keeps 128. */
+  if(!($("fixgrid")&&$("fixgrid").checked)) return "";
+  return " - small details (text, thin lines, stars) may be lost at "+cells+" cells; "+(CANVAS_SIDE/g.cells)+" keeps more";
+}
+/* THE SHARE THAT PLAINLY CHANGED COLOUR (patch626), in the owner's words:
+   pixels moved 10 or more - deltaWord's "a clear change" - over the painted
+   area. Under 1% is said as such rather than as 0. */
+function fixClearWords(clear,opaque){
+  if(!(clear>0)||!(opaque>0)) return "";
+  const p=Math.round(clear/opaque*100);
+  return (p<1?"under 1%":p+"%")+" plainly changed colour";
+}
+/* A BLOCK THE GATE WILL NOT TAKE (patch626). "type 10 to keep them" keeps the
+   drawing, and fixGateOf then refuses it: its blocks are checked at 8px. */
+function fixRecutCaveat(block){
+  return (block>0&&block%8) ? ", though the collection's 8px blocks will not take "+block : "";
+}
 function fixPalApply(out,rel){
   if(!out||!out.data||!fixPalWanted()) return null;
   /* Worked out in the worker, beside the engine, when it was asked there. */
   const r=(out.pal!==undefined && out.pal!==null) ? out.pal : snapToPalette(out.data,out.width*out.height,out.width);
+  fixPalOpaque+=r.opaque||0;
   if(r.colours){
     fixPalMoved+=r.colours; fixPalPixels+=r.pixels; fixPalFiles++;
     if(r.worst>fixPalWorst){ fixPalWorst=r.worst; fixPalWorstFile=String(rel||""); }
     fixPalMerged+=r.merged||0;
+    fixPalClear+=r.clear||0;
+    if((r.clearShare||0)>fixPalMostShare){ fixPalMostShare=r.clearShare; fixPalMostFile=String(rel||""); }
   }
   return r;
 }
@@ -27552,6 +27603,8 @@ let fixNoGrid=0;
 /* The counts the gridless search settled on across a batch, so the note
    can say what happened rather than only that something did. */
 let fixGridlessAt=[];
+/* The gridless picks whose source was painted edge to edge (patch626). */
+let fixGridlessPaintedAt=[];
 /* The block size the last step decision measured off the picture, or 0 if
    it did not measure one. Read by the run that follows, so an exact answer
    is not reported as a guess. */
@@ -28428,7 +28481,7 @@ function fixSizeHint(){
      blocks - the whole rule is one keystroke from its opposite. */
   const recutNote = recut
     ? " \u00b7 "+recut.canvasBlock+"px blocks re-cut on the "+g.cells+" cell grid - type "
-      +recut.canvasBlock+" to keep them"
+      +recut.canvasBlock+" to keep them"+fixRecutCaveat(recut.canvasBlock)
     : "";
   const unfitNote = unfit
     ? " \u00b7 "+unfit.block+"px blocks ("+unfit.cells+" cells) cannot land on "+CANVAS_SIDE+"; the "+g.cells+" cell grid re-cuts them"
@@ -28521,7 +28574,9 @@ function fixRun(){
            confidence (forced) \u00b7 0.0s"). */
         const palNote = pal&&pal.colours
           ? " \u00b7 "+pal.colours+" colour"+(pal.colours===1?"":"s")+" moved to the palette, "
-            +Math.round(pal.share*100)+"% of the picture - the furthest by "
+            +Math.round(pal.share*100)+"% of the picture"
+            +(pal.clear ? ", "+fixClearWords(pal.clear,pal.opaque) : "")
+            +" - the furthest by "
             +Math.round(pal.worst)+" ("+deltaWord(pal.worst)+")"
             +(pal.merged?", "+pal.merged+" shade"+(pal.merged===1?"":"s")+" merged into a neighbour":"")
           : "";
@@ -28590,7 +28645,7 @@ function fixRun(){
         const resampledBy=resampledAt;
         const how = recutBy
           ? "measured "+recutBy.canvasBlock+"px blocks off the picture and re-cut them on the "
-            +fixGridCells().cells+" cell grid - type "+recutBy.canvasBlock+" to keep them"
+            +fixGridCells().cells+" cell grid - type "+recutBy.canvasBlock+" to keep them"+fixRecutCaveat(recutBy.canvasBlock)
           : typedBy
           ? "drawn at "+typedBy.block+"px blocks ("+typedBy.cells+" cells), which the "
             /* The grid the SIZE means, not the project's: at 16 that is 80 cells,
@@ -28612,16 +28667,18 @@ function fixRun(){
                search and the size offers already use - square only, because
                it counts cells both ways. */
             +((src.width===src.height)?(()=>{ const k=fixCellsKept(src.data,src.width,src.height,resampledBy.grid);
-              return k.srcN?", which kept "+Math.round(k.kept/k.srcN*100)+"% of the paint":""; })():"")
+              return (k.srcN&&!fixAllPainted(src))?", which kept "+Math.round(k.kept/k.srcN*100)+"% of the paint":""; })():"")
+            +fixCoarseNote(resampledBy.grid)
           : r.consensus==="measured"
           ? (r.measuredBlock===1
             ? "kept at one pixel per cell - the picture is already at its native size"
             : "measured "+r.measuredBlock+"px blocks off the picture"
               +(noisy?" ("+noisy+" block"+(noisy===1?" had":"s had")+" one stray pixel)":""))
           : gridless.pick
-            ? "no pixel grid found; put on "+gridless.pick+" cells, "
-              +(gridless.passed ? "which kept "+Math.round(gridless.kept*100)+"% of the paint"
-                : "the count that kept the most ("+Math.round(gridless.kept*100)+"%) - none kept 95%")
+            ? "no pixel grid found; put on "+gridless.pick+" cells"
+              +(gridless.passed&&fixAllPainted(src) ? ""
+                : ", "+(gridless.passed ? "which kept "+Math.round(gridless.kept*100)+"% of the paint"
+                : "the count that kept the most ("+Math.round(gridless.kept*100)+"%) - none kept 95%"))
             : (r.confidence||"")+" confidence ("+(r.consensus||"?")+")";
         fixSay(how+" \u00b7 "+secs+"s"
           +(dropped ? " \u00b7 "+dropped+" mark"+(dropped===1?"":"s")+" smaller than a cell "+(dropped===1?"was":"were")+" dropped" : "")
@@ -28816,10 +28873,10 @@ async function fixBatchRun(files){
   const list=all.slice(0,FIX_BATCH_MAX);
   const over=all.length-list.length;
   /* BEFORE the list is replaced: it is what holds the urls to revoke. */
-  fixMoved=null; fixNoGrid=0; fixGridlessAt=[];
+  fixMoved=null; fixNoGrid=0; fixGridlessAt=[]; fixGridlessPaintedAt=[];
   fixMovedLast=null; fixMovedCount=0; fixUnhonouredAt=[]; fixNativeKept=0; fixOwnBlocks=0; fixUnfitAt=[]; fixTypedRecutAt=[]; fixTypedStrokesAt=[]; fixTypedMergeAt=[]; fixTypedMergeStrokesAt=[]; fixTypedResampleAt=[];
   fixGridlessFellAt=[]; fixGridlessFellKept=1; fixMarksDroppedTotal=0; fixMarksDroppedFiles=0; fixNoisyFiles=0; fixAlphaFiles=0; fixAlphaPixels=0; fixBrowserRead=[]; fixGateReady=0; fixGateWhy=new Map(); fixRecutAt=[]; fixGatePast=0; fixGatePastMost=0;
-  fixPalMoved=0; fixPalPixels=0; fixPalFiles=0; fixPalWorst=0; fixPalMerged=0; fixPalWorstFile="";
+  fixPalMoved=0; fixPalPixels=0; fixPalFiles=0; fixPalWorst=0; fixPalMerged=0; fixPalWorstFile=""; fixPalClear=0; fixPalOpaque=0; fixPalMostShare=0; fixPalMostFile="";
   fixOutlined=0; fixOutlineCells=0; fixOutlinedThick=0;
   /* Pictures reduced by a whole factor to get under the engine limit. */
   const shrunk=[];
@@ -28896,6 +28953,7 @@ async function fixBatchRun(files){
           palette:fixPalWanted()?paletteRGB():null,
           mode:mode, forceStep:(()=>{ const s=fixStepFor(sw,px,sh);
             if(fixGridlessPick){ fixGridlessAt.push(fixGridlessPick);
+              if(fixGridlessPassed&&fixAllPainted({data:px})) fixGridlessPaintedAt.push(fixGridlessPick);
               if(!fixGridlessPassed){ fixGridlessFellAt.push(fixGridlessPick); fixGridlessFellKept=Math.min(fixGridlessFellKept,fixGridlessKept); } }
             if(fixMeasuredBlock>1&&fixNativeNoisy>0) fixNoisyFiles++;
             /* THE DECISION, RECORDED PER FILE. Only the cell count survives
@@ -29063,7 +29121,7 @@ async function fixBatchRun(files){
   const recutNote = fixRecutAt.length
     ? " \u00b7 "+fixRecutAt.length+" drawn in blocks coarser than the collection cell ("
       +[...new Set(fixRecutAt)].sort((a,b)=>a-b).map(b=>b+"px").join(", ")+") and re-cut on the "
-      +fixGridCells().cells+" cell grid - type "+[...new Set(fixRecutAt)].sort((a,b)=>a-b)[0]+" to keep them"
+      +fixGridCells().cells+" cell grid - type "+[...new Set(fixRecutAt)].sort((a,b)=>a-b)[0]+" to keep them"+fixRecutCaveat([...new Set(fixRecutAt)].sort((a,b)=>a-b)[0])
     : "";
   /* THE SAME FACT ON THE TYPED PATH, where nothing said it. No advice
      attached: the size was typed on purpose, the collection wants 8, and
@@ -29106,6 +29164,7 @@ async function fixBatchRun(files){
   const resampleNote = fixTypedResampleAt.length
     ? " \u00b7 "+fixTypedResampleAt.length+" with no block grid "+(fixTypedResampleAt.length===1?"was":"were")
       +" resampled onto the "+gS.words+(gS.many?" cell grids":" cell grid")
+      +fixCoarseNote(Math.min.apply(null,fixTypedResampleAt.map(c=>c.grid)))
     : "";
   const unfitNote = fixUnfitAt.length
     ? " \u00b7 "+fixUnfitAt.length+" drawn in blocks the grid cannot hold ("
@@ -29133,9 +29192,13 @@ async function fixBatchRun(files){
   const palNote = fixPalFiles
     ? " \u00b7 "+fixPalFiles+" put on the palette, "+fixPalMoved
       +" colour"+(fixPalMoved===1?"":"s")+" moved across "
-      +fixPalPixels.toLocaleString()+" pixels - the furthest by "+Math.round(fixPalWorst)+" ("+deltaWord(fixPalWorst)+")"
+      +fixPalPixels.toLocaleString()+" pixels"
+      +(fixPalClear ? ", and "+fixClearWords(fixPalClear,fixPalOpaque).replace(" plainly"," of the painted area plainly") : "")
+      +" - the furthest by "+Math.round(fixPalWorst)+" ("+deltaWord(fixPalWorst)+")"
       +(fixPalMerged?", "+fixPalMerged+" shade"+(fixPalMerged===1?"":"s")+" merged into a neighbour":"")
       +(fixPalFiles>1&&fixPalWorstFile?"; furthest in "+fixPalWorstFile:"")
+      +(fixPalFiles>1&&fixPalMostFile&&fixPalMostShare>0
+        ? "; most changed: "+fixPalMostFile+" ("+fixClearWords(fixPalMostShare,1)+")" : "")
     : "";
   /* TRANSLUCENT PIXELS. Counted as paint or clear by the engine and every
      result cell solid or empty; in scale mode kept, with the browser's
@@ -29178,7 +29241,10 @@ async function fixBatchRun(files){
   const passedCells=(()=>{ const left=fixGridlessAt.slice(); for(const c of fixGridlessFellAt){ const i=left.indexOf(c); if(i>=0) left.splice(i,1); } return left; })();
   const noGridNote = fixNoGrid
     ? " \u00b7 "+fixNoGrid+" are not drawn on any pixel grid: "
-      +(passed ? passed+" put on the coarsest grid that kept its shape and 95% of its paint ("+cellsOf(passedCells)+")" : "")
+      +(passed>fixGridlessPaintedAt.length ? (passed-fixGridlessPaintedAt.length)+" put on the coarsest grid that kept its shape and 95% of its paint ("
+        +cellsOf((()=>{ const left=passedCells.slice(); for(const c of fixGridlessPaintedAt){ const i=left.indexOf(c); if(i>=0) left.splice(i,1); } return left; })())+")" : "")
+      +(passed>fixGridlessPaintedAt.length&&fixGridlessPaintedAt.length ? ", " : "")
+      +(fixGridlessPaintedAt.length ? fixGridlessPaintedAt.length+" painted edge to edge put on "+cellsOf(fixGridlessPaintedAt) : "")
       +(passed&&fell ? ", " : "")
       +(fell ? fell+" kept no more than "+Math.round(fixGridlessFellKept*100)+"% at any grid and were put on the count that kept the most ("+cellsOf(fixGridlessFellAt)+")" : "")
       +", and lost detail they had between cells"

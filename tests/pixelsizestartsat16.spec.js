@@ -314,7 +314,13 @@ test.describe('the Pixel size box starts at 16', () => {
     await load(page, RAMPSQ, 'ramp.png');
     const at16 = await run(page);
     expect(at16.cols).toBe(80);
-    expect(at16.said).toMatch(/no block grid found; resampled from 1024 across onto the 80 cell grid, which kept \d+% of the paint/);
+    /* WAS: "..., which kept \d+% of the paint". RAMPSQ is painted edge to edge,
+       where any count keeps all the paint, so that figure was 100 by
+       construction; patch626 leaves it out there (runsayswhatchanged.spec.js)
+       and the next test still pins the measured figure on a picture with
+       clear pixels. What 80 cells may lose is said instead. */
+    expect(at16.said).toContain('no block grid found; resampled from 1024 across onto the 80 cell grid - small details (text, thin lines, stars) may be lost at 80 cells; 8 keeps more');
+    expect(at16.said).not.toContain('of the paint');
     expect(at16.said).not.toContain('confidence (forced)');
     /* THE CONTROL: worked out, it is the gridless search's own sentence -
        said positively, so the negative is about THIS run's words. */

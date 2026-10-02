@@ -41,7 +41,19 @@
    has none (base-623, which has no HUG). On base-623 tests 1 and 2 fail on behaviour (no ring: ringTop, ringSides,
    ringHem and shareCell navy, 91 stray edges); test 3 passes there (a guard). Each mutant named above fails tests 1
    and 2 on behaviour (gate9c's notes quote each failing assertion, and give the window of each constant this file
-   accepts beside the window that leaves GATE's 16 unchanged). */
+   accepts beside the window that leaves GATE's 16 unchanged).
+
+   ROUND 9d (gate9d): the picture gains pinholes, a lower A ROUND, and a line of several near-white exact colours
+   (gatelikefixtures.js, its header). Tests 1 and 2 also assert, from the painted picture (preconditions): 245 pinholes
+   in the field, 10 near-white exact colours, the line's most common exact colour 250,250,248; and of the output:
+   palette off, every ring cell is exactly that colour; palette on, every ring cell one and the same colour. Mutants
+   this stops besides round 9c's (gate9d's notes quote each failing assertion):
+       HUG_CLEAR 0, 0.03 (no ring at all), 0.05 (no ring round G and E), transparency counted 3x (none round E)
+                                                            ringTop, ringSides, ringHem, stray edges, edges, colour
+       HUG_ROUND 0.825 (no ring round A)                    the same, and shareCell
+       S4 the brightest exact colour of the label           palette off: every ring cell 251,250,248
+       S5 the label read from the shape cell first          palette off: the four corner ring cells 236,238,240
+   S4 and S5 do not show palette on (every ring cell is the palette's white either way). */
 import { test, expect } from '@playwright/test';
 import { GL } from './gatelikefixtures.js';
 
@@ -56,13 +68,21 @@ async function run16(page, pal) {
   return page.evaluate(async (pal) => {
     const t = window.__gl; const realToast = window.toast; window.toast = () => {};
     const px = t.paint(), bytes = await t.png(px);
+    /* round 9d preconditions, from the painted picture: its near-white exact colours, and its transparent pixels
+       inside the hoodie's field, x 216-887 y 640-895 (the pinholes; the field is opaque everywhere else) */
+    const wset = new Set(); let pinholes = 0;
+    for (let i = 0; i < 1280 * 1280; i++) { if (t.cls(px, i) === 'W') wset.add(px[i * 4] + ',' + px[i * 4 + 1] + ',' + px[i * 4 + 2]);
+      const x = i % 1280, y = (i / 1280) | 0; if (x >= 216 && x < 888 && y >= 640 && y < 896 && px[i * 4 + 3] === 0) pinholes++; }
+    const whites = wset.size;
+    const ringCells = []; t.EXPECT.forEach(e => { if (e[2] === 'W') ringCells.push(...e[1]); });
     const on = await t.run(bytes, 'clothing/gatelike.png', 16, [], pal);
     const off = await t.run(bytes, 'clothing/gatelike.png', 16, t.has('HUG_ON') ? ['HUG_ON'] : [], pal);
     window.toast = realToast;
     const want = {}; t.EXPECT.forEach(e => { want[e[0]] = t.want(e[0]); });
     const srcY = t.yellowCells(px, 16), notY = srcY.filter(s => { const [x, y] = s.split(',').map(Number); return t.at(on, x, y) !== 'Y'; });
     return { w: on.w, on: t.count(on), off: t.count(off), got: t.judge(on), want, why: t.EXPECT.map(e => [e[0], e[4]]), kept: t.kept(),
-      srcY: srcY.length, notY, map: t.map(on, 12, 42, 44, 16), hasHug: t.has('HUG_ON') };
+      pal, srcY: srcY.length, notY, map: t.map(on, 12, 42, 44, 16), hasHug: t.has('HUG_ON'),
+      ringCells, ringCol: t.exact(on, ringCells), lineCol: t.lineColour(px), whites, pinholes };
   }, pal);
 }
 
@@ -71,6 +91,9 @@ function check16(r, label) {
   expect(r.w, 'the grid is 80 cells').toBe(80);
   expect(r.srcY, 'the picture has its letters: cells at least half yellow in the source').toBeGreaterThan(200);
   expect(r.off.edges, 'the control (HUG off) shows the outline as gaps: yellow touches navy all round').toBeGreaterThan(100);
+  expect(r.pinholes, 'the picture has its pinholes: 245 transparent pixels in the field, beside the line').toBe(245);
+  expect(r.whites, 'the line is drawn in several near-white exact colours (WH, X1, seven others, the shadow sides)').toBe(10);
+  expect(r.lineCol, "the line's most common exact colour is WH").toBe('250,250,248');
   for (const [name, why] of r.why) expect.soft(r.got[name], why).toBe(r.want[name]);
   expect(r.notY, 'every cell the source draws at least half yellow is yellow').toEqual([]);
   expect(r.on.Y, 'the yellow cells are exactly the engine\'s with HUG off: the letters keep their shapes').toBe(r.off.Y);
@@ -79,6 +102,12 @@ function check16(r, label) {
   expect(stray, 'a yellow cell touches navy only at the kept cells (counter, mouth, G|A, A|T, hole): the white ring is closed round each letter everywhere else').toEqual([]);
   expect(r.on.edges, 'the kept cells each still touch their letters: 49 yellow-navy edges, all at kept cells').toBe(49);
   expect(r.on.other, 'no other colour appears').toBe(0);
+  if (!r.pal) {
+    const off = r.ringCells.filter((s, i) => r.ringCol[i] !== r.lineCol).map(s => s + ':' + r.ringCol[r.ringCells.indexOf(s)]);
+    expect(off, "palette off: every ring cell is painted the line's own most common exact colour (" + r.lineCol + "), not a brighter variant in its label (X1) nor the shadow sides' colour from the letter's cell").toEqual([]);
+  } else {
+    expect([...new Set(r.ringCol)], 'palette on: every ring cell is painted one and the same exact colour').toHaveLength(1);
+  }
 }
 
 test.describe('GATE-like letters: the white ring at 16, the gaps kept, nothing at 8', () => {

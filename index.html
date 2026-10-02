@@ -50555,6 +50555,46 @@ try{
  *  On the 311 (lines7's rows): at 8 no mouth or eye cell changes; 5 chains
  *  change 1-2 cells each (6 in all). At 16 the changes on mouths, eyes and
  *  ears are the strays above. Sizes 4 and 10: none (the rules run at 8, 16).
+ * Round 8 (versionRepair8 'pf-42-repair8/7'): HUG, both sizes (see 6. HUG). The owner, on GATE Hoodie at 16:
+ *  "like the white outline for ghate, would there be something that could be fxed?" - the white outline round
+ *  the yellow letters came out as scattered cells. Measured why (6. HUG): the vote, and RESCUE drawing only a
+ *  line that straddles two cells; no guard undid anything. HUG draws a thin line that goes round a shape on
+ *  a contrasting fill as a ring of fill cells just outside the shape, told from the picture (no list, layer
+ *  or name). On the 311 against base-623 (round 8's rows): size 16 changes 9 files / 60 cells (GATE Hoodie
+ *  45: no yellow cell changes and no yellow cell touches the navy any more, 45 such edges before; the rest
+ *  1-5 cells: Supreme Hoodie's box, Pill Logo Cap's pill outline, Trainer Cap's logo edge), size 8 3 files /
+ *  10 cells (R Place Mosaic's Aland flag gets the yellow edging of its red cross; GATE Hoodie 0: its outline
+ *  is already whole at 8, the vote gives the 6-7 px line most cells there). Palette off at 16: 9 / 55.
+ *  Measured and left out: without ROUND the rule also took op-art backgrounds' rings, a droid's highlight
+ *  lines and an axe's inner edge (63 files at 16, 31 at 8); without its outside half (the outside not lined
+ *  all round) Red Mouse Helmet's mouth line was drawn too (19 cells, the mouth's top edge read as a lining of
+ *  the face); a side read from the line's own neighbouring pixel found only GATE's anti-alias rows (0 cells).
+ * Round 9 (versionRepair8 'pf-42-repair8/8'): GAP (see 6. HUG, GAP). Round 8's ring also painted GATE Hoodie's
+ *  negative space at 16: the G's navy hole (31,73: 75% navy in the source; 31,76), the navy notch between the A's
+ *  legs (39,76 and 39,77) and the navy between letters (G|A 35,75-35,77 - 35,75 is 98% navy, 0% white - and A|T,
+ *  T|E): white. Round 8's sentences above that were false for those cells: 'no yellow cell touches the navy any more'
+ *  was true only because the holes and gaps had been filled; section 6's 'a lining inside a letter's counter ... the
+ *  counter stays as the vote made it' does not hold for the G, whose counter opens to the outside, so its lining is
+ *  part of the outer line piece. GAP keeps a cell the outside fill when its source pixels hold at least as much of
+ *  the fill as of the line and that fill is narrow (the line or the shape on both sides along a row or a column,
+ *  within 1.75 cells, for half its fill pixels). On the 311 against base-623 (round 9's rows): size 16 8 files /
+ *  37 cells (GATE Hoodie 28: all navy to white ring cells; yellow unchanged; 16 yellow-navy edges left, every one at
+ *  a kept hole, notch or gap), size 8 3 files / 10 cells (as round 8; GATE 0), palette off at 16 8 / 37. Against
+ *  round 8: size 16 4 files / 23 cells (GATE 17: 12 cells kept navy, and 5 hood shade cells round 8's palette pass
+ *  re-coloured are as base-623 again; Supreme Hoodie 3, Pill Logo Cap 2, Squid Game 420 Tracksuit 1), size 8 none.
+ * Round 9b (comments only: the code, and versionRepair8 'pf-42-repair8/8', are round 9's token for token). The record
+ *  corrected, from round 9's two verifiers and re-measured in round 9b (its notes, logs/gateshare.txt, srccells.txt):
+ *  (1) Round 9 above, 'GATE Hoodie 28: all navy to white ring cells; yellow unchanged; 16 yellow-navy edges left,
+ *  every one at a kept hole, notch or gap', is true and left out that 5 of the 28 ring cells sit where the source
+ *  has almost no white: 46,69 53,70 44,73 48,74 50,75 (0-1% white, 92-99% navy by the pictures verifier's count,
+ *  RGB distance 60; 0-4% white, 93-99% navy by round 9b's, nearest of navy, white, yellow and black). There the
+ *  ring is drawn one cell outside the letter, where the source's white lies inside the letter's own edge cell.
+ *  It reads as a ring; what it costs: a white row under the T's bar (44,73 and 48-49,73) and the navy gap between
+ *  G and A at rows 73-74 narrowed from about 2 cells to 1 (36,73, 88% navy in the source, is painted white).
+ *  (2) All 12 of GATE's kept cells depend on GAP's sliver walk (a run of another colour up to HUG_REACH px is walked
+ *  past): with a third colour ending a walk open instead (the numbers verifier's one-line mutant V9, re-run in
+ *  round 9b) GATE at 16 is round 8's output again, cell for cell.
+ *  (3) Section 6's 'the plateau runs from about 1.6 to 2.0 cells' is superseded there (output the same from 1.5).
  *
  * Needs, resolved AT CALL TIME on PF (a missing port throws by name):
  *   PF.adaptive_k                              pf-40-reconstruct.js
@@ -50625,6 +50665,20 @@ try{
   var SOLID_ON = true;      // SOLID: RESCUE may not make a 2 x 2 block of a colour the source does not fill there
   var SOLID_SHARE = 0.5;    // ... a block of cells is filled in the source when its family holds this share of the block
   var SOLID_ADDED = 3;      // ... and the rescue made the block: at least this many of its 4 cells were added
+  // round 8 (see the header): HUG, both sizes; HUG_ON false = round 7's pf-42-repair8/6 exactly (the seam)
+  var HUG_ON = true;        // HUG: a thin line between a shape and the fill round it is drawn as a ring of cells outside the shape
+  var HUG_THICK = 1.0;      // ... the line's mean thickness (2 x its pixels / its edge contacts) is at most this x a cell
+  var HUG_SIDE = 0.2;       // ... each of its two sides (the outside fill, the shape) holds at least this share of its contacts
+  var HUG_CLEAR = 0.2;      // ... and transparency at most this share (an outline on the silhouette is the outline pass's)
+  var HUG_MINPX = 2;        // ... and it holds at least this many cells' worth of pixels (a line round something, not a fleck)
+  var HUG_PX = 4;           // an outside cell beside a shape cell takes the line when the two hold this x a cell-width of it
+  var HUG_ROUND = 0.75;      // ... and the line goes ROUND the shape: the shape is edged by the line colour for this share of its edge
+  var HUG_REACH = 4;        // a side is the first colour at least 3 px thick within this many px of the line's edge
+  // round 9 (see the header): GAP; HUG_GAP_ON false = round 8's pf-42-repair8/7 exactly (the seam)
+  var HUG_GAP_ON = true;    // GAP: HUG leaves a cell the outside fill where the source draws a gap there - a hole, a notch, the fill between two rings
+  var HUG_GAP_OUT = 1.0;    // ... the cell's source pixels hold at least this x as much of the outside fill as of the line
+  var HUG_GAP = 1.75;       // ... and that fill is narrow: along its row or its column the line or the shape lies on BOTH sides, end to end within this x a cell
+  var HUG_GAP_SHARE = 0.5;  // ... for at least this share of the cell's fill pixels
 
   /* the 8 cells around a cell, clockwise from top-left; ringPieces counts the
      8-connected pieces among the marked ones (king-move neighbours join) */
@@ -51685,6 +51739,179 @@ try{
     return { n: m, knocked: k, undo: undo };
   }
 
+  /* ---------------------------------------------------------- 6. HUG (round 8, both sizes)
+     A thin line drawn BETWEEN a shape and the fill round it - GATE Hoodie's white outline round the yellow
+     letters on the navy hoodie - is thinner than a cell (6-7 px: under half a cell at 16), so the vote gives
+     each cell it crosses to the letter or to the navy and the outline comes out as scattered dots. RESCUE
+     draws only a line that STRADDLES two cells; measured on GATE at 16, of 317 pair profiles where the white
+     filled at least half a pixel line on 4 or more lines, 135 lay inside one cell, 104 were slanted or thin
+     enough that under 4 pixel lines were FULL, 28 were two bands and 22 ran on into the next cell; of the 28
+     single straddling bands 12 were 4-5 px on their full lines (under PAINT_LEN), 6 under RESCUE_MIN, 6 refused
+     by KEEP (the cell was the letter, or thin), 2 already shown, 2 drawn. STROKE joined 7 of 56 gaps (10
+     cells). The GATE and PALETTE guards undid nothing. So the line keeper's 12 cells there were RESCUE's 2 and
+     STROKE's 10, and the cause is the vote plus RESCUE's straddle-only reach, not a guard.
+     A pixel artist draws such a line as a ring of cells just outside the shape. HUG does that, from the
+     picture alone:
+       the LINE is one piece (PIECES) of one LINE family, thin (2 x its pixels / its edge contacts at most
+       HUG_THICK of a cell), at least HUG_MINPX cells of pixels; its two SIDES are read past slivers (each edge
+       walked outward up to HUG_REACH px to the first colour at least 3 px thick: an anti-alias row or a speck
+       is not a side); its OUTSIDE is outsideOf (the biggest piece it touches) and its SHAPE the family it
+       touches most besides; each holds HUG_SIDE of its edge, transparency at most HUG_CLEAR (an outline on
+       the silhouette is the outline pass's); line, shape and outside contrast pairwise (RIM_DE);
+       ROUND: the line goes ROUND the shape - the shape's pieces it lies against are edged by the line's colour
+       for at least HUG_ROUND of their own edge - and not round the outside (the outside's pieces it touches
+       are edged by it for less than that: a lining inside a letter's counter has the letter as its biggest
+       neighbour, and the letter is lined all round, so it is refused and the counter stays as the vote made it).
+     Then every cell that shows the OUTSIDE colour, beside (4-neighbour) a cell that shows the SHAPE, takes the
+     line when it and the half of that shape cell facing it hold HUG_PX cell-widths of the line's pixels (the
+     line may lie wholly in the shape's cell: it is drawn outside, never by taking the shape's cell). It takes
+     the line's most common label there and is painted the line's own most common exact colour of that label in
+     the two cells (a cell holding none of the line would otherwise be painted its own mean). It never takes a
+     SHAPE cell (the letters keep every cell the vote gave them) and never an empty cell. It runs after RESCUE
+     and CONNECT and before stage 2, so the GATE and PALETTE guards judge its cells like any rule's.
+     Measured on the 311 at 8 and 16 (palette on, and off at 16): see the header, Round 8.
+     GAP (round 9). The ring must not paint over negative space the source draws: on GATE at 16 round 8 filled the
+     G's hole, the notch between the A's legs and the navy between neighbouring letters with white (the G's counter
+     opens to the outside, so its lining belongs to the outer line piece and the ROUND test above does not refuse it).
+     A cell HUG would paint stays the outside fill when, from its own source pixels: the fill holds at least
+     HUG_GAP_OUT x as many of them as the line, and for at least HUG_GAP_SHARE of its fill pixels the fill is NARROW -
+     along the pixel's row or its column the line or the shape is reached on both sides, end to end within HUG_GAP
+     cells (a sliver of another colour up to HUG_REACH px is walked past; transparency or the picture's edge leaves it
+     open). A hole or a notch in a shape, or the fill between two shapes' rings, is narrow; the fill beside a shape's
+     outer edge runs on, and is drawn as ring. Measured, the debug build's table of every cell HUG takes on the 311
+     (logs/gapstat-P*.txt in round 9's folder): on GATE at 16 the cells kept have 76-100% of their fill closed at
+     1.75 cells, the ring cells drawn 0-26%; the plateau runs from about 1.6 to 2.0 cells (35,75 drops to 50% at
+     1.5; 36,74, an A ring cell beside a 2-cell gap, rises to 45% at 2.0 and 86% at 2.25). Rows and columns only:
+     with diagonals the T's inside corner under its bar (48,73) read 51% closed at 1.5 cells - a corner is crossed
+     to the shape on both sides by a diagonal, and it is not a gap. 'At least as much fill as line', not 'mostly
+     fill': the G's lower hole cell 31,76 is 43% navy, 43% white.
+     Round 9b: 'the plateau runs from about 1.6 to 2.0 cells' above is superseded - that is where the debug table's
+     shares sit; the OUTPUT on the files HUG touches is the same for HUG_GAP 1.5 to 2.0 (the numbers verifier's sweep,
+     re-run in round 9b at 1.25, 1.5, 2.0, 2.1, 2.25: 1.25 changes GATE 3 cells - 42,70 31,73 35,75 white; 2.1 and
+     2.25 1 cell - 36,74 navy; at size 8 1.5, 2.0 and 2.1 change nothing). The shares quoted stand.
+     Without the sliver walk none of GATE's 12 cells is kept (header, Round 9b). The specs pin each part of GAP on a
+     picture made for it (gapkept.spec.js tests 3-4, gapfixtures.js paintEdges): a sliver walked past (a 2 px
+     anti-alias row), the shape
+     ending a walk as the line does, transparency leaving it open, HUG_GAP between 1.625 and 1.875 cells (a 26 px gap
+     kept, a 30 px band drawn), HUG_GAP_OUT above 0.6 and at most 1.29 (a 38%-fill cell drawn, a 56%-fill cell kept). */
+  function hug(win, opaque, I, cols, rows, K, S, P, key) {
+    var w = I.w, h = I.h, N = w * h, fam = I.line, comp = P.comp, famPix = P.famPix, compPx = P.compPx, nc = P.nc, i, j, x, y, pc, f, c;
+    var idx = new Int32Array(nc).fill(-1), list = [];
+    for (pc = 0; pc < nc; pc++) if (compPx[pc] >= HUG_MINPX * S * S) { idx[pc] = list.length; list.push(pc); }
+    if (!list.length) return 0;
+    var M = list.length, tot = new Float64Array(M), clear = new Float64Array(M), side = [], q;
+    var sidePc = [];
+    for (q = 0; q < M; q++) { side.push(new Map()); sidePc.push(new Map()); }
+    // each edge of the line, walked outward past slivers (an anti-alias row, a speck: depth 1) up to HUG_REACH px
+    var DX = [1, -1, 0, 0], DY = [0, 0, 1, -1], dd, xx, yy, m, st, D = P.depthMap();
+    for (i = 0; i < N; i++) {
+      pc = comp[i]; if (pc < 0 || idx[pc] < 0) continue; q = idx[pc]; x = i % w; y = (i / w) | 0;
+      for (dd = 0; dd < 4; dd++) {
+        xx = x + DX[dd]; yy = y + DY[dd]; if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
+        j = yy * w + xx; if (famPix[j] === famPix[i]) continue;
+        tot[q]++;
+        for (st = 1; st <= HUG_REACH; st++) {
+          xx = x + st * DX[dd]; yy = y + st * DY[dd]; if (xx < 0 || yy < 0 || xx >= w || yy >= h) break;
+          j = yy * w + xx; f = famPix[j]; if (f === famPix[i]) break;
+          if (f < 0) { clear[q]++; break; }
+          if (D[j] >= 2) { m = side[q]; m.set(f, (m.get(f) || 0) + 1); m = sidePc[q]; m.set(comp[j], (m.get(comp[j]) || 0) + 1); break; }
+        }
+      }
+    }
+    var made = 0;
+    for (q = 0; q < M; q++) {
+      pc = list[q]; f = P.compFam[pc]; if (!tot[q]) continue;
+      var thick = 2 * compPx[pc] / tot[q], fo = P.outsideOf(pc), fi = -1, bi = 0;
+      side[q].forEach(function (v, k) { if (k !== fo && (v > bi || (v === bi && k < fi))) { bi = v; fi = k; } });
+      var ok = fo >= 0 && fi >= 0 && thick <= HUG_THICK * S && (side[q].get(fo) || 0) >= HUG_SIDE * tot[q] && bi >= HUG_SIDE * tot[q] &&
+        clear[q] <= HUG_CLEAR * tot[q] && I.dE[f * K + fo] >= RIM_DE && I.dE[f * K + fi] >= RIM_DE && I.dE[fo * K + fi] >= RIM_DE;
+      // ROUND: the line goes round the shape - the shape's pieces it lies against are themselves mostly edged by
+      // this line colour (their own contacts, walked the same way), weighted by how much of the line each takes
+      // and NOT round the outside: a fill edged by the line as much (a lining inside a letter's counter has the
+      // letter as its biggest neighbour, so 'outside'; the letter is edged by its lines all round) is not a hug
+      var roundOf = function (g) {
+        var rw = 0, rs = 0;
+        sidePc[q].forEach(function (v, p2) { if (P.compFam[p2] !== g || idx[p2] < 0) return; var q2 = idx[p2]; rw += v; if (tot[q2]) rs += v * (side[q2].get(f) || 0) / tot[q2]; });
+        return rw ? rs / rw : 0;
+      };
+      var round = fi >= 0 ? roundOf(fi) : 0, roundO = fo >= 0 ? roundOf(fo) : 1;
+      ok = ok && round >= HUG_ROUND && roundO < HUG_ROUND;
+      if (!ok) continue;
+      // the line's pixels per cell, and its most common label per cell
+      var px = new Map(), labs = new Map(), lm;
+      for (i = 0; i < N; i++) {
+        if (comp[i] !== pc) continue; c = I.cell[i]; px.set(c, (px.get(c) || 0) + 1);
+        lm = labs.get(c); if (!lm) { lm = new Map(); labs.set(c, lm); } lm.set(I.lab[i], (lm.get(I.lab[i]) || 0) + 1);
+      }
+      var shows = function (k, g) { return k >= 0 && opaque[k] && fam[win[k]] === g; }, take = [];
+      // the line's pixels in the half of shape cell s that faces the outside cell k (dx, dy from s to k)
+      var nearHalf = function (s, dx, dy) {
+        var x0 = (s % cols) * S, y0 = ((s / cols) | 0) * S, u, v, k3 = 0, H = S / 2;
+        var ua = dx > 0 ? H : 0, ub = dx < 0 ? H : S, va = dy > 0 ? H : 0, vb = dy < 0 ? H : S;
+        for (v = va; v < vb; v++) for (u = ua; u < ub; u++) if (comp[(y0 + v) * w + x0 + u] === pc) k3++;
+        return k3;
+      };
+      // GAP (round 9): is outside cell k a gap the source draws? Its source pixels: how much is the outside fill and how
+      // much the line; then across each fill pixel, along its row and its column, is the line or the shape reached on
+      // both sides, end to end within HUG_GAP cells (a sliver of another colour up to HUG_REACH px is walked past;
+      // transparency or the picture's edge ends the walk open). Rows and columns only: across a shape's inside corner
+      // a diagonal meets the shape on both sides too, and a corner is not a gap (measured: GATE's T, 51% of a cell)
+      var gapSpan = function (u, v, dx, dy, lim) {
+        var sd, st2, uu, vv, g, run, t2 = 1, ends = 0;
+        for (sd = -1; sd <= 1; sd += 2) {
+          run = 0;
+          for (st2 = 1; st2 <= lim; st2++) {
+            uu = u + sd * st2 * dx; vv = v + sd * st2 * dy; if (uu < 0 || vv < 0 || uu >= w || vv >= h) break;
+            g = famPix[vv * w + uu]; if (g < 0) break;
+            if (g === f || g === fi) { ends++; t2 += st2 - 1; break; }
+            if (g === fo) run = 0; else if (++run > HUG_REACH) break;
+          }
+        }
+        return ends === 2 ? t2 : Infinity;
+      };
+      var gapKept = function (k) {
+        var x0 = (k % cols) * S, y0 = ((k / cols) | 0) * S, u, v, g, no = 0, nl = 0, cl = 0, lim = HUG_GAP * S;
+        for (v = y0; v < y0 + S; v++) for (u = x0; u < x0 + S; u++) { g = famPix[v * w + u]; if (g === fo) no++; else if (g === f) nl++; }
+        if (!no || no < HUG_GAP_OUT * nl) return false;
+        for (v = y0; v < y0 + S; v++) for (u = x0; u < x0 + S; u++) {
+          if (famPix[v * w + u] !== fo) continue;
+          if (gapSpan(u, v, 1, 0, lim) <= lim || gapSpan(u, v, 0, 1, lim) <= lim) cl++;
+        }
+        return cl >= HUG_GAP_SHARE * no;
+      };
+      var cand = new Set();
+      px.forEach(function (v, k) {
+        var kx = k % cols, ky = (k / cols) | 0, e, a2;
+        cand.add(k); for (e = 0; e < 4; e++) { a2 = [[kx - 1, ky], [kx + 1, ky], [kx, ky - 1], [kx, ky + 1]][e]; if (a2[0] >= 0 && a2[1] >= 0 && a2[0] < cols && a2[1] < rows) cand.add(a2[1] * cols + a2[0]); }
+      });
+      Array.from(cand).sort(function (p1, p2) { return p1 - p2; }).forEach(function (k) {
+        if (!shows(k, fo)) return;
+        var kx = k % cols, ky = (k / cols) | 0, v = px.get(k) || 0, e, D4 = [[-1, 0], [1, 0], [0, -1], [0, 1]], sx, sy, s;
+        for (e = 0; e < 4; e++) {
+          sx = kx + D4[e][0]; sy = ky + D4[e][1]; if (sx < 0 || sy < 0 || sx >= cols || sy >= rows) continue; s = sy * cols + sx;
+          if (shows(s, fi) && v + nearHalf(s, -D4[e][0], -D4[e][1]) >= HUG_PX * S) { take.push([k, s]); return; }
+        }
+      });
+      // GAP (round 9): a cell whose source pixels are at least as much the outside fill as the line, where that fill is
+      // narrow - the line or the shape on both sides of it, along a row or a column, within HUG_GAP cells - stays the
+      // fill: a hole or a notch in a shape, or the fill between two shapes' rings, is negative space the source draws
+      if (HUG_GAP_ON) take = take.filter(function (ks) { return !gapKept(ks[0]); });
+      take.forEach(function (ks) {
+        var k = ks[0], bl = -1, bn = 0; (labs.get(k) || labs.get(ks[1])).forEach(function (v, l) { if (v > bn || (v === bn && l < bl)) { bn = v; bl = l; } });
+        if (bl < 0) return;
+        // its colour: the line's own most common exact colour of that label in the two cells (the cell may hold none)
+        var tal = new Map(), bk = -1, bw = 0, u, v, x0, y0, ii, kk;
+        [k, ks[1]].forEach(function (cc2) {
+          x0 = (cc2 % cols) * S; y0 = ((cc2 / cols) | 0) * S;
+          for (v = y0; v < y0 + S; v++) for (u = x0; u < x0 + S; u++) { ii = v * w + u; if (comp[ii] !== pc || I.lab[ii] !== bl) continue; kk = (I.d[ii * 4] << 16) | (I.d[ii * 4 + 1] << 8) | I.d[ii * 4 + 2]; tal.set(kk, (tal.get(kk) || 0) + 1); }
+        });
+        tal.forEach(function (v2, k2) { if (v2 > bw || (v2 === bw && k2 < bk)) { bw = v2; bk = k2; } });
+        win[k] = bl; key.set(k, [bl, bk]); made++;
+      });
+    }
+    return made;
+  }
+
   /* ---------------------------------------------------------- the pack */
   PF.repair8_pack = function (rgba, cols, rows, colour, rules) {
     need('adaptive_k', 'pf-40-reconstruct.js'); need('kmeans_quantize', 'pf-11-quantize.js');
@@ -51747,6 +51974,9 @@ try{
     if (on('rescue')) rescue(win, opaque, I, cols, rows, K, ACC, G);
     var bridges = [];
     if (on('connect')) connect(win, opaque, I, cols, rows, K, ACC, bridges);
+    // HUG (round 8): both sizes; its own PIECES when size 8's set did not build them
+    var hugKey = new Map();
+    if (HUG_ON && square && (!R || R.hug !== false)) hug(win, opaque, I, cols, rows, K, S16, P || pieces(I), hugKey);
 
     // stage 2 as a function of the vote (win, opaque), so the GATE guard can paint today's vote too;
     // the code inside is the round-3 text unchanged (seam: rules absent == live repair8_pack)
@@ -51803,6 +52033,8 @@ try{
         });
       }
 
+      // HUG (round 8): a ring cell is painted the line's own colour while it still carries the line's label
+      hugKey.forEach(function (hv, hc) { if (win[hc] === hv[0]) modeKey[hc] = hv[1]; });
       var low = new d.constructor(n * 4), v;
       for (c = 0; c < n; c++) {
         if (modeKey[c] >= 0) {
@@ -51862,7 +52094,7 @@ try{
     return PF.repair8_pack(rgba, cols, rows, colour, RULES16);
   };
 
-  PF.versionRepair8 = 'pf-42-repair8/6';
+  PF.versionRepair8 = 'pf-42-repair8/8';
 })();
 
 /* ==== pf-50-core.js =============================================== */

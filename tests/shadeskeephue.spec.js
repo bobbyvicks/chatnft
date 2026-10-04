@@ -4,6 +4,15 @@
        shade rule (the precondition). patch617 then moved the beige to sage #bfc6a4 to stand apart; now the
        beige keeps #bab8a4 and the sage moves, so they still differ, in the drawn light/dark order.
        RUN AGAINST THE PAGE BEFORE THE FIX (node, live a8cfd74's snapToPalette): ["#bab8a4","#bfc6a4"].
+       SUPERSEDED IN PART by patch631 (2026-10-04), which added the tan #d1c69a: the beige #d0c8a8 is 3.42 dE
+       from it and 6.05 from #bab8a4, so it lands on the tan with or without the shade rule and never meets
+       the sage. The precondition above stopped being true (on the patched page, without the rule:
+       ["#bab8a4","#d1c69a"], merged 0) and the test went red on it, not on what it protects. What it
+       protects - the beige reads beige, apart from the sage and lighter than it - is now TEST 1 on the
+       drawn colours, and the shade rule itself is TEST 1b on a beige that still shares #bab8a4 with the
+       sage on this palette and the one before (#ccc4ac, 2.79 dE from Jason's; found by a search of beiges
+       beside #9fa294, scratchpad/fix8/p631/site/pw/probe). This is the measured Jason Mask change on the
+       owner's options sheet: "the left face shadow goes tan, two shading bands kept".
      TEST 2 a square ringed in the palette's near-black #161616 is an outlined shape: the outline pass makes
        its ring pure black. Before the fix it was left #161616 (luminance 22, over the gate's 16).
        Controls: a navy ring #10103a, as dark but not grey, is left alone (counting every colour up to the
@@ -55,6 +64,17 @@ test.describe('a re-coloured shade keeps its hue; the gate sees the palette near
 
   test('Jason Mask\'s beige shadow stays beige and still stands apart', async ({ page }) => {
     const list = [['#9fa294', 20], ['#d0c8a8', 20]];
+    const off = await bands(page, list, { shades: false }), on = await bands(page, list);
+    /* patch631: the tan #d1c69a is the beige's nearest colour, so the two no longer meet, rule or not */
+    expect(off.out, 'without the shade rule the beige already has its own colour, the tan').toEqual(['#bab8a4', '#d1c69a']);
+    expect(on.out, 'and with it, the same').toEqual(['#bab8a4', '#d1c69a']);
+    expect(on.out[1], 'the beige is not sage #bfc6a4').not.toBe('#bfc6a4');
+    expect(on.out[0], 'and the two still differ').not.toBe(on.out[1]);
+    expect(on.L[0], 'the darker drawn shade stays darker').toBeLessThan(on.L[1]);
+  });
+
+  test('the shade rule still parts a beige that shares the sage\'s colour', async ({ page }) => {
+    const list = [['#9fa294', 20], ['#ccc4ac', 20]];
     const off = await bands(page, list, { shades: false }), on = await bands(page, list);
     expect(off.out, 'THE PRECONDITION: without the shade rule both land on one colour').toEqual(['#bab8a4', '#bab8a4']);
     expect(off.merged).toBeGreaterThanOrEqual(1);

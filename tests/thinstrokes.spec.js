@@ -61,7 +61,7 @@ const single = (page, src, typed) => page.evaluate(async ({ src, typed }) => {
   return { said: document.getElementById('fixout').textContent, cols: r.width };
 }, { src, typed });
 
-const batch = (page, srcs) => page.evaluate(async (srcs) => {
+const batch = (page, srcs, typed) => page.evaluate(async ({ srcs, typed }) => {
   const files = [];
   for (let i = 0; i < srcs.length; i++) {
     // eslint-disable-next-line no-new-func
@@ -74,23 +74,31 @@ const batch = (page, srcs) => page.evaluate(async (srcs) => {
   document.getElementById('fixpal').checked = false;
   document.getElementById('fixsnap').checked = true;
   document.getElementById('fixgrid').checked = true;
-  const f = document.getElementById('fixforce'); f.disabled = false; f.value = '8';
+  const f = document.getElementById('fixforce'); f.disabled = false; f.value = String(typed || 8);
   const realToast = window.toast; window.toast = () => {};
   await fixBatch(files);
   window.toast = realToast;
   f.value = '0';
   return document.getElementById('fixbatchout').textContent;
-}, srcs);
+}, { srcs, typed });
 
 test.describe('how much of the picture is one block wide', () => {
   test.setTimeout(180000);
   test.beforeEach(async ({ page }) => { await ready(page); });
 
   test('ONE-BLOCK STEMS ARE COUNTED AND SAID, with the count', async ({ page }) => {
-    const r = await single(page, art(10, 'stems'));
-    expect(r.cols).toBe(160);
-    expect(r.said).toContain('drawn at 10px blocks (128 cells), which the 160 cell grid cuts across');
-    expect(r.said).toContain('- 504 strokes one block wide will not survive it');
+    /* SUPERSEDED (patch629): this was 10px stems typed 8, asserting "will
+       not survive it", and every one of the 504 survives there - an 8px
+       cell is narrower than a 10px block, so the cut keeps each block
+       (strokeskept.spec.js). The count is pinned where the cut is coarser
+       than the blocks: the same stems typed 16, on 80 cells, where the run
+       now says they MAY not survive it. On this picture they all do (each
+       10px stem lies inside one 16px cell, measured by review); on the
+       10px traits at 16, 504 of 2,623 strokes are lost. */
+    const r = await single(page, art(10, 'stems'), 16);
+    expect(r.cols).toBe(80);
+    expect(r.said).toContain('drawn at 10px blocks (128 cells), which the 80 cell grid cuts across');
+    expect(r.said).toContain('- 504 strokes one block wide may not survive it');
   });
 
   test('and the same colours four blocks wide are cut across but say nothing about strokes',
@@ -119,9 +127,14 @@ test.describe('how much of the picture is one block wide', () => {
   });
 
   test('A FOLDER RUN COUNTS THE ONES HOLDING DETAIL AND NAMES THE WORST', async ({ page }) => {
-    const said = await batch(page, [art(10, 'bars'), art(10, 'stems'), art(8, 'four')]);
-    expect(said).toContain('2 were drawn at a block size the 160 cell grid cuts across (10px), '
-      + '1 of them holding detail one block wide (most in f1)');   /* the display name, as the shelf shows it */
+    /* SUPERSEDED IN PART (patch629): typed 8 this folder keeps every stroke
+       (see the stems test above), so it is run at 16, where the 10px stems
+       are cut coarser and the 8px picture is a whole merge. */
+    const said = await batch(page, [art(10, 'bars'), art(10, 'stems'), art(8, 'four')], 16);
+    /* patch629: the list's files now hold detail "that may not survive it",
+       as the merge clause says. */
+    expect(said).toContain('2 were drawn at a block size the 80 cell grid cuts across (10px), '
+      + '1 of them holding detail one block wide that may not survive it (most in f1)');   /* the display name, as the shelf shows it */
   });
 
   test('and a folder where nothing thin is cut across says only the cut', async ({ page }) => {

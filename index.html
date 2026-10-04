@@ -26300,10 +26300,14 @@ function fixWorker(){
     "      onProgress:prog});",
     /* The palette step, in the worker rather than on the page - see
        patch567. m.palette is the page's palette, or null when it is off. */
+    /* patch629: a cut finer than the blocks the picture was drawn in - the
+       page sends the block (fixStrokesAsked) - is measured here, on the
+       engine's cells, before the palette step below writes over them. */
+    "    const kept=m.strokeBlock?fixStrokesKept(m.data,m.width,m.height,m.strokeBlock,r.data,r.width,r.height):null;",
     "    let pal=null;",
     "    if(snap){ pal=snap(r.data,r.width*r.height,r.width); }",
     "    postMessage({done:{cols:r.cols,rows:r.rows,stepX:r.stepX,stepY:r.stepY,consensus:r.consensus,pal:pal,",
-    "      confidence:r.confidence,width:r.width,height:r.height,data:r.data}},[r.data.buffer]);",
+    "      confidence:r.confidence,width:r.width,height:r.height,kept:kept,data:r.data}},[r.data.buffer]);",
     "  }catch(e){ postMessage({error:String(e&&e.message||e)}); }",
     "};"].join("\n");
   /* THE PAGE'S OWN PALETTE STEP, carried as its text, so the worker runs
@@ -26315,7 +26319,9 @@ function fixWorker(){
        snapToPalette would throw on its first colour group. */
     "const SNAP_NEAR_DE="+SNAP_NEAR_DE+", SNAP_TIE_BAND="+SNAP_TIE_BAND+", SNAP_GREY_MIN_C="+SNAP_GREY_MIN_C+", SNAP_GREY_RATIO="+SNAP_GREY_RATIO+";",
     labToOklab.toString(), palettePick.toString(),
-    labOf.toString(), deltaE2000.toString(), snapToPalette.toString(), snapOnce.toString()].join("\n");
+    labOf.toString(), deltaE2000.toString(), snapToPalette.toString(), snapOnce.toString(),
+    /* patch629: the strokes and what the cut did to them, measured beside the engine. */
+    fixThinStrokes.toString(), fixStrokesKept.toString()].join("\n");
   const url=URL.createObjectURL(new Blob([el.textContent,"\n",snap,"\n",glue],{type:"text/javascript"}));
   const w=new Worker(url); w._url=url; return w;
 }
@@ -27680,6 +27686,53 @@ function fixClearWords(clear,opaque){
 function fixRecutCaveat(block){
   return (block>0&&block%8) ? ", though the collection's 8px blocks will not take "+block : "";
 }
+/* A CUT FINER THAN THE BLOCKS (patch629): the cells are narrower than the
+   blocks the picture was drawn in - 10px art typed 8 - so the worker is asked
+   to measure what the cut did (fixStrokesKept) instead of the run predicting
+   a loss. The block, which is what the message carries, or 0. */
+function fixStrokesAsked(cut){
+  return (cut&&cut.strokes>0&&cut.block>cut.to) ? cut.block : 0;
+}
+/* THE SIZE THAT WOULD CUT FINER THAN THESE BLOCKS (patch629), or 0. A cut
+   coarser than the blocks - 10px art at 16 - may lose what one cut finer
+   keeps, and the box stays the person's, so the run names the size. Asked
+   by fixStepFor with its own decision, so the switch and the grid are the
+   ones the size was decided with. On the canvas only, for the reason
+   fixCoarseNote gives; step x grid is the picture's width there. Not when
+   any stroke is fainter than the engine's paint: no size keeps those. */
+function fixStrokesKeptAt(block,step,grid,onGrid,faint){
+  const g=fixGridCells();
+  if(!onGrid||!g.exact||!(grid<g.cells)||faint>0) return 0;
+  return block>step*grid/g.cells ? CANVAS_SIDE/g.cells : 0;
+}
+/* THE STROKES ONE BLOCK WIDE, AS A CLAUSE (patch629). Finer than the blocks:
+   what the worker measured the cut did, or nothing when it measured nothing.
+   "The cut", because that is what was measured: the palette step and the
+   outline pass come after it and say what they did. Coarser: that they may
+   not survive it - some do and some do not, and a count would mislead (the
+   hat's lettering) - and the size that keeps them when there is one. */
+function fixStrokeWords(cut,kept){
+  if(!cut||!(cut.strokes>0)) return "";
+  if(fixStrokesAsked(cut)){
+    if(!kept||!(kept.strokes>0)) return "";
+    const n=kept.strokes, all=n===1?"its stroke":"all "+n.toLocaleString()+" strokes";
+    if(kept.lost) return " - the cut loses "+(kept.lost===n?all:kept.lost.toLocaleString()+" of its "+n.toLocaleString()+" strokes")+" one block wide";
+    const cells=(Math.floor(cut.block/cut.to)+1)+" cells wide";
+    return " - the cut keeps "+all+" one block wide"
+      +(kept.wide?(n===1?", now "+cells:", "+kept.wide.toLocaleString()+" now "+cells):"");
+  }
+  return " - "+cut.strokes.toLocaleString()+" stroke"+(cut.strokes===1?"":"s")+" one block wide may not survive it"
+    +(cut.keepsAt?"; at "+cut.keepsAt+" the cut keeps "+(cut.strokes===1?"it":"them"):"");
+}
+/* AND FOR A FOLDER: the size that keeps the files listed - all of them, the
+   ones at the block sizes it keeps, or how many - when there is one. */
+function fixStrokesAdvice(list){
+  const at=list.filter(s=>s.keepsAt>0); if(!at.length) return "";
+  const blocks=[...new Set(at.map(s=>s.block))].sort((a,b)=>a-b);
+  const byBlock=list.every(s=>(s.keepsAt>0)===(blocks.indexOf(s.block)>=0));
+  return "; at "+[...new Set(at.map(s=>s.keepsAt))].join(" or ")+" the cut keeps "+(at.length===list.length ? "them"
+    : byBlock ? "the "+blocks.map(b=>b+"px").join(", ")+" ones" : at.length+" of them");
+}
 function fixPalApply(out,rel){
   if(!out||!out.data||!fixPalWanted()) return null;
   /* Worked out in the worker, beside the engine, when it was asked there. */
@@ -27778,7 +27831,7 @@ let fixUnhonoured=null;
 let fixBlockUnfit=null;
 /* THE FOLDER RUN'S TALLIES, kept per file inside the loop because only
    the cell count survives it, and a count cannot say why. */
-let fixMovedLast=null, fixMovedCount=0, fixUnhonouredAt=[], fixNativeKept=0, fixOwnBlocks=0, fixUnfitAt=[], fixTypedRecutAt=[], fixTypedStrokesAt=[], fixTypedMergeAt=[], fixTypedMergeStrokesAt=[], fixTypedResampleAt=[];
+let fixMovedLast=null, fixMovedCount=0, fixUnhonouredAt=[], fixNativeKept=0, fixOwnBlocks=0, fixUnfitAt=[], fixTypedRecutAt=[], fixTypedStrokesAt=[], fixTypedMergeAt=[], fixTypedMergeStrokesAt=[], fixTypedResampleAt=[], fixTypedKeptFiles=0;
 /* WHAT THE GRIDLESS SEARCH FOUND for the last decision: whether a count
    passed the 95% rule or was the best of a failed lot, and what it kept. */
 let fixGridlessPassed=false, fixGridlessKept=0;
@@ -27909,7 +27962,19 @@ function fixNativeBlock(data,W,H){
    cut-across traits because dither is a run of one; this one separates
    Backrooms Hallway (615) from Ruins Selfie (75) and counts the hat's
    lettering at 243. */
-function fixThinStrokes(data,W,H,block){
+/* SUPERSEDED IN PART (patch629): "or 10px" above. A 10px block is 1.25 of
+   an 8px cell, and a cell narrower than its block keeps the block: some 8px
+   cell holds at least 6 of its 10 columns and 6 of its 10 rows. Over the 311
+   working traits at fe59939 the 89 drawn at 10px and typed 8 kept all 2,623
+   of their strokes. A cut finer than the blocks is now measured on the
+   result, not predicted (fixStrokesKept); "cannot hold" stands, as "may
+   not hold", for the coarser cut - 5px art at 8, 10px art at 16.
+
+   visit (patch629), optional: called once per stroke counted, with its
+   block, its colour, the colour across it, whether it runs down (its
+   across neighbours are left and right), and its alpha. The count is the
+   same with or without it. */
+function fixThinStrokes(data,W,H,block,visit){
   block=block|0; if(block<2||!data) return 0;
   const w=Math.floor(W/block), h=Math.floor(H/block), half=Math.floor(block/2);
   if(w<3||h<3) return 0;
@@ -27923,10 +27988,48 @@ function fixThinStrokes(data,W,H,block){
   for(let y=0;y<h;y++) for(let x=0;x<w;x++){
     const me=a[y*w+x]; if(me===-1) continue;
     const Lf=atb(x-1,y), Rt=atb(x+1,y), Up=atb(x,y-1), Dn=atb(x,y+1);
-    if(Up===me&&Dn===me&&Lf===Rt&&Lf!==me) n++;
-    if(Lf===me&&Rt===me&&Up===Dn&&Up!==me) n++;
+    if(Up===me&&Dn===me&&Lf===Rt&&Lf!==me){ n++; if(visit) visit(x,y,me,Lf,true,data[((y*block+half)*W+x*block+half)*4+3]); }
+    if(Lf===me&&Rt===me&&Up===Dn&&Up!==me){ n++; if(visit) visit(x,y,me,Up,false,data[((y*block+half)*W+x*block+half)*4+3]); }
   }
   return n;
+}
+/* WHAT A CUT FINER THAN THE BLOCKS DID TO THE STROKES ONE BLOCK WIDE
+   (patch629), measured on the engine's cells before the palette step - so in
+   the worker, the one place those cells exist (the palette step writes over
+   them). See fixThinStrokes for why such a cut keeps them: measured, the 89
+   traits drawn at 10px and typed 8 lost none of 2,623, and about four in ten
+   came out 2 cells wide, where the cut gives a block a second cell. Measured
+   here rather than assumed, so a picture the engine treats otherwise says so.
+
+   The strokes are fixThinStrokes' own, block by block, but only the ones the
+   engine paints: a pixel is paint when its alpha is over 127, so a fainter
+   stroke is clear at every size (the run's translucency note says so) and
+   is not the cut's to keep or lose. One is KEPT when a cell over its pixels
+   - the engine's partition, pixel x in cell floor(x*cols/W) - is nearer its
+   colour than the colour beside it (any painted cell, when beside it is
+   clear); WIDE when such cells take more columns across it (rows, for a
+   stroke that runs across) than the block's own width in cells, rounded
+   down. {strokes, lost, wide}, or null when there are no cells to look at. */
+function fixStrokesKept(data,W,H,block,cells,cols,rows){
+  if(!data||!cells||!(cols>0)||!(rows>0)||cells.length<cols*rows*4) return null;
+  const lab=k=>labOf((k>>16)&255,(k>>8)&255,k&255);
+  const narrow=Math.floor(block*cols/W+1e-9);
+  let strokes=0, lost=0, wide=0;
+  fixThinStrokes(data,W,H,block,(bx,by,me,other,down,alpha)=>{
+    if(!(alpha>127)) return;
+    strokes++;
+    const L=lab(me), O=other>=0?lab(other):null;
+    const x0=Math.floor(bx*block*cols/W), x1=Math.floor(Math.min(W-1,bx*block+block-1)*cols/W);
+    const y0=Math.floor(by*block*rows/H), y1=Math.floor(Math.min(H-1,by*block+block-1)*rows/H);
+    const at=new Set();
+    for(let cy=y0;cy<=y1;cy++) for(let cx=x0;cx<=x1;cx++){
+      const i=(cy*cols+cx)*4; if(!cells[i+3]) continue;
+      const c=labOf(cells[i],cells[i+1],cells[i+2]);
+      if(!O||deltaE2000(c[0],c[1],c[2],L[0],L[1],L[2])<deltaE2000(c[0],c[1],c[2],O[0],O[1],O[2])) at.add(down?cx:cy);
+    }
+    if(!at.size) lost++; else if(at.size>narrow) wide++;
+  });
+  return {strokes:strokes, lost:lost, wide:wide};
 }
 /* THE GRID FOR A PICTURE THAT HAS NONE.
 
@@ -28367,11 +28470,20 @@ function fixStepFor(w,data,h){
        the reason. */
     step=w/cells; grid=cells;
     }
+    /* SUPERSEDED IN PART (patch629): "10px or 5px art on 8px cells" above.
+       Only the cut coarser than the blocks breaks lettering (5px art at 8).
+       10px art at 8 is cut finer, keeps every block, and the worker measures
+       that it did (fixStrokesAsked, fixStrokesKept). */
     const drawn=px?fixNativeBlockFor(px,w,ph):0;
     const whole=x=>Math.abs(x-Math.round(x))<1e-9;
-    if(drawn>1&&step>0&&!whole(drawn/step)&&!whole(step/drawn))
+    if(drawn>1&&step>0&&!whole(drawn/step)&&!whole(step/drawn)){
+      /* patch629: and the strokes fainter than the engine's paint, which no
+         size keeps - so the size that keeps the rest is not named for them. */
+      let faint=0;
+      const strokes=fixThinStrokes(px,w,ph,drawn,(x,y,me,o,down,alpha)=>{ if(!(alpha>127)) faint++; });
       fixTypedRecut={block:drawn, cells:Math.max(1,fixRint(w/drawn)), to:step, grid:grid,
-        strokes:fixThinStrokes(px,w,ph,drawn)};
+        strokes:strokes, keepsAt:fixStrokesKeptAt(drawn,step,grid,onGrid,faint)};
+    }
     /* AND A WHOLE MERGE, SAID TOO. The comment above let "2px art typed at 8"
        go unsaid as "a merge the marks-dropped clause already covers". It does
        not: fixSmallMarks counts alpha-connected marks, sized to the project
@@ -28818,8 +28930,11 @@ function fixRun(){
             /* Only when there is some: a picture of flat shapes re-cuts with
                nothing lost, and a clause on every cut-across run would be
                noise where the count is the finding. */
-            +(typedBy.strokes ? " - "+typedBy.strokes.toLocaleString()+" stroke"
-              +(typedBy.strokes===1?"":"s")+" one block wide will not survive it" : "")
+            /* SUPERSEDED (patch629): "will not survive it" for every cut across.
+               A cut finer than the blocks keeps them and says what the worker
+               measured; a coarser one says they may not survive it, and names
+               the size that keeps them. See fixStrokeWords. */
+            +fixStrokeWords(typedBy,r.kept)
           : mergedBy
           ? "drawn at "+mergedBy.block+"px blocks ("+mergedBy.cells+" cells), merged "+mergedBy.by+" to 1 onto the "
             +mergedBy.grid+" cell grid"
@@ -28865,7 +28980,7 @@ function fixRun(){
        crop line off - unless something was cleared, when `clean` stays with
        the outline pass and the worker gets a copy of IT.) */
     const copy=crop.pixels?new Uint8ClampedArray(clean.data):clean.data;
-    w.postMessage({data:copy, width:src.width, height:src.height, mode, forceStep:forced>0?forced:null, repair8:fixRepair8(forced), lines16:fixLines16(forced), rulesgate:fixLines16Gate(),
+    w.postMessage({data:copy, width:src.width, height:src.height, mode, forceStep:forced>0?forced:null, repair8:fixRepair8(forced), lines16:fixLines16(forced), rulesgate:fixLines16Gate(), strokeBlock:fixStrokesAsked(typedAt),
       palette:fixPalWanted()?paletteRGB():null},[copy.buffer]);
   });
 }
@@ -29042,7 +29157,7 @@ async function fixBatchRun(files){
   const over=all.length-list.length;
   /* BEFORE the list is replaced: it is what holds the urls to revoke. */
   fixMoved=null; fixNoGrid=0; fixGridlessAt=[]; fixGridlessPaintedAt=[];
-  fixMovedLast=null; fixMovedCount=0; fixUnhonouredAt=[]; fixNativeKept=0; fixOwnBlocks=0; fixUnfitAt=[]; fixTypedRecutAt=[]; fixTypedStrokesAt=[]; fixTypedMergeAt=[]; fixTypedMergeStrokesAt=[]; fixTypedResampleAt=[];
+  fixMovedLast=null; fixMovedCount=0; fixUnhonouredAt=[]; fixNativeKept=0; fixOwnBlocks=0; fixUnfitAt=[]; fixTypedRecutAt=[]; fixTypedStrokesAt=[]; fixTypedMergeAt=[]; fixTypedMergeStrokesAt=[]; fixTypedResampleAt=[]; fixTypedKeptFiles=0;
   fixGridlessFellAt=[]; fixGridlessFellKept=1; fixMarksDroppedTotal=0; fixMarksDroppedFiles=0; fixNoisyFiles=0; fixAlphaFiles=0; fixAlphaPixels=0; fixBrowserRead=[]; fixGateReady=0; fixGateWhy=new Map(); fixRecutAt=[]; fixGatePast=0; fixGatePastMost=0;
   fixPalMoved=0; fixPalPixels=0; fixPalFiles=0; fixPalWorst=0; fixPalMerged=0; fixPalWorstFile=""; fixPalClear=0; fixPalOpaque=0; fixPalMostShare=0; fixPalMostFile="";
   fixOutlined=0; fixOutlineCells=0; fixOutlinedThick=0; fixCropFiles=0; fixCropPixels=0;
@@ -29149,7 +29264,7 @@ async function fixBatchRun(files){
         : fixAsk(wk,{data:new Uint8ClampedArray(px), width:sw, height:sh,
           palette:fixPalWanted()?paletteRGB():null,
           mode:mode, forceStep:forceStep,
-          repair8:fixRepair8(stepAsked), lines16:fixLines16(stepAsked), rulesgate:fixLines16Gate()});
+          repair8:fixRepair8(stepAsked), lines16:fixLines16(stepAsked), rulesgate:fixLines16Gate(), strokeBlock:fixStrokesAsked(cut&&cut.recut)});
     /* WHETHER A SIZE DECIDED THIS FILE, read in the same turn as its step. */
     return {name:name, rel:rel, px:px, sw:sw, sh:sh, pending:pending, sized:!scale&&fixSizeSet(), cut:cut};
   };
@@ -29160,7 +29275,14 @@ async function fixBatchRun(files){
       const out=r.ok;
       { const c=job.cut||{};
         if(c.recut){ fixTypedRecutAt.push({block:c.recut.block, grid:c.recut.grid});
-          if(c.recut.strokes) fixTypedStrokesAt.push({name:name, strokes:c.recut.strokes}); }
+          /* patch629: a cut finer than the blocks is listed only when the worker
+             measured a stroke lost, and counted apart when it kept them all. A
+             listed file is ranked by the strokes it holds either way, so the
+             ranking compares like with like. A coarser cut is listed as before,
+             with the size that keeps it, decided with its size. */
+          if(fixStrokesAsked(c.recut)){ const k=out.kept;
+            if(k&&k.strokes>0){ if(k.lost) fixTypedStrokesAt.push({name:name, strokes:k.strokes, block:c.recut.block, keepsAt:0}); else fixTypedKeptFiles++; } }
+          else if(c.recut.strokes) fixTypedStrokesAt.push({name:name, strokes:c.recut.strokes, block:c.recut.block, keepsAt:c.recut.keepsAt||0}); }
         if(c.merge){ fixTypedMergeAt.push({block:c.merge.block, grid:c.merge.grid});
           if(c.merge.strokes) fixTypedMergeStrokesAt.push({name:name, strokes:c.merge.strokes}); }
         if(c.resample) fixTypedResampleAt.push({w:c.resample.w, grid:c.resample.grid}); }
@@ -29320,12 +29442,23 @@ async function fixBatchRun(files){
     ? " \u00b7 "+fixTypedRecutAt.length+" were drawn at a block size the "
       +gR.words+(gR.many?" cell grids cut across (":" cell grid cuts across (")
       +blocksOf(fixTypedRecutAt)+")"
+      /* patch629: first the cuts finer than their blocks that kept every
+         stroke, so the size named after the list below is about the list. */
+      +(fixTypedKeptFiles
+        ? ", the cut keeping every stroke one block wide"+(fixTypedStrokesAt.length ? " in "+fixTypedKeptFiles+" of them" : "")
+        : "")
       /* AND HOW MANY OF THOSE WILL LOSE SOMETHING, with the worst named so
          a folder of 311 says which three to open first. */
+      /* SUPERSEDED IN PART (patch629): "WILL LOSE". A coarser cut may lose
+         some of it; a finer one is listed only when it measurably did. */
       +(fixTypedStrokesAt.length
-        ? ", "+fixTypedStrokesAt.length+" of them holding detail one block wide (most in "
+        /* patch629: "that may not survive it", as the merge clause says: the
+           kept files above hold detail one block wide too. */
+        ? ", "+fixTypedStrokesAt.length+" of them holding detail one block wide that may not survive it (most in "
           +fixTypedStrokesAt.slice().sort((a,b)=>b.strokes-a.strokes).slice(0,3).map(s=>s.name).join(", ")+")"
         : "")
+      /* patch629: the size that keeps the listed ones, where there is one. */
+      +fixStrokesAdvice(fixTypedStrokesAt)
     : "";
   /* THE WHOLE MERGES, counted the same way, with the files holding one-block
      detail named first - at 16 this is every trait drawn at 8px. */

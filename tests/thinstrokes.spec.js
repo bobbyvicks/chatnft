@@ -94,7 +94,9 @@ test.describe('how much of the picture is one block wide', () => {
        than the blocks: the same stems typed 16, on 80 cells, where the run
        now says they MAY not survive it. On this picture they all do (each
        10px stem lies inside one 16px cell, measured by review); on the
-       10px traits at 16, 504 of 2,623 strokes are lost. */
+       10px traits at 16, 504 of 2,623 strokes are lost.
+       (patch633: 2,623 was counted when every shade counted; a stroke now
+       has to stand out from what is across it - see fixThinStrokes.) */
     const r = await single(page, art(10, 'stems'), 16);
     expect(r.cols).toBe(80);
     expect(r.said).toContain('drawn at 10px blocks (128 cells), which the 80 cell grid cuts across');

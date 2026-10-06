@@ -28308,22 +28308,53 @@ function fixNativeBlock(data,W,H){
    block, its colour, the colour across it, whether it runs down (its
    across neighbours are left and right), and its alpha. The count is the
    same with or without it. */
+/* SUPERSEDED IN PART (patch633): "one other colour" above. A stroke now
+   counts when it stands out from what is across it: the colour across is
+   clear, or its paint differs (either block across has another alpha than
+   the stroke), or the two colours are at least 2.3 apart by CIEDE2000 -
+   deltaWord's line between "barely visible" and "slight". Asked only of a
+   block whose colour already differs from the colour across: the test
+   above compares colours without alpha, so a line in the colour beside it,
+   at any alpha, is not a stroke, as before. Below 2.3 the run warned about
+   shades: at 645dbfe, 2,650 of the 8,251 strokes counted on the 311 saved
+   traits were under 2.3, every one opaque on both sides - 1,740 under 1
+   (Utopia 557 of 557, Ruins Selfie 47 of 47), and 910 "barely visible":
+   near-black shades, skin tones a shade apart (Dark Skin 208 of 208 in
+   all), and in six traits black lines on #0d0d0d, 2.11 apart (Skull Mask
+   Charcoal keeps 7 of 41) - drawn, but what a cut breaks there is as faint
+   as the line. Backrooms Hallway keeps all 615 and the hat its 243. The
+   counts in the comments above and in fixStrokesKept's (2,623 strokes on
+   the 89 traits drawn at 10px) were taken before this, when every shade
+   counted.
+   The 2.3 is written here, not read from deltaWord: the worker carries this
+   function as its text, with labOf and deltaE2000 but not deltaWord.
+   tests/strokesseen.spec.js holds the two together. */
 function fixThinStrokes(data,W,H,block,visit){
   block=block|0; if(block<2||!data) return 0;
   const w=Math.floor(W/block), h=Math.floor(H/block), half=Math.floor(block/2);
   if(w<3||h<3) return 0;
-  const a=new Int32Array(w*h);
+  const a=new Int32Array(w*h), al=new Uint8Array(w*h);
   for(let by=0;by<h;by++) for(let bx=0;bx<w;bx++){
     const i=((by*block+half)*W+bx*block+half)*4;
     a[by*w+bx]=data[i+3]===0 ? -1 : ((data[i]<<16)|(data[i+1]<<8)|data[i+2]);
+    al[by*w+bx]=data[i+3];
   }
   const atb=(x,y)=>(x<0||y<0||x>=w||y>=h) ? -2 : a[y*w+x];
+  /* patch633: the block at i, its colour me, the colour across it, and the
+     two blocks across, j and k - which are in the picture whenever the
+     colour across is not clear (they are one colour, so both exist). */
+  const labs=new Map(), lab=c=>{ let v=labs.get(c); if(!v){ v=labOf((c>>16)&255,(c>>8)&255,c&255); labs.set(c,v); } return v; };
+  const seen=(i,me,other,j,k)=>{
+    if(other<0||al[j]!==al[i]||al[k]!==al[i]) return true;
+    const p=lab(me), q=lab(other);
+    return !(deltaE2000(p[0],p[1],p[2],q[0],q[1],q[2])<2.3);
+  };
   let n=0;
   for(let y=0;y<h;y++) for(let x=0;x<w;x++){
     const me=a[y*w+x]; if(me===-1) continue;
-    const Lf=atb(x-1,y), Rt=atb(x+1,y), Up=atb(x,y-1), Dn=atb(x,y+1);
-    if(Up===me&&Dn===me&&Lf===Rt&&Lf!==me){ n++; if(visit) visit(x,y,me,Lf,true,data[((y*block+half)*W+x*block+half)*4+3]); }
-    if(Lf===me&&Rt===me&&Up===Dn&&Up!==me){ n++; if(visit) visit(x,y,me,Up,false,data[((y*block+half)*W+x*block+half)*4+3]); }
+    const Lf=atb(x-1,y), Rt=atb(x+1,y), Up=atb(x,y-1), Dn=atb(x,y+1), i=y*w+x;
+    if(Up===me&&Dn===me&&Lf===Rt&&Lf!==me&&seen(i,me,Lf,i-1,i+1)){ n++; if(visit) visit(x,y,me,Lf,true,data[((y*block+half)*W+x*block+half)*4+3]); }
+    if(Lf===me&&Rt===me&&Up===Dn&&Up!==me&&seen(i,me,Up,i-w,i+w)){ n++; if(visit) visit(x,y,me,Up,false,data[((y*block+half)*W+x*block+half)*4+3]); }
   }
   return n;
 }

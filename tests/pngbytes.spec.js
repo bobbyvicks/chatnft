@@ -183,6 +183,8 @@ test.describe('PNG bytes', () => {
     const note = await page.evaluate(async (s) => {
       const bin = atob(s); const u8 = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
       document.getElementById('fixmode').value = 'scale';
+      /* patch632: no longer needed - a Scale only folder runs no palette step whatever this switch says.
+         Kept so this test reads as it was written; scaleonly.spec.js holds the default, ticked. */
       document.getElementById('fixpal').checked = false;
       const realToast = window.toast; window.toast = () => {};
       await fixBatch([new File([u8], 'a.png', { type: 'image/png' }), new File([u8], 'b.png', { type: 'image/png' })]);

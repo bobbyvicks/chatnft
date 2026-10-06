@@ -16,7 +16,11 @@
    The last four came from review of patch627's first version (bb68e68). Three are red on it: the picture's box
    for a cell was one pixel off the engine's cell wherever the picture is not a whole number of cells across, and
    a picture that IS the cells' own buffer (a folder run in Scale only hands one over) was read after the palette
-   had written into it. The fourth, the faint pixel's weight, pins a rule bb68e68 already had and no test held. */
+   had written into it. The fourth, the faint pixel's weight, pins a rule bb68e68 already had and no test held.
+
+   SUPERSEDED IN PART (patch632): a folder run in Scale only no longer runs the palette step at all - it passes its
+   pictures through, as a single run does - so no page caller hands the step its own buffer now. Test 13 is
+   turned round to pin that; test 14 still pins the copy, called directly. */
 import { test, expect } from '@playwright/test';
 
 /* The flat area and the speck the palette makes in it. */
@@ -197,7 +201,13 @@ const scaleFolder = (page, list, at) => page.evaluate(async ({ list, at }) => {
   } finally { window.fixPalApply = realApply; window.toast = realToast; }
   const said = document.getElementById('fixbatchout').textContent;
   const m = said.match(/\d+ put on the palette[^\u00b7]*/);
-  return { mode: fixMode(), palChecked: pal.checked, said, palette: m ? m[0] : null, seen };
+  /* patch632: and the saved file's pixel at (at, at), read back - the folder's answer itself, at any save size */
+  const f = fixBatchFiles[0];
+  const o = f ? await pngDecode(new Uint8Array(await new Blob([f.data]).arrayBuffer())) : null;
+  const inW = list.length ? (await fixDecodeFile(fileWithPath(new Uint8Array(list[0][1]), list[0][0]))).width : 1;
+  const k = o ? o.width / inW : 1, c = Math.floor(at * k + k / 2);
+  const saved = o ? hexAt(o.data, (c * o.width + c) * 4) : null;
+  return { mode: fixMode(), palChecked: pal.checked, said, palette: m ? m[0] : null, seen, saved };
 }, { list, at });
 
 /* THE FIXTURE COLOURS ARE WHAT THE TESTS SAY THEY ARE, by the page's own arithmetic. Checked before every
@@ -529,34 +539,34 @@ test.describe('stray specks join their area', () => {
     expect(r.solid, 'solid').toEqual({ mid: SPECK_OUT, specks: 0 });
   });
 
-  test('A FOLDER IN SCALE ONLY WITH THE PALETTE TICKED JOINS A STRAY SPECK, though the step is handed its own output as the picture', async ({ page }) => {
+  /* SUPERSEDED (patch632). This was "A FOLDER IN SCALE ONLY WITH THE PALETTE TICKED JOINS A STRAY SPECK, though
+     the step is handed its own output as the picture", and it said, of that path: "That the palette runs here at
+     all, with the switch greyed and its title saying Scale only does not recolour, is a defect older than
+     patch627; while it runs, it must read the picture as it was." patch632 fixes that defect: the folder passes
+     the picture through, as a single run does. The test now pins that, on the same fixture. */
+  test('A FOLDER IN SCALE ONLY WITH THE PALETTE TICKED RUNS NO PALETTE STEP, and the speck comes out as it was drawn', async ({ page }) => {
     test.setTimeout(120000);
     const S = 32, AT = 10;
     const speck = await onePixelPicture(page, { size: S, area: AREA, pixel: SPECK, at: AT });
-    const shade = await onePixelPicture(page, { size: S, area: AREA, pixel: SHADE, at: AT });
     const r = await scaleFolder(page, [['backgrounds/speck.png', speck]], AT);
-    /* THE PATH THIS IS ABOUT. In Scale only the folder's answer is the bytes that came in, and it hands those same
-       bytes to the palette step as the picture. (That the palette runs here at all, with the switch greyed and its
-       title saying Scale only does not recolour, is a defect older than patch627; while it runs, it must read the
-       picture as it was.) */
     expect(r.mode).toBe('scale');
-    expect(r.seen.length, 'the palette step ran once: ' + r.said).toBe(1);
-    expect(r.seen[0].aliased, 'the picture it was handed is its own output buffer').toBe(true);
-    expect(r.seen[0].width).toBe(S);
-    /* THE CLAIM: the speck joins its area, the folder says so, and the cells are what the editor's button makes
-       of the same pixels. */
-    expect(r.seen[0].at).toBe(AREA_OUT);
-    expect(r.seen[0].specks).toBe(1);
-    expect(r.palette, r.said).toContain(', 1 stray speck joined its area');
-    expect(r.seen[0].sameAsEditor, 'the same cells as the editor\'s button on these pixels').toBe(true);
-    /* CONTROL, ONE THING AWAY: the same folder with the pixel drawn 4.5 dE from its area keeps it, and says nothing. */
-    const c = await scaleFolder(page, [['backgrounds/shade.png', shade]], AT);
-    expect(c.seen.length).toBe(1);
-    expect(c.seen[0].aliased).toBe(true);
-    expect(c.seen[0].at).toBe(SPECK_OUT);
-    expect(c.seen[0].specks).toBe(0);
-    expect(c.palette, c.said).not.toBeNull();
-    expect(c.palette).not.toContain('stray speck');
+    expect(r.palChecked, 'the switch is ticked').toBe(true);
+    /* THE CLAIM: no palette step, no palette clause, and the saved pixel is the drawn one. */
+    expect(r.seen.length, 'the palette step did not run: ' + r.said).toBe(0);
+    expect(r.palette, r.said).toBeNull();
+    expect(r.said).not.toContain('stray speck');
+    expect(r.saved).toBe(SPECK);
+    /* CONTROL, ONE THING AWAY: the same pixels through the palette step - the editor's arithmetic on a copy - do
+       join the speck, so a folder that ran it would show AREA_OUT here. */
+    const e = await page.evaluate(async ({ bytes, at }) => {
+      const d = await fixDecodeFile(fileWithPath(new Uint8Array(bytes), 'backgrounds/speck.png'));
+      const c = new Uint8ClampedArray(d.data);
+      const rep = snapToPalette(c, d.width * d.height, d.width, { src: { data: new Uint8ClampedArray(d.data), width: d.width, height: d.height } });
+      const i = (at * d.width + at) * 4;
+      return { at: '#' + [c[i], c[i + 1], c[i + 2]].map(v => v.toString(16).padStart(2, '0')).join(''), specks: rep.specks };
+    }, { bytes: speck, at: AT });
+    expect(e.at).toBe(AREA_OUT);
+    expect(e.specks).toBe(1);
   });
 
   test('A PICTURE THAT SHARES THE CELLS\' OWN BYTES IS READ AS IT WAS BEFORE THE STEP, not as the step writes it', async ({ page }) => {

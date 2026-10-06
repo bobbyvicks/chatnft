@@ -69,6 +69,8 @@ const batch = (page, srcs, mode) => page.evaluate(async ({ srcs, mode }) => {
     files.push(new File([blob], 'b' + k + '.png', { type: 'image/png' }));
   }
   document.getElementById('fixmode').value = mode;
+  /* patch632: in Scale only a folder no longer runs the palette step whatever this switch says, so the untick
+     matters only to the other modes here; scaleonly.spec.js holds the default, ticked, in Scale only. */
   document.getElementById('fixpal').checked = false;
   const realToast = window.toast; window.toast = () => {};
   await fixBatch(files);

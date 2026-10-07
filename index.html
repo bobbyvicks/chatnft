@@ -28730,6 +28730,27 @@ function fixNativeBlockFor(data,w,h){
   }
   return fixNativeBlock(data,w,h);
 }
+/* THE BLOCK A SCALE ONLY PICTURE IS DRAWN IN, AND ITS CELLS (patch634): its width over the
+   block it is drawn in, or its width when it has none. Scale only has no
+   engine to land on a count, and the width alone read a finished 1280 trait
+   in 8px blocks as 1280 cells - "not on the 160 cell grid (1 at 1px)" - and
+   opened it on a one-pixel grid. fixNativeBlock writes the page's one
+   noisy-block count; its readers read it straight after their own measure,
+   as this does (for the count it returns), so nothing else reads this one,
+   but it is put back as it was found, so this caller leaves no trace. */
+function fixScaleBlock(data,w,h){
+  const was=fixNativeNoisy;
+  const b=fixNativeBlockFor(data,w,h);
+  const noisy=fixNativeNoisy;
+  fixNativeNoisy=was;
+  return b>1 ? {block:b, noisy:noisy} : {block:1, noisy:0};
+}
+/* And noisy: how many of those blocks hold one stray pixel - a block found
+   only by that tolerance holds 1px marks. The sentences about whole blocks
+   (fixSaveSize, the readout) and the folder's stray clause name them: below
+   1280 a stray comes out one size or another by where in its block it sits,
+   above 1280 it is kept at one pixel or lost, by the same rule. */
+function fixScaleCells(data,w,h){ return w/fixScaleBlock(data,w,h).block; }
 /* THE COUNT A TYPED SIZE MEANS ON THE CANVAS: CANVAS_SIDE over the size,
    moved to the nearest count that divides it within a quarter
    (fixWholeStep), or 0 when nothing in that band lands. One function,
@@ -29083,8 +29104,16 @@ function fixSizeHint(){
   let note="";
   if(gridOn){
     const k=CANVAS_SIDE/cols;
+    /* patch634: and in Scale only, its blocks where they land and its pixels do
+       not, as fixSaveSize says, with its stray pixels where some blocks hold
+       one (uneven below 1280, lost above). nat is the block measured above,
+       FIX.nativeNoisy its count of blocks holding a stray pixel. */
+    const kb=(scale&&cols===rows&&!Number.isInteger(k)&&nat>1) ? CANVAS_SIDE*nat/W : 0;
     note = (cols===rows && Number.isInteger(k))
       ? " \u00b7 \u00d7"+k+" to "+CANVAS_SIDE
+      : Number.isInteger(kb)&&kb>0
+      ? " \u00b7 its "+nat+"px blocks come out "+kb+"px on "+CANVAS_SIDE
+        +(FIX.nativeNoisy>0 ? ", "+(FIX.nativeNoisy===1?"the stray pixel in 1":"stray pixels in "+FIX.nativeNoisy.toLocaleString())+" can "+(W>CANVAS_SIDE?"be lost":"be uneven") : "")
       /* NOT SQUARE. The canvas is, so its pixels are stretched at any size:
          this said "1280/80 is 16, so pixels come out uneven" - 16 is the even
          part - and then offered sizes that were no more even. It says what
@@ -29422,9 +29451,21 @@ function fixSaveSize(r){
   const on=$("fixgrid")&&$("fixgrid").checked;
   if(!on) return "It will save at "+r.width+"\u00d7"+r.height+".";
   const k=CANVAS_SIDE/r.width;
+  /* patch634: a Scale only picture whose pixels do not land on the canvas but
+     whose blocks do - 1024 in 8px blocks, 10px each - says so, as the folder
+     (which counts its blocks) no longer calls it uneven. Where some blocks hold
+     a stray pixel (a block found by tolerating one), that is said too: below
+     1280 a stray comes out one size or another by where in its block it
+     sits, above it a stray is kept at one pixel or lost - as the folder's
+     stray clause says of the same file. */
+  const sb=(r.consensus==="scaled"&&r.width===r.height&&!Number.isInteger(k))
+    ? (m=>({block:m.block, noisy:m.noisy, k:CANVAS_SIDE*m.block/r.width}))(fixScaleBlock(r.data,r.width,r.height)) : null;
   return "It will save at "+CANVAS_SIDE+"\u00d7"+CANVAS_SIDE
     +(r.width===r.height&&Number.isInteger(k)
       ? " ("+"\u00d7"+k+", every pixel the same size)."
+      : sb&&sb.block>1&&Number.isInteger(sb.k)
+      ? " (its "+sb.block+"px blocks come out "+sb.k+"px each"
+        +(sb.noisy ? ", but "+(sb.noisy===1?"the stray pixel in 1 of them":"stray pixels in "+sb.noisy.toLocaleString()+" of them")+" can "+(r.width>CANVAS_SIDE?"be lost":"come out uneven") : "")+")."
       : " (pixels come out uneven at this size).");
 }
 function fixDone(w){
@@ -29468,7 +29509,14 @@ function fixOpen(){
      to say what the art is drawn in. Without this a 1280 canvas gets a
      one-pixel brush and no snapping - an eighth of a collection pixel per
      stroke. See patch415. */
-  adoptBlock(r.width===r.height ? fixBlockFor(r.width,W) : 1);
+  /* patch634: a Scale only result is the picture, one "cell" a pixel, so its
+     width gave block 1 - a finished 1280 trait in 8px blocks opened on a
+     one-pixel grid. Counted in its blocks, as a folder tile now is. And
+     asked whether the save keeps the result's shape rather than whether it
+     is square: with Save at 1280 off nothing is stretched, so a picture that
+     is not square has whole blocks too. (On the engine path the same answer
+     as before: 1 for a result that is not square.) */
+  adoptBlock(W*r.height===H*r.width ? fixBlockFor(r.consensus==="scaled" ? fixScaleCells(r.data,r.width,r.height) : r.width,W) : 1);
 }
 /* HOW MANY IMAGES ONE GO MAY HOLD.
 
@@ -29729,12 +29777,31 @@ async function fixBatchRun(files){
       /* TWO NAMES ON PURPOSE. `name` is what the zip calls it, folders and
          all, and `rel` is the path it arrived on - which is what the project
          reads the category and the trait name out of. See patch402. */
+      /* patch634: in Scale only, the blocks the picture is drawn in. */
+      const scaleBlock=scale ? fixScaleBlock(out.data,out.width,out.height) : null;
+      const scaleCells=scaleBlock ? out.width/scaleBlock.block : 0;
       fixBatchFiles.push({name:fixZipName(rel,name),
         rel:rel, sized:!!job.sized,
         /* The count the engine landed on, kept so the run can say whether it
            divides the canvas. w and h are the SAVED size and cannot answer
            that: 1280 is 1280 whether its pixels are eight across or one. */
-        cells:out.width,
+        /* patch634: and in Scale only, where no engine landed on one, the
+           blocks the picture is drawn in (fixScaleBlock) - not its width,
+           which counted pixels. The off-grid and uneven clauses, the tile
+           and the recent rail all read it. */
+        cells:scale ? scaleCells : out.width,
+        /* patch634: and its rows, in Scale only, so the tile can ask whether
+           the save kept its shape, as the single run's open does (fixOpenOne). */
+        rows:scale ? scaleCells*out.height/out.width : 0,
+        /* patch634: and whether, in Scale only, some blocks hold a stray
+           pixel on a square picture whose pixels do not land on the canvas:
+           narrower, the strays can come out uneven though the blocks land
+           ("uneven"); wider, they can be lost ("lost"). A clause of their
+           own says so, with how many, as the single run does (fixSaveSize,
+           square pictures too: one that is not square is stretched, and the
+           gate names it "not square"). */
+        strays:(scaleBlock&&scaleBlock.noisy>0&&out.width===out.height&&CANVAS_SIDE%out.width!==0) ? (out.width>CANVAS_SIDE?"lost":"uneven") : "",
+        strayCount:scaleBlock ? scaleBlock.noisy : 0,
         data:data,
         thumb:URL.createObjectURL(tb), tw:t.w, th:t.h,
         w:oc.width, h:oc.height});
@@ -29801,6 +29868,21 @@ async function fixBatchRun(files){
         : wantedSnap ? " - they are drawn in blocks the grid cannot hold"
         : " - turn Snap on, or type a size")
     : "";
+  /* patch634: A SCALE ONLY FILE WHOSE BLOCKS LAND BUT WHOSE STRAYS MAY NOT
+     (strays): its width in pixels does not land on the canvas, its blocks
+     do, and some blocks hold a stray pixel. Narrower than the canvas a stray
+     comes out one size or another by where in its block it sits; wider, it
+     is kept at one pixel or lost. Said as such, not as the uneven clause's
+     "pixel count", which its count in blocks is not; as the single run says
+     it (fixSaveSize). A file whose blocks do not land either is the uneven
+     clause's alone. */
+  const strayOf = k => gridOn ? fixBatchFiles.filter(f=>f.strays===k&&!(f.cells&&CANVAS_SIDE%f.cells!==0)) : [];
+  const strayWords = (fs,what) => { if(!fs.length) return "";
+    const s=fs.reduce((a,f)=>a+(f.strayCount||0),0);
+    return " \u00b7 "+fs.length+(fs.length===1?" has ":" have ")+(s===1
+      ? "a stray pixel in a block that lands on "+CANVAS_SIDE+"; it can "
+      : s.toLocaleString()+" stray pixels in blocks that land on "+CANVAS_SIDE+"; the strays can ")+what; };
+  const strayNote = strayWords(strayOf("uneven"),"come out uneven")+strayWords(strayOf("lost"),"be lost");
   const movedNote = fixMovedLast
     ? " \u00b7 pixel size "+(Math.round(fixMovedLast.to*100)/100)+" was used, not "
       +fixMovedLast.from+(fixMovedCount>1?", on "+fixMovedCount+" files":"")+": "+fixMovedLast.was
@@ -29890,8 +29972,18 @@ async function fixBatchRun(files){
      cell grid" for all N. Files that could not take the size are named by
      the "narrower than the N cells" clause. Scale only keeps it: nothing is
      typed there, and its counts are the pictures' own. */
+  /* SUPERSEDED IN PART (patch634): "its counts are the pictures' own" counted
+     the pictures' pixels, so every finished 1280 trait in Scale only was "not
+     on the 160 cell grid (1 at 1px)". It counts their blocks now
+     (fixScaleBlock). */
   /* Per file: only the ones no size decided. */
-  const offGrid = gridOn ? fixBatchFiles.filter(f=>!f.sized&&f.cells&&f.cells!==fixGridCells().cells) : [];
+  /* patch634: IN SCALE ONLY, WHETHER ITS BLOCKS LAND ON THE GRID'S CELLS. Nothing
+     is cut there, so a picture counted in its blocks (fixScaleBlock) is on the
+     grid when the grid's count is a whole multiple of its own - 16px art, 80
+     cells, sits on the 160 grid, as the gate says - not only when the two
+     counts are equal. The engine path keeps the count test: there the clause
+     informs the default size, and says "type 8 to force it". */
+  const offGrid = gridOn ? fixBatchFiles.filter(f=>!f.sized&&f.cells&&(scale ? fixGridCells().cells%f.cells!==0 : f.cells!==fixGridCells().cells)) : [];
   const offNote = offGrid.length
     ? (()=>{ const by=new Map(); for(const f of offGrid){ const k=Math.round(CANVAS_SIDE/f.cells*100)/100; by.set(k,(by.get(k)||0)+1); }
         return " \u00b7 "+offGrid.length+" not on the "+fixGridCells().cells+" cell grid ("
@@ -29974,7 +30066,7 @@ async function fixBatchRun(files){
   const noisyNote = fixNoisyFiles
     ? " \u00b7 "+fixNoisyFiles+" measured with one stray pixel in some blocks and kept on their blocks"
     : "";
-  fixBatchSay(fixBatchFiles.length+" of "+list.length+" done in "+secs+"s"+movedNote+unhonNote+raggedNote+smallNote+noGridNote+marksNote+noisyNote+recutNote+typedRecutNote+mergeNote+resampleNote+unfitNote+offNote+alphaNote+readNote+shrunkNote+palNote+cropNote+fixOutlineBatchSaid()+gateNote+pastNote
+  fixBatchSay(fixBatchFiles.length+" of "+list.length+" done in "+secs+"s"+movedNote+unhonNote+raggedNote+strayNote+smallNote+noGridNote+marksNote+noisyNote+recutNote+typedRecutNote+mergeNote+resampleNote+unfitNote+offNote+alphaNote+readNote+shrunkNote+palNote+cropNote+fixOutlineBatchSaid()+gateNote+pastNote
     +(fixBatchStop?" (stopped - what is done is kept)":"")
     +(over?" \u00b7 "+over+" past the limit of "+FIX_BATCH_MAX+" were left out":"")
     +(failed.length?" \u00b7 could not do: "+failed.slice(0,6).join(", ")
@@ -30114,7 +30206,8 @@ function fixRecentAdd(f,thumbBlob){
   if(!f||!f.data) return;
   let url="";
   try{ url=thumbBlob?URL.createObjectURL(thumbBlob):""; }catch(_){ }
-  fixRecent.unshift({name:f.name, data:f.data, cells:f.cells,
+  /* patch634: rows too, for fixOpenOne's shape question. */
+  fixRecent.unshift({name:f.name, data:f.data, cells:f.cells, rows:f.rows,
     w:f.w, h:f.h, tw:f.tw, th:f.th, url:url, at:Date.now()});
   while(fixRecent.length>FIX_RECENT_MAX){
     const gone=fixRecent.pop();
@@ -30188,7 +30281,11 @@ async function fixOpenOne(f){
   /* The saved bytes are fixGridPixels' answer under the same switch, so the
      same arithmetic (until patch623: "the same canvas"). The count is kept on
      the result for exactly this. */
-  adoptBlock(fixBlockFor(f.cells,W));
+  /* patch634: a Scale only file records its rows, and opens at its block only
+     when the save kept its shape, as the single run's open asks (fixOpen): a
+     picture that is not square, saved at 1280, is stretched, and opens at 1.
+     Engine-path files record no rows and open by their width, as before. */
+  adoptBlock(f.rows>0&&W*f.rows!==H*f.cells ? 1 : fixBlockFor(f.cells,W));
 }
 /* A SECOND RUN MUST NOT KEEP THE FIRST ONE'S BLOBS. Nothing points at them
    once the grid is emptied, and an object URL is not collected on its own. */

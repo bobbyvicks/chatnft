@@ -482,7 +482,12 @@ test.describe('the Pixel size box starts at 16', () => {
     expect(r.said).not.toContain('16 cannot land');
     /* AND ITS OFF-GRID COUNT STANDS: nothing typed decided this file, whatever
        the greyed box holds. */
-    expect(r.said, 'scale only keeps the off-grid count').toContain('1 not on the 160 cell grid (1 at 13.33px)');
+    /* SUPERSEDED IN PART (patch634): this was "(1 at 13.33px)" - the picture's
+       pixels on the canvas, 1280/96. Scale only now counts a picture in the
+       blocks it is drawn in (fixScaleBlock): 24 cells of 4px, so its blocks are
+       53.33px on the canvas. The count still stands, and the uneven clause above
+       still names it - 24 does not divide 1280 either. */
+    expect(r.said, 'scale only keeps the off-grid count').toContain('1 not on the 160 cell grid (1 at 53.33px)');
   });
 
   test('A SIZE CHANGED BETWEEN FILES IS SAID FILE BY FILE', async ({ page }) => {

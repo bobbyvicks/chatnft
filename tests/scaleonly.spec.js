@@ -246,9 +246,12 @@ test.describe('a folder in Scale only passes its pictures through', () => {
   });
 
   test('A SCALE ONLY FOLDER IS NOT TOLD TO TYPE A SIZE, which does nothing there', async ({ page }) => {
+    /* SUPERSEDED IN PART (patch634): this used the 32px fixture, whose off-grid clause the precondition needs. A
+       Scale only file is now off the grid when its blocks do not land on the grid's cells, and 32 cells do (40px
+       blocks on 160), so it is on the grid. A 128px picture - 10px blocks on the canvas - is not. */
     const r = await page.evaluate(async (F) => {
       const S = window.__S;
-      const bytes = await S.png(S.pic(F.n, F.bg, F.dots), F.n);
+      const bytes = await S.png(S.pic(128, F.bg, F.dots), 128);
       const run = async (mode) => {
         S.setMode(mode); S.setGrid(true); document.getElementById('fixsnap').checked = false;
         const f = document.getElementById('fixforce'); f.value = '0';

@@ -29663,6 +29663,19 @@ async function fixBatchRun(files){
       /* THE STEP BEFORE THE PIXELS ARE COPIED (patch628): the crop-line rule
          needs it, so the decision that used to sit inside the message literal
          is taken first; nothing between here and there asks fixStepFor again. */
+      /* patch635: the Save at 1280 switch as the cut reads it - fixStepFor,
+         below, reads the same switch - and whether this cut WOULD LAND
+         on 1280 with the switch on, fixStepFor's own way: a typed size whose
+         count lands (fixCanvasCells) gives that count to a picture that holds
+         it, and a picture too small for it keeps its own block (fixScaleBlock,
+         the never-upsample keep, measured without leaving a trace); with no
+         size or no landing count the switch decides nothing. A file that is
+         uneven at 1280 although its cut would have landed was made uneven by
+         the switch being off when it was cut. */
+      const cutOnCanvas=!!($("fixgrid")&&$("fixgrid").checked);
+      const cutAsked=scale ? 0 : (+$("fixforce").value||0), cutCanvas=cutAsked>0 ? fixCanvasCells(cutAsked) : null;
+      const cutLands=!!(cutCanvas&&cutCanvas.cells&&((sw>=cutCanvas.cells&&sh>=cutCanvas.cells)
+        ||CANVAS_SIDE%Math.max(1,fixRint(sw/fixScaleBlock(px,sw,sh).block))===0));
       const forceStep=scale ? null : (()=>{ const s=fixStepFor(sw,px,sh);
             if(fixGridlessPick){ fixGridlessAt.push(fixGridlessPick);
               if(fixGridlessPassed&&fixAllPainted({data:px})) fixGridlessPaintedAt.push(fixGridlessPick);
@@ -29695,7 +29708,10 @@ async function fixBatchRun(files){
           mode:mode, forceStep:forceStep,
           repair8:fixRepair8(stepAsked), lines16:fixLines16(stepAsked), rulesgate:fixLines16Gate(), strokeBlock:fixStrokesAsked(cut&&cut.recut)});
     /* WHETHER A SIZE DECIDED THIS FILE, read in the same turn as its step. */
-    return {name:name, rel:rel, px:px, sw:sw, sh:sh, pending:pending, sized:!scale&&fixSizeSet(), cut:cut};
+    /* patch635: and the switch the cut read, and whether the cut would have
+       landed with it on (taken beside fixStepFor above). */
+    return {name:name, rel:rel, px:px, sw:sw, sh:sh, pending:pending, sized:!scale&&fixSizeSet(), cut:cut,
+      cutOnCanvas:cutOnCanvas, cutLands:cutLands};
   };
   const finish=async(job)=>{
     const name=job.name, rel=job.rel, px=job.px, sw=job.sw, sh=job.sh;
@@ -29758,6 +29774,11 @@ async function fixBatchRun(files){
          save uses (fixGridPixels, pngEncode), so the switch means one thing -
          and no canvas between the cells and the file; see fixGridBytes
          (patch623). oc is the same pixels on a canvas, for the tile only. */
+      /* patch635: whether Save at 1280 is on for this file's save, read in the
+         same turn as the save and the gate - the summary's grid clauses count
+         this, not the switch when the run ends, which a switch flipped part way
+         would make wrong for the files before it. */
+      const onCanvas=!!($("fixgrid")&&$("fixgrid").checked);
       const sv=fixGridPixels(out);
       const data=await pngEncode(sv.data,sv.width,sv.height);
       const oc=fixCanvasOf(sv);
@@ -29781,7 +29802,7 @@ async function fixBatchRun(files){
       const scaleBlock=scale ? fixScaleBlock(out.data,out.width,out.height) : null;
       const scaleCells=scaleBlock ? out.width/scaleBlock.block : 0;
       fixBatchFiles.push({name:fixZipName(rel,name),
-        rel:rel, sized:!!job.sized,
+        rel:rel, sized:!!job.sized, onCanvas:onCanvas, cutOnCanvas:job.cutOnCanvas, cutLands:job.cutLands,
         /* The count the engine landed on, kept so the run can say whether it
            divides the canvas. w and h are the SAVED size and cannot answer
            that: 1280 is 1280 whether its pixels are eight across or one. */
@@ -29854,8 +29875,16 @@ async function fixBatchRun(files){
       +((fixNativeKept||fixOwnBlocks) ? ": "+[fixNativeKept?fixNativeKept+" kept at one pixel per cell":"",
         fixOwnBlocks?fixOwnBlocks+" kept on their own blocks":""].filter(Boolean).join(", ") : "")
     : "";
-  const gridOn=$("fixgrid")&&$("fixgrid").checked;
-  const ragged = gridOn ? fixBatchFiles.filter(f=>f.cells&&CANVAS_SIDE%f.cells!==0).length : 0;
+  /* SUPERSEDED (patch635): const gridOn=$("fixgrid")&&$("fixgrid").checked, read
+     when the run ends, decided all three grid clauses below; each file now says
+     whether Save at 1280 was on for its own save (onCanvas), which a switch
+     flipped part way makes differ from the end state. */
+  const ragged = fixBatchFiles.filter(f=>f.onCanvas&&f.cells&&CANVAS_SIDE%f.cells!==0).length;
+  /* the uneven files cut with the switch off whose cut would have landed with it on (cutLands) - round 2 counted every
+     cut with the switch off (SUPERSEDED: ...&&f.cutOnCanvas===false).length), round 3 only pictures that hold the
+     count. A file cut with the switch ON whose cut lands is never uneven, so for an uneven file cutLands already
+     implies the off cut; both are kept, as the clause names the cause. */
+  const raggedFlipped = scale ? 0 : fixBatchFiles.filter(f=>f.onCanvas&&f.cells&&CANVAS_SIDE%f.cells!==0&&f.cutOnCanvas===false&&f.cutLands).length;
   const raggedNote = ragged
     ? " \u00b7 "+ragged+" came back on a pixel count that does not divide "
       +CANVAS_SIDE+", so their pixels are uneven"
@@ -29863,10 +29892,16 @@ async function fixBatchRun(files){
          runs where both were on - advice already followed. */
       /* SCALE FIRST: the box is greyed out there but still holds its number,
          and scale only keeps each picture's own count - nothing was typed at it. */
+      /* patch635: an uneven file cut with Save at 1280 off whose cut would have
+         landed with it on (cutLands), then saved with it on, is uneven because
+         the switch moved - said as such. When only some are, the size reason
+         names the rest ("for 2 of them") and the flipped ones are counted after. */
       +(scale ? " - scale only keeps each picture's own count"
-        : (+$("fixforce").value||0)>0 ? " - "+(+$("fixforce").value)+" cannot land on "+CANVAS_SIDE+" for them"
+        : raggedFlipped===ragged ? " - Save at 1280 was turned on after they were cut"
+        : (+$("fixforce").value||0)>0 ? " - "+(+$("fixforce").value)+" cannot land on "+CANVAS_SIDE+" for "+(raggedFlipped ? (ragged-raggedFlipped)+" of them" : "them")
         : wantedSnap ? " - they are drawn in blocks the grid cannot hold"
         : " - turn Snap on, or type a size")
+      +(!scale&&raggedFlipped>0&&raggedFlipped<ragged ? ", and "+raggedFlipped+" of them "+(raggedFlipped===1?"was":"were")+" cut with Save at 1280 off and saved with it on" : "")
     : "";
   /* patch634: A SCALE ONLY FILE WHOSE BLOCKS LAND BUT WHOSE STRAYS MAY NOT
      (strays): its width in pixels does not land on the canvas, its blocks
@@ -29876,7 +29911,7 @@ async function fixBatchRun(files){
      "pixel count", which its count in blocks is not; as the single run says
      it (fixSaveSize). A file whose blocks do not land either is the uneven
      clause's alone. */
-  const strayOf = k => gridOn ? fixBatchFiles.filter(f=>f.strays===k&&!(f.cells&&CANVAS_SIDE%f.cells!==0)) : [];
+  const strayOf = k => fixBatchFiles.filter(f=>f.onCanvas&&f.strays===k&&!(f.cells&&CANVAS_SIDE%f.cells!==0));   /* patch635 */
   const strayWords = (fs,what) => { if(!fs.length) return "";
     const s=fs.reduce((a,f)=>a+(f.strayCount||0),0);
     return " \u00b7 "+fs.length+(fs.length===1?" has ":" have ")+(s===1
@@ -29983,7 +30018,7 @@ async function fixBatchRun(files){
      cells, sits on the 160 grid, as the gate says - not only when the two
      counts are equal. The engine path keeps the count test: there the clause
      informs the default size, and says "type 8 to force it". */
-  const offGrid = gridOn ? fixBatchFiles.filter(f=>!f.sized&&f.cells&&(scale ? fixGridCells().cells%f.cells!==0 : f.cells!==fixGridCells().cells)) : [];
+  const offGrid = fixBatchFiles.filter(f=>f.onCanvas&&!f.sized&&f.cells&&(scale ? fixGridCells().cells%f.cells!==0 : f.cells!==fixGridCells().cells));   /* patch635 */
   const offNote = offGrid.length
     ? (()=>{ const by=new Map(); for(const f of offGrid){ const k=Math.round(CANVAS_SIDE/f.cells*100)/100; by.set(k,(by.get(k)||0)+1); }
         return " \u00b7 "+offGrid.length+" not on the "+fixGridCells().cells+" cell grid ("

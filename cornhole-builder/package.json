@@ -1,0 +1,22 @@
+{
+  "name": "cornhole-builder",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Design your own cornhole boards and order them",
+  "dependencies": {
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.1",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.2"
+  },
+  "scripts": {
+    "serve": "node tools/serve.cjs . 5611",
+    "test": "npm run test:node && npm run typecheck && playwright test",
+    "test:node": "node --test test/price.test.mjs test/order-api.test.mjs test/webhook.test.mjs",
+    "test:ui": "playwright test --ui",
+    "typecheck": "tsc -p tsconfig.json"
+  }
+}
